@@ -339,6 +339,7 @@
   "sendTo": "Alıcı",
   "selectAmount": "Tutar Seç",
   "enterAmount": "Tutarı girin",
+  "calculatingQuote": "Hesaplanıyor",
   "selectAToken": "Bir jeton seçin",
   "searchForTokens": "Jetonları ara",
   "available": "Mevcut",

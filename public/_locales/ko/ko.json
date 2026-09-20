@@ -339,6 +339,7 @@
   "sendTo": "받는 사람",
   "selectAmount": "금액 선택",
   "enterAmount": "금액 입력",
+  "calculatingQuote": "계산 중",
   "selectAToken": "토큰 선택",
   "searchForTokens": "토큰 검색",
   "available": "구입 가능",

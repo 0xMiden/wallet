@@ -339,6 +339,7 @@
   "sendTo": "Envoyer à",
   "selectAmount": "Sélectionnez un montant",
   "enterAmount": "Saisir le montant",
+  "calculatingQuote": "Calcul en cours",
   "selectAToken": "Sélectionnez un jeton",
   "searchForTokens": "Rechercher des jetons",
   "available": "Disponible",

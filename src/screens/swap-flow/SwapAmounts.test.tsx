@@ -26,6 +26,11 @@ jest.mock('framer-motion', () => ({
         {children}
       </button>
     )),
+    span: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
+      <span ref={ref} {...props}>
+        {children}
+      </span>
+    )),
     div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
       <div ref={ref} data-animate={JSON.stringify(animate)} {...props}>
         {children}
@@ -42,16 +47,18 @@ jest.mock('components/Button', () => ({
     onClick,
     disabled,
     variant,
+    children,
     'data-testid': dataTestId
   }: {
     title?: string;
     onClick?: () => void;
     disabled?: boolean;
     variant?: string;
+    children?: React.ReactNode;
     'data-testid'?: string;
   }) => (
     <button data-testid={dataTestId} data-variant={variant} onClick={onClick} disabled={disabled}>
-      {title}
+      {children ?? title}
     </button>
   ),
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' }
@@ -334,10 +341,23 @@ describe('SwapAmounts', () => {
   });
 });
 
-describe('SwapAmounts — navbar cushion (regression)', () => {
-  it('tags the CTA footer so it snugs to the bottom when the navbar hides (keyboard up)', () => {
+describe('SwapAmounts — CTA', () => {
+  it("sits on the same cushion as a send step, so both flows' buttons line up", () => {
     renderComponent();
-    const footer = screen.getByTestId('swap-review-submit').parentElement;
-    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+    const footer = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement;
+    // The send step's cushion class, not the old fixed pb-24 with a navbar-cushion tag.
+    expect(footer?.className).toContain('pb-[max(');
+    expect(footer?.getAttribute('data-navbar-cushion')).toBeNull();
+  });
+
+  it('asks for an amount first, waits on the quote, then offers the review', () => {
+    renderComponent({ offerAmount: '', requestLoading: false });
+    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveTextContent('enterAmount');
+
+    renderComponent({ offerAmount: '10', requestLoading: true });
+    expect(screen.getAllByRole('status', { name: 'calculatingQuote' }).at(-1)).toBeInTheDocument();
+
+    renderComponent({ offerAmount: '10', requestLoading: false });
+    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveTextContent('reviewSwap');
   });
 });

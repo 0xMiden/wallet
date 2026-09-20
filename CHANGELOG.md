@@ -18,6 +18,7 @@
 - [CHANGE][all] Token detail: muted section titles, a larger price over an area chart, a bare copy control on the contract row and a dashed empty activity card.
 - [CHANGE][all] Settings sub-pages draw their groups as outlined cards and the rotate-key button as border-only.
 - [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
+- [CHANGE][all] The swap page sits tighter, its You Pay and You Receive titles match Send's, its Review button waits on the quote with a wave of dots and lines up with Send's Confirm, and the page carries the swap colour throughout.
 - [CHANGE][all] Send's review page is quieter: the address in body text, the network as a plain value, no fee note, "Expires" with Edit, and the reclaim reassurance as one caption under the card.
 - [CHANGE][all] Send's first page is titled like the other tabs, its address field fits two lines on a small phone and Paste, Address Book and Scan stay on one row.
 - [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.

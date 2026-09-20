@@ -1573,6 +1573,10 @@
     "message": "金額を入力",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "計算中",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "トークンを選択してください",
     "englishSource": "Select a token"

@@ -1573,6 +1573,10 @@
     "message": "Enter amount",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Calculating",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Select a token",
     "englishSource": "Select a token"

@@ -339,6 +339,7 @@
   "sendTo": "傳送至",
   "selectAmount": "選擇金額",
   "enterAmount": "輸入金額",
+  "calculatingQuote": "計算中",
   "selectAToken": "選擇一個代幣",
   "searchForTokens": "搜尋代幣",
   "available": "有貨",

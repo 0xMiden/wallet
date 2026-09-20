@@ -50,6 +50,11 @@ export interface SelectAmountProps {
    * (#461). Defaults to the standalone page layout used by the send flow.
    */
   embedded?: boolean;
+  /**
+   * The flow's accent for the field's own affordances (the token chevron). Send keeps the primary
+   * orange; swap passes its own, so a swap screen carries one colour throughout.
+   */
+  accentClassName?: string;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
   logoSymbol?: string;
   /** Cross-chain deposit — swaps the Miden chip for a destination-network selector. */
@@ -90,6 +95,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onSelectToken,
   onConfirm,
   embedded = false,
+  accentClassName = 'text-primary-500',
   logoSymbol,
   isBridge = false,
   network,
@@ -127,7 +133,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
       <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
-      <Icon name={IconName.ChevronDown} size="sm" className="text-primary-500" fill="currentColor" />
+      <Icon name={IconName.ChevronDown} size="sm" className={accentClassName} fill="currentColor" />
     </button>
   );
 

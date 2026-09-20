@@ -1573,6 +1573,10 @@
     "message": "Wpisz kwotę",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Obliczanie",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Wybierz token",
     "englishSource": "Select a token"

@@ -1573,6 +1573,10 @@
     "message": "금액 입력",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "계산 중",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "토큰 선택",
     "englishSource": "Select a token"

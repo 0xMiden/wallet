@@ -339,6 +339,7 @@
   "sendTo": "Enviar para",
   "selectAmount": "Selecione o valor",
   "enterAmount": "Inserir valor",
+  "calculatingQuote": "A calcular",
   "selectAToken": "Selecione um token",
   "searchForTokens": "Pesquisar tokens",
   "available": "Disponível",

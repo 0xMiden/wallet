@@ -1573,6 +1573,10 @@
     "message": "输入金额",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "计算中",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "选择一个代币",
     "englishSource": "Select a token"

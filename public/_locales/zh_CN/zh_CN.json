@@ -339,6 +339,7 @@
   "sendTo": "发送至",
   "selectAmount": "选择金额",
   "enterAmount": "输入金额",
+  "calculatingQuote": "计算中",
   "selectAToken": "选择一个代币",
   "searchForTokens": "搜索代币",
   "available": "有货",

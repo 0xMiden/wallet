@@ -339,6 +339,7 @@
   "sendTo": "送金先",
   "selectAmount": "金額を選択してください",
   "enterAmount": "金額を入力",
+  "calculatingQuote": "計算中",
   "selectAToken": "トークンを選択してください",
   "searchForTokens": "トークンを検索する",
   "available": "在庫あり",

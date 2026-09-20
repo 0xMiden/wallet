@@ -339,6 +339,7 @@
   "sendTo": "Кому",
   "selectAmount": "Выберите сумму",
   "enterAmount": "Введите сумму",
+  "calculatingQuote": "Вычисление",
   "selectAToken": "Выберите токен",
   "searchForTokens": "Поиск токенов",
   "available": "В наличии",

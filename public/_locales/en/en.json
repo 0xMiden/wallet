@@ -339,6 +339,8 @@
   "sendTo": "Send to",
   "selectAmount": "Select Amount",
   "enterAmount": "Enter amount",
+  "calculatingQuote": "Calculating",
+  "calculatingQuote": "Calculating",
   "selectAToken": "Select a token",
   "searchForTokens": "Search for tokens",
   "available": "Available",

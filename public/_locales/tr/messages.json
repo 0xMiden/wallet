@@ -1573,6 +1573,10 @@
     "message": "Tutarı girin",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Hesaplanıyor",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Bir jeton seçin",
     "englishSource": "Select a token"

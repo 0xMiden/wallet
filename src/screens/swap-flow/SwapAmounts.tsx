@@ -5,9 +5,12 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { WaveDots } from 'components/ui';
+import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
@@ -83,9 +86,12 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
     animate: { y: 0, opacity: 1 },
     transition: flipTransition
   });
-  // The side labels are labels, not headings: the figure under them is the page's voice.
-  const fieldLabel = (text: string) => <span className="text-body-sm text-muted">{text}</span>;
+  // Each side is titled like a tab root's page title, the same weight as Send's "Send to".
+  const fieldLabel = (text: string) => <span className="text-title-tab text-ink">{text}</span>;
+  // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
+  const navbarHidden = useNavbarHidden();
   const offerAmountValue = Number(offerAmount);
+  const awaitingAmount = !(offerAmountValue > 0);
   const offerAmountExceedsBalance = offerAmountValue > offerBalance;
   // Missing the fee asset outranks an over-balance amount: no amount at all is
   // sendable, so telling the user to lower it would send them in a loop.
@@ -102,6 +108,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <SelectAmount
             embedded
             label={fieldLabel(t('youPay'))}
+            accentClassName="text-accent-swap"
             token={swapTokenToUIToken(offerToken, offerBalance)}
             logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
@@ -124,7 +131,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             {...motionTokens.press}
             animate={{ rotate: reduceMotion ? 0 : flips * 180 }}
             transition={flipTransition}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-swap text-pure-white"
             aria-label={t('swapDirection')}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -147,6 +154,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             // isn't the spendable amount here, so no available-balance helper.
             showBalanceHelper={false}
             label={fieldLabel(t('youReceive'))}
+            accentClassName="text-accent-swap"
             token={swapTokenToUIToken(requestToken)}
             logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
@@ -167,15 +175,19 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         )}
       </div>
 
-      <div className="shrink-0 pt-4 pb-24" data-navbar-cushion="true">
+      {/* Same cushion as a send step's CTA, so both flows' buttons sit on one line. */}
+      <div className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>
         <Button
-          title={t('reviewSwap')}
+          title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="swap-review-submit"
-          className="w-full max-w-none"
-        />
+          // The whole page is the swap flow's colour, CTA included (design-system.md, Action colours).
+          className="w-full max-w-none bg-accent-swap hover:bg-accent-swap disabled:bg-accent-swap/40"
+        >
+          {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
+        </Button>
       </div>
     </div>
   );

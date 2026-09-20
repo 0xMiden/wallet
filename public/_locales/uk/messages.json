@@ -1573,6 +1573,10 @@
     "message": "Введіть суму",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Обчислення",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Виберіть токен",
     "englishSource": "Select a token"

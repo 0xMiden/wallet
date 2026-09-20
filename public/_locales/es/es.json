@@ -339,6 +339,7 @@
   "sendTo": "Enviar a",
   "selectAmount": "Selecciona el importe",
   "enterAmount": "Introducir importe",
+  "calculatingQuote": "Calculando",
   "selectAToken": "Selecciona un token",
   "searchForTokens": "Buscar tokens",
   "available": "Disponible",
