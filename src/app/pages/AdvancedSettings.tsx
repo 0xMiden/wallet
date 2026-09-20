@@ -56,7 +56,7 @@ const AdvancedSettings: FC = () => {
       <SubPageSection title={t('account')}>
         <DetailCard>
           <DetailRow label={t('accountPublicKey')} data-testid="advanced-public-key">
-            <span className="font-mono text-sm select-text">{truncatedPublicKey}</span>
+            <span className="font-mono text-body-sm select-text">{truncatedPublicKey}</span>
             {/* Offered only once there is a key to copy. */}
             {publicKey && <CopyButton text={publicKey} data-testid="advanced-copy-public-key" />}
           </DetailRow>

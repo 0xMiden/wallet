@@ -69,7 +69,7 @@ const OpenSidePanel: FC = () => {
       {!ready ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-y-4 px-4 text-center">
           <Spinner />
-          <p className="font-sans text-[15px] leading-[22px] text-muted">{t('creatingYourWallet')}</p>
+          <p className="text-body text-muted">{t('creatingYourWallet')}</p>
         </div>
       ) : (
         <SubPageLayout
