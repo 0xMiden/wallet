@@ -408,27 +408,24 @@ describe('SegmentedControl — layouts', () => {
   });
 });
 
-describe('SegmentedControl pills appearance', () => {
+describe('SegmentedControl selection', () => {
   const pillItems = [
     { id: 'all', label: 'All' },
     { id: 'sent', label: 'Sent' }
   ];
 
-  it('draws the selection as a solid accent pill with a white label and outlines the rest', () => {
-    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance="pills" />);
-    const all = screen.getByRole('radio', { name: 'All' });
-    const sent = screen.getByRole('radio', { name: 'Sent' });
-    expect(all).toHaveClass('text-pure-white', 'px-6');
-    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary', 'rounded-full');
-    expect(sent).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink', 'px-6');
-    expect(sent.querySelector('[data-slot="motion-highlight"]')).toBeNull();
-    expect(screen.getByRole('radiogroup')).toHaveClass('gap-2');
-  });
-
-  it('keeps the raised bubble by default', () => {
+  it('draws the selection on the raised bubble, and has no solid-accent look to fall back to', () => {
     render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
     const all = screen.getByRole('radio', { name: 'All' });
+    const sent = screen.getByRole('radio', { name: 'Sent' });
+
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised', 'shadow-raised');
+    expect(sent.querySelector('[data-slot="motion-highlight"]')).toBeNull();
+    // White on the brand orange is 3.0:1, which the spec allows only at 19px bold, so the
+    // selection is never a solid accent pill and the rest are never outlined boxes.
     expect(all).not.toHaveClass('text-pure-white');
-    expect(all.querySelector('[data-slot="motion-highlight"]')).not.toHaveClass('bg-accent-primary');
+    expect(all.className).not.toMatch(/bg-accent/);
+    expect(sent).not.toHaveClass('border');
+    expect(screen.getByRole('radiogroup')).toHaveClass('gap-1');
   });
 });
