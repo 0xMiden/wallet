@@ -4,9 +4,9 @@ import { SegmentedControl, type SegmentedControlItem } from './SegmentedControl'
 import { TabHeader, type TabHeaderProps } from './TabHeader';
 
 /**
- * The filter row a tab root may carry under its title: the items and the selection only. Size,
- * layout, appearance and padding are the header's, not the page's — three tab roots each styling
- * their own row is what this component exists to end.
+ * The filter row a tab root may carry under its rule: the items and the selection only. Size,
+ * layout, look and padding are the header's, not the page's — three tab roots each styling their
+ * own row is what this component exists to end.
  */
 export interface TabRootFilter<T extends string = string> {
   items: readonly SegmentedControlItem<T>[];
@@ -28,22 +28,24 @@ export interface TabRootHeaderProps<T extends string = string> {
 }
 
 /**
- * The top of every tab root — Activity, Explore, Settings — in one piece: the 60px title row, the
- * hairline that closes it, and, directly under that, the filter row.
+ * The top of every tab root — Activity, Explore, Settings — in one piece: the 56px title row, the
+ * 4px rule under it, and, directly under that, the filter row.
  *
- * Two numbers are the point of this component. The title row plus its hairline is 61px, which is
- * exactly what Home's `SegmentedActionBar` occupies, so switching tabs never moves the content
- * line. And the filter row is 52px of its own, tight under the hairline, instead of the 72px of
- * padding each page used to choose for itself.
+ * Two numbers are the point of this component. The title row plus the rule is 60px, which is what
+ * Home's `SegmentedActionBar` occupies, so switching tabs never moves the content line. And the
+ * filter row is 52px of its own, tight under the rule, instead of the 72px of padding each page
+ * used to choose for itself.
  *
- * The filter row is the segmented control in its default appearance: the raised white pill sliding
- * on the tab-bar spring. It is not configurable, deliberately — a solid `accent` pill puts white
- * on the brand orange at 3.0:1, which the spec allows only at 19px bold.
+ * The rule is rendered HERE, not by `TabHeader`, because a divider each page draws for itself is
+ * how three tab roots ended up with three of them.
  */
 export function TabRootHeader<T extends string = string>({ title, actions, search, filter }: TabRootHeaderProps<T>) {
   return (
     <>
       <TabHeader title={title} actions={actions} search={search} />
+      {/* Ahmad's rule: 4px on `fill`, inset to the page margin, the full width of the content
+          under it. Flush against both rows — the 60px budget leaves it no padding to spend. */}
+      <div aria-hidden="true" className="mx-4 h-1 shrink-0 rounded-full bg-fill" />
       {filter && (
         <SegmentedControl
           items={filter.items}

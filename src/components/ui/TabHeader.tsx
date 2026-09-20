@@ -49,13 +49,14 @@ export const TabHeaderAction: FC<{
 );
 
 /**
- * The title row of a top-level tab page: page title on the left, any `actions` on the right, and
- * the hairline that closes the band off from the content under it.
+ * The title row of a top-level tab page: page title on the left, any `actions` on the right. The
+ * divider under it belongs to `TabRootHeader`, which is the only thing that renders this row —
+ * that is what keeps one treatment across Activity, Explore and Settings.
  *
- * 60px of row plus that 1px is 61px — the same height Home's `SegmentedActionBar` occupies
- * (4 + 48 + 8 + its own hairline), so the content line does not move as tabs change. Tab roots
- * reach this through `TabRootHeader`, which is what pairs it with the filter row; nothing renders
- * it directly.
+ * 56px, not the 60px of a pushed page's header: 56 plus the 4px rule under it is 60, which is what
+ * Home's `SegmentedActionBar` occupies (4 + 48px segments + 8 + its hairline), so the content line
+ * does not move as tabs change. The 10px above and below the 36px title line is the whole of that
+ * trim — the title itself stays 28px, and the 44px icon actions still clear the row's edges.
  *
  * The settings gear that used to live here is gone — Settings is a primary
  * bottom-nav destination now, so a gear on the very screens that show that
@@ -73,7 +74,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const transition: Transition = { default: springs.snappy, opacity: fade };
 
   return (
-    <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3 border-b border-hairline">
+    <header className="shrink-0 px-4 py-2.5 flex h-14 items-center justify-between gap-3">
       <AnimatePresence initial={false} mode="popLayout">
         {searchOpen && search ? (
           <motion.div

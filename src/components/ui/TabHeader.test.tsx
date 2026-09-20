@@ -273,10 +273,10 @@ describe('TabHeader — search swap animation', () => {
 
   it('keeps the header at its fixed height whichever side is showing', () => {
     const { container, rerender } = render(<TabHeader title="Activity" />);
-    expect(container.querySelector('header')!.className).toContain('h-15');
+    expect(container.querySelector('header')!.className).toContain('h-14');
 
     rerender(<TabHeader title="Activity" search={search} />);
-    expect(container.querySelector('header')!.className).toContain('h-15');
+    expect(container.querySelector('header')!.className).toContain('h-14');
   });
 
   it('swaps the title for the search field, and back, through one AnimatePresence slot', () => {
@@ -376,20 +376,21 @@ describe('TabHeader — search swap animation', () => {
 });
 
 describe('TabHeader divider', () => {
-  it('ends in a full-bleed hairline, never the 4px grey rule, and there is no way to ask for one', () => {
+  it('draws none of its own: the rule under a tab root belongs to TabRootHeader', () => {
     const { container } = render(<TabHeader title="Activity" />);
 
-    const header = container.querySelector('header');
-    expect(header).toHaveClass('border-b', 'border-hairline');
-    // The retired rule: a 4px bar on `fill`, inset to the page margin.
+    const header = container.querySelector('header')!;
+    expect(header.className).not.toMatch(/border/);
     expect(container.querySelector('.h-1')).toBeNull();
-    expect(container.querySelector('.bg-fill')).toBeNull();
+    // One row, nothing after it — a page cannot end up with a divider of its own choosing.
+    expect(header.nextElementSibling).toBeNull();
   });
 
-  it('is 60px of row plus that hairline: the height of the home tab action bar', () => {
+  it('is the 56px row that leaves the 4px rule room inside the home action bar budget', () => {
     const { container } = render(<TabHeader title="Activity" />);
 
-    // h-15 = 60px; the border adds the 61st. Home's SegmentedActionBar is 4 + 48 + 8 + 1.
-    expect(container.querySelector('header')).toHaveClass('h-15', 'shrink-0', 'border-b');
+    // h-14 = 56px, py-2.5 = 10px around the 36px title line. 56 + the rule's 4 = 60px, which is
+    // what Home's SegmentedActionBar occupies (4 + 48 + 8 + its hairline).
+    expect(container.querySelector('header')).toHaveClass('h-14', 'py-2.5', 'shrink-0');
   });
 });

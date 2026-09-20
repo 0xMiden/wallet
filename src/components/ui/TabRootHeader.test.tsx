@@ -30,16 +30,20 @@ const renderWithFilter = (onChange = jest.fn()) =>
     />
   );
 
-it('is a 61px title band — 60px row plus the hairline — over the filter row', () => {
+it('is a 60px title band — 56px row plus the 4px rule — over the filter row', () => {
   const { container } = renderWithFilter();
 
   const header = container.querySelector('header')!;
-  expect(header).toHaveClass('h-15', 'border-b', 'border-hairline');
-  // The retired 4px grey rule: nothing of the sort is left between the two rows.
-  expect(container.querySelector('.h-1')).toBeNull();
+  expect(header).toHaveClass('h-14', 'py-2.5');
+  expect(header.className).not.toMatch(/border/);
+
+  // Ahmad's rule, drawn by the header rather than by any page: 4px on `fill`, at the page margin.
+  const rule = header.nextElementSibling!;
+  expect(rule).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
+  expect(rule).toHaveAttribute('aria-hidden', 'true');
 
   const row = screen.getByRole('radiogroup', { name: 'Activity filters' });
-  expect(header.nextElementSibling).toBe(row);
+  expect(rule.nextElementSibling).toBe(row);
   expect(row).toHaveClass('px-4', 'py-1.5');
 });
 
@@ -50,10 +54,11 @@ it('owns how the filter row looks: the page passes items and a selection, nothin
   const rest = screen.getByRole('radio', { name: 'Sent' });
 
   expect(selected).toHaveAttribute('aria-checked', 'true');
-  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised');
+  // The bottom nav's raised bubble over the selection; an outlined pill for everything else.
+  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised', 'shadow-raised');
   expect(selected).not.toHaveClass('text-pure-white');
   expect(rest.querySelector('[data-slot="motion-highlight"]')).toBeNull();
-  expect(rest).not.toHaveClass('border');
+  expect(rest).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
 });
 
 it('reports a real change in the filter row', () => {
@@ -67,10 +72,14 @@ it('reports a real change in the filter row', () => {
   expect(onChange).toHaveBeenCalledTimes(1);
 });
 
-it('renders the title row alone on a tab root that does not filter', () => {
+it('renders the title row and the rule, and no filter row, on a tab root that does not filter', () => {
   const { container } = render(<TabRootHeader title="Settings" />);
 
   expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
   expect(screen.queryByRole('radiogroup')).toBeNull();
-  expect(container.querySelector('header')).toHaveClass('h-15', 'border-b', 'border-hairline');
+
+  const header = container.querySelector('header')!;
+  expect(header).toHaveClass('h-14', 'py-2.5');
+  // Settings gets the same rule as Activity and Explore — that is the point of the shared band.
+  expect(header.nextElementSibling).toHaveClass('mx-4', 'h-1', 'bg-fill');
 });
