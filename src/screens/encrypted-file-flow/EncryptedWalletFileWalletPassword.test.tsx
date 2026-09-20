@@ -55,8 +55,19 @@ jest.mock('lib/miden/front', () => {
 });
 
 jest.mock('components/ui/Checkbox', () => ({
-  CheckboxIndicator: ({ checked }: { checked: boolean }) => (
-    <span data-testid="checkbox" data-checked={String(!!checked)} />
+  CheckboxConsent: ({
+    checked,
+    onCheckedChange,
+    children
+  }: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    children: React.ReactNode;
+  }) => (
+    <button type="button" role="checkbox" aria-checked={checked} onClick={() => onCheckedChange(!checked)}>
+      <span data-testid="checkbox" data-checked={String(!!checked)} />
+      {children}
+    </button>
   )
 }));
 

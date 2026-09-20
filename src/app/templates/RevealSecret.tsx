@@ -7,7 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { PrivateKeyPair } from 'components/PrivateKeyPair';
-import { CheckboxIndicator } from 'components/ui/Checkbox';
+import { CheckboxConsent } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
@@ -412,17 +412,13 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           <Notice tone="warning" title={t('privateKeyRevealWarningTitle')}>
             {t('privateKeyRevealWarningBody')}
           </Notice>
-          {/* The one selection mark the wallet draws, on the button that is itself the checkbox. */}
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={privateKeyAcknowledged}
-            className="mt-3 flex items-start gap-2 px-1 text-left select-none"
-            onClick={() => setPrivateKeyAcknowledged(prev => !prev)}
+          <CheckboxConsent
+            className="mt-3"
+            checked={privateKeyAcknowledged}
+            onCheckedChange={setPrivateKeyAcknowledged}
           >
-            <CheckboxIndicator checked={privateKeyAcknowledged} />
-            <span className="text-body text-ink">{t('privateKeyRevealAcknowledge')}</span>
-          </button>
+            {t('privateKeyRevealAcknowledge')}
+          </CheckboxConsent>
         </SubPageSection>
       )}
 

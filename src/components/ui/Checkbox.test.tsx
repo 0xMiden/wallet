@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { reducedMotionTransition, springs, tabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
-import { CheckboxIndicator, CheckboxRow } from './Checkbox';
+import { CheckboxConsent, CheckboxIndicator, CheckboxRow } from './Checkbox';
 
 let mockReduce = false;
 
@@ -163,5 +163,49 @@ describe('CheckboxRow', () => {
     fireEvent.keyDown(screen.getByRole('checkbox'), { key: 'Enter' });
     expect(onChange).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
+  });
+});
+
+describe('CheckboxConsent', () => {
+  const Consent = ({ onChange, disabled }: { onChange?: (checked: boolean) => void; disabled?: boolean }) => {
+    const [checked, setChecked] = useState(false);
+    return (
+      <CheckboxConsent
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={next => {
+          setChecked(next);
+          onChange?.(next);
+        }}
+      >
+        I understand
+      </CheckboxConsent>
+    );
+  };
+
+  it('is one checkbox carrying the sentence, inset 4px and with no surface of its own', () => {
+    render(<Consent />);
+
+    const box = screen.getByRole('checkbox', { name: 'I understand' });
+    expect(box).toHaveAttribute('type', 'button');
+    expect(box).toHaveAttribute('aria-checked', 'false');
+    expect(box).toHaveClass('px-1');
+    expect(box.className).not.toMatch(/bg-fill/);
+
+    fireEvent.click(box);
+    expect(box).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('leaves the haptic to the caller, so a page keeps whatever it had', () => {
+    render(<Consent />);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(mockHaptic).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while disabled', () => {
+    const onChange = jest.fn();
+    render(<Consent onChange={onChange} disabled />);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
