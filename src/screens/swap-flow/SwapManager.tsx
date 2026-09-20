@@ -25,11 +25,15 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
 
+import { isValidExpirySeconds } from './expiry';
 import { ReviewSwap } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
 import { useSwapEta } from './useSwapEta';
+
+/** Two minutes, unchanged: long enough for the usual fill, short enough to get the tip back. */
+const DEFAULT_EXPIRY_SECONDS = 120;
 
 const ROUTES: Route[] = [
   { name: SwapFlowStep.SwapAmounts, animationIn: 'push', animationOut: 'pop' },
@@ -53,7 +57,7 @@ const SwapManager: React.FC = () => {
   // True once the user manually edits the receive amount, which pauses the
   // auto-quote until they change the pay amount or a token again.
   const [requestEdited, setRequestEdited] = useState(false);
-  const [expirySeconds, setExpirySeconds] = useState('120');
+  const [expirySeconds, setExpirySeconds] = useState(String(DEFAULT_EXPIRY_SECONDS));
   const [autoConsume, setAutoConsume] = useState(true);
   const [selectingSide, setSelectingSide] = useState<SwapSide>('offer');
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
@@ -166,7 +170,10 @@ const SwapManager: React.FC = () => {
   const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
   const quoteUnavailable = Boolean(swapEta.error);
   const expirySecondsValue = Number(expirySeconds);
-  const validExpiry = Number.isInteger(expirySecondsValue) && expirySecondsValue > 0;
+  // Whole seconds inside the wallet's own reclaim window, not merely "a positive integer":
+  // an expiry under the floor is reclaimed before a solver can fill it, and the review screen
+  // is free to hand up nothing but values that pass this (see `expiry.ts` for the bounds).
+  const validExpiry = isValidExpirySeconds(expirySecondsValue);
   // The receive field is auto-derived: show a skeleton from the moment a pay
   // amount is entered until the first quote lands (or errors). Subsequent edits
   // recompute in place from the cached rate, so no skeleton flash there.
