@@ -155,7 +155,12 @@ it('survives the optimistic store dropping the contact mid-write and still repor
     return new Promise<void>((_, rej) => {
       reject = (e: Error) => {
         // `updateSettings` rolls the optimistic update back in its catch before rethrowing.
-        contactsMock.mockReturnValue([PAUL, ALICE, NINA, { name: 'Main', address: 'mtst1mine', accountInWallet: true }]);
+        contactsMock.mockReturnValue([
+          PAUL,
+          ALICE,
+          NINA,
+          { name: 'Main', address: 'mtst1mine', accountInWallet: true }
+        ]);
         rej(e);
       };
     });
