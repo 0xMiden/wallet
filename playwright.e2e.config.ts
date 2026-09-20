@@ -1,11 +1,13 @@
 import { defineConfig } from '@playwright/test';
 
+import { IS_LOCALNET as isLocalnet } from './playwright/e2e/config/environments';
+
 // This config is the base for every Chrome E2E suite: it runs directly for the
 // blockchain runs (localhost per-PR + devnet/testnet on main) and is spread into
 // playwright.{earn,swap,guardian,bridge,bridge-guardian}.config.ts. Those suites
 // differ in what they cost to run, so `maxFailures` keys off the same
 // `E2E_NETWORK` the harness already uses to pick endpoints.
-const isLocalnet = process.env.E2E_NETWORK === 'localhost';
+export { IS_LOCALNET as isLocalnet } from './playwright/e2e/config/environments';
 
 export default defineConfig({
   testDir: './playwright/e2e/tests',

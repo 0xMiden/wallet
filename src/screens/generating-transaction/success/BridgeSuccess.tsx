@@ -3,6 +3,7 @@ import React, { FC, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -10,7 +11,6 @@ import { truncateAddress } from 'utils/string';
 import { bridgeRouteValue, bridgeSpeedLabel, buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
-  SuccessDivider,
   SuccessSummaryPill,
   TransactionSuccessLayout,
   TransactionSuccessProps,
@@ -56,6 +56,8 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
     [amountText, bridgedInputs.provider, destinationAddress, feeText, onViewExplorer, t, txHash]
   );
 
+  const accent = accentForTransactionType(transaction?.type);
+
   return (
     <TransactionSuccessLayout
       headerTitle=""
@@ -69,8 +71,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
       onClose={onDoneClick}
     >
       <SuccessSummaryPill lhs={amountText} rhs={recipient} />
-      <SuccessDivider />
-      <ReceiptRows rows={rows} className="mt-2" />
+      <ReceiptRows accent={accent} rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

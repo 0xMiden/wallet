@@ -4,80 +4,63 @@ import classNames from 'clsx';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { ACCENT_CLASSES } from 'components/flow/accent';
+import { FlowSpinner } from 'components/flow/FlowSpinner';
 import { easings, springs, useMotion } from 'lib/animation';
-import { PRIMARY_HEX } from 'utils/brand-colors';
 
-import { PENDING_STEP_COLOR, PROCESSING_ORANGE, SUCCESS_GREEN } from './constants';
+import { PENDING_STEP_COLOR } from './constants';
 import type { StatusIndicatorProps, TransactionHeroIconProps, TransactionStepRowProps } from './types';
 
-export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state }) => {
+export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state, accent = 'brand' }) => {
   const reduceMotion = useReducedMotion();
   const entranceTransition = useMotion(springs.standard);
   const glyphTransition = useMotion({ duration: 0.32, ease: easings.easeOutCubic });
 
   return (
-    <motion.div
-      className="flex size-30 items-center justify-center"
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={entranceTransition}
-    >
-      {state === 'failed' && (
-        <svg viewBox="0 0 142 142" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="71" cy="71" r="52" fill="rgba(197, 26, 10, 0.12)" />
-          <circle cx="71" cy="71" r="36" fill="var(--status-negative)" />
-          <path
-            d="M57 57L85 85M85 57L57 85"
-            stroke="white"
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
-
-      {state === 'success' && (
-        <svg viewBox="0 0 142 142" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="71" cy="71" r="52" fill="rgba(144, 186, 137, 0.12)" />
-          <circle cx="71" cy="71" r="36" fill={SUCCESS_GREEN} />
-          <motion.path
-            d="M56 72L67 83L88 60"
-            stroke="white"
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={reduceMotion ? undefined : { pathLength: 0 }}
-            animate={reduceMotion ? undefined : { pathLength: 1 }}
-            transition={glyphTransition}
-          />
-        </svg>
-      )}
-
-      {state === 'processing' && (
-        <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="60" cy="60" r="60" fill={PROCESSING_ORANGE} />
-          <circle cx="60" cy="60" r="27" stroke="rgba(255,255,255,0.22)" strokeWidth="16" />
-          <motion.circle
-            cx="60"
-            cy="60"
-            r="27"
-            stroke="white"
-            strokeWidth="16"
-            strokeLinecap="butt"
-            strokeDasharray="56 170"
-            animate={reduceMotion ? undefined : { rotate: 360 }}
-            transition={reduceMotion ? undefined : { duration: 1.4, ease: 'linear', repeat: Infinity }}
-            style={{ transformOrigin: '60px 60px' }}
-          />
-          <circle cx="60" cy="60" r="19" fill={PROCESSING_ORANGE} />
-        </svg>
-      )}
-    </motion.div>
+    // shrink-0: the hero sits in a scrolling flex column, which squashed a fixed-size circle into
+    // a pill on a short screen.
+    <div className="relative flex size-24 shrink-0 items-center justify-center">
+      <AnimatePresence initial={false} mode="popLayout">
+        <motion.div
+          key={state}
+          className={classNames(
+            'absolute inset-0 flex items-center justify-center rounded-full',
+            state === 'processing' && ACCENT_CLASSES[accent].tint,
+            state === 'success' && 'bg-status-positive',
+            state === 'failed' && 'bg-status-negative'
+          )}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 1.04 }}
+          transition={entranceTransition}
+        >
+          {state === 'processing' && <FlowSpinner accent={accent} size={52} thickness={0.13} />}
+          {state === 'success' && (
+            <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
+              <motion.path
+                d="M11 23L18.5 30.5L33 15"
+                stroke="white"
+                strokeWidth="5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                initial={reduceMotion ? undefined : { pathLength: 0 }}
+                animate={reduceMotion ? undefined : { pathLength: 1 }}
+                transition={glyphTransition}
+              />
+            </svg>
+          )}
+          {state === 'failed' && (
+            <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
+              <path d="M15 15L29 29M29 15L15 29" stroke="white" strokeWidth="5" strokeLinecap="round" />
+            </svg>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </div>
   );
 };
 
-const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state }) => {
-  const reduceMotion = useReducedMotion();
+const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state, accent = 'brand' }) => {
   const glyphTransition = useMotion({ duration: 0.28, ease: easings.easeInCubic });
 
   return (
@@ -86,8 +69,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state }) => {
         {state === 'complete' && (
           <motion.span
             key="complete"
-            className="absolute inset-0 flex items-center justify-center rounded-full"
-            style={{ backgroundColor: SUCCESS_GREEN }}
+            className="absolute inset-0 flex items-center justify-center rounded-full bg-status-positive"
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
@@ -113,17 +95,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state }) => {
             exit={{ opacity: 0, scale: 0.96 }}
             transition={glyphTransition}
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              className={classNames(!reduceMotion && 'animate-spin')}
-            >
-              <circle cx="10" cy="10" r="8" stroke={PRIMARY_HEX} strokeWidth="2.5" strokeLinecap="round" />
-              <path d="M10 2A8 8 0 0 1 18 10" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
-            </svg>
+            <FlowSpinner accent={accent} size={20} thickness={0.14} />
           </motion.span>
         )}
         {state === 'pending' && (
@@ -156,7 +128,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state }) => {
   );
 };
 
-export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, state, isLast, label, meta }) => {
+export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, state, isLast, label, meta, accent }) => {
   const { t } = useTranslation();
   const rowTransition = useMotion(springs.snappy);
   const resolvedLabel = label ?? t(step.labelKey, { defaultValue: step.defaultLabel });
@@ -165,8 +137,8 @@ export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, st
     <motion.div
       key={step.id}
       className={classNames(
-        'flex items-center justify-between gap-3 mx-6 py-3.5',
-        !isLast && 'border-b border-[#ECEBE8]'
+        'flex items-center justify-between gap-3 px-4 py-3',
+        !isLast && 'border-b border-rule-default'
       )}
       data-transaction-step={step.id}
       data-state={state}
@@ -174,7 +146,7 @@ export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, st
       transition={rowTransition}
     >
       <div className="flex gap-3 items-center">
-        <StatusIndicator state={state} />
+        <StatusIndicator state={state} accent={accent} />
         <span
           className={classNames(
             'min-w-0 truncate font-heading text-base font-bold leading-none',

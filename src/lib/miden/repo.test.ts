@@ -1,5 +1,5 @@
 import { ITransaction, ITransactionStatus } from './db/types';
-import { exportDb, importDb, transactions, Table } from './repo';
+import { db, exportDb, importDb, spendingLimits, transactions, Table } from './repo';
 import { isRequeueableTransaction } from './transaction/retry';
 import { NoteTypeEnum } from './types';
 
@@ -533,5 +533,75 @@ describe('miden repo export/import', () => {
     // and a genuinely failed one must not become retryable just by being in a dump.
     expect(restored.get('done')!.restoredFromBackup).toBe(true);
     expect(isRequeueableTransaction(restored.get('bad')!)).toBe(false);
+  });
+});
+
+describe('spending limits schema', () => {
+  beforeEach(async () => {
+    await spendingLimits.clear();
+    await transactions.clear();
+  });
+
+  it('keys spending limits by account and faucet on schema version 1.7', () => {
+    const schema = spendingLimits.schema;
+
+    expect(db.verno).toBe(1.7);
+    expect(schema.primKey.keyPath).toEqual(['accountId', 'faucetId']);
+    expect(schema.indexes.map(index => index.name)).toEqual(
+      expect.arrayContaining(['accountId', 'faucetId', 'revision'])
+    );
+  });
+
+  it('keeps one spending-limit record per account and faucet pair', async () => {
+    await spendingLimits.put({
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '10',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 1
+    });
+    await spendingLimits.put({
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '20',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-2',
+      createdAt: 1,
+      updatedAt: 2
+    });
+    await spendingLimits.put({
+      accountId: 'account-b',
+      faucetId: 'faucet-a',
+      weeklyLimit: '30',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-3',
+      createdAt: 3,
+      updatedAt: 3
+    });
+
+    expect(await spendingLimits.count()).toBe(2);
+    expect(await spendingLimits.get(['account-a', 'faucet-a'])).toEqual(
+      expect.objectContaining({ dailyLimit: '20', revision: 'revision-2' })
+    );
+  });
+
+  it('indexes the exact spending-limit authorization attached to a transaction', async () => {
+    expect(transactions.schema.indexes.map(index => index.name)).toContain('spendingLimitAuthorizationId');
+
+    await transactions.add({
+      id: 'transaction-1',
+      type: 'send',
+      accountId: 'account-a',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      spendingLimitAuthorizationId: 'authorization-1'
+    });
+
+    await expect(
+      transactions.where('spendingLimitAuthorizationId').equals('authorization-1').primaryKeys()
+    ).resolves.toEqual(['transaction-1']);
   });
 });

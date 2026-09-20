@@ -1,6 +1,7 @@
 import React, { ChangeEvent, useEffect, useRef } from 'react';
 
 import clsx from 'clsx';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ScanFrameIcon } from 'app/icons/scan-frame.svg';
@@ -12,8 +13,15 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
-import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { BRIDGE_NETWORKS, BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { NetworkChip } from './NetworkChip';
+import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
+
+// One easing for everything that reacts to the address changing, so the field
+// growing, the pills swapping and the chips arriving read as one movement.
+const EASE = [0.32, 0.72, 0, 1] as const;
+const DURATION = 0.28;
 
 export interface SelectRecipientProps {
   address: string;
@@ -41,9 +49,12 @@ export interface SelectRecipientProps {
   onAddContact?: () => void;
   /** Fills the recipient from a "Recent" row. */
   onSelectRecent?: (recipient: RecentRecipient) => void;
-  onSelectNetwork: () => void;
+  /** Picks the destination network for a 0x recipient. */
+  onSelectNetwork: (network: BridgeNetworkId) => void;
   /** Scan a recipient address from a QR code. Omitted where scanning is unavailable (desktop/extension). */
   onScan?: () => void;
+  /** Fills the recipient from the clipboard. Shown only while the address field is empty. */
+  onPaste?: () => void;
   onConfirm: () => void;
 }
 
@@ -62,9 +73,32 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   onSelectRecent,
   onSelectNetwork,
   onScan,
+  onPaste,
   onConfirm
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
+  const transition = reduceMotion ? { duration: 0 } : { duration: DURATION, ease: EASE };
+  // Collapses/expands a block's height so the content under it slides instead of jumping.
+  const reveal = {
+    initial: { opacity: 0, height: 0 },
+    animate: { opacity: 1, height: 'auto' },
+    exit: { opacity: 0, height: 0 },
+    transition
+  };
+  // Pill set swap: a quick fade out, then the next set fades in.
+  const pillSwap = {
+    initial: { opacity: 0, y: 4 },
+    animate: { opacity: 1, y: 0, transition: reduceMotion ? { duration: 0 } : { duration: 0.2, ease: EASE } },
+    exit: { opacity: 0, y: -4, transition: reduceMotion ? { duration: 0 } : { duration: 0.14, ease: EASE } }
+  };
+  // Pops a small element (chip) in place.
+  const pop = {
+    initial: { opacity: 0, scale: 0.85 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, scale: 0.85 },
+    transition
+  };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedNetwork = network === 'miden' ? undefined : getBridgeNetwork(network);
   const isEthereum = chain === 'ethereum';
@@ -72,6 +106,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
   const showAddContact = canAddContact && !!onAddContact;
   const recentRecipients = hasAddress ? [] : (recents ?? []);
+  const pillSet = !hasAddress ? 'empty' : showAddContact ? 'add' : 'book';
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified recipient placeholder copy.
   const addressPlaceholder = 'Enter Miden or Ethereum Address';
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified scanner copy.
@@ -83,125 +118,209 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     textareaRef.current?.setAttribute('enterkeyhint', 'done');
   }, []);
 
-  // Auto-grow the borderless address field as it wraps across lines.
+  // Auto-grow the borderless address field as it wraps across lines. Measuring needs height:auto,
+  // which would snap; so measure, put back the height the field is DRAWN at, force a reflow, then
+  // set the new height and let the CSS transition run. Restoring the last inline target instead
+  // snapped a keystroke that arrived while the previous grow was still animating.
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
+    const drawn = ta.style.height ? getComputedStyle(ta).height : '';
     ta.style.height = 'auto';
-    ta.style.height = `${ta.scrollHeight}px`;
+    const next = `${ta.scrollHeight}px`;
+    if (!drawn || drawn === next) {
+      ta.style.height = next;
+      return;
+    }
+    ta.style.height = drawn;
+    void ta.offsetHeight;
+    ta.style.height = next;
   }, [address]);
 
+  const titleChip = (
+    <AnimatePresence initial={false} mode="popLayout">
+      {isValidAddress && (
+        <motion.span
+          key={isEthereum ? 'ethereum' : 'miden'}
+          className="inline-flex"
+          {...pop}
+          transition={reduceMotion ? { duration: 0 } : { duration: DURATION, ease: EASE, delay: 0.14 }}
+        >
+          {isEthereum ? (
+            <NetworkChip
+              kind="ethereum"
+              label={selectedNetwork?.name ?? t('ethereum')}
+              data-testid="send-recipient-network"
+            />
+          ) : (
+            <NetworkChip kind="miden" label={t('miden')} data-testid="send-recipient-network" />
+          )}
+        </motion.span>
+      )}
+    </AnimatePresence>
+  );
+
   return (
-    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
-      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
-        <div className="flex items-center justify-between gap-3">
-          <span className="font-heading text-2xl leading-none font-bold text-gray">{t('chooseRecipient')}</span>
-          {isValidAddress && (
-            <span className="rounded-full bg-primary-500 px-3 py-1 text-xs font-semibold text-pure-white">
-              {/* eslint-disable-next-line i18next/no-literal-string -- EVM is a protocol acronym. */}
-              {isEthereum ? 'EVM' : t('miden')}
+    <SendStepLayout
+      title={t('chooseRecipient')}
+      titleAccessory={titleChip}
+      footer={
+        <Button
+          title={t('confirm')}
+          variant={ButtonVariant.Primary}
+          onClick={onConfirm}
+          disabled={!canConfirm}
+          data-testid="send-recipient-confirm"
+          className="w-full max-w-none rounded-full text-base font-semibold"
+        />
+      }
+    >
+      <div className="relative mt-3">
+        {recipientName && (
+          <div className="mb-2 flex items-center gap-3">
+            <span
+              data-testid="send-recipient-avatar"
+              className="h-8 w-8 shrink-0 rounded-full bg-grey-300"
+              aria-hidden="true"
+            />
+            <span data-testid="send-recipient-name" className="font-heading text-2xl font-bold text-black">
+              {recipientName}
             </span>
-          )}
-        </div>
-
-        <div className="relative mt-3">
-          {recipientName && (
-            <div className="mb-2 flex items-center gap-3">
-              <span
-                data-testid="send-recipient-avatar"
-                className="h-8 w-8 shrink-0 rounded-full bg-grey-300"
-                aria-hidden="true"
-              />
-              <span data-testid="send-recipient-name" className="font-heading text-2xl font-bold text-black">
-                {recipientName}
-              </span>
-            </div>
-          )}
-          <textarea
-            ref={textareaRef}
-            data-testid="send-recipient-input"
-            rows={1}
-            placeholder={addressPlaceholder}
-            className={clsx(
-              'font-heading w-full resize-none bg-transparent outline-none',
-              'text-[40px] font-bold leading-tight wrap-break-word',
-              'text-heading-gray caret-primary-500',
-              error ? 'text-red-500' : 'text-black'
-            )}
-            value={address}
-            onChange={onAddressChange}
-            spellCheck={false}
-            autoCapitalize="none"
-            autoCorrect="off"
-            onKeyDown={event => {
-              // Addresses are single-line: Done/Enter dismisses the keyboard
-              // instead of inserting a newline.
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                event.currentTarget.blur();
-              }
-            }}
-          />
-        </div>
-
-        {error && <p className="text-red-500 text-sm mt-2">{t(`${error}`)}</p>}
-
-        {isValidAddress && isEthereum && (
-          <div className="mt-1 flex flex-col items-start">
-            <span className="ml-2 h-18 w-2 rounded-full bg-grey-300" aria-hidden="true" />
-            <div className="pt-3">
-              <button
-                type="button"
-                data-testid="send-network-selector"
-                onClick={() => {
-                  hapticLight();
-                  onSelectNetwork();
-                }}
-                className="flex items-center gap-2 rounded-full bg-surface-interactive py-2 pr-3 pl-2 text-left"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-500">
-                  <Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />
-                </span>
-                <span className="font-heading text-xl font-bold text-heading-gray">
-                  {selectedNetwork?.name ?? t('selectNetwork')}
-                </span>
-                <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
-              </button>
-            </div>
           </div>
         )}
-
-        <div className={clsx('mt-2 flex items-start gap-1', recentRecipients.length > 0 && 'pb-6')}>
-          <Button
-            variant={ButtonVariant.Secondary}
-            onClick={() => {
-              hapticLight();
-              if (showAddContact && onAddContact) {
-                onAddContact();
-                return;
-              }
-              onAddressBook();
-            }}
-            data-testid="send-address-book"
-            className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
-          >
-            <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
-            <span>{showAddContact ? t('addToContactsPrompt') : t('addressBook')}</span>
-          </Button>
-          {onScan && !hasAddress && (
-            <Button
-              variant={ButtonVariant.Secondary}
-              onClick={onScan}
-              className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
-            >
-              <ScanFrameIcon data-testid="send-scan-icon" className="h-4 w-4 shrink-0" />
-              <span>{scanQrCodeLabel}</span>
-            </Button>
+        <textarea
+          ref={textareaRef}
+          data-testid="send-recipient-input"
+          rows={1}
+          placeholder={addressPlaceholder}
+          className={clsx(
+            'font-heading w-full resize-none overflow-hidden bg-transparent outline-none',
+            'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
+            'text-[40px] font-bold leading-tight wrap-break-word',
+            'text-heading-gray caret-accent-send',
+            error ? 'text-red-500' : 'text-black'
           )}
-        </div>
+          value={address}
+          onChange={onAddressChange}
+          spellCheck={false}
+          autoCapitalize="none"
+          autoCorrect="off"
+          onKeyDown={event => {
+            // Addresses are single-line: Done/Enter dismisses the keyboard
+            // instead of inserting a newline.
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </div>
 
+      <AnimatePresence initial={false}>
+        {error && (
+          <motion.p key="error" className="overflow-hidden text-sm text-red-500" {...reveal}>
+            <span className="block pt-2">{t(`${error}`)}</span>
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {isValidAddress && isEthereum && (
+          <motion.div key="networks" className="overflow-hidden" {...reveal}>
+            <div className="flex flex-col gap-2 pt-4" data-testid="send-network-options">
+              <span className="text-sm text-text-muted">{t('network')}</span>
+              <div className="flex flex-wrap gap-2">
+                {BRIDGE_NETWORKS.map(option => (
+                  <NetworkChip
+                    key={option.id}
+                    kind="ethereum"
+                    label={option.name}
+                    selected={network === option.id}
+                    onClick={() => {
+                      hapticLight();
+                      onSelectNetwork(option.id);
+                    }}
+                    data-testid={`send-network-${option.id}`}
+                  />
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className={clsx('mt-2', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
+        {/* The pills swap as one set, never one by one: the current set fades
+            out, then the next fades in. Removing Paste/Scan while Address Book
+            slid over and relabelled itself raced three animations against
+            each other. */}
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div key={pillSet} className="flex flex-wrap items-start gap-1" {...pillSwap}>
+            {pillSet === 'add' ? (
+              <Button
+                variant={ButtonVariant.Secondary}
+                onClick={() => {
+                  hapticLight();
+                  onAddContact?.();
+                }}
+                data-testid="send-address-book"
+                className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
+              >
+                <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
+                <span>{t('addToContactsPrompt')}</span>
+              </Button>
+            ) : (
+              <>
+                {onPaste && pillSet === 'empty' && (
+                  <Button
+                    variant={ButtonVariant.Secondary}
+                    onClick={() => {
+                      hapticLight();
+                      onPaste();
+                    }}
+                    data-testid="send-paste"
+                    className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
+                  >
+                    <Icon name={IconName.FileCopy} size="xs" className="shrink-0" />
+                    <span>{t('paste')}</span>
+                  </Button>
+                )}
+                <Button
+                  variant={ButtonVariant.Secondary}
+                  onClick={() => {
+                    hapticLight();
+                    onAddressBook();
+                  }}
+                  data-testid="send-address-book"
+                  className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
+                >
+                  <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
+                  <span>{t('addressBook')}</span>
+                </Button>
+                {onScan && pillSet === 'empty' && (
+                  <Button
+                    variant={ButtonVariant.Secondary}
+                    onClick={onScan}
+                    className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
+                  >
+                    <ScanFrameIcon data-testid="send-scan-icon" className="h-4 w-4 shrink-0" />
+                    <span>{scanQrCodeLabel}</span>
+                  </Button>
+                )}
+              </>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      <AnimatePresence initial={false}>
         {recentRecipients.length > 0 && (
-          <section className="flex flex-col pb-10" data-testid="send-recent-recipients">
+          <motion.section
+            key="recents"
+            className="flex flex-col overflow-hidden pb-10"
+            data-testid="send-recent-recipients"
+            {...reveal}
+          >
             <h2 className="text-gray text-xl font-heading font-bold">{t('recent')}</h2>
             <ul className="mt-1 flex flex-col">
               {recentRecipients.map((recipient, index) => (
@@ -225,14 +344,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       </span>
                       <span className="flex items-center gap-2 text-xs text-text-muted">
                         {recipient.chain === 'miden' ? (
-                          <span className="rounded-full bg-accent-primary px-2 py-0.5 font-semibold text-pure-white">
-                            {t('miden')}
-                          </span>
+                          <NetworkChip kind="miden" label={t('miden')} />
                         ) : (
-                          <span className="flex items-center gap-1">
-                            <span className="h-2 w-2 shrink-0 rounded-full bg-primary-500" aria-hidden="true" />
-                            <span>{recipient.networkName ?? t('ethereum')}</span>
-                          </span>
+                          <NetworkChip kind="ethereum" label={recipient.networkName ?? t('ethereum')} />
                         )}
                         <span className="truncate">{truncateAddress(recipient.address)}</span>
                       </span>
@@ -241,26 +355,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                 </li>
               ))}
             </ul>
-          </section>
+          </motion.section>
         )}
-      </div>
-
-      {/* pb-24 clears the floating navbar; while the soft keyboard is up the
-          body's --keyboard-height padding already lifts the layout to the
-          keyboard's top edge, so the cushion collapses to keep the CTA snug. */}
-      <div
-        className="shrink-0 pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))] transition-[padding-bottom] duration-[250ms] ease-out"
-        data-navbar-cushion="true"
-      >
-        <Button
-          title={t('confirm')}
-          variant={ButtonVariant.Primary}
-          onClick={onConfirm}
-          disabled={!canConfirm}
-          data-testid="send-recipient-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
-        />
-      </div>
-    </div>
+      </AnimatePresence>
+    </SendStepLayout>
   );
 };

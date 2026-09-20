@@ -1,4 +1,6 @@
 import { ITransactionStatus, Transaction } from '../db/types';
+import { queueOutgoingTransaction } from '../spending-limits/queue';
+import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { NoteTypeEnum } from '../types';
 // Import after mocks are set up
 import {
@@ -12,6 +14,9 @@ import {
   cancelTransaction,
   updateTransactionStatus,
   initiateSendTransaction,
+  initiateSwapTransaction,
+  initiateBridgedSendTransaction,
+  initiateEarnDepositTransaction,
   initiateConsumeTransaction,
   initiateConsumeTransactionFromId,
   initiateUpdateProcedureThresholdTransaction,
@@ -27,6 +32,18 @@ import {
   RETRY_COOLDOWN_SEC,
   MAX_RETRY_BACKOFF_SEC
 } from './index';
+
+jest.mock('../spending-limits/queue', () => ({
+  spendsOf: (transaction: { faucetId: string; amount: bigint }) => [
+    { faucetId: transaction.faucetId, amount: transaction.amount }
+  ],
+  queueOutgoingTransaction: jest.fn(async transaction => {
+    const repo = jest.requireMock('lib/miden/repo');
+    await repo.transactions.add(transaction);
+  })
+}));
+
+const mockQueueOutgoingTransaction = jest.mocked(queueOutgoingTransaction);
 
 // Only the note-transport predicate is swapped; every other endpoint getter keeps
 // its real behaviour, since the send guard is the sole thing under test here.
@@ -498,6 +515,96 @@ describe('transactions utilities', () => {
 
       expect(mockTransactionsAdd).toHaveBeenCalled();
       expect(typeof result).toBe('string');
+    });
+  });
+
+  describe('spending-limit queue routing', () => {
+    const authorization: SpendingLimitAuthorization = {
+      id: 'authorization-1',
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      amount: 10n,
+      revision: 'revision-1',
+      issuedAt: 1,
+      expiresAt: 2
+    };
+
+    it('routes send through the atomic outgoing queue with its authorization', async () => {
+      await initiateSendTransaction(
+        'account-a',
+        'account-b',
+        'faucet-a',
+        NoteTypeEnum.Public,
+        10n,
+        undefined,
+        undefined,
+        authorization
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'send' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        authorization
+      );
+    });
+
+    it('routes swap through the atomic outgoing queue with its authorization', async () => {
+      await initiateSwapTransaction('account-a', 'faucet-a', 10n, 'faucet-b', 5n, undefined, 120, true, authorization);
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'swap' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        authorization
+      );
+    });
+
+    it('routes bridged send through the atomic outgoing queue with its authorization', async () => {
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        1,
+        'agglayer',
+        undefined,
+        undefined,
+        undefined,
+        authorization
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'bridged-send' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        authorization
+      );
+    });
+
+    it('routes Earn deposit through the atomic outgoing queue with its authorization', async () => {
+      await initiateEarnDepositTransaction(
+        'account-a',
+        10n,
+        '0xrecipient',
+        'market-a',
+        'faucet-a',
+        { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
+        undefined,
+        undefined,
+        authorization
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'earn-deposit' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        authorization
+      );
     });
   });
 

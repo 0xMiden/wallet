@@ -5,23 +5,26 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
-import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { Button, ButtonVariant } from 'components/Button';
+import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
+import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { TokenLogo } from 'components/TokenLogo';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSpeculateInvalidate,
-  requestSWTransactionProcessing
-} from 'lib/miden/activity';
+import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import {
+  SpendingLimitAssessment,
+  SpendingLimitAuthorization,
+  spendingLimitAssessmentFromError
+} from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -29,9 +32,12 @@ import { useWalletStore } from 'lib/store';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
+import { approxFiatAmount } from './amount-format';
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import { NetworkChip } from './NetworkChip';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
+import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
 
@@ -198,23 +204,10 @@ export const ReviewTransaction: React.FC = () => {
     setRecallBlocks(undefined);
   }, []);
 
-  // Leaving review = leaving the send flow: drop any cached speculative prove
-  // and mark in-flight ones stale. (SendManager's typing-time speculation
-  // deliberately skips invalidation when handing off to this page.)
-  //
-  // A no-op whenever the offscreen client owns the send: `initSpeculationManager`
-  // returns null there, so back/main.ts's SpeculateInvalidate handler has nothing to
-  // invalidate. See its TRADEOFF block — the popup can't evaluate that gate itself.
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    return () => {
-      requestSpeculateInvalidate();
-    };
-  }, []);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
+  const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
+  const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   // `token` is undefined until balances load; an absent token is handled by the
   // deep-link guard below, so only a LOADED token with an unreadable scale
   // blocks the CTA.
@@ -236,103 +229,170 @@ export const ReviewTransaction: React.FC = () => {
     [fullPage]
   );
 
+  const runSameChainSend = useCallback(
+    async (authorization?: SpendingLimitAuthorization) => {
+      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (
+        authorization !== undefined &&
+        (authorization.accountId !== publicKey ||
+          authorization.faucetId !== token.id ||
+          authorization.amount !== amountBaseUnits)
+      ) {
+        setSpendingLimitAssessment(undefined);
+        return;
+      }
+      setIsSubmitting(true);
+      setSubmitError(undefined);
+      setSpendingLimitAssessment(undefined);
+      try {
+        useWalletStore.getState().setLastCompletedTxHash(null);
+        const commonArguments = [
+          publicKey,
+          to,
+          token.id,
+          sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
+          amountBaseUnits,
+          recallBlocks ? parseInt(recallBlocks) : undefined,
+          isDelegateProofEnabled()
+        ] as const;
+        const txId =
+          authorization === undefined
+            ? await initiateSendTransaction(...commonArguments)
+            : await initiateSendTransaction(...commonArguments, authorization);
+        if (isExtension()) requestSWTransactionProcessing();
+        goToGeneratingTransaction(txId);
+      } catch (error) {
+        console.error(error);
+        const assessment = spendingLimitAssessmentFromError(error);
+        if (assessment !== undefined) {
+          setSpendingLimitAssessment(assessment);
+        } else {
+          setSubmitError(error instanceof Error ? error.message : String(error));
+        }
+        setIsSubmitting(false);
+      }
+    },
+    [amountBaseUnits, goToGeneratingTransaction, publicKey, recallBlocks, sharePrivately, to, token]
+  );
+
+  const runBridgeSend = useCallback(
+    async (authorization?: SpendingLimitAuthorization) => {
+      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (
+        authorization !== undefined &&
+        (authorization.accountId !== publicKey ||
+          authorization.faucetId !== token.id ||
+          authorization.amount !== amountBaseUnits)
+      ) {
+        setSpendingLimitAssessment(undefined);
+        return;
+      }
+      setIsSubmitting(true);
+      setSubmitError(undefined);
+      setSpendingLimitAssessment(undefined);
+      try {
+        useWalletStore.getState().setLastCompletedTxHash(null);
+        if (route === 'agglayer') {
+          const txId = await initiateB2AggBridge({
+            amount: amountBaseUnits,
+            faucetId: token.id,
+            destinationAddress: to as `0x${string}`,
+            senderPublicKey: publicKey,
+            destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
+            spendingLimitAuthorization: authorization
+          });
+          if (isExtension()) requestSWTransactionProcessing();
+          goToGeneratingTransaction(txId);
+        } else {
+          await bridgeEpochSend({
+            amount: amountBaseUnits,
+            faucetId: token.id,
+            destinationAddress: to as `0x${string}`,
+            senderPublicKey: publicKey,
+            deps: { signTransaction, guardianProvider: zustandProvider },
+            onRowCreated: goToGeneratingTransaction,
+            spendingLimitAuthorization: authorization
+          });
+        }
+      } catch (error) {
+        console.error(error);
+        const assessment = spendingLimitAssessmentFromError(error);
+        if (assessment !== undefined) {
+          setSpendingLimitAssessment(assessment);
+        } else {
+          setSubmitError(error instanceof Error ? error.message : String(error));
+        }
+        setIsSubmitting(false);
+      }
+    },
+    [amountBaseUnits, goToGeneratingTransaction, publicKey, route, signTransaction, to, token]
+  );
+
   const onSubmit = useCallback(async () => {
-    if (isSubmitting || !token || !publicKey) return;
-    // This screen is addressable by URL (`/send/review?amount=…&tokenId=…`), so
-    // it re-derives its own token and cannot rely on the amount screen having
-    // refused first. Every `stringToBigInt(amount, token.decimals)` below turns
-    // the typed amount into base units; with the placeholder's guessed decimals
-    // that is a different quantity than the one being confirmed, and it is about
-    // to leave the wallet irreversibly.
+    if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
       return;
     }
     setIsSubmitting(true);
     setSubmitError(undefined);
-    // Re-confirm this user-initiated send with biometrics when the user has them
-    // enabled. Hot signing is silent again (guardian sync / auto-consume must not
-    // prompt), so this is the app-layer gate that keeps value transfers explicit.
-    // Set submitting first so the async prompt can't be double-triggered.
-    if (!(await confirmSensitiveAction('Confirm your send'))) {
-      setIsSubmitting(false);
-      return;
-    }
     try {
-      // Drop any hash from a previous completed tx before starting a fresh one,
-      // so the in-progress page can't briefly flash a stale "View on Midenscan"
-      // button pointing at the previous hash.
-      useWalletStore.getState().setLastCompletedTxHash(null);
-
-      // Cross-chain (0x) recipient → bridge instead of a Miden send. Both routes
-      // mirror a normal send: create the `bridged-send` row first, then navigate
-      // to the generating-transaction screen WITH its txId so the screen tracks
-      // the real row (no navigate-first race / success flash). Errors raised
-      // before the row exists (e.g. a failed Epoch quote) stay on this page.
-      if (isBridge) {
-        const amountBase = stringToBigInt(amount, token.decimals);
-        if (route === 'agglayer') {
-          const txId = await initiateB2AggBridge({
-            amount: amountBase,
-            faucetId: token.id,
-            destinationAddress: to as `0x${string}`,
-            senderPublicKey: publicKey,
-            destinationNetwork: EVM_AGGLAYER_NETWORK_ID
-          });
-          if (isExtension()) requestSWTransactionProcessing();
-          goToGeneratingTransaction(txId);
-        } else {
-          // Epoch creates its row mid-solve; `onRowCreated` fires the moment it
-          // exists so we navigate then (the rest of the solve runs in the
-          // background while the screen drives the row to completion).
-          await bridgeEpochSend({
-            amount: amountBase,
-            faucetId: token.id,
-            destinationAddress: to as `0x${string}`,
-            senderPublicKey: publicKey,
-            deps: { signTransaction, guardianProvider: zustandProvider },
-            onRowCreated: goToGeneratingTransaction
-          });
-        }
+      const assessment = await assessSpendingLimit(publicKey, token.id, amountBaseUnits);
+      if (assessment !== undefined && assessment.breaches.length > 0) {
+        setSpendingLimitAssessment(assessment);
+        setIsSubmitting(false);
         return;
       }
-
-      // Step 1: Create the transaction (enqueues a Dexie row).
-      const txId = await initiateSendTransaction(
-        publicKey,
-        to,
-        token.id,
-        sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
-        stringToBigInt(amount, token.decimals),
-        recallBlocks ? parseInt(recallBlocks) : undefined,
-        isDelegateProofEnabled()
-      );
-
-      if (isExtension()) {
-        // On extension the SW owns the tx loop — nudge it.
-        requestSWTransactionProcessing();
+      if (!(await confirmSensitiveAction('Confirm your send'))) {
+        setIsSubmitting(false);
+        return;
       }
-
-      goToGeneratingTransaction(txId);
-    } catch (e) {
-      console.error(e);
-      setSubmitError(e instanceof Error ? e.message : String(e));
+      if (isBridge) {
+        await runBridgeSend();
+      } else {
+        await runSameChainSend();
+      }
+    } catch (error) {
+      console.error(error);
+      setSubmitError(error instanceof Error ? error.message : String(error));
       setIsSubmitting(false);
     }
   }, [
-    isSubmitting,
-    token,
-    publicKey,
-    to,
-    sharePrivately,
-    amount,
-    recallBlocks,
+    amountBaseUnits,
+    assessSpendingLimit,
     isBridge,
-    route,
-    signTransaction,
-    goToGeneratingTransaction,
-    t
+    isSubmitting,
+    publicKey,
+    runBridgeSend,
+    runSameChainSend,
+    t,
+    token
   ]);
+
+  const handleSpendingLimitResult = useCallback(
+    (authorization: SpendingLimitAuthorization | undefined) => {
+      setSpendingLimitAssessment(undefined);
+      if (authorization !== undefined) {
+        if (isBridge) {
+          void runBridgeSend(authorization);
+        } else {
+          void runSameChainSend(authorization);
+        }
+      }
+    },
+    [isBridge, runBridgeSend, runSameChainSend]
+  );
+
+  useEffect(() => {
+    if (
+      spendingLimitAssessment !== undefined &&
+      (spendingLimitAssessment.accountId !== publicKey ||
+        spendingLimitAssessment.faucetId !== token?.id ||
+        spendingLimitAssessment.amount !== amountBaseUnits)
+    ) {
+      setSpendingLimitAssessment(undefined);
+    }
+  }, [amountBaseUnits, publicKey, spendingLimitAssessment, token?.id]);
 
   // Deep-link guards — after all hooks. Address/amount are checkable
   // immediately; token existence and balance only once balances load. A 0x
@@ -376,68 +436,98 @@ export const ReviewTransaction: React.FC = () => {
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
 
-  return (
-    <div className="flex flex-col h-full min-h-0 bg-app-bg">
-      <ScreenHeader
-        title={t('reviewDetails')}
-        backLabel={t('back')}
-        onBack={() => goBack()}
-        className="mx-4 shrink-0"
-      />
-      <div className="flex-1 min-h-0">
-        <ReviewLayout
-          hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} label={t('youAreSending')} />}
-          primary={{
-            label: t('sendPayment'),
-            onPress: onSubmit,
-            loading: isSubmitting,
-            // Disabled rather than merely rejected on press: the reason is known
-            // before the user reaches for the button, and letting them tap a live
-            // CTA only to be refused reads as a wallet fault rather than a
-            // deliberate refusal.
-            disabled: isSubmitting || scaleIsUnknown,
-            'data-testid': 'send-review-submit'
-          }}
-          error={scaleIsUnknown ? t('unknownTokenScale') : submitError}
-        >
-          <ReviewRow label={t('to')} value={to} />
+  const fiatValue =
+    token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
 
-          <ReviewRow label={t('network')}>
-            <span className="inline-flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
-              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
-            </span>
-          </ReviewRow>
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-app-bg">
+      <SendStepLayout
+        title={t('reviewDetails')}
+        onBack={() => goBack()}
+        footer={
+          <div className="flex flex-col gap-2">
+            {(scaleIsUnknown || submitError) && (
+              <p data-testid="review-error" className="text-center text-sm text-red-500">
+                {scaleIsUnknown ? t('unknownTokenScale') : submitError}
+              </p>
+            )}
+            <Button
+              type="button"
+              title={t('sendPayment')}
+              variant={ButtonVariant.Primary}
+              onClick={onSubmit}
+              isLoading={isSubmitting}
+              // Disabled rather than merely rejected on press: the reason is known
+              // before the user reaches for the button, and letting them tap a live
+              // CTA only to be refused reads as a wallet fault rather than a
+              // deliberate refusal.
+              disabled={isSubmitting || scaleIsUnknown}
+              data-testid="send-review-submit"
+              className="w-full max-w-none rounded-full text-base font-semibold"
+            />
+          </div>
+        }
+      >
+        {/* The amount is the page's large text, in the same place as on the amount step. */}
+        <div className="mt-3 flex items-center gap-3" data-testid="review-amount">
+          <TokenLogo symbol={token?.name ?? ''} size="md" />
+          <span className="font-heading text-5xl leading-none font-bold text-heading-gray">
+            {amount} {token?.name ?? ''}
+          </span>
+        </div>
+        {fiatValue !== undefined && (
+          <span className="mt-2 font-heading text-base font-bold text-gray">
+            {t('approxFiatValue', { value: approxFiatAmount(fiatValue) })}
+          </span>
+        )}
+
+        <FlowDetails className="mt-6">
+          {/* The full address, never truncated: this is the last look before funds move. */}
+          <FlowDetailRow label={t('to')} stacked data-testid="review-row-to">
+            {to}
+          </FlowDetailRow>
+          <FlowDetailRow label={t('network')}>
+            {isBridge ? (
+              <NetworkChip kind="ethereum" label={bridgeNetworkObj?.name ?? t('ethereum')} />
+            ) : (
+              <NetworkChip kind="miden" label={t('miden')} />
+            )}
+          </FlowDetailRow>
 
           {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
-          {networkFee && <ReviewRow label={t('networkFeeMax')} value={networkFee} note={t('networkFeeEstimateNote')} />}
+          {networkFee && (
+            <FlowDetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
+              {networkFee}
+            </FlowDetailRow>
+          )}
 
           {isBridge ? (
             <>
-              <ReviewRow label={t('route')} value={`${routeLabel} ${arrivalLabel}`} />
-              <ReviewRow label={t('youReceive')}>
+              <FlowDetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</FlowDetailRow>
+              <FlowDetailRow label={t('youReceive')}>
                 {youReceiveLoading ? (
-                  <div className="h-7 w-32 animate-pulse rounded bg-heading-gray/10" />
+                  <div className="h-6 w-28 animate-pulse rounded bg-heading-gray/10" />
                 ) : (
                   youReceiveLabel
                 )}
-              </ReviewRow>
+              </FlowDetailRow>
             </>
           ) : (
-            <ReviewRow
+            <FlowDetailRow
               label={t('expirationDate')}
-              onEdit={() => setShowCalendar(true)}
-              editLabel={t('edit')}
-              note={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
+              accent="send"
+              action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
+              sub={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
+              data-testid="review-row-expiration"
             >
               {expirationLabel}
-            </ReviewRow>
+            </FlowDetailRow>
           )}
-        </ReviewLayout>
-      </div>
+        </FlowDetails>
+      </SendStepLayout>
 
       {!isBridge && (
         <RecallCalendarDrawer
@@ -449,6 +539,13 @@ export const ReviewTransaction: React.FC = () => {
           onRecallDateChange={handleRecallDateChange}
           onRecallTimeChange={setRecallTime}
           onRecallNever={handleRecallNever}
+        />
+      )}
+      {spendingLimitAssessment !== undefined && token !== undefined && (
+        <SpendingLimitChallenge
+          assessment={spendingLimitAssessment}
+          asset={{ symbol: token.name, decimals: token.decimals }}
+          onResult={handleSpendingLimitResult}
         />
       )}
     </div>

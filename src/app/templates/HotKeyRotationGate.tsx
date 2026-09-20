@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import Spinner from 'app/atoms/Spinner/Spinner';
 import { Button } from 'components/Button';
+import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import {
   initiateReplaceHotKeyTransaction,
   requestSWTransactionProcessing,
@@ -17,6 +18,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { navigate } from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
@@ -165,6 +167,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     // Failed rows are terminal — retry always enqueues a fresh transaction.
     void beginRotation(false);
   }, [beginRotation]);
+
+  if (row?.awaitingRecoverySeed && row.status === ITransactionStatus.Queued) {
+    return <RecoverySeedPrompt transaction={row} onClose={() => navigate('/')} />;
+  }
 
   return (
     // Same translucent scrim recipe as CustomModal: the wallet stays visible

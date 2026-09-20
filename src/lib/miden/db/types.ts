@@ -413,7 +413,18 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
+   * dry run that the confirmation sheet already renders.
+   *
+   * A custom request carries opaque `requestBytes`, so an execute row has no top-level
+   * `faucetId`/`amount` and the spending-limit policy could not see it as a spend at all - which
+   * made "send it as a custom transaction" a way around a configured cap. These totals are what
+   * the policy counts instead.
+   */
+  spentAssetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
+  spendingLimitAuthorizationId?: string;
   /**
    * Fee this transaction actually paid, in the fee asset's smallest unit.
    *
@@ -424,6 +435,9 @@ export interface ITransaction {
   feeAmount?: bigint;
   feeFaucetId?: string;
   requestBytes?: Uint8Array;
+  awaitingRecoverySeed?: boolean;
+  /** Start of the seed input wait, in seconds. */
+  recoverySeedRequestedAt?: number;
   status: ITransactionStatus;
   initiatedAt: number;
   /**
@@ -654,6 +668,8 @@ export class Transaction implements ITransaction {
   requestBytes?: Uint8Array;
   inputNoteIds?: string[];
   outputNoteIds?: string[];
+  /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
+  spentAssetTotals?: IConsumedAssetTotal[];
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
@@ -668,7 +684,8 @@ export class Transaction implements ITransaction {
     requestBytes: Uint8Array,
     inputNoteIds?: string[],
     delegateTransaction?: boolean,
-    recipientAccountId?: string
+    recipientAccountId?: string,
+    spentAssetTotals?: IConsumedAssetTotal[]
   ) {
     this.id = uuid();
     this.type = 'execute';
@@ -677,6 +694,7 @@ export class Transaction implements ITransaction {
     this.inputNoteIds = inputNoteIds;
     this.delegateTransaction = delegateTransaction;
     this.secondaryAccountId = recipientAccountId;
+    this.spentAssetTotals = spentAssetTotals;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

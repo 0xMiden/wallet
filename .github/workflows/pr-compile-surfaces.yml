@@ -68,6 +68,10 @@ jobs:
       # break here is a break there.
       - name: Build debug APK
         run: yarn test:e2e:android:build
+      # The JVM logic tests (Play update classification, hot-key rules) run
+      # nowhere else: assembleDebug never compiles src/test.
+      - name: Run Android unit tests
+        run: cd android && ./gradlew :app:testDebugUnitTest --console=plain
 
   desktop:
     name: Compile desktop (Tauri)
@@ -169,3 +173,19 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build
+
+      # The XCTest logic tests (App Store version comparison, receipt trust) run
+      # nowhere else: `build` never compiles the AppTests target. The simulator
+      # is chosen by id so a runner image that renames its devices still works.
+      - name: Run iOS unit tests
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -destination "id=$UDID" \
+            -only-testing:AppTests \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test

@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { SeedPhraseStatus } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -51,7 +52,10 @@ jest.mock('lib/mobile/haptics', () => ({
 
 // Store: KeysSettings calls `useWalletStore(selector)` once per derived value,
 // so the mock simply applies each selector to a per-test `mockState`.
-const mockState: { currentAccount: { type?: WalletType; hotPublicKey?: string } | undefined } = {
+const mockState: {
+  currentAccount: { type?: WalletType; hotPublicKey?: string; coldPublicKey?: string } | undefined;
+  seedPhraseStatus?: SeedPhraseStatus;
+} = {
   currentAccount: undefined
 };
 jest.mock('lib/store', () => ({
@@ -64,12 +68,27 @@ const mockHapticLight = hapticLight as jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks();
   mockState.currentAccount = undefined;
+  mockState.seedPhraseStatus = 'stored';
 });
 
 // ---------------------------------------------------------------------------
 // Row visibility across account shapes.
 // ---------------------------------------------------------------------------
 describe('KeysSettings — row visibility', () => {
+  it.each<SeedPhraseStatus | undefined>(['removing', 'removed', 'unavailable', undefined])(
+    'keeps the paired private key reveal with seed status %s',
+    status => {
+      mockState.seedPhraseStatus = status;
+      mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot-key', coldPublicKey: 'cold-key' };
+      render(<KeysSettings />);
+
+      expect(screen.getAllByText('revealPrivateKey')).toHaveLength(1);
+      expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
+      expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+      expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
+    }
+  );
+
   it('renders only the reveal-private-key row for a non-guardian account and omits the guardian section', () => {
     mockState.currentAccount = { type: WalletType.OffChain };
 
@@ -91,14 +110,14 @@ describe('KeysSettings — row visibility', () => {
     expect(icon).toHaveAttribute('data-name', 'chevron-right-lucide');
   });
 
-  it('renders all three rows plus the guardian section for a guardian with an activated hot key', () => {
-    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
+  it('renders one paired reveal row plus guardian rotation for an activated guardian', () => {
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
 
     expect(screen.getByText('revealPrivateKey')).toBeInTheDocument();
     // `isGuardian && hasActivatedHotKey` → true.
-    expect(screen.getByText('revealHotKey')).toBeInTheDocument();
+    expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
     // `isGuardian` → true.
     expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
 
@@ -106,23 +125,39 @@ describe('KeysSettings — row visibility', () => {
     expect(document.querySelector('hr')).not.toBeNull();
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
 
-    // Three visible rows → three row buttons.
-    expect(screen.getAllByRole('button')).toHaveLength(3);
+    // The paired reveal and rotation each have one row.
+    expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
   it('hides the reveal-hot-key row for a guardian without an activated hot key but keeps rotate-guardian and the guardian section', () => {
-    mockState.currentAccount = { type: WalletType.Guardian };
+    mockState.currentAccount = { type: WalletType.Guardian, coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
 
-    expect(screen.getByText('revealPrivateKey')).toBeInTheDocument();
+    expect(screen.queryByText('revealPrivateKey')).not.toBeInTheDocument();
     // hasActivatedHotKey === false → reveal-hot-key hidden.
     expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
     // rotate-guardian only needs `isGuardian`.
     expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
 
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+  });
+
+  // Hot-key-only import: a Guardian account with no coldPublicKey and no seed.
+  // The cold-signed recovery actions (rotate guardian, replace hot key) stay
+  // offered: the pipeline prompts for the seed phrase per transaction and
+  // derives the cold key against the on-chain signer without storing it.
+  it('keeps the recovery actions for a guardian without a cold key', () => {
+    mockState.seedPhraseStatus = 'unavailable';
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
+
+    render(<KeysSettings />);
+
+    expect(screen.getByText('revealPrivateKey')).toBeInTheDocument();
+    expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+    expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
+    expect(screen.queryByText('recoveryActionsRequireRecoveryKey')).not.toBeInTheDocument();
   });
 
   it('does not reveal the hot-key row for a non-guardian even when a hot public key is present', () => {
@@ -170,11 +205,11 @@ describe('KeysSettings — openPage', () => {
   });
 
   it('navigates to each guardian row path with its own target', () => {
-    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
 
-    fireEvent.click(screen.getByText('revealHotKey'));
+    fireEvent.click(screen.getByText('revealPrivateKey'));
     expect(mockNavigate).toHaveBeenLastCalledWith('/settings/reveal-hot-key');
 
     fireEvent.click(screen.getByText('rotateGuardian'));

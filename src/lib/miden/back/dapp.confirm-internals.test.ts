@@ -120,6 +120,16 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   getBech32AddressFromAccountId: () => 'bech32'
 }));
 
+// dapp.ts now assesses a custom request's simulated outgoing value against the spending-limit
+// policy before raising either sheet, so this suite has to stand that module in. `false` here is
+// "no limit configured for this account", which is what every case in this file assumes.
+const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
+const mockAssessOutgoingSpendingLimitDetails = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
+jest.mock('lib/miden/spending-limits/queue', () => ({
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args),
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
+}));
+
 jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
 }));
