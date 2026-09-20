@@ -147,6 +147,8 @@ function validScenes(): SceneManifest {
 
 function validRules(): StoreRules {
   return {
+    // The shipping shape: store-rules.json declares schemaVersion 1, so the fixture does too.
+    schemaVersion: 1,
     checkedAt: '2026-09-15',
     maxAgeDays: 180,
     sharedSceneOrder,
@@ -163,6 +165,9 @@ function validRules(): StoreRules {
           dimensions: [{ width: 132, height: 286 }],
           alphaAllowed: false
         },
+        recommendations: {
+          promotionalScreenshots: { enforcedForThisPackage: false }
+        },
         requiredKinds: {}
       },
       playStore: {
@@ -175,9 +180,15 @@ function validRules(): StoreRules {
           minDimension: 32,
           maxDimension: 384,
           maxLongToShortRatio: 2,
-          alphaAllowed: false,
-          promotionalMinimumCount: 4,
-          promotionalMinimumShortSide: 108
+          alphaAllowed: false
+        },
+        recommendations: {
+          promotionalScreenshots: {
+            enforcedForThisPackage: true,
+            minimumCount: 4,
+            minimumShortSide: 108,
+            orientation: 'portrait'
+          }
         },
         requiredKinds: {
           featureGraphic: { count: 1, width: 102, height: 50, alphaAllowed: false },
@@ -196,6 +207,9 @@ function validRules(): StoreRules {
             { width: 64, height: 40 }
           ],
           alphaAllowed: false
+        },
+        recommendations: {
+          promotionalScreenshots: { enforcedForThisPackage: false }
         },
         requiredKinds: {
           smallPromo: { count: 1, width: 44, height: 28, alphaAllowed: false },
@@ -444,6 +458,27 @@ describe('store listing package validation', () => {
     });
     expect(result.status).not.toBe(0);
     expect(output(result)).toContain('requires at least 4 promotional screenshots');
+  });
+
+  it('refuses a rules file that omits its schema version', async () => {
+    // The validator used to accept an absent schemaVersion, so a rules file written before the
+    // field existed passed silently. Every shipped manifest declares it; nothing else may.
+    const result = await runValidator((_scenes, rules) => {
+      delete (rules as { schemaVersion?: number }).schemaVersion;
+    });
+    expect(result.status).not.toBe(0);
+    expect(output(result)).toContain('Rule schemaVersion must be 1');
+  });
+
+  it('refuses a platform that does not state its promotional position', async () => {
+    // Absence used to read exactly like a deliberate opt-out: the recommendation resolved to
+    // undefined and the gate returned before asserting anything. Deleting the declaration must
+    // fail loudly, or the check can be disabled by omission.
+    const result = await runValidator((_scenes, rules) => {
+      delete rules.platforms.playStore.recommendations;
+    });
+    expect(result.status).not.toBe(0);
+    expect(output(result)).toContain('must declare recommendations.promotionalScreenshots');
   });
 
   it('describes the scene source with a JSON schema', () => {

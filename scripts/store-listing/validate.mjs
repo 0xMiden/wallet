@@ -161,16 +161,15 @@ function validateRequiredKinds(assets, rule) {
 function validatePromotionalRecommendation(assets, rule) {
   // Google describes this as promotional eligibility guidance, but the
   // approved package elects to enforce it as a release requirement.
-  const legacy = rule.screenshots.promotionalMinimumCount
-    ? {
-        minimumCount: rule.screenshots.promotionalMinimumCount,
-        minimumShortSide: rule.screenshots.promotionalMinimumShortSide,
-        orientation: 'portrait',
-        enforcedForThisPackage: true
-      }
-    : undefined;
-  const recommendation = rule.recommendations?.promotionalScreenshots ?? legacy;
-  if (!recommendation?.enforcedForThisPackage) return;
+  // Every platform states its position explicitly. Without this assert an absent key reads exactly
+  // like a deliberate opt-out, so deleting the declaration would silently disable the gate rather
+  // than fail - which is what a compatibility fallback for a never-shipped shape was hiding.
+  const recommendation = rule.recommendations?.promotionalScreenshots;
+  assert(
+    recommendation,
+    `${rule.label} must declare recommendations.promotionalScreenshots (use enforcedForThisPackage: false to opt out)`
+  );
+  if (!recommendation.enforcedForThisPackage) return;
 
   const eligible = assets.filter(
     asset =>
@@ -241,7 +240,7 @@ function copyIndex(output) {
 
 async function validatePackage({ scenes, rules, copy, root, asOf }) {
   assert(scenes.schemaVersion === 1, 'Scene schemaVersion must be 1');
-  assert(rules.schemaVersion === 1 || rules.schemaVersion === undefined, 'Rule schemaVersion must be 1');
+  assert(rules.schemaVersion === 1, 'Rule schemaVersion must be 1');
   assert(scenes.platforms && rules.platforms, 'Platform manifests are required');
   validatePunctuation(scenes, rules, copy);
   validateRuleAge(rules, asOf);
