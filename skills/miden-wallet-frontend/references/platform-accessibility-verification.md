@@ -24,9 +24,9 @@ Preserve the existing fixed popup, full-page, side-panel, and desktop sizing pat
 | Visual styling | Light and dark theme inspection |
 | Nontrivial motion | Normal and reduced-motion paths |
 | Persistent navigation | Targeted `BottomNav` and `TabLayout` Jest/RTL, keyboard and `aria-current`, route state, and haptics |
-| Mobile or shared layout | iPhone 17 simulator screenshot, Android interaction check, and every affected extension/desktop shell |
+| Mobile or shared layout | iPhone 17 simulator screenshot, Android interaction check, and affected extension/desktop surfaces |
 | New interaction | Keyboard behavior, focus, haptics, and loading/error/success states |
 
-For `BottomNav` or `TabLayout` changes, verify each surface affected by the shared code path: popup, full-page, side-panel, mobile, or desktop. A shared navigation change requires all rendered surfaces; a Capacitor safe-area-only change requires iOS and Android, not unrelated extension screenshots. Drive wallet tabs and page CTAs through normal React DOM interactions.
+A shared navigation change reaches every surface that renders it - popup, full-page, side-panel, mobile, desktop - while a Capacitor safe-area-only change requires iOS and Android, not unrelated extension screenshots. Drive wallet tabs and page CTAs through normal React DOM interactions.
 
 Use test mocks for Framer Motion where established by nearby tests, but assert behavior rather than implementation details. Keep tests colocated with the changed component.
