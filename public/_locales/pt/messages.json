@@ -442,7 +442,12 @@
   },
   "earnVaultTvl": {
     "message": "$tvl$ TVL",
-    "englishSource": "$tvl$ TVL"
+    "englishSource": "$tvl$ TVL",
+    "placeholders": {
+      "tvl": {
+        "content": "$1"
+      }
+    }
   },
   "earnSeeAll": {
     "message": "Ver tudo",
