@@ -3,9 +3,9 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { Button, ButtonVariant } from 'components/ui/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { Button, ButtonVariant } from 'components/ui/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';

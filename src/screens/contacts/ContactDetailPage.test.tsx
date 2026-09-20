@@ -51,7 +51,9 @@ jest.mock('screens/send-flow/bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
 }));
 const clipboardWriteMock = jest.fn().mockResolvedValue(undefined);
-jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => clipboardWriteMock(...args) } }));
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => clipboardWriteMock(...args) }
+}));
 jest.mock('utils/miden', () => ({
   detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
 }));
