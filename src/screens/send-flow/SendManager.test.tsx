@@ -35,6 +35,12 @@ let mockSelectedToken: any = { id: 'T1', name: 'TKN', decimals: 2, balance: 100,
 let mockSelectedContact: any = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
 
 let capturedBackHandler: (() => boolean) | null = null;
+let capturedBackHandlerDeps: unknown[] | null = null;
+
+/** Same comparison React uses for a deps array: same length, `Object.is` per slot. */
+function sameDeps(a: unknown[], b: unknown[]): boolean {
+  return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+}
 
 const navigateToMock = jest.fn();
 const goBackMock = jest.fn();
@@ -270,6 +276,7 @@ beforeEach(() => {
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
+  capturedBackHandlerDeps = null;
 
   useAccountMock.mockReturnValue({ publicKey: 'me-pk' });
   useAllAccountsMock.mockReturnValue([]);
@@ -287,9 +294,16 @@ beforeEach(() => {
   walletStoreState.isTransactionModalOpen = false;
   walletStoreState.lastCompletedTxHash = null;
 
-  // Capture the back-button handler from each render so tests can invoke it.
-  useMobileBackHandlerMock.mockImplementation((cb: any) => {
-    capturedBackHandler = cb;
+  // Capture the back-button handler the way registration actually picks one. The real hook
+  // registers inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately excluded
+  // from the deps, so the live handler is the one from the render that last CHANGED a dep, not the
+  // newest one. Re-capturing on every render hands tests the freshest closure and makes a value
+  // missing from the deps array impossible to catch.
+  useMobileBackHandlerMock.mockImplementation((cb: any, deps: unknown[] = []) => {
+    if (!capturedBackHandlerDeps || !sameDeps(deps, capturedBackHandlerDeps)) {
+      capturedBackHandlerDeps = deps;
+      capturedBackHandler = cb;
+    }
   });
 });
 
