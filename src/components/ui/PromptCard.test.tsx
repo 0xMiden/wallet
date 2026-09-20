@@ -62,6 +62,17 @@ describe('PromptCard', () => {
     expect(container.querySelector('.rounded-10')).toBeNull();
   });
 
+  it('takes the `outline` surface: a hairline edge on `page`, not a grey block', () => {
+    const { container } = render(<PromptCard title="Fund your wallet" body="You need MIDEN." />);
+
+    const card = container.firstChild as HTMLElement;
+    expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(card).not.toHaveClass('bg-fill');
+    // The named type styles, so the card reads like every other row on the page.
+    expect(screen.getByText('Fund your wallet')).toHaveClass('text-row-title');
+    expect(screen.getByText('You need MIDEN.')).toHaveClass('text-caption', 'text-muted');
+  });
+
   it('runs the card action when its content is clicked', () => {
     const onClick = jest.fn();
     render(<PromptCard title="Fund your wallet" onClick={onClick} />);

@@ -194,7 +194,9 @@ export const PromptCard: FC<PromptCardProps> = ({
       }}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
-        'relative overflow-hidden w-full h-[72px] bg-fill rounded-2xl',
+        // `outline`, like Activity's rows: a single actionable card that has to separate itself
+        // where it sits on the page, not a grey block on the home page.
+        'relative overflow-hidden w-full h-[72px] bg-page border border-hairline rounded-2xl',
         'flex items-center gap-3 px-4',
         // Tappable cards press in like the app's buttons do.
         onClick && 'transition-transform active:scale-[0.98]',
@@ -267,7 +269,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       ) : (
         <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-ink">
           <div className="text-row-title truncate">{title}</div>
-          {body && <div className="text-caption line-clamp-2">{body}</div>}
+          {body && <div className="text-caption line-clamp-2 text-muted">{body}</div>}
         </Lockup>
       )}
       {onDismiss && !hero ? (
