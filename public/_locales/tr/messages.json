@@ -5257,20 +5257,20 @@
     "englishSource": "Change the QR code color"
   },
   "durationUnitSeconds": {
-    "message": "Saniye",
-    "englishSource": "Seconds"
+    "message": "Sn.",
+    "englishSource": "Sec"
   },
   "durationUnitMinutes": {
-    "message": "Dakika",
-    "englishSource": "Minutes"
+    "message": "Dk.",
+    "englishSource": "Min"
   },
   "durationUnitHours": {
     "message": "Saat",
-    "englishSource": "Hours"
+    "englishSource": "Hour"
   },
   "durationUnitDays": {
     "message": "Gün",
-    "englishSource": "Days"
+    "englishSource": "Day"
   },
   "swapExpiryUnit": {
     "message": "Son kullanma birimi",

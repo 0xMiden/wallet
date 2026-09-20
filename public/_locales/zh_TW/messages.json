@@ -5258,19 +5258,19 @@
   },
   "durationUnitSeconds": {
     "message": "秒",
-    "englishSource": "Seconds"
+    "englishSource": "Sec"
   },
   "durationUnitMinutes": {
     "message": "分鐘",
-    "englishSource": "Minutes"
+    "englishSource": "Min"
   },
   "durationUnitHours": {
     "message": "小時",
-    "englishSource": "Hours"
+    "englishSource": "Hour"
   },
   "durationUnitDays": {
     "message": "天",
-    "englishSource": "Days"
+    "englishSource": "Day"
   },
   "swapExpiryUnit": {
     "message": "到期單位",

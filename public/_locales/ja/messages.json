@@ -5258,19 +5258,19 @@
   },
   "durationUnitSeconds": {
     "message": "秒",
-    "englishSource": "Seconds"
+    "englishSource": "Sec"
   },
   "durationUnitMinutes": {
     "message": "分",
-    "englishSource": "Minutes"
+    "englishSource": "Min"
   },
   "durationUnitHours": {
     "message": "時間",
-    "englishSource": "Hours"
+    "englishSource": "Hour"
   },
   "durationUnitDays": {
     "message": "日",
-    "englishSource": "Days"
+    "englishSource": "Day"
   },
   "swapExpiryUnit": {
     "message": "有効期限の単位",

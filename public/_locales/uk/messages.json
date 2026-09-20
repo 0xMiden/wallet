@@ -5257,20 +5257,20 @@
     "englishSource": "Change the QR code color"
   },
   "durationUnitSeconds": {
-    "message": "Секунди",
-    "englishSource": "Seconds"
+    "message": "Сек.",
+    "englishSource": "Sec"
   },
   "durationUnitMinutes": {
-    "message": "Хвилини",
-    "englishSource": "Minutes"
+    "message": "Хв.",
+    "englishSource": "Min"
   },
   "durationUnitHours": {
-    "message": "Години",
-    "englishSource": "Hours"
+    "message": "Год.",
+    "englishSource": "Hour"
   },
   "durationUnitDays": {
-    "message": "Дні",
-    "englishSource": "Days"
+    "message": "День",
+    "englishSource": "Day"
   },
   "swapExpiryUnit": {
     "message": "Одиниця терміну дії",

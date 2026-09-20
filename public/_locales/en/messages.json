@@ -5257,20 +5257,20 @@
     "englishSource": "Change the QR code color"
   },
   "durationUnitSeconds": {
-    "message": "Seconds",
-    "englishSource": "Seconds"
+    "message": "Sec",
+    "englishSource": "Sec"
   },
   "durationUnitMinutes": {
-    "message": "Minutes",
-    "englishSource": "Minutes"
+    "message": "Min",
+    "englishSource": "Min"
   },
   "durationUnitHours": {
-    "message": "Hours",
-    "englishSource": "Hours"
+    "message": "Hour",
+    "englishSource": "Hour"
   },
   "durationUnitDays": {
-    "message": "Days",
-    "englishSource": "Days"
+    "message": "Day",
+    "englishSource": "Day"
   },
   "swapExpiryUnit": {
     "message": "Expiry unit",
