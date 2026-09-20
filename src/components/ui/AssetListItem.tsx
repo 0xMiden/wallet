@@ -28,6 +28,11 @@ export interface AssetListItemProps {
   onClick?: () => void;
   className?: string;
   'data-testid'?: string;
+  /**
+   * Identifies the asset the row stands for, where the name and the test id cannot: two tokens can
+   * share a symbol, so a caller that has to address one exactly passes its faucet id here.
+   */
+  'data-token-id'?: string;
 }
 
 export const AssetListItem: FC<AssetListItemProps> = ({
@@ -41,7 +46,8 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   accent,
   onClick,
   className,
-  'data-testid': dataTestId
+  'data-testid': dataTestId,
+  'data-token-id': dataTokenId
 }) => {
   const handleClick = () => {
     if (!onClick) return;
@@ -104,14 +110,21 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 
   if (onClick) {
     return (
-      <button type="button" data-testid={dataTestId} onClick={handleClick} aria-pressed={selected} className={classes}>
+      <button
+        type="button"
+        data-testid={dataTestId}
+        data-token-id={dataTokenId}
+        onClick={handleClick}
+        aria-pressed={selected}
+        className={classes}
+      >
         {content}
       </button>
     );
   }
 
   return (
-    <div data-testid={dataTestId} className={classes}>
+    <div data-testid={dataTestId} data-token-id={dataTokenId} className={classes}>
       {content}
     </div>
   );

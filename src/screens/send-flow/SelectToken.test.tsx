@@ -269,24 +269,27 @@ describe('SelectTokenDrawer', () => {
     expect(row).toBeInTheDocument();
   });
 
-  it('draws each row as a list row: 40px logo, name, balance and fiat value', () => {
+  it('draws each row like the home assets list: 36px logo, name, balance and fiat value', () => {
     setBalances([BTC]);
     renderDrawer();
 
     const row = screen.getByTestId('send-token-BTC');
-    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-size', 'lg');
+    // No explicit size: the home asset row's 36px default.
+    expect(within(row).getByTestId('token-logo')).not.toHaveAttribute('data-size');
     expect(within(row).getByText('Bitcoin')).toBeInTheDocument();
     expect(within(row).getByText('1.50 BTC')).toBeInTheDocument();
     expect(within(row).getByText('$3.00')).toBeInTheDocument();
   });
 
-  it('groups the rows on the shared fill with inset hairlines, not full-bleed rules', () => {
+  it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
     setBalances([BTC, ETH]);
     renderDrawer();
 
-    const group = screen.getByTestId('send-token-BTC').parentElement!;
-    expect(group.className).toContain('bg-fill');
-    expect(group.className).toContain('rounded-2xl');
-    expect(screen.getByTestId('send-token-ETH').className).toContain('before:bg-hairline');
+    const list = screen.getByTestId('send-token-BTC').parentElement!;
+    expect(list.className).toContain('divide-y');
+    expect(list.className).toContain('divide-rule-default');
+    expect(list.className).not.toContain('bg-fill');
+    expect(list.className).not.toContain('rounded-2xl');
+    expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
   });
 });

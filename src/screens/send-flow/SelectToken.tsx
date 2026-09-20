@@ -3,8 +3,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
-import { ListGroup } from 'components/ui/ListGroup';
-import { ListRow } from 'components/ui/ListRow';
+import { AssetListItem } from 'components/ui/AssetListItem';
 import { SearchInput } from 'components/ui/SearchInput';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
@@ -25,6 +24,11 @@ export interface SelectTokenDrawerProps {
  * Token picker for the send flow, presented as a bottom sheet (vaul) over the
  * Amount step instead of a pushed sub-screen. Fixed at a comfortable height
  * even when the token list is short.
+ *
+ * Rows are the home tab's Assets rows (`AssetListItem`): 72px on the sheet's own
+ * surface, divided by a hairline rather than boxed, a 36px logo, the token name
+ * over its balance and the fiat value on the right — the same shape the swap
+ * picker draws, so the two sheets read as one list.
  */
 export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOpenChange, onSelect }) => {
   const { t } = useTranslation();
@@ -66,17 +70,17 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
             className="shrink-0"
           />
           <div className="no-scrollbar min-h-0 overflow-y-auto pt-5">
-            <ListGroup>
+            <div className="flex flex-col divide-y divide-rule-default">
               {filteredBalances.map(b => {
                 const scaleIsKnown = hasKnownScale(b.metadata);
                 const price = getTokenPrice(tokenPrices, b.metadata.symbol).price;
                 return (
-                  <ListRow
+                  <AssetListItem
                     key={b.tokenId}
-                    title={b.metadata.name || b.metadata.symbol}
-                    subtitle={scaleIsKnown ? `${toAdaptiveFixed(b.balance)} ${b.metadata.symbol}` : b.metadata.symbol}
-                    avatar={<TokenLogo symbol={b.metadata.symbol} size="lg" />}
-                    value={scaleIsKnown ? `$${toAdaptiveFixed(b.balance * price)}` : undefined}
+                    icon={<TokenLogo symbol={b.metadata.symbol} />}
+                    name={b.metadata.name || b.metadata.symbol}
+                    amount={scaleIsKnown ? `${toAdaptiveFixed(b.balance)} ${b.metadata.symbol}` : b.metadata.symbol}
+                    price={scaleIsKnown ? `$${toAdaptiveFixed(b.balance * price)}` : undefined}
                     data-testid={`send-token-${b.metadata.symbol}`}
                     data-token-id={b.tokenId}
                     onClick={() =>
@@ -92,7 +96,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                   />
                 );
               })}
-            </ListGroup>
+            </div>
           </div>
         </div>
       </DrawerContent>
