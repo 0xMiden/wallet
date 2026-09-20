@@ -239,6 +239,29 @@ describe('simulateCustomTransaction', () => {
     expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
+  // Regression: `executeForSummary` runs on a client `getRawMidenClient` builds itself, without
+  // the create-options keystore this wallet installs, so it has no signer for an ordinary account
+  // and dies inside the kernel's auth-request event. That is not TRANSACTION_ALREADY_AUTHORIZED,
+  // so it used to rethrow, leaving the dApp custom sheet with no verified asset view, and making
+  // an account with a spending limit refuse every custom request, since the wallet could attribute
+  // no effects to it.
+  it.each([
+    [
+      'the kernel auth-request failure',
+      new Error(
+        "failed to execute transaction kernel program: error during processing of event 'miden::protocol::auth::request'\n  |-> failed to generate signature\n  `-> storage error: Failed to get secret key from IndexedDB"
+      )
+    ],
+    ['the bare keystore miss', new Error('storage error: Failed to get secret key from IndexedDB')]
+  ])('falls back to a local execution when the summary client cannot sign (%s)', async (_label, err) => {
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(err);
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
+  });
+
   it('still reports a genuine execution failure as { error } rather than executing locally', async () => {
     (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
 
