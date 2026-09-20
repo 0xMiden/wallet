@@ -147,3 +147,16 @@ describe('EmptyState', () => {
     expect(action.getAttribute('data-classname')).not.toMatch(/\bh-9\b|\btext-sm\b/);
   });
 });
+
+describe('EmptyState surfaces', () => {
+  it('sits on fill by default and inside a dashed hairline on page for the dashed surface', () => {
+    const { container, rerender } = render(<EmptyState icon={IconName.Apps} title="Nothing" />);
+    expect(container.firstChild).toHaveClass('bg-fill');
+
+    rerender(<EmptyState icon={IconName.Apps} title="Nothing" surface="dashed" />);
+    expect(container.firstChild).toHaveClass('bg-page', 'border', 'border-dashed', 'border-hairline');
+    expect(container.firstChild).not.toHaveClass('bg-fill');
+    // The icon circle inverts with the surface so it never disappears into it.
+    expect(container.querySelector('.rounded-full')).toHaveClass('bg-fill');
+  });
+});

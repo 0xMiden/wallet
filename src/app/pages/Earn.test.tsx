@@ -109,6 +109,17 @@ describe('Earn page', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/earn/positions');
   });
 
+  it('shows the dashed empty state, not the scroll row, when there are no positions', () => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults });
+    render(<Earn />);
+
+    const empty = screen.getByTestId('earn-positions-empty');
+    expect(empty).toHaveClass('border-dashed');
+    expect(empty).toHaveTextContent('earnNoActivePositionsTitle');
+    expect(empty).toHaveTextContent('earnNoActivePositionsBody');
+    expect(positionsSection().querySelector('.overflow-x-auto')).toBeNull();
+  });
+
   it('renders one PositionCard per position with its details', () => {
     render(<Earn />);
 
@@ -124,7 +135,7 @@ describe('Earn page', () => {
     const firstCard = cards[0]!;
     // Protocol + asset are joined by a bullet in a single node.
     expect(firstCard).toHaveTextContent(`${first.protocol} • ${first.asset}`);
-    expect(firstCard).toHaveTextContent(`${first.apy} earnApyLabel`);
+    expect(firstCard).toHaveTextContent('earnPositionsApy');
     expect(firstCard).toHaveTextContent(first.amount);
     expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
 
@@ -172,7 +183,7 @@ describe('Earn page', () => {
     expect(stopSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('renders one VaultRow per vault with its details and a chevron', () => {
+  it('renders one VaultRow per vault with its details and TVL line', () => {
     render(<Earn />);
 
     const section = vaultsSection();
@@ -184,12 +195,8 @@ describe('Earn page', () => {
     expect(firstRow).toHaveTextContent(first.protocol);
     expect(firstRow).toHaveTextContent('earnVaultAssetOnNetwork');
     expect(firstRow).toHaveTextContent(first.apy);
-
-    // The trailing chevron probe uses the ChevronRightLucide icon rendered with
-    // fill="none".
-    const chevron = within(firstRow).getByTestId('chevron-icon');
-    expect(chevron).toHaveAttribute('data-name', 'ChevronRightLucide');
-    expect(chevron).toHaveAttribute('data-fill', 'none');
+    // The vault's TVL sits under its APY, through the `earnVaultTvl` template.
+    expect(firstRow).toHaveTextContent('earnVaultTvl');
 
     // Each row also renders a ProviderLogo probe with the vault's protocol.
     expect(within(firstRow).getByTestId('provider-logo')).toHaveAttribute('data-protocol', first.protocol);

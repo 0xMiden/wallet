@@ -432,6 +432,18 @@
     "message": "Montant du dépôt",
     "englishSource": "Deposit Amount"
   },
+  "earnNoActivePositionsTitle": {
+    "message": "No active positions",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Deposit into a vault below to start earning rewards.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
+  },
+  "earnVaultTvl": {
+    "message": "$tvl$ TVL",
+    "englishSource": "$tvl$ TVL"
+  },
   "earnSeeAll": {
     "message": "Tout afficher",
     "englishSource": "See All"
