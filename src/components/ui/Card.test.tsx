@@ -172,3 +172,21 @@ describe('CardButton', () => {
     expect(button).toHaveAttribute('data-dapp-url', 'https://example.org');
   });
 });
+
+describe('Card surfaces', () => {
+  it('fills by default and outlines on request, on Card and CardButton alike', () => {
+    const { container, rerender } = render(<Card>x</Card>);
+    expect(container.firstChild).toHaveClass('bg-fill');
+
+    rerender(<Card surface="outline">x</Card>);
+    expect(container.firstChild).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(container.firstChild).not.toHaveClass('bg-fill');
+
+    rerender(
+      <CardButton surface="outline" onClick={() => undefined}>
+        x
+      </CardButton>
+    );
+    expect(screen.getByRole('button')).toHaveClass('bg-page', 'border', 'border-hairline');
+  });
+});

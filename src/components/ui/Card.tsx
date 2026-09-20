@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { Slot } from '@radix-ui/react-slot';
-import { cva } from 'class-variance-authority';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
 import { usePreset } from 'lib/animation';
@@ -16,8 +16,13 @@ import { cn } from 'lib/ui/util';
  */
 export type CardPadding = 'none' | 'row' | 'tile';
 
-const cardVariants = cva('rounded-2xl bg-fill text-left', {
+const cardVariants = cva('rounded-2xl text-left', {
   variants: {
+    surface: {
+      fill: 'bg-fill',
+      // On `page` with a hairline edge: Activity's rows and pending transfers.
+      outline: 'bg-page border border-hairline'
+    },
     padding: {
       none: '',
       row: 'px-4 py-3',
@@ -33,11 +38,15 @@ const cardVariants = cva('rounded-2xl bg-fill text-left', {
       false: ''
     }
   },
-  defaultVariants: { padding: 'tile', interactive: false }
+  defaultVariants: { surface: 'fill', padding: 'tile', interactive: false }
 });
+
+export type CardSurface = NonNullable<VariantProps<typeof cardVariants>['surface']>;
 
 export interface CardProps {
   children: React.ReactNode;
+  /** `fill` (default) or `outline`: a hairline edge on `page` instead of the fill. */
+  surface?: CardSurface;
   padding?: CardPadding;
   /**
    * Render the card's surface onto the single child instead of a `div`, for a child that is its
@@ -62,6 +71,7 @@ export interface CardProps {
  */
 export const Card: React.FC<CardProps> = ({
   children,
+  surface,
   padding,
   asChild = false,
   interactive = false,
@@ -72,7 +82,7 @@ export const Card: React.FC<CardProps> = ({
   const Comp = asChild ? Slot : 'div';
   return (
     <Comp
-      className={cn(cardVariants({ padding, interactive }), className)}
+      className={cn(cardVariants({ surface, padding, interactive }), className)}
       aria-label={ariaLabel}
       data-testid={dataTestId}
     >
@@ -89,6 +99,7 @@ export interface CardButtonProps extends Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
   FramerConflictingHandlers
 > {
+  surface?: CardSurface;
   padding?: CardPadding;
   /** Layout only (margins, width, flex). */
   className?: string;
@@ -100,7 +111,7 @@ export interface CardButtonProps extends Omit<
  * `fill-pressed` state and a focus ring.
  */
 export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(function CardButton(
-  { padding, className, disabled, onClick, children, ...props },
+  { surface, padding, className, disabled, onClick, children, ...props },
   ref
 ) {
   const press = usePreset('press');
@@ -112,7 +123,7 @@ export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(f
       disabled={disabled}
       whileTap={disabled ? undefined : press.whileTap}
       transition={press.transition}
-      className={cn(cardVariants({ padding, interactive: true }), className)}
+      className={cn(cardVariants({ surface, padding, interactive: true }), className)}
       {...props}
       onClick={e => {
         hapticLight();
