@@ -371,7 +371,7 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed success path -> revealed view.
   // -------------------------------------------------------------------------
-  it('reveals the seed phrase via hardware unlock after View and shows the capitalized word grid', async () => {
+  it('reveals the seed phrase via hardware unlock after View and shows the numbered word grid', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
     const container = await renderAndView();
@@ -379,13 +379,14 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
 
-    // Revealed view: PageHeader + capitalized words + copy/hide buttons.
+    // Revealed view: PageHeader + the numbered words + copy/hide buttons.
     expect(container.querySelector('[data-testid="nh-title"]')!.textContent).toBe('recoveryPhrase');
     // PageHeader has no horizontal padding of its own — the page supplies it,
     // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
     expect(container.querySelector('[data-testid="nav-header"]')).toHaveClass('px-4');
-    expect(container.textContent).toContain('Alpha');
-    expect(container.textContent).toContain('Delta');
+    // The same grid the verify flow draws: numbered, in the phrase's own casing.
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(container.querySelector('[data-testid="seed-word-3"]')!.textContent).toBe('delta');
     // Not-yet-copied label + the shared copy glyph.
     expect(container.textContent).toContain('copyToClipboard');
     expect(container.querySelector('[data-copy-icon] [data-name="CopyNew"]')).toBeTruthy();
@@ -431,9 +432,9 @@ describe('RevealSeedPhrase', () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const container = await renderAndView();
 
-    const grid = container.querySelector('[data-testid="reveal-seed-copy"]')!.parentElement!.nextElementSibling!;
+    const grid = container.querySelector('[data-testid="seed-word-0"]')!.closest('.rounded-2xl')!;
     expect(grid).toHaveClass('bg-fill', 'rounded-2xl');
-    expect(grid.querySelector('span')).toHaveClass('text-value', 'text-ink');
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toHaveClass('text-value', 'text-ink');
     // No lone white block and no bordered one-off copy button any more.
     expect(container.querySelector('.bg-white')).toBeNull();
     expect(container.querySelector('.border-border-card')).toBeNull();
