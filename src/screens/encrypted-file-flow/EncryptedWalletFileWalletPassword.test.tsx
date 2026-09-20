@@ -105,16 +105,6 @@ jest.mock('components/PasscodeEntry', () => ({
   )
 }));
 
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ title, description }: { title?: React.ReactNode; description?: React.ReactNode }) => (
-    <div data-testid="alert" role="alert">
-      <span data-testid="alert-title">{title}</span>
-      <span data-testid="alert-desc">{description}</span>
-    </div>
-  )
-}));
-
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
   IconName: { Eye: 'Eye', EyeOff: 'EyeOff' }
@@ -135,6 +125,11 @@ const makeProps = (
 
 // Renders and flushes the async `Vault.hasHardwareProtector()` promise so the
 // body mounts (the component renders null until it resolves).
+// The shared negative `Notice` replaced the Alert atom: it labels its title and body by slot.
+const noticePart = (slot: 'title' | 'body') =>
+  document.querySelector<HTMLElement>(`[data-tone="negative"] [data-slot="${slot}"]`)!;
+const noticeBody = () => noticePart('body');
+
 const renderComp = async (props: EncryptedWalletFileWalletPasswordProps) => {
   const utils = render(<EncryptedWalletFileWalletPassword {...props} />);
   await act(async () => {
@@ -315,7 +310,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     clickConfirm();
     fireEvent.click(screen.getByTestId('action-button'));
 
-    await waitFor(() => expect(screen.getByTestId('alert-desc')).toHaveTextContent('hw-fail'));
+    await waitFor(() => expect(noticeBody()).toHaveTextContent('hw-fail'));
     // Hardware failures skip the attempt/time-lock accounting.
     expect(mockStore[ATTEMPT_KEY]).toBeUndefined();
     expect(mockStore[TIMELOCK_KEY]).toBeUndefined();
@@ -328,8 +323,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
     clickConfirm();
     fireEvent.click(screen.getByTestId('action-button'));
 
-    await waitFor(() => expect(screen.getByTestId('alert-title')).toHaveTextContent('error'));
-    expect(screen.getByTestId('alert-desc')).toHaveTextContent('');
+    await waitFor(() => expect(noticePart('title')).toHaveTextContent('error'));
+    expect(noticeBody()).toHaveTextContent('');
   });
 
   it('forwards a failed passcode unlock error into the numpad', async () => {
@@ -417,7 +412,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     mockStore[TIMELOCK_KEY] = Date.now();
     await renderComp(makeProps({ walletPassword: 'pw' }));
 
-    const desc = screen.getByTestId('alert-desc');
+    const desc = noticeBody();
     expect(desc).toHaveTextContent('unlockPasswordErrorDelay');
     // ~11 minutes exercises checkTime's >= 10 branch (two-digit minutes),
     // regardless of the few ms of jitter between seeding and rendering.

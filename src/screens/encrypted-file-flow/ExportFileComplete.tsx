@@ -310,9 +310,7 @@ const OutcomeHero: React.FC<{ visual: React.ReactNode; title: React.ReactNode; c
 }) => (
   <div className="flex flex-1 flex-col items-center justify-center" data-testid="export-outcome">
     <Hero visual={visual} name={title} />
-    <div className="mt-3 flex max-w-sm flex-col gap-3 text-center font-sans text-sm leading-5 text-muted">
-      {children}
-    </div>
+    <div className="mt-3 flex max-w-sm flex-col gap-3 text-center text-body-sm text-muted">{children}</div>
   </div>
 );
 
