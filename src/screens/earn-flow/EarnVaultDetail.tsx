@@ -6,6 +6,7 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Pill } from 'components/ui/Pill';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
@@ -23,7 +24,10 @@ const TIMEFRAME_ITEMS: SegmentedControlItem<EarnTimeframe>[] = TIMEFRAMES.map(tf
   id: tf,
   label: tf
 }));
-const CHART_GREEN = '#90BA89';
+// The chart's own ink, as a token rather than a literal: recharts takes SVG paint strings, so the
+// CSS custom property goes in directly and follows the theme.
+const CHART_POSITIVE = 'var(--status-positive)';
+const CHART_DOT_RING = 'var(--ds-page)';
 
 interface EarnVaultDetailProps {
   vaultId: string;
@@ -49,16 +53,13 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       <div className="flex-1 overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 pb-8 pt-8">
           <section aria-labelledby="earn-vault-apy-title">
-            <div
-              id="earn-vault-apy-title"
-              className="font-heading text-[56px] font-bold leading-none text-status-positive"
-            >
+            {/* The figure the page is about, then its label and its 24h move — all on named type
+                styles, and on `positive-tint-ink`, the only green that carries text. */}
+            <div id="earn-vault-apy-title" className="text-display text-positive-tint-ink">
               {vault.apy}
             </div>
-            <div className="mt-2 text-xs font-bold uppercase leading-none tracking-wide text-gray-secondary">
-              {t('earnCurrentApy')}
-            </div>
-            <div className="mt-0.5 text-xl font-semibold leading-none text-status-positive">{vault.apyChange24h}</div>
+            <div className="mt-2 text-label text-muted">{t('earnCurrentApy')}</div>
+            <div className="mt-0.5 text-value text-positive-tint-ink">{vault.apyChange24h}</div>
           </section>
 
           <VaultAreaChart vault={vault} />
@@ -102,12 +103,12 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
 
   return (
     <div className="mt-10 h-[140px]">
-      <ChartContainer config={{ apy: { color: CHART_GREEN } }} className="h-full w-full aspect-auto">
+      <ChartContainer config={{ apy: { color: CHART_POSITIVE } }} className="h-full w-full aspect-auto">
         <AreaChart data={vault.chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
           <defs>
             <linearGradient id="earn-vault-area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={CHART_GREEN} stopOpacity={0.28} />
-              <stop offset="95%" stopColor={CHART_GREEN} stopOpacity={0} />
+              <stop offset="5%" stopColor={CHART_POSITIVE} stopOpacity={0.28} />
+              <stop offset="95%" stopColor={CHART_POSITIVE} stopOpacity={0} />
             </linearGradient>
           </defs>
           <YAxis domain={[min - padding, max + padding]} hide />
@@ -117,9 +118,11 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
               return (
-                <div className="rounded-lg bg-ink px-2 py-1 text-xs text-pure-white shadow">
-                  <div className="font-heading font-semibold">{Number(point.value).toFixed(2)}%</div>
-                  <div className="opacity-75">{point.label}</div>
+                <div className="rounded-xl bg-ink px-2 py-1 text-pure-white shadow">
+                  <div className="text-badge">{Number(point.value).toFixed(2)}%</div>
+                  {/* An inverted surface: `muted` is tuned for `page` and `fill`, so the quiet line
+                      here is the same white held back. */}
+                  <div className="text-caption text-pure-white/70">{point.label}</div>
                 </div>
               );
             }}
@@ -130,10 +133,17 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
             stroke="var(--color-apy)"
             strokeWidth={2.5}
             fill="url(#earn-vault-area)"
-            activeDot={{ r: 4, stroke: CHART_GREEN, fill: CHART_GREEN, strokeWidth: 1 }}
+            activeDot={{ r: 4, stroke: CHART_POSITIVE, fill: CHART_POSITIVE, strokeWidth: 1 }}
             dot={(props: any) =>
               props.index === lastIndex ? (
-                <circle cx={props.cx} cy={props.cy} r={4} fill={CHART_GREEN} stroke="#FFFFFF" strokeWidth={2} />
+                <circle
+                  cx={props.cx}
+                  cy={props.cy}
+                  r={4}
+                  fill={CHART_POSITIVE}
+                  stroke={CHART_DOT_RING}
+                  strokeWidth={2}
+                />
               ) : null
             }
           />
@@ -149,7 +159,12 @@ const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => {
   return (
     <div className="mt-6 grid grid-cols-3 gap-2">
       <MetricCard label={t('earnTvlLabel')} value={vault.tvl} className="px-3" />
-      <MetricCard label={t('earnRiskLabel')} value={vault.risk} valueClassName="text-[#009B3A]" className="px-3" />
+      <MetricCard
+        label={t('earnRiskLabel')}
+        value={vault.risk}
+        valueClassName="text-positive-tint-ink"
+        className="px-3"
+      />
       <MetricCard
         label={t('earnAuditedLabel')}
         value={vault.audited ? `✓ ${t('yes')}` : t('no')}
@@ -165,8 +180,10 @@ const VaultAbout: FC<{ vault: EarnVault }> = ({ vault }) => {
 
   return (
     <section className="mt-4">
-      <h2 className="font-heading text-base font-bold leading-none text-ink">{t('about')}</h2>
-      <p className="mt-3 text-sm leading-snug text-ink">{vault.about}</p>
+      <SectionHeader size="lg" className="px-0">
+        {t('about')}
+      </SectionHeader>
+      <p className="text-body text-muted">{vault.about}</p>
     </section>
   );
 };
