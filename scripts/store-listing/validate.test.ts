@@ -509,6 +509,27 @@ describe('store listing package validation', () => {
     expect(output(result)).toContain('Rule schemaVersion must be 1');
   });
 
+  it('refuses a promotional declaration that is present but states nothing', async () => {
+    // An empty object is truthy, so a bare presence check let it through and the early return made
+    // it behave exactly like the deliberate opt-out - the same failure the declaration requirement
+    // exists to close, one level down.
+    const result = await runValidator((_scenes, rules) => {
+      rules.platforms.playStore.recommendations = { promotionalScreenshots: {} };
+    });
+    expect(result.status).not.toBe(0);
+    expect(output(result)).toContain('enforcedForThisPackage must be true or false');
+  });
+
+  it('refuses an enforced recommendation with no numbers to enforce', async () => {
+    const result = await runValidator((_scenes, rules) => {
+      rules.platforms.playStore.recommendations = {
+        promotionalScreenshots: { enforcedForThisPackage: true }
+      };
+    });
+    expect(result.status).not.toBe(0);
+    expect(output(result)).toContain('declares no minimumCount and minimumShortSide');
+  });
+
   it('refuses a platform that does not state its promotional position', async () => {
     // Absence used to read exactly like a deliberate opt-out: the recommendation resolved to
     // undefined and the gate returned before asserting anything. Deleting the declaration must
