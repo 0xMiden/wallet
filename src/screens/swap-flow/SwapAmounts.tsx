@@ -6,11 +6,10 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
-import { stepFooterCushionClass } from 'components/flow/footer-cushion';
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
-import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
@@ -89,7 +88,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   // Each side is titled like a tab root's page title, the same weight as Send's "Send to".
   const fieldLabel = (text: string) => <span className="text-title-tab text-ink">{text}</span>;
   // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
-  const navbarHidden = useNavbarHidden();
   const offerAmountValue = Number(offerAmount);
   const awaitingAmount = !(offerAmountValue > 0);
   const offerAmountExceedsBalance = offerAmountValue > offerBalance;
@@ -175,8 +173,9 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         )}
       </div>
 
-      {/* Same cushion as a send step's CTA, so both flows' buttons sit on one line. */}
-      <div className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>
+      {/* The same pinned footer a send step uses, so both flows' buttons sit on one line and ride
+          the keyboard the same way. The swap page is a tab root, so the CTA clears the docked bar. */}
+      <FlowFooter tabBarBelow>
         <Button
           title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
           variant={ButtonVariant.Primary}
@@ -189,7 +188,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         >
           {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
         </Button>
-      </div>
+      </FlowFooter>
     </div>
   );
 };

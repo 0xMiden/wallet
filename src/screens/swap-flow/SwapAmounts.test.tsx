@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { SwapAmounts, SwapAmountsProps } from './SwapAmounts';
 
@@ -350,12 +351,24 @@ describe('SwapAmounts', () => {
 });
 
 describe('SwapAmounts — CTA', () => {
-  it("sits on the same cushion as a send step, so both flows' buttons line up", () => {
+  // Not just the same padding: the same component, so the CTA gets the send steps' slide-on-reflow
+  // too. Building its own footer is why swap snapped twice on every keyboard close while send only
+  // hopped once.
+  it("pins its CTA with the same footer a send step uses, so both flows' buttons line up", () => {
     renderComponent();
-    const footer = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement;
-    // The send step's cushion class, not the old fixed pb-24 with a navbar-cushion tag.
-    expect(footer?.className).toContain('pb-[max(');
-    expect(footer?.getAttribute('data-navbar-cushion')).toBeNull();
+    const swapFooter = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement;
+
+    render(
+      <SendStepLayout tabRoot title="send" footer={<button>send cta</button>}>
+        <p>content</p>
+      </SendStepLayout>
+    );
+    const sendFooter = screen.getByText('send cta').parentElement;
+
+    expect(swapFooter?.className).toBe(sendFooter?.className);
+    // The keyboard-aware cushion, not the old fixed pb-24 with a navbar-cushion tag.
+    expect(swapFooter?.className).toContain('--keyboard-height');
+    expect(swapFooter?.getAttribute('data-navbar-cushion')).toBeNull();
   });
 
   it('asks for an amount first, waits on the quote, then offers the review', () => {
