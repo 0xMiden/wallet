@@ -196,3 +196,38 @@ it('announces a radio choice as a radio, forwards focus handling, and can leave 
   expect(onClick).toHaveBeenCalledTimes(1);
   expect(hapticLight).not.toHaveBeenCalled();
 });
+
+it('paints its glyph, chevron and hairline in a flow accent, leaving the text neutral', () => {
+  render(
+    <ListRow
+      title="Cross-chain"
+      subtitle="From Sepolia"
+      icon={<svg data-testid="glyph" />}
+      chevron
+      accent="receive"
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByTestId('row');
+  const circle = row.querySelector('[data-slot="icon"]')!;
+  expect(circle).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
+  expect(circle).not.toHaveClass('bg-page', 'text-ink');
+  expect(row.querySelector('[data-slot="chevron"]')).toHaveClass('stroke-accent-receive');
+  expect(row.querySelector('[data-slot="chevron"]')).not.toHaveClass('stroke-muted');
+  expect(row).toHaveClass('before:bg-accent-receive/25');
+  expect(row).not.toHaveClass('before:bg-hairline');
+  // The accent never reaches the copy: it is under 4.5:1 as text.
+  expect(row.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
+  expect(screen.getByText('From Sepolia')).toHaveClass('text-muted');
+});
+
+it('keeps the neutral chrome without an accent', () => {
+  render(<ListRow title="Language" icon={<svg />} chevron accent={undefined} data-testid="row" />);
+
+  const row = screen.getByTestId('row');
+  expect(row.querySelector('[data-slot="icon"]')).toHaveClass('bg-page', 'text-ink');
+  expect(row.querySelector('[data-slot="chevron"]')).toHaveClass('stroke-muted');
+  expect(row).toHaveClass('before:bg-hairline');
+});
