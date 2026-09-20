@@ -228,7 +228,7 @@ export const NewContactPage: React.FC = () => {
           <ContactNameInput value={name} onChange={setName} />
 
           {saveError && (
-            <p role="alert" className="-mt-2 text-sm text-negative-ink">
+            <p role="alert" className="-mt-2 text-caption text-negative-ink">
               {saveError}
             </p>
           )}
