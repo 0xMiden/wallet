@@ -2,6 +2,8 @@ import React, { useRef } from 'react';
 
 import { act, render } from '@testing-library/react';
 
+import { springToLinearEasing, springs } from 'lib/animation';
+
 import { useSlideOnReflow } from './useSlideOnReflow';
 
 let reduceMotion = false;
@@ -49,17 +51,17 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 const Harness = () => {
-  const container = useRef<HTMLDivElement>(null);
   const footer = useRef<HTMLDivElement>(null);
-  useSlideOnReflow(footer, container);
+  useSlideOnReflow(footer);
   return (
-    <div ref={container}>
+    <div>
       <div ref={footer}>cta</div>
     </div>
   );
 };
 
 const keyframes = () => animateMock.mock.calls.at(-1)?.[0];
+const options = () => animateMock.mock.calls.at(-1)?.[1];
 
 it('slides up from where it was drawn when the keyboard pushes it up', () => {
   render(<Harness />);
@@ -76,6 +78,19 @@ it('slides down when the keyboard closes', () => {
   act(() => reflow());
 
   expect(keyframes()).toEqual([{ transform: 'translateY(-200px)' }, { transform: 'translateY(0)' }]);
+});
+
+// The slide is one of the app's springs, solved into a `linear()` curve so the compositor can run
+// it above WKWebView's 60Hz rAF cap. `standard` is all but critically damped on purpose: a CTA
+// riding the keyboard up must not overshoot past the keyboard's edge.
+it('runs the slide on the shared standard spring, as a compositor curve', () => {
+  render(<Harness />);
+  top = 500;
+  act(() => reflow());
+
+  const solved = springToLinearEasing(springs.standard, { distance: 200 });
+  expect(options()).toEqual({ duration: solved?.duration, easing: solved?.easing });
+  expect(options().easing).toMatch(/^linear\(/);
 });
 
 it('does nothing when the position did not change', () => {
