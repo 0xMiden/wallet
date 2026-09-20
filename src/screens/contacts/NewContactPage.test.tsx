@@ -10,12 +10,17 @@ import { NewContactPage } from './NewContactPage';
 
 const addContactMock = jest.fn();
 const backMock = jest.fn();
+const navigateMock = jest.fn();
 const contactsMock = jest.fn();
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => ({ allContacts: contactsMock() })
 }));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => backMock }));
+jest.mock('lib/woozie', () => ({
+  navigate: (...args: unknown[]) => navigateMock(...args),
+  HistoryAction: { Push: 'pushstate', Replace: 'replacestate' }
+}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, string>) => (params ? `${key}:${JSON.stringify(params)}` : key)
@@ -59,6 +64,7 @@ const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
 beforeEach(() => {
   addContactMock.mockReset().mockResolvedValue(undefined);
   backMock.mockReset();
+  navigateMock.mockReset();
   contactsMock.mockReturnValue([{ name: 'Alice', address: 'mtst1goodalice' }]);
   (isMobile as jest.Mock).mockReturnValue(false);
   (isScanAvailable as jest.Mock).mockReturnValue(false);
@@ -87,7 +93,7 @@ it('saves a 0x contact with its network and goes back', async () => {
   expect(addContactMock).toHaveBeenCalledWith(
     expect.objectContaining({ address: EVM, name: 'Paul', network: 'sepolia' })
   );
-  expect(backMock).toHaveBeenCalled();
+  expect(navigateMock).toHaveBeenCalledWith('/settings/address-book', 'replacestate');
 });
 
 it('saves a Miden contact without a network', async () => {
@@ -232,5 +238,9 @@ it('ignores the header back while the save is in flight, so the save navigates e
   await act(async () => {
     resolveSave();
   });
-  expect(backMock).toHaveBeenCalledTimes(1);
+  // The success path navigates to a NAMED destination, so a location change during the write
+  // cannot make it traverse from somewhere else. Same rule as the delete in ContactDetailPage.
+  expect(navigateMock).toHaveBeenCalledTimes(1);
+  expect(navigateMock).toHaveBeenCalledWith('/settings/address-book', 'replacestate');
+  expect(backMock).not.toHaveBeenCalled();
 });
