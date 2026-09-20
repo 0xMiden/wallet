@@ -216,3 +216,42 @@ export function validateCapturePlan(plan: readonly CapturePlanEntry[]): void {
 }
 
 validateCapturePlan(capturePlan);
+
+/**
+ * The page-side shim every capture context installs, hoisted so it can be driven directly.
+ *
+ * It wraps `globalThis.fetch` in an accessor so the wallet's own `installGuardianCorsBypass` can
+ * still install its wrapper, while a re-entrant call from inside that wrapper reaches the real
+ * browser fetch instead of looping. The guard distinguishes NESTING from CONCURRENCY: it covers
+ * only the synchronous call into the installed wrapper, never the network round trip, because a
+ * flag held across the await makes overlapping requests - the normal case on a wallet screen -
+ * bypass the wrapper and lets request timing decide which code path a capture exercises.
+ */
+export function installCaptureShim(platformName: string): void {
+  const browserFetch = globalThis.fetch.bind(globalThis);
+  let installedFetch = browserFetch;
+  let fetchDepth = 0;
+  const dispatchFetch: typeof globalThis.fetch = (...args) => {
+    if (fetchDepth > 0) return browserFetch(...args);
+    fetchDepth += 1;
+    try {
+      return installedFetch(...args);
+    } finally {
+      fetchDepth -= 1;
+    }
+  };
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    get: () => dispatchFetch,
+    set: next => {
+      installedFetch = next;
+    }
+  });
+  Object.defineProperty(globalThis, 'CapacitorCustomPlatform', {
+    configurable: true,
+    value: { name: platformName }
+  });
+  try {
+    localStorage.setItem('theme_setting_key', JSON.stringify('light'));
+  } catch {}
+}

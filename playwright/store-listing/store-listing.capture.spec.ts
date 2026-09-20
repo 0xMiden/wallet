@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   capturePlan,
+  installCaptureShim,
   guardianPubkeyRoute,
   parkCapturePointer,
   settleCaptureMotion,
@@ -102,34 +103,7 @@ async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEn
     colorScheme: 'light',
     reducedMotion: 'reduce'
   });
-  await context.addInitScript(platformName => {
-    const browserFetch = globalThis.fetch.bind(globalThis);
-    let installedFetch = browserFetch;
-    let fetchDepth = 0;
-    const dispatchFetch: typeof globalThis.fetch = async (...args) => {
-      if (fetchDepth > 0) return browserFetch(...args);
-      fetchDepth += 1;
-      try {
-        return await installedFetch(...args);
-      } finally {
-        fetchDepth -= 1;
-      }
-    };
-    Object.defineProperty(globalThis, 'fetch', {
-      configurable: true,
-      get: () => dispatchFetch,
-      set: next => {
-        installedFetch = next;
-      }
-    });
-    Object.defineProperty(globalThis, 'CapacitorCustomPlatform', {
-      configurable: true,
-      value: { name: platformName }
-    });
-    try {
-      localStorage.setItem('theme_setting_key', JSON.stringify('light'));
-    } catch {}
-  }, platform);
+  await context.addInitScript(installCaptureShim, platform);
   await context.route(guardianPubkeyRoute, route =>
     route.fulfill({
       status: 200,

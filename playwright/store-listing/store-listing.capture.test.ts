@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import {
   capturePlan,
+  installCaptureShim,
   guardianPubkeyRoute,
   parkCapturePointer,
   settleCaptureMotion,
@@ -152,5 +153,52 @@ describe('store listing capture plan', () => {
       index === 0 ? { ...entry, viewport: { ...entry.viewport, width: entry.viewport.width - 1 } } : entry
     );
     expect(() => validateCapturePlan(wrongViewport)).toThrow(/capture dimensions/i);
+  });
+
+  describe('capture shim fetch guard', () => {
+    const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+
+    afterEach(() => {
+      if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
+      else Reflect.deleteProperty(globalThis, 'fetch');
+      Reflect.deleteProperty(globalThis, 'CapacitorCustomPlatform');
+    });
+
+    it('sends overlapping requests through the installed wrapper, not past it', async () => {
+      // The guard exists so a wrapper re-entering globalThis.fetch reaches the real browser fetch
+      // instead of looping. Held across the await it also caught merely CONCURRENT requests, which
+      // is the normal case on a wallet screen: the second one silently skipped the wallet's
+      // guardian CORS bypass, so request timing decided which code path a capture exercised.
+      const browserCalls: string[] = [];
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        writable: true,
+        value: (input: unknown) => {
+          browserCalls.push(String(input));
+          return Promise.resolve('browser');
+        }
+      });
+
+      installCaptureShim('ios');
+
+      // A wrapper that never settles until we release it, exactly like an in-flight request.
+      let release: (value: string) => void = () => {};
+      const pending = new Promise<string>(resolve => {
+        release = resolve;
+      });
+      const wrapperCalls: string[] = [];
+      globalThis.fetch = ((input: unknown) => {
+        wrapperCalls.push(String(input));
+        return pending;
+      }) as unknown as typeof globalThis.fetch;
+
+      const first = globalThis.fetch('https://example.test/one');
+      const second = globalThis.fetch('https://example.test/two');
+      release('wrapped');
+      await Promise.all([first, second]);
+
+      expect(wrapperCalls).toEqual(['https://example.test/one', 'https://example.test/two']);
+      expect(browserCalls).toEqual([]);
+    });
   });
 });
