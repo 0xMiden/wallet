@@ -5,8 +5,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { WaveDots } from 'components/ui';
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { WaveDots } from 'components/ui';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
