@@ -382,8 +382,9 @@ describe('Settings page — root menu (non-guardian)', () => {
     const { container } = render(<Settings tabSlug={null} />);
 
     expect(container.querySelector('header')!.className).toBe(referenceHeader);
-    // The same 4px rule under it as Activity and Explore, drawn by the shared header.
-    expect(container.querySelector('header + div')).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
+    // The same 4px rule, and the same 8px under it, as Activity and Explore — from the shared
+    // header, not from the page.
+    expect(container.querySelector('header + div')).toHaveClass('mx-4', 'mb-2', 'h-1', 'rounded-full', 'bg-fill');
     // Settings does not filter, so the band is the title row alone.
     expect(screen.queryByRole('radiogroup')).toBeNull();
   });

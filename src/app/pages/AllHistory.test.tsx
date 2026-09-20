@@ -171,14 +171,15 @@ describe('AllHistory', () => {
 
     const row = screen.getByRole('radiogroup', { name: 'activityFilters' });
     expect(row).toHaveClass('overflow-x-auto');
-    // The header owns the row's padding: 16px page margin, 6px above and below the 40px items.
-    expect(row).toHaveClass('px-4', 'py-1.5');
+    // The header owns the row's padding: 16px page margin, 4px above and below the 40px items,
+    // with the 8px that separates it from the rule carried by the rule.
+    expect(row).toHaveClass('px-4', 'py-1');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
     expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'false');
     // The selection rides the bottom nav's raised bubble in the brand accent, with a `pure-black`
     // label (7.0:1; white on it would be 3.0:1); the rest are outlined pills on the page.
     expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-primary', 'shadow-raised');
-    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-pure-black');
+    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-pure-white');
     expect(bubbleIn(getFilterButton('sent'))).toBeNull();
     expect(getFilterButton('sent')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
   });

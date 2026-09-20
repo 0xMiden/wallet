@@ -171,7 +171,7 @@ describe('SegmentedControl — the raised bubble', () => {
     expect(bubble).toHaveClass('-inset-px', 'rounded-full', 'bg-accent-primary', 'shadow-raised');
     expect(bubble).not.toHaveClass('bg-raised');
     expect(bubble).toHaveClass('group-active:shadow-raised-pressed');
-    expect(selected).toHaveClass('group', 'rounded-full', 'text-pure-black');
+    expect(selected).toHaveClass('group', 'rounded-full', 'text-pure-white');
     expect(selected).not.toHaveClass('overflow-hidden');
 
     expect(bubbleIn(getRadio('All'))).toBeNull();
@@ -439,10 +439,11 @@ describe('SegmentedControl selection', () => {
     expect(all).not.toHaveClass('border-hairline');
     expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary', 'shadow-raised');
 
-    // The accent fill carries a `pure-black` label (7.0:1); white on it is 3.0:1, which rule 6
-    // allows only at 19px bold. The accent is the same colour in both themes, so is the ratio.
-    expect(all).toHaveClass('text-pure-black');
-    expect(all).not.toHaveClass('text-pure-white');
+    // The accent fill carries a white label, crossfading in on the bubble's own clock. 3.0:1 —
+    // an accepted exception to rule 6, recorded in design-system.md.
+    expect(all).toHaveClass('text-pure-white');
+    expect(all.className).toContain('transition-colors');
+    expect(all.className).toContain('motion-reduce:transition-none');
 
     // 8px between outlined pills: two hairlines 4px apart read as one seam.
     expect(screen.getByRole('radiogroup')).toHaveClass('gap-2');

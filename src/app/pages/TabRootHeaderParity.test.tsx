@@ -134,8 +134,8 @@ it('draws Activity, Explore and the shared component as one band, class for clas
   // margin, then a scrolling filter row at that margin with 6px of its own.
   expect(ref.header.className).toContain('h-14');
   expect(ref.header.className).not.toMatch(/border/);
-  expect(ref.rule).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
-  expect(ref.row).toHaveClass('overflow-x-auto', 'px-4', 'py-1.5');
+  expect(ref.rule).toHaveClass('mx-4', 'mb-2', 'h-1', 'rounded-full', 'bg-fill');
+  expect(ref.row).toHaveClass('overflow-x-auto', 'px-4', 'py-1');
   expect(ref.row.className).not.toMatch(/(^|\s)bg-/);
 
   // Every item is an outlined pill; the selected one carries the bottom nav's raised bubble,
@@ -143,7 +143,7 @@ it('draws Activity, Explore and the shared component as one band, class for clas
   const bubble = (item: HTMLElement) => item.querySelector('[data-slot="motion-highlight"]');
   expect(bubble(ref.selected)).toHaveClass('bg-accent-primary', 'shadow-raised');
   expect(bubble(ref.unselected)).toBeNull();
-  expect(ref.selected).toHaveClass('h-10', 'rounded-full', 'border', 'border-transparent', 'text-pure-black');
+  expect(ref.selected).toHaveClass('h-10', 'rounded-full', 'border', 'border-transparent', 'text-pure-white');
   expect(ref.unselected).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
 
   ref.unmount();
@@ -151,11 +151,11 @@ it('draws Activity, Explore and the shared component as one band, class for clas
 
 it('gives every tab root the same rule, drawn by the header rather than the page', async () => {
   const explore = await renderExplore();
-  expect(explore.container.querySelector('header + div')).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
+  expect(explore.container.querySelector('header + div')).toHaveClass('mx-4', 'mb-2', 'h-1', 'bg-fill');
   explore.unmount();
 
   const activity = render(<AllHistory />);
-  expect(activity.container.querySelector('header + div')).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
+  expect(activity.container.querySelector('header + div')).toHaveClass('mx-4', 'mb-2', 'h-1', 'bg-fill');
 });
 
 it('keeps Explore on the category testids and its own accessible name', async () => {
