@@ -21,12 +21,18 @@ jest.mock('lib/mobile/haptics', () => ({
 //     jsdom would otherwise warn about as an unknown DOM attribute).
 jest.mock('framer-motion', () => ({
   motion: {
-    button: React.forwardRef(({ children, whileTap, ...props }: any, ref: any) => (
-      <button ref={ref} {...props}>
+    button: React.forwardRef(({ children, whileTap, animate, transition, ...props }: any, ref: any) => (
+      <button ref={ref} data-animate={JSON.stringify(animate)} {...props}>
         {children}
       </button>
+    )),
+    div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
+      <div ref={ref} data-animate={JSON.stringify(animate)} {...props}>
+        {children}
+      </div>
     ))
-  }
+  },
+  useReducedMotion: () => false
 }));
 
 // --- Button: forward the props SwapAmounts sets so we can drive/assert the CTA.
@@ -279,6 +285,28 @@ describe('SwapAmounts', () => {
     it('disables the review button when canProceed is false', () => {
       renderComponent({ canProceed: false });
       expect(screen.getByTestId('swap-review-submit')).toBeDisabled();
+    });
+  });
+
+  describe('direction toggle', () => {
+    it('turns the arrow another half turn on each press and lifts the two sides past each other', () => {
+      const onSwapDirection = jest.fn();
+      renderComponent({ onSwapDirection });
+
+      // Earlier renders in this file stay mounted, so take the newest of each.
+      const latest = (testId: string) => screen.getAllByTestId(testId).at(-1)!;
+      const toggle = screen.getAllByRole('button', { name: 'swapDirection' }).at(-1)!;
+      expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 0 });
+
+      fireEvent.click(toggle);
+      expect(onSwapDirection).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 180 });
+      // Both sides settle back to rest from opposite directions.
+      expect(JSON.parse(latest('swap-pay-side').getAttribute('data-animate')!)).toEqual({ y: 0, opacity: 1 });
+      expect(JSON.parse(latest('swap-receive-side').getAttribute('data-animate')!)).toEqual({ y: 0, opacity: 1 });
+
+      fireEvent.click(toggle);
+      expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 360 });
     });
   });
 

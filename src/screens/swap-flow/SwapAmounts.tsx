@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import clsx from 'clsx';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -69,6 +70,19 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
+  const motionTokens = useTabBarMotion();
+  // Each press turns the arrow another half turn and lifts the two sides past each other, so the
+  // switch reads as the two fields trading places. Same springs as the tab bars, so a press here
+  // feels like a press there.
+  const [flips, setFlips] = useState(0);
+  const flipTransition = resolveTransition(reduceMotion, tabBarMotion.highlight);
+  const sideMotion = (from: number) => ({
+    key: flips,
+    initial: flips === 0 ? false : { y: from, opacity: 0 },
+    animate: { y: 0, opacity: 1 },
+    transition: flipTransition
+  });
   // The side labels are labels, not headings: the figure under them is the page's voice.
   const fieldLabel = (text: string) => <span className="text-body-sm text-muted">{text}</span>;
   const offerAmountValue = Number(offerAmount);
@@ -84,17 +98,19 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto no-scrollbar pt-6">
-        <SelectAmount
-          embedded
-          label={fieldLabel(t('youPay'))}
-          token={swapTokenToUIToken(offerToken, offerBalance)}
-          logoSymbol={offerToken.logoSymbol}
-          amount={offerAmount}
-          isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
-          error={offerAmountError}
-          onAmountChange={onOfferAmountChange}
-          onSelectToken={onSelectOfferToken}
-        />
+        <motion.div {...sideMotion(-24)} data-testid="swap-pay-side">
+          <SelectAmount
+            embedded
+            label={fieldLabel(t('youPay'))}
+            token={swapTokenToUIToken(offerToken, offerBalance)}
+            logoSymbol={offerToken.logoSymbol}
+            amount={offerAmount}
+            isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
+            error={offerAmountError}
+            onAmountChange={onOfferAmountChange}
+            onSelectToken={onSelectOfferToken}
+          />
+        </motion.div>
 
         <div className="flex items-center gap-3">
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
@@ -102,9 +118,12 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             type="button"
             onClick={() => {
               hapticLight();
+              setFlips(count => count + 1);
               onSwapDirection();
             }}
-            whileTap={{ scale: 0.9 }}
+            {...motionTokens.press}
+            animate={{ rotate: reduceMotion ? 0 : flips * 180 }}
+            transition={flipTransition}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white"
             aria-label={t('swapDirection')}
           >
@@ -121,20 +140,22 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
         </div>
 
-        <SelectAmount
-          embedded
-          // "You Receive" is the swap output — the user's balance of that token
-          // isn't the spendable amount here, so no available-balance helper.
-          showBalanceHelper={false}
-          label={fieldLabel(t('youReceive'))}
-          token={swapTokenToUIToken(requestToken)}
-          logoSymbol={requestToken.logoSymbol}
-          amount={requestAmount}
-          isValidAmount={Number(requestAmount) > 0}
-          loading={requestLoading}
-          onAmountChange={onRequestAmountChange}
-          onSelectToken={onSelectRequestToken}
-        />
+        <motion.div {...sideMotion(24)} data-testid="swap-receive-side">
+          <SelectAmount
+            embedded
+            // "You Receive" is the swap output — the user's balance of that token
+            // isn't the spendable amount here, so no available-balance helper.
+            showBalanceHelper={false}
+            label={fieldLabel(t('youReceive'))}
+            token={swapTokenToUIToken(requestToken)}
+            logoSymbol={requestToken.logoSymbol}
+            amount={requestAmount}
+            isValidAmount={Number(requestAmount) > 0}
+            loading={requestLoading}
+            onAmountChange={onRequestAmountChange}
+            onSelectToken={onSelectRequestToken}
+          />
+        </motion.div>
 
         {statusMessage && (
           <span
