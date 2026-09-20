@@ -22,33 +22,6 @@ if [ -n "${duplicate_headings}" ]; then
     exit 1
 fi
 
-# Every line this PR adds must sit inside the UNRELEASED `## <version> (TBD)` section. Matching the
-# neighbouring bullets is not enough: an entry appended next to an already-published section's
-# entries reads as correct in the diff, retroactively edits shipped release notes, and is missing
-# from the next release's. That has happened twice, so check it rather than trusting the author's
-# eye. Only the FIRST (TBD) heading is current - older sections kept a stale (TBD) of their own,
-# so the window is that heading up to the next `## ` heading below it.
-tbd_start=$(grep -nE '^## .*\(TBD\)' "${CHANGELOG_FILE}" | head -1 | cut -d: -f1)
-if [ -n "${tbd_start}" ]; then
-    tbd_end=$(awk -v s="${tbd_start}" 'NR>s && /^## /{print NR; exit}' "${CHANGELOG_FILE}")
-    [ -z "${tbd_end}" ] && tbd_end=$(wc -l < "${CHANGELOG_FILE}")
-    # `+start,count` with count 0 is a pure deletion hunk and adds nothing, so it is not a
-    # placement claim; a bare `+start` means one added line.
-    misfiled=$(git diff --unified=0 "origin/${BASE_REF}" -- "${CHANGELOG_FILE}" \
-        | grep -E '^@@' \
-        | sed -E 's/^@@ [^+]*\+([0-9]+)(,([0-9]+))?.*/\1 \3/' \
-        | awk -v s="${tbd_start}" -v e="${tbd_end}" \
-              '{ n = ($2 == "" ? 1 : $2) } n > 0 && ($1 <= s || $1 >= e) { print $1 }')
-    if [ -n "${misfiled}" ]; then
-        >&2 echo "New ${CHANGELOG_FILE} lines were added outside the current \"(TBD)\" section"
-        >&2 echo "(lines ${tbd_start}-${tbd_end}), i.e. under an already-published version."
-        >&2 echo "Added at line(s): ${misfiled}"
-        >&2 echo
-        >&2 echo "Move the entry under the \"## <version> (TBD)\" heading instead."
-        exit 1
-    fi
-fi
-
 if [ "${NO_CHANGELOG_LABEL}" = "true" ]; then
     # 'no changelog' set, so finish successfully
     echo "\"no changelog\" label has been set"
@@ -64,4 +37,53 @@ that are trivial / explicitly stated not to require a changelog entry."
     fi
 
     echo "The \"CHANGELOG.md\" file has been updated."
+
+    # ...and it must be filed under the UNRELEASED section. Matching the neighbouring bullets is
+    # not the check: an entry appended beside an already-published section's entries reads as
+    # correct in the diff, retroactively edits shipped release notes, and is missing from the next
+    # release's. That has happened twice.
+    #
+    # Judge each ADDED LINE by the heading that governs it, never by line arithmetic. `(TBD)` alone
+    # is not enough - older published sections kept a stale `(TBD)` of their own - so the governing
+    # heading must be `(TBD)` AND have no dated heading above it. That admits every unreleased
+    # section stacked at the top (a PR may open 1.16.3 while 1.16.2 is still open) and rejects a
+    # stale `(TBD)` further down, which is stale exactly because a release was cut above it. A line
+    # that IS a `## ` heading is section management - opening the next section, or a release dating
+    # the current one - and is always allowed.
+    added_lines=$(git diff --unified=0 "origin/${BASE_REF}" -- "${CHANGELOG_FILE}" \
+        | awk '/^@@/ {
+                 match($0, /\+[0-9]+(,[0-9]+)?/)
+                 split(substr($0, RSTART + 1, RLENGTH - 1), p, ",")
+                 count = (p[2] == "" ? 1 : p[2] + 0)
+                 for (i = 0; i < count; i++) print (p[1] + 0) + i
+               }')
+
+    if [ -n "${added_lines}" ]; then
+        # The line numbers arrive on stdin, not through `awk -v`: a -v value cannot carry literal
+        # newlines, and awk aborts on one. Without `set -e` that abort is silent and the whole
+        # check passes everything, so the failure is checked explicitly below.
+        if ! misfiled=$(printf '%s\n' "${added_lines}" | awk '
+            NR == FNR { if ($0 != "") want[$0 + 0] = 1; next }
+            /^## / { heading = $0; if ($0 !~ /\(TBD\)/) released = 1 }
+            (FNR in want) {
+                if ($0 ~ /^## /) next
+                if (heading == "") next
+                if (released == 0 && heading ~ /\(TBD\)/) next
+                print "  " FNR ": " $0
+            }
+        ' - "${CHANGELOG_FILE}"); then
+            >&2 echo "check-changelog: placement check failed to run; refusing to pass it silently."
+            exit 1
+        fi
+
+        if [ -n "${misfiled}" ]; then
+            >&2 echo "These new ${CHANGELOG_FILE} lines are not under the newest, unreleased heading:"
+            >&2 echo "${misfiled}"
+            >&2 echo
+            >&2 echo "Put them under the first \"## <version> (TBD)\" section, adding one above the"
+            >&2 echo "newest published heading if none is open yet. If you meant to correct an entry"
+            >&2 echo "in an already-published section, use the \"no changelog\" label."
+            exit 1
+        fi
+    fi
 fi
