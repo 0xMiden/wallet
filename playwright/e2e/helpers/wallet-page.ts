@@ -109,6 +109,20 @@ export type StageTrackedTransactionType = 'switch-guardian' | 'replace-hot-key';
  * Chrome-only specs that reach into Playwright internals use the
  * ChromeWalletPageApi extension below.
  */
+/**
+ * The send-flow parameters every page object accepts.
+ *
+ * Declared once because method parameters compare BIVARIANTLY: a field added to a restated copy
+ * is not flagged against the others, so five hand-synchronised literals would drift silently and
+ * `yarn ts` would not say so.
+ */
+export interface SendTokensParams {
+  recipientAddress: string;
+  amount: string;
+  isPrivate: boolean;
+  tokenSymbol?: string;
+}
+
 export interface WalletPage {
   navigateTo(hash: string): Promise<void>;
   navigateHome(): Promise<void>;
@@ -118,12 +132,7 @@ export interface WalletPage {
   getBalance(tokenSymbol?: string): Promise<number>;
   triggerSync(force?: boolean): Promise<void>;
   claimAllNotes(timeoutMs?: number): Promise<void>;
-  sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void>;
+  sendTokens(params: SendTokensParams): Promise<void>;
   waitForBalanceAbove(
     minBalance: number,
     timeoutMs: number,
@@ -150,6 +159,8 @@ export interface WalletPage {
   getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo>;
 }
 
+export type BalanceSnapshotScope = { symbol: string; faucetId?: never } | { faucetId: string; symbol?: never };
+
 /**
  * Chrome-specific extension of WalletPage. Kept for spec blocks that
  * reach into the Playwright Page directly and for captureStateFrom entries
@@ -169,12 +180,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
     faucetId: string;
     amountBaseUnits: string;
   }): Promise<{ fulfilledCount: number; rejectedCount: number; insertedCount: number; rejectionCodes: string[] }>;
-  prepareSendReview(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void>;
+  prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void>;
   submitSendReview(): Promise<void>;
   waitForSendSubmissionAccepted(timeoutMs?: number): Promise<void>;
   authenticateSpendingLimitForTest(password?: string): Promise<void>;
@@ -185,6 +191,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * specs run on device.
    */
   getEvmAddress(): Promise<string>;
+  sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void>;
   /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
    * pointing the account at `guardianUrl` (a locally-spawned guardian). The
@@ -195,15 +202,13 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
-  quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
+  quickBalanceSnapshot(scope?: BalanceSnapshotScope): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
-    /** Rows a SYMBOL scope dropped for having no metadata — see the implementation. */
-    unidentified: number;
     error?: string;
   }>;
   /**
@@ -810,41 +815,31 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * need an authoritative total (e.g. a conservation assertion) must call
    * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
-  async quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
+  async quickBalanceSnapshot(scope?: BalanceSnapshotScope): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
-    /**
-     * Rows a SYMBOL scope excluded because they carry no metadata at all.
-     *
-     * `metadata` is attached only when `fetchTokenMetadata` succeeded (`sync-manager.ts`
-     * swallows the failure), so a symbol filter cannot tell "a different token" from "the
-     * token under test, whose metadata call failed this lap" — it drops both. In a strict
-     * conservation identity that reads as value vanishing. Reported rather than guessed at:
-     * a caller asserting an equality can say "metadata missing" instead of "notes lost".
-     */
-    unidentified: number;
     error?: string;
   }> {
     try {
       return await this.page.evaluate(
-        async ({ wanted }) => {
+        async ({ wantedFaucetId, wantedSymbol }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const store = (window as any).__TEST_STORE__;
           const state = store?.getState?.();
           let balance = 0;
-          let unidentified = 0;
           for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
             if (!Array.isArray(tokenList)) continue;
             for (const token of tokenList) {
-              // Optional SYMBOL scope. Unscoped this sums every asset the account holds,
-              // which silently includes the native fee asset -- so a caller conserving a
-              // total across a fee-charging chain measures its own fees as missing value.
-              if (wanted && token?.metadata?.symbol === undefined) unidentified++;
-              if (wanted && String(token?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+              // A faucet ID isolates one asset even when faucets share a symbol. Unscoped,
+              // this sums every asset the account holds, including the native fee asset.
+              const faucetId = String(token?.tokenId ?? '').toLowerCase();
+              if (wantedFaucetId && faucetId !== wantedFaucetId) continue;
+              const metadata = token?.metadata ?? state?.assetsMetadata?.[String(token?.tokenId ?? '')];
+              if (wantedSymbol && String(metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
               const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
               if (amount > 0) balance += amount;
             }
@@ -858,10 +853,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
           let pendingSum = 0;
           for (const note of notes) {
-            if (wanted && note?.metadata?.symbol === undefined) unidentified++;
-            if (wanted && String(note?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+            const faucetId = String(note?.faucetId ?? '').toLowerCase();
+            if (wantedFaucetId && faucetId !== wantedFaucetId) continue;
+            const metadata = note?.metadata ?? state?.assetsMetadata?.[String(note?.faucetId ?? '')];
+            if (wantedSymbol && String(metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
             const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
-            const decimals = note.metadata?.decimals ?? 8;
+            const decimals = metadata?.decimals ?? 8;
             const amount = baseUnits / Math.pow(10, decimals);
             pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
             pendingSum += amount;
@@ -892,11 +889,13 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
             pendingSum,
             totalReportable: balance + pendingSum,
             pendingTxCount,
-            latestTxId,
-            unidentified
+            latestTxId
           };
         },
-        { wanted: opts?.symbol?.toLowerCase() }
+        {
+          wantedFaucetId: scope?.faucetId?.toLowerCase(),
+          wantedSymbol: scope?.symbol?.toLowerCase()
+        }
       );
     } catch (e) {
       return {
@@ -905,7 +904,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         pendingSum: 0,
         totalReportable: 0,
         pendingTxCount: 0,
-        unidentified: 0,
         error: e instanceof Error ? e.message : String(e)
       };
     }
@@ -1875,77 +1873,20 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Get the balance for a specific token from the Explore page.
-   * If tokenSymbol is not given, returns the balance of the first token row.
+   * Get the reportable balance for a specific token from the Explore page.
+   * If tokenSymbol is not given, returns the total across all assets.
    * Returns 0 if no matching token found.
    */
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     // The evaluate below needs `__TEST_STORE__` with an account on it; wait for
     // that rather than for a second of wall clock (this runs on every poll of
     // waitForBalanceAbove).
     await this.waitForStoreReady(1_000);
-
-    try {
-      // Read balances from the Zustand store (consumed assets) AND from
-      // chrome.storage.local sync data (consumable notes not yet consumed).
-      // The transaction processor auto-consumes notes but may not run in SW.
-      const result = await this.page.evaluate(async () => {
-        const store = (window as any).__TEST_STORE__;
-        if (!store) return { balance: 0, debug: 'no store' };
-        const state = store.getState();
-
-        // Trigger a fresh balance fetch
-        try {
-          if (state.currentAccount?.publicKey && state.fetchBalances) {
-            await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
-          }
-        } catch {}
-
-        const freshState = store.getState();
-        let totalBalance = 0;
-
-        // 1. Read consumed assets from store
-        for (const tokenList of Object.values(freshState.balances || {}) as any[]) {
-          if (!Array.isArray(tokenList)) continue;
-          for (const token of tokenList) {
-            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (amount > 0) {
-              totalBalance += amount;
-            }
-          }
-        }
-
-        // 2. Also check consumable notes from sync data (pending incoming tokens)
-        // These are notes that have been discovered but not yet consumed.
-        try {
-          const storage = await new Promise<any>(resolve => {
-            chrome.storage.local.get(['miden_sync_data'], resolve);
-          });
-          const syncData = storage?.miden_sync_data;
-          if (syncData?.notes?.length > 0) {
-            for (const note of syncData.notes) {
-              const baseUnits = parseInt(note.amountBaseUnits || '0', 10);
-              const decimals = note.metadata?.decimals ?? 8;
-              const noteBalance = baseUnits / Math.pow(10, decimals);
-              if (noteBalance > 0) {
-                totalBalance += noteBalance;
-              }
-            }
-          }
-        } catch {}
-
-        return {
-          balance: totalBalance,
-          debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`
-        };
-      });
-
-      return typeof result === 'object' ? result.balance : result;
-    } catch (e) {
-      console.log(`[WalletPage.getBalance] Error: ${e}`);
-      return 0;
-    }
+    await this.refreshBalances();
+    const snapshot = await this.quickBalanceSnapshot(tokenSymbol ? { symbol: tokenSymbol.toLowerCase() } : undefined);
+    if (snapshot.error) console.log(`[WalletPage.getBalance] Error: ${snapshot.error}`);
+    return snapshot.totalReportable;
   }
 
   /**
@@ -2802,18 +2743,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   /**
    * Drive the send flow through ReviewTransaction without submitting it.
    */
-  async prepareSendReview(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    /**
-     * Optional token symbol (e.g. "TST"). When set, picks that token's row
-     * from the SelectToken list. Default: first row — fine when only one
-     * fundable token exists, but not when MIDEN sits at 0 balance above the
-     * real balance row.
-     */
-    tokenSymbol?: string;
-  }): Promise<void> {
+  /**
+   * `tokenSymbol` picks that token's row from the SelectToken list; the default is the first
+   * non-MIDEN row, which is fine only when one fundable token exists. `tokenId` is the exact
+   * faucet account id the stress suite selects by instead.
+   */
+  async prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void> {
     // 1. Navigate to send. The v0-UI order is recipient → amount(+token) → review.
     await this.navigateTo('/send');
     const sendFlow = this.page.getByTestId('send-flow');
@@ -2840,7 +2775,36 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await sendFlow.getByTestId('send-token-selector').click({ timeout: STEP_TIMEOUT_MS });
     await this.page.getByTestId('send-token-search').waitFor({ timeout: STEP_TIMEOUT_MS });
 
-    if (params.tokenSymbol) {
+    if (params.tokenId) {
+      const exactToken = this.page.locator(`[data-token-id=${JSON.stringify(params.tokenId)}]`);
+      // The wait above is on the search INPUT; the rows render from store state that can arrive
+      // later. `count()` is a point-in-time read, so without this the stress driver aborts a whole
+      // run on the one lap where the rows have not committed yet. The count stays as the
+      // uniqueness check, which owns the message below.
+      //
+      // Both reads keep their REASON. Playwright also rejects for a closed page or a destroyed
+      // execution context, and collapsing those into "found 0" points the reader at the faucet id
+      // instead of the teardown that actually happened.
+      const failures: string[] = [];
+      const noteFailure = (stage: string, e: unknown) =>
+        failures.push(`${stage}: ${e instanceof Error ? e.message : String(e)}`);
+      await exactToken
+        .first()
+        .waitFor({ state: 'attached', timeout: STEP_TIMEOUT_MS })
+        .catch(e => noteFailure('wait', e));
+      const exactTokenCount = await exactToken.count().catch(e => {
+        noteFailure('count', e);
+        return 0;
+      });
+      if (exactTokenCount !== 1) {
+        throw new Error(
+          `WalletPage.sendTokens: expected exactly one token row for faucet ID "${params.tokenId}", ` +
+            `but found ${exactTokenCount}` +
+            (failures.length > 0 ? ` (${failures.join('; ')})` : '')
+        );
+      }
+      await exactToken.locator('[data-testid^="send-token-"]').first().click({ timeout: STEP_TIMEOUT_MS });
+    } else if (params.tokenSymbol) {
       const tokenRow = this.page.getByTestId(`send-token-${params.tokenSymbol}`);
       const symbolRowCount = await tokenRow.count().catch(() => 0);
       if (symbolRowCount > 0) {
@@ -2943,12 +2907,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   /**
    * Execute the full send flow and require the review submission to be accepted.
    */
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void> {
     await this.prepareSendReview(params);
     await this.submitSendReview();
     await this.waitForSendSubmissionAccepted();

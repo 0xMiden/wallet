@@ -1,7 +1,8 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
+import { buildBalanceTotalScript } from '../../helpers/balance-script';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -156,12 +157,12 @@ export class IosWalletPage implements WalletPage {
    * bech32 prefixes, and a minted note's on-chain sender is the faucet. Polls
    * for the hook (it's installed after an async SDK import at wallet init).
    */
-  async hexToBech32Faucet(hex: string, network: 'testnet' | 'devnet' = 'testnet', timeoutMs = 30_000): Promise<string> {
+  async hexToBech32Faucet(hex: string, timeoutMs = 30_000): Promise<string> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const res = await this.cdp.eval<string | null>(
         `return (typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function') ` +
-          `? window.__TEST_HEX_TO_BECH32_FAUCET__(${JSON.stringify(hex)}, ${JSON.stringify(network)}) : null;`
+          `? window.__TEST_HEX_TO_BECH32_FAUCET__(${JSON.stringify(hex)}) : null;`
       );
       if (res) return res;
       if (Date.now() > deadline) throw new Error('hexToBech32Faucet: hook not ready within timeout');
@@ -518,43 +519,20 @@ export class IosWalletPage implements WalletPage {
   async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
-    // Reads consumed balances from the Zustand store. useSyncTrigger updates
-    // the store every 3s on mobile.
+    // Reads consumed balances from the Zustand store. useSyncTrigger updates the store every 3s
+    // on mobile.
     //
     // IMPORTANT: unlike Chrome's getBalance (which reads
-    // chrome.storage.local.miden_sync_data.notes to count
-    // pending-but-unconsumed notes too), this method returns 0 until notes
-    // are actually consumed. Mobile has no chrome.storage equivalent. Both
-    // platforms auto-consume ONLY notes from the well-known MIDEN faucet;
-    // E2E tests use a CUSTOM faucet, so iOS specs need to call
-    // claimAllNotes() before waiting on a positive balance.
-    // `tokenSymbol` is honoured, and on a fee-charging chain it MATTERS: the wallet now also
-    // holds the native asset it was funded with, so an unfiltered total goes positive as soon
-    // as THAT lands. A spec that waits on it and then acts on the test token opened its send
-    // before the test token existed, and failed on a missing `send-token-<SYM>` row.
-    const wanted = tokenSymbol === undefined ? '' : tokenSymbol.toUpperCase();
-    return this.cdp.eval<number>(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return 0; ` +
-        `var st = s.getState(); ` +
-        `var want = ${JSON.stringify(wanted)}; ` +
-        `var total = 0; ` +
-        `var balances = st.balances || {}; ` +
-        `for (var k in balances) { ` +
-        `  var list = balances[k]; ` +
-        `  if (!Array.isArray(list)) continue; ` +
-        `  for (var i = 0; i < list.length; i++) { ` +
-        `    var t = list[i]; ` +
-        `    if (want) { ` +
-        `      var sym = (t.metadata && t.metadata.symbol) ? String(t.metadata.symbol).toUpperCase() : ''; ` +
-        `      if (sym !== want) continue; ` +
-        `    } ` +
-        `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-        `    if (amt > 0) total += amt; ` +
-        `  } ` +
-        `} ` +
-        `return total;`
-    );
+    // chrome.storage.local.miden_sync_data.notes to count pending-but-unconsumed notes too), this
+    // returns 0 until notes are actually consumed. Mobile has no chrome.storage equivalent. Both
+    // platforms auto-consume ONLY notes from the well-known MIDEN faucet; E2E tests use a CUSTOM
+    // faucet, so iOS specs need claimAllNotes() before waiting on a positive balance.
+    //
+    // `tokenSymbol` is honoured, and on a fee-charging chain it MATTERS: the wallet now also holds
+    // the native asset it was funded with, so an unfiltered total goes positive as soon as THAT
+    // lands. A spec that waits on it and then acts on the test token opened its send before the
+    // test token existed, and failed on a missing `send-token-<SYM>` row.
+    return this.cdp.eval<number>(buildBalanceTotalScript(tokenSymbol));
   }
 
   async triggerSync(): Promise<void> {
@@ -735,8 +713,6 @@ export class IosWalletPage implements WalletPage {
     // the dynamic `import('@miden-sdk/miden-sdk/lazy')` hits the module
     // cache instantly because the wallet already imported it at boot.
     const hexJson = JSON.stringify(hexFaucetIds);
-    const network = process.env.MIDEN_NETWORK || process.env.E2E_NETWORK || 'testnet';
-    const networkArg = network === 'devnet' ? "'devnet'" : "'testnet'";
     // Poll for the hex→bech32 hook to be exposed — it's set asynchronously
     // when the wallet boots (the SDK eager-import in store/index.ts under
     // MIDEN_E2E_TEST). On a freshly-installed app the SDK chunk takes a few
@@ -761,7 +737,7 @@ export class IosWalletPage implements WalletPage {
     const result = await this.cdp
       .eval<
         { before: string[]; injected: string[]; after: string[] } | { error: string }
-      >(`var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); var injected = {}; for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; var s = window.__TEST_STORE__; if (!s) return { error: 'no __TEST_STORE__' }; var st = s.getState(); var before = Object.keys(st.assetsMetadata || {}); if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } var after = Object.keys(s.getState().assetsMetadata || {}); return { before: before, injected: bech32, after: after };`)
+      >(`var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; var bech32 = ${hexJson}.map(hex => conv(hex)); var injected = {}; for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; var s = window.__TEST_STORE__; if (!s) return { error: 'no __TEST_STORE__' }; var st = s.getState(); var before = Object.keys(st.assetsMetadata || {}); if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } var after = Object.keys(s.getState().assetsMetadata || {}); return { before: before, injected: bech32, after: after };`)
       .catch((e: Error) => ({ error: e.message }));
     // eslint-disable-next-line no-console
     console.log(`[injectTestMetadataForFaucets] hex=${hexJson} -> ${JSON.stringify(result)}`);
@@ -806,17 +782,7 @@ export class IosWalletPage implements WalletPage {
   }
 
   /** Drive the real send flow through ReviewTransaction without submitting it. */
-  async prepareSendReview(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    /**
-     * Optional token symbol (e.g. "TST"). When set, picks that token's row from
-     * the token sub-screen. Default: first non-MIDEN row — fine when only one
-     * fundable token exists.
-     */
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async prepareSendReview(params: SendTokensParams): Promise<void> {
     // v0-UI order: recipient → amount(+token) → review.
     const sendFlow = '[data-testid="send-flow"]';
     await this.navigateTo('/send');
@@ -886,12 +852,7 @@ export class IosWalletPage implements WalletPage {
   }
 
   /** Execute the full v0-UI send flow and wait until submission is accepted. */
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async sendTokens(params: SendTokensParams): Promise<void> {
     await this.prepareSendReview(params);
     await this.click('[data-testid="send-review-submit"]');
 

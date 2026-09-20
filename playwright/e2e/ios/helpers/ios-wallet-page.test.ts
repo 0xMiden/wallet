@@ -74,3 +74,43 @@ describe('IosWalletPage.prepareSendReview', () => {
     expect(pollForSelector).toHaveBeenCalledWith('[data-testid="send-review-submit"]', 45_000);
   });
 });
+
+describe('IosWalletPage.hexToBech32Faucet', () => {
+  it('passes only the hex id to the wallet-owned network-aware hook', async () => {
+    const evalJs = jest.fn(async (_script: string) => 'mlcl1tracked');
+    const page = new IosWalletPage({
+      cdp: { eval: evalJs } as unknown as CdpSession,
+      sim: {} as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+
+    await expect(page.hexToBech32Faucet('0xtracked')).resolves.toBe('mlcl1tracked');
+
+    expect(evalJs).toHaveBeenCalledTimes(1);
+    const script = evalJs.mock.calls[0]![0];
+    expect(script).toContain('window.__TEST_HEX_TO_BECH32_FAUCET__("0xtracked")');
+    expect(script).not.toMatch(/testnet|devnet/);
+  });
+
+  it('injects metadata through the same hex-only hook contract', async () => {
+    const evalJs = jest.fn(async (script: string) => {
+      if (script.includes('typeof window.__TEST_HEX_TO_BECH32_FAUCET__')) return true;
+      return { before: [], injected: ['mlcl1tracked'], after: ['mlcl1tracked'] };
+    });
+    const page = new IosWalletPage({
+      cdp: { eval: evalJs } as unknown as CdpSession,
+      sim: {} as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+
+    await (
+      page as unknown as { injectTestMetadataForFaucets(ids: string[]): Promise<void> }
+    ).injectTestMetadataForFaucets(['0xtracked']);
+
+    const injectionScript = evalJs.mock.calls.find(([script]) => script.includes('var conv'))?.[0];
+    expect(injectionScript).toContain('.map(hex => conv(hex))');
+    expect(injectionScript).not.toMatch(/testnet|devnet/);
+  });
+});

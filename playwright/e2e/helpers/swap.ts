@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
+import { hexFaucetToBech32 } from './faucet-address';
 import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
 import type { ChromeWalletPageApi } from './wallet-page';
@@ -55,17 +56,6 @@ export function swOf(w: Wallet) {
     .find(s => new URL(s.url()).host === w.extensionId);
   if (!sw) throw new Error(`no service worker for ${w.extensionId}`);
   return sw;
-}
-
-/**
- * CLI faucet ids are hex; the wallet keys balances (and the swap review's
- * balance gate) by the bech32 form. Convert via the store hook. R0 finding.
- */
-export function hexFaucetToBech32(w: Wallet, hex: string): Promise<string> {
-  return w.page.evaluate(
-    h => (window as never as { __TEST_HEX_TO_BECH32_FAUCET__: (h: string) => string }).__TEST_HEX_TO_BECH32_FAUCET__(h),
-    hex
-  );
 }
 
 export interface FundSwapPairOptions {
