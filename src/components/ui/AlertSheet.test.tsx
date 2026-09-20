@@ -65,7 +65,7 @@ describe('AlertSheet', () => {
 
     const sheet = screen.getByRole('alertdialog', { name: 'Delete contact' });
     expect(sheet).toHaveAccessibleDescription('Are you sure you want to delete this contact?');
-    expect(screen.getByRole('heading', { name: 'Delete contact' })).toHaveClass('text-title-page', 'text-left');
+    expect(screen.getByRole('heading', { name: 'Delete contact' })).toHaveClass('text-title-section', 'text-left');
     expect(screen.getByText('Are you sure you want to delete this contact?')).toHaveClass('text-body', 'text-muted');
   });
 
