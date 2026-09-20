@@ -3,9 +3,9 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { CardButton } from 'components/ui/Card';
-import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, ProviderLogo } from './components';
@@ -35,18 +35,19 @@ const EarnPositions: FC = () => {
               data-testid="earn-positions-load-error"
               role="alert"
             >
-              <p className="max-w-xs text-base leading-snug text-ink">{t('earnPositionsLoadError')}</p>
-              <button
+              <p className="max-w-xs text-body text-ink">{t('earnPositionsLoadError')}</p>
+              {/* The shared compact secondary button, which brings the tap haptic and the press
+                  motion with it. */}
+              <Button
                 type="button"
                 data-testid="earn-positions-retry"
-                onClick={() => {
-                  hapticLight();
-                  refetch();
-                }}
-                className="rounded-full bg-fill px-5 py-2.5 text-sm font-bold text-ink hover:bg-fill-pressed focus:bg-fill-pressed"
-              >
-                {t('retry')}
-              </button>
+                variant={ButtonVariant.Secondary}
+                size="sm"
+                title={t('retry')}
+                // `Button` fires the tap haptic itself; calling it here too would buzz twice.
+                onClick={refetch}
+                className="w-auto"
+              />
             </div>
           ) : (
             <>
@@ -78,23 +79,24 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="truncate text-base font-medium leading-none text-ink">
+          <div className="truncate text-row-title text-ink">
             {position.protocol} &bull; {position.asset}
           </div>
         </div>
-        <div className="shrink-0 rounded-full bg-green-100 px-3 py-1.5 text-xs font-bold leading-none text-status-positive">
-          {t('earnPositionsApy', { apy: position.apy })}
-        </div>
+        {/* The APY reads as a figure, like the tab page's card: the tinted ink, not the raw
+            #90BA89 fill, which is 2.2:1 under text. */}
+        <div className="shrink-0 text-value text-positive-tint-ink">{t('earnPositionsApy', { apy: position.apy })}</div>
       </div>
 
-      <div className="mt-4 font-heading text-[36px] font-bold leading-none text-ink">{position.amount}</div>
-      <div className="mt-3 text-base font-bold leading-none text-green-500">{position.rewards}</div>
+      <div className="mt-4 text-hero-value text-ink">{position.amount}</div>
+      <div className="mt-3 text-value text-positive-tint-ink">{position.rewards}</div>
 
-      <div className="mt-2 mb-4 h-px bg-[#2525251C]" />
+      {/* A hairline inside a card only divides its rows. */}
+      <div className="mt-2 mb-4 h-px bg-hairline" />
 
-      <div className="flex items-center justify-between gap-4 text-sm leading-none text-ink">
+      <div className="flex items-center justify-between gap-4 text-body-sm text-muted">
         <div>
-          {t('earnDeposited')} <span className="font-bold">{position.depositedAmount}</span>
+          {t('earnDeposited')} <span className="text-value text-ink">{position.depositedAmount}</span>
         </div>
         <div>{position.activeDuration}</div>
       </div>
