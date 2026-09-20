@@ -5255,5 +5255,46 @@
   "receiveQrColorAction": {
     "message": "更改 QR Code 顏色",
     "englishSource": "Change the QR code color"
+  },
+  "durationUnitSeconds": {
+    "message": "秒",
+    "englishSource": "Seconds"
+  },
+  "durationUnitMinutes": {
+    "message": "分鐘",
+    "englishSource": "Minutes"
+  },
+  "durationUnitHours": {
+    "message": "小時",
+    "englishSource": "Hours"
+  },
+  "durationUnitDays": {
+    "message": "天",
+    "englishSource": "Days"
+  },
+  "swapExpiryUnit": {
+    "message": "到期單位",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "關於$label$的更多資訊",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "請輸入 $min$ 到 $max$ 之間的整數。",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
   }
 }

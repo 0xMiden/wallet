@@ -1186,5 +1186,12 @@
   "saveContact": "Kaydet",
   "contactAdded": "Eklendi",
   "guardianCardMeta": "İşleten: $operator$ · $location$",
-  "receiveQrColorAction": "QR kodu rengini değiştir"
+  "receiveQrColorAction": "QR kodu rengini değiştir",
+  "durationUnitSeconds": "Saniye",
+  "durationUnitMinutes": "Dakika",
+  "durationUnitHours": "Saat",
+  "durationUnitDays": "Gün",
+  "swapExpiryUnit": "Son kullanma birimi",
+  "moreInfoAbout": "$label$ hakkında daha fazla bilgi",
+  "swapExpiryRange": "$min$ ile $max$ arasında bir tam sayı girin."
 }

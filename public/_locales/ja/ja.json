@@ -1186,5 +1186,12 @@
   "saveContact": "保存",
   "contactAdded": "追加日",
   "guardianCardMeta": "運営: $operator$ · $location$",
-  "receiveQrColorAction": "QRコードの色を変更"
+  "receiveQrColorAction": "QRコードの色を変更",
+  "durationUnitSeconds": "秒",
+  "durationUnitMinutes": "分",
+  "durationUnitHours": "時間",
+  "durationUnitDays": "日",
+  "swapExpiryUnit": "有効期限の単位",
+  "moreInfoAbout": "$label$ の詳細",
+  "swapExpiryRange": "$min$ から $max$ までの整数を入力してください。"
 }

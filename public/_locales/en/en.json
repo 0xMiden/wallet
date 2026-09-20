@@ -340,7 +340,6 @@
   "selectAmount": "Select Amount",
   "enterAmount": "Enter amount",
   "calculatingQuote": "Calculating",
-  "calculatingQuote": "Calculating",
   "selectAToken": "Select a token",
   "searchForTokens": "Search for tokens",
   "available": "Available",
@@ -1187,5 +1186,12 @@
   "saveContact": "Save",
   "contactAdded": "Added",
   "guardianCardMeta": "Operated by $operator$ · $location$",
-  "receiveQrColorAction": "Change the QR code color"
+  "receiveQrColorAction": "Change the QR code color",
+  "durationUnitSeconds": "Seconds",
+  "durationUnitMinutes": "Minutes",
+  "durationUnitHours": "Hours",
+  "durationUnitDays": "Days",
+  "swapExpiryUnit": "Expiry unit",
+  "moreInfoAbout": "More information about $label$",
+  "swapExpiryRange": "Enter a whole number from $min$ to $max$."
 }

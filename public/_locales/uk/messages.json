@@ -5255,5 +5255,46 @@
   "receiveQrColorAction": {
     "message": "Змінити колір QR-коду",
     "englishSource": "Change the QR code color"
+  },
+  "durationUnitSeconds": {
+    "message": "Секунди",
+    "englishSource": "Seconds"
+  },
+  "durationUnitMinutes": {
+    "message": "Хвилини",
+    "englishSource": "Minutes"
+  },
+  "durationUnitHours": {
+    "message": "Години",
+    "englishSource": "Hours"
+  },
+  "durationUnitDays": {
+    "message": "Дні",
+    "englishSource": "Days"
+  },
+  "swapExpiryUnit": {
+    "message": "Одиниця терміну дії",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "Докладніше про $label$",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "Введіть ціле число від $min$ до $max$.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
   }
 }

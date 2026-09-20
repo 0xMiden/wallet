@@ -1186,5 +1186,12 @@
   "saveContact": "Speichern",
   "contactAdded": "Hinzugefügt",
   "guardianCardMeta": "Betrieben von $operator$ · $location$",
-  "receiveQrColorAction": "Farbe des QR-Codes ändern"
+  "receiveQrColorAction": "Farbe des QR-Codes ändern",
+  "durationUnitSeconds": "Sekunden",
+  "durationUnitMinutes": "Minuten",
+  "durationUnitHours": "Stunden",
+  "durationUnitDays": "Tage",
+  "swapExpiryUnit": "Ablaufeinheit",
+  "moreInfoAbout": "Weitere Informationen zu $label$",
+  "swapExpiryRange": "Geben Sie eine ganze Zahl von $min$ bis $max$ ein."
 }

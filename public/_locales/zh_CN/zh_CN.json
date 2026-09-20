@@ -1186,5 +1186,12 @@
   "saveContact": "保存",
   "contactAdded": "添加时间",
   "guardianCardMeta": "运营方：$operator$ · $location$",
-  "receiveQrColorAction": "更改二维码颜色"
+  "receiveQrColorAction": "更改二维码颜色",
+  "durationUnitSeconds": "秒",
+  "durationUnitMinutes": "分钟",
+  "durationUnitHours": "小时",
+  "durationUnitDays": "天",
+  "swapExpiryUnit": "到期单位",
+  "moreInfoAbout": "关于$label$的更多信息",
+  "swapExpiryRange": "请输入 $min$ 到 $max$ 之间的整数。"
 }

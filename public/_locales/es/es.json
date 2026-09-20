@@ -1186,5 +1186,12 @@
   "saveContact": "Guardar",
   "contactAdded": "Añadido",
   "guardianCardMeta": "Operado por $operator$ · $location$",
-  "receiveQrColorAction": "Cambiar el color del código QR"
+  "receiveQrColorAction": "Cambiar el color del código QR",
+  "durationUnitSeconds": "Segundos",
+  "durationUnitMinutes": "Minutos",
+  "durationUnitHours": "Horas",
+  "durationUnitDays": "Días",
+  "swapExpiryUnit": "Unidad de caducidad",
+  "moreInfoAbout": "Más información sobre $label$",
+  "swapExpiryRange": "Introduce un número entero de $min$ a $max$."
 }

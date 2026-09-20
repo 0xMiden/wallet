@@ -1186,5 +1186,12 @@
   "saveContact": "Enregistrer",
   "contactAdded": "Ajouté",
   "guardianCardMeta": "Exploité par $operator$ · $location$",
-  "receiveQrColorAction": "Changer la couleur du QR code"
+  "receiveQrColorAction": "Changer la couleur du QR code",
+  "durationUnitSeconds": "Secondes",
+  "durationUnitMinutes": "Minutes",
+  "durationUnitHours": "Heures",
+  "durationUnitDays": "Jours",
+  "swapExpiryUnit": "Unité d'expiration",
+  "moreInfoAbout": "Plus d'informations sur $label$",
+  "swapExpiryRange": "Saisissez un nombre entier compris entre $min$ et $max$."
 }

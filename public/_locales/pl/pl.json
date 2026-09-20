@@ -1186,5 +1186,12 @@
   "saveContact": "Zapisz",
   "contactAdded": "Dodano",
   "guardianCardMeta": "Obsługiwany przez $operator$ · $location$",
-  "receiveQrColorAction": "Zmień kolor kodu QR"
+  "receiveQrColorAction": "Zmień kolor kodu QR",
+  "durationUnitSeconds": "Sekundy",
+  "durationUnitMinutes": "Minuty",
+  "durationUnitHours": "Godziny",
+  "durationUnitDays": "Dni",
+  "swapExpiryUnit": "Jednostka wygaśnięcia",
+  "moreInfoAbout": "Więcej informacji o $label$",
+  "swapExpiryRange": "Wprowadź liczbę całkowitą od $min$ do $max$."
 }

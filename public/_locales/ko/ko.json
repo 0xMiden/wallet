@@ -1186,5 +1186,12 @@
   "saveContact": "저장",
   "contactAdded": "추가됨",
   "guardianCardMeta": "운영: $operator$ · $location$",
-  "receiveQrColorAction": "QR 코드 색상 변경"
+  "receiveQrColorAction": "QR 코드 색상 변경",
+  "durationUnitSeconds": "초",
+  "durationUnitMinutes": "분",
+  "durationUnitHours": "시간",
+  "durationUnitDays": "일",
+  "swapExpiryUnit": "만료 단위",
+  "moreInfoAbout": "$label$ 자세히 보기",
+  "swapExpiryRange": "$min$에서 $max$ 사이의 정수를 입력하세요."
 }
