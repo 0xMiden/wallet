@@ -27,9 +27,11 @@ interface SheetBodyProps {
   address: string;
   initialNetwork?: BridgeNetworkId;
   onSaved: () => void;
+  /** Reported upward so the sheet cannot be dismissed out from under an in-flight write. */
+  onBusyChange: (busy: boolean) => void;
 }
 
-const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved }) => {
+const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
   const isEvm = detectAddressChain(address) === 'ethereum';
@@ -46,6 +48,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
       return;
     }
     setSaving(true);
+    onBusyChange(true);
     setError(undefined);
     try {
       await addContact({
@@ -58,6 +61,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
       setSaving(false);
+      onBusyChange(false);
     }
   };
 
@@ -134,16 +138,32 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
  */
 export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ open, onOpenChange, address, network }) => {
   const { t } = useTranslation();
+  const [saving, setSaving] = useState(false);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    // A dismiss - swipe, backdrop, Escape - all route through onOpenChange, and the sheet body
+    // holds the only node that can show a failed save. Ignore a dismiss while the write is in
+    // flight, the same rule as the header back on the contact pages.
+    <Drawer
+      open={open}
+      onOpenChange={next => {
+        if (!next && saving) return;
+        onOpenChange(next);
+      }}
+    >
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('addContact')}</DrawerTitle>
         </DrawerHeader>
         <div className="flex min-h-0 flex-col overflow-y-auto no-scrollbar">
           {/* Remount per address so a new recipient starts with an empty name. */}
-          <SheetBody key={address} address={address} initialNetwork={network} onSaved={() => onOpenChange(false)} />
+          <SheetBody
+            key={address}
+            address={address}
+            initialNetwork={network}
+            onSaved={() => onOpenChange(false)}
+            onBusyChange={setSaving}
+          />
         </div>
       </DrawerContent>
     </Drawer>
