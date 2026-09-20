@@ -7,6 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
+import { StatusBadge } from 'components/ui/StatusBadge';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
@@ -73,12 +74,21 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
             { label: t('route'), value: 'Sepolia → Miden' },
             {
               label: t('status'),
-              value:
-                inputs.phase === 'received'
-                  ? t('received')
-                  : inputs.phase === 'delivering'
-                    ? t('earnWithdrawStatusDelivering')
-                    : t('earnWithdrawStatusRedeeming')
+              // A status word is a `StatusBadge`, never a bare line of text: the closed set
+              // already carries these three and picks each one's tone and label.
+              value: (
+                <StatusBadge
+                  status={
+                    inputs.phase === 'received'
+                      ? 'received'
+                      : inputs.phase === 'delivering'
+                        ? 'delivering'
+                        : 'redeeming'
+                  }
+                  live
+                  data-testid="earn-withdraw-status-badge"
+                />
+              )
             }
           ]}
         />
