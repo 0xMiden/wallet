@@ -1194,5 +1194,15 @@
   "durationUnitDays": "Gün",
   "swapExpiryUnit": "Son kullanma birimi",
   "moreInfoAbout": "$label$ hakkında daha fazla bilgi",
-  "swapExpiryRange": "$min$ ile $max$ arasında bir tam sayı girin."
+  "swapExpiryRange": "$min$ ile $max$ arasında bir tam sayı girin.",
+  "activityView": "Etkinlik görünümü",
+  "activityViewOptions": "Görünüm seçenekleri",
+  "activityViewList": "Liste",
+  "activityViewGroups": "Gruplar",
+  "activityGroupSwaps": "Takaslar",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Diğer etkinlikler",
+  "activityGroupPartialCount": "$count$+",
+  "activityFilterOptions": "Etkinliği filtrele"
 }

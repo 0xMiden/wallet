@@ -5300,5 +5300,50 @@
         "content": "$2"
       }
     }
+  },
+  "activityView": {
+    "message": "Вид активности",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Параметры отображения",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Список",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Группы",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Обмены",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Прочая активность",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterOptions": {
+    "message": "Фильтр активности",
+    "englishSource": "Filter activity"
   }
 }

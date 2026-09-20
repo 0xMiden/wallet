@@ -1194,5 +1194,15 @@
   "durationUnitDays": "День",
   "swapExpiryUnit": "Одиниця терміну дії",
   "moreInfoAbout": "Докладніше про $label$",
-  "swapExpiryRange": "Введіть ціле число від $min$ до $max$."
+  "swapExpiryRange": "Введіть ціле число від $min$ до $max$.",
+  "activityView": "Вигляд активності",
+  "activityViewOptions": "Параметри вигляду",
+  "activityViewList": "Список",
+  "activityViewGroups": "Групи",
+  "activityGroupSwaps": "Обміни",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Інша активність",
+  "activityGroupPartialCount": "$count$+",
+  "activityFilterOptions": "Фільтр активності"
 }

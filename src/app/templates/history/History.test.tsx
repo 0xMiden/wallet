@@ -1421,3 +1421,70 @@ it('offers no more pages while its page is off screen', async () => {
   });
   expect(mockHistoryViewProps.hasMore).toBe(true);
 });
+
+describe('History narrowed and re-rendered by its caller', () => {
+  it('applies `predicate` after the search and the filter, never before', async () => {
+    // "sent" leaves the two send rows; the predicate then keeps one of them.
+    await renderHistory({ filter: 'sent', predicate: (entry: any) => entry.secondaryAddress === '0xEEE' });
+
+    expect(entryKeys()).toEqual(['completed-SD']);
+  });
+
+  it('narrows the list without touching what was loaded, so paging is unchanged', async () => {
+    await renderHistory({ predicate: () => false });
+
+    expect(entryKeys()).toEqual([]);
+    expect(mockHistoryViewProps.hasMore).toBe(true);
+  });
+
+  it('hands `renderEntries` the same entries and paging state instead of the timeline', async () => {
+    let seen: any;
+    await act(async () => {
+      render(
+        <History
+          address="0xme"
+          renderEntries={(view: any) => {
+            seen = view;
+            return <div data-testid="custom-view" data-count={String(view.entries.length)} />;
+          }}
+        />
+      );
+    });
+    await waitFor(() => expect(seen.entries.length).toBeGreaterThan(0));
+
+    // The timeline is not rendered at all; the caller's own view is.
+    expect(screen.queryByTestId('history-view')).toBeNull();
+    expect(screen.getByTestId('custom-view')).toBeTruthy();
+    expect(seen.hasMore).toBe(true);
+    expect(seen.initialLoading).toBe(false);
+    expect(typeof seen.loadMore).toBe('function');
+  });
+
+  it('lets that view page the list the same way the timeline does', async () => {
+    let seen: any;
+    await act(async () => {
+      render(
+        <History
+          address="0xme"
+          renderEntries={(view: any) => {
+            seen = view;
+            return <div data-testid="custom-view" />;
+          }}
+        />
+      );
+    });
+    await waitFor(() => expect(seen.entries.length).toBeGreaterThan(0));
+
+    await act(async () => {
+      await seen.loadMore(1);
+    });
+
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith(
+      '0xme',
+      expect.any(Number),
+      expect.any(Number),
+      true,
+      undefined
+    );
+  });
+});

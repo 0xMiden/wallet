@@ -5300,5 +5300,50 @@
         "content": "$2"
       }
     }
+  },
+  "activityView": {
+    "message": "アクティビティ表示",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "表示オプション",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "リスト",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "グループ",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "スワップ",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "その他のアクティビティ",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterOptions": {
+    "message": "アクティビティを絞り込む",
+    "englishSource": "Filter activity"
   }
 }

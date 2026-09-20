@@ -1,15 +1,18 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { ActivityGroupedHistory } from 'app/templates/history/ActivityGroupedHistory';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
+import { ActivityViewMenu } from 'app/templates/history/ActivityViewMenu';
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeaderAction, TabRootHeader } from 'components/ui';
 import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { setActivityView, useActivityView } from 'lib/settings/activity-view';
 
 type AllHistoryProps = {
   programId?: string | null;
@@ -21,6 +24,11 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Remembered per device in the app's settings module, so the tab reopens in the view the user
+  // left it in; `list` until they choose otherwise.
+  const view = useActivityView();
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
   const filters = useMemo<SegmentedControlItem<ActivityFilter>[]>(
     () => [
@@ -48,14 +56,41 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         title={t('activity')}
         search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
         actions={
-          <TabHeaderAction
-            label={t('activitySearch')}
-            icon={IconName.Search}
-            active={searchOpen}
-            onClick={toggleSearch}
-          />
+          <>
+            <TabHeaderAction
+              label={t('activitySearch')}
+              icon={IconName.Search}
+              active={searchOpen}
+              onClick={toggleSearch}
+            />
+            <TabHeaderAction
+              ref={menuAnchorRef}
+              label={t('activityViewOptions')}
+              icon={IconName.List}
+              active={menuOpen}
+              onClick={() => setMenuOpen(open => !open)}
+              data-testid="activity-view-button"
+            />
+          </>
         }
-        filter={{ items: filters, value: filter, onChange: setFilter, 'aria-label': t('activityFilters') }}
+        // The filter row belongs to the feed: the Groups view rolls the rows up by counterparty,
+        // and its filter is chosen in the menu instead. Both write the same state.
+        filter={
+          view === 'list'
+            ? { items: filters, value: filter, onChange: setFilter, 'aria-label': t('activityFilters') }
+            : undefined
+        }
+      />
+
+      <ActivityViewMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        anchorRef={menuAnchorRef}
+        view={view}
+        onViewChange={setActivityView}
+        filter={filter}
+        onFilterChange={setFilter}
+        filters={filters}
       />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
@@ -66,12 +101,21 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       <DeadletteredNotesNotice className="shrink-0 mx-4 mt-2" />
 
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
-      <ActivityPendingHistory
-        key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
-        search={search}
-        filter={filter}
-        programId={programId}
-      />
+      {view === 'groups' ? (
+        <ActivityGroupedHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          filter={filter}
+          programId={programId}
+        />
+      ) : (
+        <ActivityPendingHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          filter={filter}
+          programId={programId}
+        />
+      )}
     </div>
   );
 };

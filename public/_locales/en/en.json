@@ -1194,5 +1194,15 @@
   "durationUnitDays": "Day",
   "swapExpiryUnit": "Expiry unit",
   "moreInfoAbout": "More information about $label$",
-  "swapExpiryRange": "Enter a whole number from $min$ to $max$."
+  "swapExpiryRange": "Enter a whole number from $min$ to $max$.",
+  "activityView": "Activity view",
+  "activityViewOptions": "View options",
+  "activityViewList": "List",
+  "activityViewGroups": "Groups",
+  "activityGroupSwaps": "Swaps",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Other activity",
+  "activityGroupPartialCount": "$count$+",
+  "activityFilterOptions": "Filter activity"
 }

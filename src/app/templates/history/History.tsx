@@ -54,7 +54,27 @@ type HistoryProps = {
   tokenId?: string;
   searchQuery?: string;
   filter?: ActivityFilter;
+  /**
+   * Narrows the list further, after the search and the filter. The Groups view's own page hands
+   * one group's matcher down here, so that page IS this list — paging, the in-flight rows and the
+   * row rendering all come with it — rather than a second list that would drift from it.
+   */
+  predicate?: (entry: IHistoryEntry) => boolean;
+  /**
+   * Renders something other than the date-grouped timeline over the SAME loaded entries, with the
+   * paging this component owns. The Groups view uses it; everything else gets `HistoryView`.
+   */
+  renderEntries?: (view: HistoryEntriesView) => React.ReactNode;
 };
+
+/** What `renderEntries` is handed: the loaded entries plus the paging state that produced them. */
+export interface HistoryEntriesView {
+  entries: IHistoryEntry[];
+  initialLoading: boolean;
+  /** False once the history is exhausted — which is when a count over `entries` is final. */
+  hasMore: boolean;
+  loadMore: (page: number) => Promise<void>;
+}
 
 // The chips above the activity list. `pending` shows only the notes that
 // wait for a claim, so it removes every settled history row.
@@ -72,6 +92,8 @@ const History = memo<HistoryProps>(
     tokenId,
     searchQuery,
     filter,
+    predicate,
+    renderEntries,
     pendingItems,
     renderPendingItem
   }) => {
@@ -268,9 +290,26 @@ const History = memo<HistoryProps>(
         return true;
       });
     }
+    // Last, so a group's page narrows what the search and the filter already left.
+    if (predicate) {
+      entries = entries.filter(predicate);
+    }
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);
       entries = entries.slice(0, maxIndex);
+    }
+
+    if (renderEntries) {
+      return (
+        <>
+          {renderEntries({
+            entries,
+            initialLoading: filter !== 'pending' && transactionsLoading,
+            hasMore: reading && hasMore,
+            loadMore
+          })}
+        </>
+      );
     }
 
     return (
