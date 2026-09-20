@@ -5256,6 +5256,10 @@
     "message": "Cambiar el color del código QR",
     "englishSource": "Change the QR code color"
   },
+  "receiveAt": {
+    "message": "Recibir en",
+    "englishSource": "Receive at"
+  },
   "durationUnitSeconds": {
     "message": "Seg.",
     "englishSource": "Sec"

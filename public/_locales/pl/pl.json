@@ -1187,6 +1187,7 @@
   "contactAdded": "Dodano",
   "guardianCardMeta": "Obsługiwany przez $operator$ · $location$",
   "receiveQrColorAction": "Zmień kolor kodu QR",
+  "receiveAt": "Odbierz na",
   "durationUnitSeconds": "Sek.",
   "durationUnitMinutes": "Min.",
   "durationUnitHours": "Godz.",

@@ -1187,6 +1187,7 @@
   "contactAdded": "Добавлен",
   "guardianCardMeta": "Оператор: $operator$ · $location$",
   "receiveQrColorAction": "Изменить цвет QR-кода",
+  "receiveAt": "Получить на",
   "durationUnitSeconds": "Сек.",
   "durationUnitMinutes": "Мин.",
   "durationUnitHours": "Час",

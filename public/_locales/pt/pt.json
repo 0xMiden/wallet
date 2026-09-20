@@ -1187,6 +1187,7 @@
   "contactAdded": "Adicionado",
   "guardianCardMeta": "Operado por $operator$ · $location$",
   "receiveQrColorAction": "Alterar a cor do código QR",
+  "receiveAt": "Receber em",
   "durationUnitSeconds": "Seg.",
   "durationUnitMinutes": "Min.",
   "durationUnitHours": "Hora",
