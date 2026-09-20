@@ -19,9 +19,18 @@ describe('NetworkNoticeRows (#875)', () => {
     ]);
   });
 
-  it('keeps its own list layout and adds the caller spacing', () => {
+  it('groups the facts on the shared fill with 16px corners and adds the caller spacing', () => {
     render(<NetworkNoticeRows className="mt-6" />);
 
-    expect(screen.getByRole('list')).toHaveClass('flex', 'flex-col', 'divide-y', 'mt-6');
+    expect(screen.getByRole('list')).toHaveClass('flex', 'flex-col', 'bg-fill', 'rounded-2xl', 'mt-6');
+  });
+
+  it('separates the rows with inset hairlines, not a full-bleed rule', () => {
+    render(<NetworkNoticeRows />);
+
+    const [first, second] = screen.getAllByRole('listitem');
+    expect(second.className).toContain('before:bg-hairline');
+    expect(second.className).toContain('before:inset-x-4');
+    expect(first.className).toContain('first:before:hidden');
   });
 });
