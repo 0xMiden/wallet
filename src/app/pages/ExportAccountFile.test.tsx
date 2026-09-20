@@ -26,33 +26,6 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => (messages as Record<string, string>)[key] ?? key })
 }));
 
-jest.mock('app/atoms/FormField', () => ({
-  __esModule: true,
-  default: ({
-    label,
-    errorCaption,
-    labelDescription: _labelDescription,
-    containerClassName: _containerClassName,
-    ...props
-  }: React.InputHTMLAttributes<HTMLInputElement> & {
-    label: string;
-    errorCaption?: React.ReactNode;
-    labelDescription?: React.ReactNode;
-    containerClassName?: string;
-  }) => (
-    <label>
-      {label}
-      <input aria-label={label} {...props} />
-      {errorCaption ? <span>{errorCaption}</span> : null}
-    </label>
-  )
-}));
-
-jest.mock('app/templates/AccountBanner', () => ({
-  __esModule: true,
-  default: ({ className }: { className?: string }) => <div data-testid="account-banner" className={className} />
-}));
-
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, disabled }: { title: string; onClick: () => void; disabled?: boolean }) => (
     <button type="button" disabled={disabled} onClick={onClick}>
@@ -169,7 +142,8 @@ it('requires the explicit funds warning acknowledgement and password before desk
   await renderReady();
 
   expect(screen.getByText(messages.exportAccountFileWarningBody)).toBeInTheDocument();
-  expect(screen.getByTestId('account-banner')).toHaveClass('text-heading-gray');
+  // The page names the account it would export, as the shared account row.
+  expect(screen.getByTestId('account-banner')).toHaveTextContent('Account 1');
   const saveButton = screen.getByRole('button', { name: messages.saveAccountFile });
   expect(saveButton).toBeDisabled();
 
