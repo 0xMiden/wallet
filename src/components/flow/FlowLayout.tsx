@@ -54,12 +54,7 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
 
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-1 flex-col bg-app-bg px-6">
-      {tabRoot ? (
-        <header className="flex h-15 shrink-0 items-center justify-between gap-3">
-          <h1 className="min-w-0 truncate text-title-tab text-ink">{title}</h1>
-          {titleAccessory && <div className="flex shrink-0 items-center gap-2">{titleAccessory}</div>}
-        </header>
-      ) : (
+      {!tabRoot && (
         <PageHeader
           title={title}
           onBack={onBack}
@@ -71,7 +66,17 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
         />
       )}
 
-      <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto pt-2">{children}</div>
+      {/* A tab root's title is not a navigation bar: it is the first line of the page, above the
+          field it names, exactly where the swap page puts "You Pay". */}
+      <div className={clsx('no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto', tabRoot ? 'pt-6' : 'pt-2')}>
+        {tabRoot && (
+          <header className="flex shrink-0 items-start justify-between gap-3">
+            <h1 className="min-w-0 text-title-tab text-ink">{title}</h1>
+            {titleAccessory && <div className="flex shrink-0 items-center gap-2">{titleAccessory}</div>}
+          </header>
+        )}
+        {children}
+      </div>
 
       <div ref={footerRef} className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>
         {footer}

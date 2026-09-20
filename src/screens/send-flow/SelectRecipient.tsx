@@ -146,7 +146,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         />
       }
     >
-      <div className="relative mt-4">
+      <div className="relative mt-3">
         {recipientName && (
           <div className="mb-2 flex items-center gap-3">
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
