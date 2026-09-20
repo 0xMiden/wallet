@@ -346,7 +346,6 @@
         "src/app/templates/HashChip.tsx",
         "src/app/templates/history/HistoryItem.tsx",
         "src/app/templates/PrivateDataPermissionCheckbox.tsx",
-        "src/app/templates/RevealSecret.tsx",
         "src/app/templates/RevealSeedPhrase.tsx",
         "src/app/templates/SettingToggle.tsx",
         "src/app/templates/VerifySeedPhraseFlow.tsx",

@@ -242,9 +242,10 @@ describe('RevealSecret', () => {
   });
 
   // Private-key + guardian-keys reveals gate the action button behind an
-  // "I understand" checkbox; tick it so the button enables.
+  // "I understand" checkbox; tick it so the button enables. It is the shared
+  // selection mark on a `role="checkbox"` button, not a native input.
   const acknowledge = async (container: HTMLElement) => {
-    const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const checkbox = container.querySelector('[role="checkbox"]') as HTMLElement;
     await act(async () => {
       checkbox.click();
     });
@@ -292,6 +293,41 @@ describe('RevealSecret', () => {
     const password = container.querySelector<HTMLInputElement>('#reveal-secret-password')!;
     expect(password.closest('div.bg-fill')).not.toBeNull();
     expect(container.querySelector('label[for="reveal-secret-password"]')).toHaveTextContent('password');
+  });
+
+  it('gates the private-key reveal behind a shared warning notice and selection mark', async () => {
+    const container = await renderReveal('private-key');
+
+    const notice = container.querySelector('[data-tone="warning"]')!;
+    expect(notice.querySelector('[data-slot="title"]')).toHaveTextContent('privateKeyRevealWarningTitle');
+    expect(notice.querySelector('[data-slot="body"]')).toHaveTextContent('privateKeyRevealWarningBody');
+
+    const check = container.querySelector('[role="checkbox"]')!;
+    expect(check).toHaveAttribute('aria-checked', 'false');
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeDisabled();
+    await acknowledge(container);
+    expect(check).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('covers a revealed secret in the shared field until it is looked at', async () => {
+    const container = await renderReveal('seed-phrase');
+    await typePassword(container, 'pass');
+    await act(async () => {
+      buttonWithText(container, 'continue')!.click();
+    });
+    await flush();
+
+    const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
+    // The shared multi-line field on `fill`. Off mobile the page focuses it on reveal, so the
+    // words are readable; they go back behind the design system's cover the moment focus leaves.
+    expect(field.tagName).toBe('TEXTAREA');
+    expect(field.closest('div.bg-fill')).not.toBeNull();
+    expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+    await act(async () => {
+      field.blur();
+    });
+    expect(container.querySelector('[data-slot="secret-cover"]')).toBeInTheDocument();
   });
 
   it('keeps the header frame while the protector check is pending, with no body or footer yet', async () => {
