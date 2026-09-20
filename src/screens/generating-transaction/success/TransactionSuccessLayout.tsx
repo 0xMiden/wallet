@@ -129,15 +129,19 @@ export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }
 
 /**
  * Hero summary pill under the title — "{amount} {symbol} → {recipient}" in a
- * rounded pill with the blue-circle arrow (or a caller-provided `separator`
- * glyph, e.g. the earn up-arrow). Reuses the in-progress screen's
+ * rounded pill whose arrow carries the flow's colour (or a caller-provided
+ * `separator` glyph, e.g. the earn up-arrow). Reuses the in-progress screen's
  * `TransactionSummaryBadge`, so it renders `null` when either side is missing.
  */
-export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode; separator?: ReactNode }> = ({
-  lhs,
-  rhs,
-  separator
-}) => <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} className="mt-1" />;
+export const SuccessSummaryPill: FC<{
+  lhs?: ReactNode;
+  rhs?: ReactNode;
+  separator?: ReactNode;
+  /** The arrow's fill, as the badge content reports it — swap purple, receive green, send blue. */
+  fillForArrow?: string;
+}> = ({ lhs, rhs, separator, fillForArrow }) => (
+  <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} fillForArrow={fillForArrow} className="mt-1" />
+);
 
 /** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows. */
 export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {

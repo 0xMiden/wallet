@@ -71,7 +71,12 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       }}
       onClose={onDoneClick}
     >
-      <SuccessSummaryPill lhs={amountText} rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient} />
+      <SuccessSummaryPill
+        lhs={amountText}
+        rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient}
+        // A claim is money arriving: its arrow is the Receive green, not the Send blue.
+        fillForArrow={isConsume ? 'var(--action-receive)' : undefined}
+      />
       <ReceiptRows rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );
