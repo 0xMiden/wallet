@@ -20,6 +20,7 @@
 - [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
 - [CHANGE][all] Action buttons are 48px instead of 52px, so a pinned action takes less of the page.
 - [CHANGE][all] The swap page sits tighter, its You Pay and You Receive titles match Send's, its Review button waits on the quote with a wave of dots and lines up with Send's Confirm, and the page carries the swap colour throughout.
+- [CHANGE][all] Every bottom sheet shares one look: a smaller left-aligned title with the round close and no rule under it, rows grouped in a grey card with hairlines inset past the logo, and the chosen token, wallet or contact marked with the app's round check instead of an orange dot. The swap and send token pickers, the address book, the expiration picker, the test-network, guardian, account, dApp and bridge sheets all follow it.
 - [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
 - [CHANGE][all] Scroll bars are hidden everywhere in the app; scrolling is unchanged.
 - [CHANGE][all] The swap page is tighter: You Pay and You Receive each sit in a card with the direction toggle on the seam, and a missing fee asset reads as a notice instead of reddening the amount.
