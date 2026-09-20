@@ -51,8 +51,9 @@ export interface SegmentedControlProps<T extends string = string> {
 }
 
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
-// bubble's shadow and the focus ring, which a scrolling row would otherwise clip.
-const container = cva('flex items-center gap-1 py-1', {
+// bubble's shadow and the focus ring, which a scrolling row would otherwise clip; 8px between the
+// items, because each one is outlined and two hairlines 4px apart read as one seam.
+const container = cva('flex items-center gap-2 py-1', {
   variants: {
     layout: {
       scroll: 'overflow-x-auto no-scrollbar',
@@ -80,9 +81,12 @@ const segment = cva(
         scroll: 'shrink-0',
         fill: 'min-w-0 flex-1'
       },
+      // Every item is an outlined pill on the page; the selected one hands its outline over to
+      // the raised bubble that covers it, keeping the border transparent so the item's width —
+      // and so the row — never shifts as the selection moves.
       active: {
-        true: 'text-ink',
-        false: 'text-muted'
+        true: 'border border-transparent text-ink',
+        false: 'border border-hairline bg-page text-ink'
       }
     },
     defaultVariants: { size: 'md', layout: 'scroll', active: false }
@@ -166,10 +170,15 @@ const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown']);
 const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
 
 /**
- * A single choice out of a few, drawn like the tab bars: no strip behind the items, the selected
- * one on the raised bubble that slides between them on the tab-switch spring, its content popping
- * as it lands, and a press that dips the item. One selection haptic per real change. Under reduced
- * motion the bubble moves instantly, nothing pops and a press does not scale.
+ * A single choice out of a few, drawn like the tab bars: no strip behind the items, each one an
+ * outlined pill on the page, and the selected one on the SAME raised bubble the bottom nav uses —
+ * `raisedBubbleClassName` and `useTabBarMotion` verbatim, so the bubble, its shadow, its pressed
+ * shadow and the spring it slides on are the bottom bar's, not a copy of them. Its content pops as
+ * it lands and a press dips the item. One selection haptic per real change. Under reduced motion
+ * the bubble moves instantly, nothing pops and a press does not scale.
+ *
+ * The selected label stays `ink`, never white on `accent`: that pair is 3.0:1, which the spec
+ * allows only at 19px bold, and these labels are 14px.
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
  * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
@@ -260,14 +269,16 @@ export function SegmentedControl<T extends string>({
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
           control, so two mounted controls never trade bubbles. Controlled and click-free: `value`
-          decides where it sits. */}
+          decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
+          absolutely positioned against the item's PADDING box, so it has to reach 1px past it to
+          cover the item's border and match the outlined pills beside it edge for edge. */}
       <Highlight
         controlledItems
         value={value}
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
-        className={cn('inset-0', raisedBubbleClassName)}
+        className={cn('-inset-px', raisedBubbleClassName)}
       >
         {items.map((item, index) => (
           <Segment

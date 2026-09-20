@@ -165,13 +165,14 @@ describe('SegmentedControl — the raised bubble', () => {
 
     const selected = getRadio('Pending 3');
     const bubble = bubbleIn(selected)!;
-    expect(bubble).toHaveClass('inset-0', 'rounded-full', 'bg-raised', 'shadow-raised');
+    // The bottom nav's bubble, token for token, reaching 1px past the item's padding box so it
+    // covers the outline the item carries when it is not selected.
+    expect(bubble).toHaveClass('-inset-px', 'rounded-full', 'bg-raised', 'shadow-raised');
     expect(bubble).toHaveClass('group-active:shadow-raised-pressed');
     expect(selected).toHaveClass('group', 'rounded-full', 'text-ink');
     expect(selected).not.toHaveClass('overflow-hidden');
 
     expect(bubbleIn(getRadio('All'))).toBeNull();
-    expect(getRadio('All')).toHaveClass('text-muted');
   });
 
   it('moves one shared bubble when the value changes, scoped per control', () => {
@@ -414,18 +415,25 @@ describe('SegmentedControl selection', () => {
     { id: 'sent', label: 'Sent' }
   ];
 
-  it('draws the selection on the raised bubble, and has no solid-accent look to fall back to', () => {
+  it('outlines every item and gives the selected one the raised bubble, never a solid accent pill', () => {
     render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
     const all = screen.getByRole('radio', { name: 'All' });
     const sent = screen.getByRole('radio', { name: 'Sent' });
 
-    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised', 'shadow-raised');
+    // Unselected: an outlined pill on the page, `ink` label.
+    expect(sent).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
     expect(sent.querySelector('[data-slot="motion-highlight"]')).toBeNull();
-    // White on the brand orange is 3.0:1, which the spec allows only at 19px bold, so the
-    // selection is never a solid accent pill and the rest are never outlined boxes.
+
+    // Selected: the same border, transparent, so the width never shifts — and the bubble over it.
+    expect(all).toHaveClass('border', 'border-transparent', 'text-ink');
+    expect(all).not.toHaveClass('border-hairline');
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised', 'shadow-raised');
+
+    // White on the brand orange is 3.0:1, which the spec allows only at 19px bold.
     expect(all).not.toHaveClass('text-pure-white');
     expect(all.className).not.toMatch(/bg-accent/);
-    expect(sent).not.toHaveClass('border');
-    expect(screen.getByRole('radiogroup')).toHaveClass('gap-1');
+
+    // 8px between outlined pills: two hairlines 4px apart read as one seam.
+    expect(screen.getByRole('radiogroup')).toHaveClass('gap-2');
   });
 });
