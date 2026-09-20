@@ -132,8 +132,9 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
       // full-width hairlines between them — the Settings root and Explore's app lists again, and
       // the reading Brian asked for on the simulator ("just rows, like a chat interface").
       // `outline` would put a box around a whole screen of rows, which is the thing the three
-      // list surfaces exist to stop.
-      <ListGroup surface="plain" data-testid="activity-group-list" className="mt-4">
+      // list surfaces exist to stop. It also starts right under the header's own gap: a chat list
+      // has no block of air between the rule and the first conversation.
+      <ListGroup surface="plain" data-testid="activity-group-list">
         {groups.map(group => (
           <ListRow
             key={`${group.kind}:${group.id}`}
