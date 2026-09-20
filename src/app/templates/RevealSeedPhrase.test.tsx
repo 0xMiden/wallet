@@ -37,64 +37,6 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// Alert echoes its description so the auth-error branch is assertable.
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description }: { description?: string }) => <div data-testid="alert">{description}</div>
-}));
-
-// Functional input mock so react-hook-form can register the password field
-// and we can drive the software-unlock path. Forwards the ref + the handlers
-// the form wires up, and echoes errorCaption for the submit-error assertion.
-jest.mock('app/atoms/FormField', () =>
-  React.forwardRef(
-    (
-      {
-        name,
-        type,
-        id,
-        placeholder,
-        onChange,
-        onBlur,
-        errorCaption
-      }: {
-        name?: string;
-        type?: string;
-        id?: string;
-        placeholder?: string;
-        onChange?: React.ChangeEventHandler<HTMLInputElement>;
-        onBlur?: React.FocusEventHandler<HTMLInputElement>;
-        errorCaption?: string;
-      },
-      ref: React.Ref<HTMLInputElement>
-    ) => (
-      <div>
-        <input
-          ref={ref}
-          name={name}
-          type={type}
-          id={id}
-          placeholder={placeholder}
-          onChange={onChange}
-          onBlur={onBlur}
-        />
-        {errorCaption ? <span data-testid="error-caption">{errorCaption}</span> : null}
-      </div>
-    )
-  )
-);
-
-// type="button" so a click never doubles as a native form submit.
-jest.mock('components/Button', () => ({
-  __esModule: true,
-  Button: ({ onClick, title, disabled }: { onClick?: () => void; title: string; disabled?: boolean }) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
-      {title}
-    </button>
-  ),
-  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
-}));
-
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name?: string }) => <span data-testid="icon" data-name={name} />,
   IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', EyeOff: 'EyeOff' }
@@ -485,6 +427,18 @@ describe('RevealSeedPhrase', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
+  it('draws the revealed words on the shared fill surface, with copy as a shared pill', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    const grid = container.querySelector('[data-testid="reveal-seed-copy"]')!.parentElement!.nextElementSibling!;
+    expect(grid).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(grid.querySelector('span')).toHaveClass('text-value', 'text-ink');
+    // No lone white block and no bordered one-off copy button any more.
+    expect(container.querySelector('.bg-white')).toBeNull();
+    expect(container.querySelector('.border-border-card')).toBeNull();
+  });
+
   it('runs handleHide from the revealed-view PageHeader back button', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const container = await renderAndView();
@@ -508,7 +462,8 @@ describe('RevealSeedPhrase', () => {
     const container = await renderAndView();
 
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
-    expect(container.querySelector('[data-testid="alert"]')!.textContent).toBe('biometric failed');
+    // The shared negative Notice carries the message, in place of the Alert atom.
+    expect(container.querySelector('[data-tone="negative"] [data-slot="body"]')!.textContent).toBe('biometric failed');
     // The catch and the auto-close effect both want out; `history.go(-1)` settles on
     // a later task, so two calls popped two pages (Settings as well as this one).
     expect(mockGoBack).toHaveBeenCalledTimes(1);
