@@ -324,9 +324,7 @@ const RotateGuardianReview: FC = () => {
             )
           }
         >
-          <p className="px-1 font-sans text-[15px] leading-[22px] text-muted">
-            {t('guardianSwitchAuthenticationDescription')}
-          </p>
+          <p className="px-1 text-body text-muted">{t('guardianSwitchAuthenticationDescription')}</p>
           {isMobile() ? (
             <PasscodeEntry
               onSubmit={code => void authenticateAndSwitch(code)}
