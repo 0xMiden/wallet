@@ -146,7 +146,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         />
       }
     >
-      <div className="relative mt-1">
+      <div className="relative mt-4">
         {recipientName && (
           <div className="mb-2 flex items-center gap-3">
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
@@ -210,7 +210,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         )}
       </AnimatePresence>
 
-      <div className={clsx('mt-3', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
+      <div className={clsx('mt-4', recentRecipients.length > 0 ? 'pb-7' : 'pb-4')}>
         {/* The pills swap as one set, never one by one: the current set fades
             out, then the next fades in. Removing Paste/Scan while Address Book
             slid over and relabelled itself raced three animations against
@@ -265,7 +265,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             {...reveal}
           >
             <h2 className="text-title-section text-ink">{t('recent')}</h2>
-            <ul className="mt-1 flex flex-col">
+            <ul className="mt-2 flex flex-col overflow-hidden rounded-2xl bg-fill">
               {recentRecipients.map((recipient, index) => (
                 <li key={recipient.address}>
                   <button
@@ -276,7 +276,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       onSelectRecent?.(recipient);
                     }}
                     className={clsx(
-                      'flex w-full items-center gap-3 py-3 text-left',
+                      'flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors active:bg-fill-pressed',
                       index > 0 && 'border-t border-hairline'
                     )}
                   >
