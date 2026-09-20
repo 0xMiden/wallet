@@ -172,7 +172,10 @@ describe('GeneralSettings', () => {
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
     expect(themeRow.querySelector('[data-slot="title"]')).toHaveTextContent('theme');
     expect(themeRow).toContainElement(screen.getByRole('radiogroup', { name: 'theme' }));
-    expect(themeRow.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    // A `plain` group: no surface of its own, its rows flush on the page margin.
+    expect(themeRow.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(themeRow.parentElement).not.toHaveClass('bg-fill');
+    expect(themeRow.parentElement).not.toHaveClass('border');
     expect(themeRow.parentElement).toContainElement(
       screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
     );

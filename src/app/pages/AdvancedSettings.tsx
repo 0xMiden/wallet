@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ListGroup } from 'components/ui/ListGroup';
@@ -52,7 +53,7 @@ const AdvancedSettings: FC = () => {
 
   return (
     <SubPageLayout data-testid="advanced-settings">
-      <SubPageSection>
+      <SubPageSection title={t('account')}>
         <DetailCard>
           <DetailRow label={t('accountPublicKey')} data-testid="advanced-public-key">
             <span className="font-mono text-sm select-text">{truncatedPublicKey}</span>
@@ -62,8 +63,8 @@ const AdvancedSettings: FC = () => {
         </DetailCard>
       </SubPageSection>
 
-      <SubPageSection>
-        <ListGroup surface="outline">
+      <SubPageSection title={t('faucet')} icon={<Icon name={IconName.Faucet} fill="currentColor" />}>
+        <ListGroup surface="plain">
           <ListRow
             title={t('editMidenFaucetId')}
             onClick={() => navigate('/settings/edit-miden-faucet-id')}

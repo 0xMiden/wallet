@@ -273,6 +273,7 @@ describe('RevealSecret', () => {
     const container = await renderReveal('private-key');
     const row = container.querySelector('[data-testid="reveal-secret-account"]')!;
     expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('My Test Account');
+    // `fill`: one identification block embedded in a form page, not a page-wide list.
     expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     expect(buttonWithText(container, 'continue')).toBeTruthy();
   });

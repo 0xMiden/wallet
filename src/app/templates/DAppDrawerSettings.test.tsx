@@ -121,15 +121,19 @@ describe('DAppDrawerSettings', () => {
     expect(toggle).toHaveAttribute('name', 'dAppEnabled');
   });
 
-  it('renders through SubPageLayout: the switch as a ListRow, its description the footnote', () => {
+  it('renders through SubPageLayout: the switch as a ListRow in a plain group, described above it', () => {
     render(<DAppDrawerSettings />);
 
     const page = screen.getByTestId('dapp-drawer-settings');
     expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'gap-5');
     const row = screen.getByText('dAppsInteraction').closest('label')!;
     expect(row).toHaveAttribute('for', 'dAppEnabled');
-    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
-    expect(screen.getByText('dAppsToggleDescription')).toHaveClass('text-body-sm', 'text-muted');
+    expect(row.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(row.parentElement).not.toHaveClass('bg-fill');
+    // The copy introduces the section now, above the group, on the same margin as its rows.
+    expect(screen.getByText('dAppsToggleDescription')).toHaveClass('text-body', 'text-muted', 'px-0');
+    // The section carries the Settings-root header: the 20px title behind its glyph.
+    expect(screen.getByRole('heading', { name: 'authorizedDApps' })).toHaveClass('text-title-section', 'text-ink');
   });
 
   it('wires useStorage with the DAppEnabled key defaulting to enabled and useRetryableSWR with the sessions loader', () => {
@@ -186,10 +190,11 @@ describe('DAppDrawerSettings', () => {
     render(<DAppDrawerSettings />);
 
     expect(screen.getByText('seeConnected')).toBeInTheDocument();
-    // A navigating ListRow in its own group: the chevron is ListRow's.
+    // A navigating ListRow, sharing the toggle's plain group: the chevron is ListRow's.
     const row = screen.getByTestId('dapp-see-connected');
     expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
-    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(row.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(row.parentElement).toBe(screen.getByText('dAppsInteraction').closest('label')!.parentElement);
   });
 
   it('navigates to the dapps settings when "see connected" is clicked', () => {

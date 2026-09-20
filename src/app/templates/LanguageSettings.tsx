@@ -127,7 +127,7 @@ const LanguageSettings: FC = () => {
           control the user could un-press, when in fact activating the current row
           just leaves the screen. */}
       <div role="radiogroup" aria-label={t('language')}>
-        <ListGroup surface="outline">
+        <ListGroup surface="plain">
           {LANGUAGES.map(({ code, label, bcp47 }, index) => {
             const isSelected = code === currentCode;
             return (

@@ -35,7 +35,7 @@ const KeysSettings: FC = () => {
     <SubPageLayout data-testid="keys-settings">
       {rows.length > 0 && (
         <SubPageSection>
-          <ListGroup surface="outline">
+          <ListGroup surface="plain">
             {rows.map(row => (
               <ListRow
                 key={row.titleI18nKey}
