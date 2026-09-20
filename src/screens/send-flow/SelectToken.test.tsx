@@ -54,9 +54,9 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
 }));
 
-// `components/ui` barrel — stub SearchInput to a controlled input so typing
-// drives the component's `onChange(value)` contract directly.
-jest.mock('components/ui', () => ({
+// Stub SearchInput to a controlled input so typing drives the component's
+// `onChange(value)` contract directly.
+jest.mock('components/ui/SearchInput', () => ({
   SearchInput: ({
     value,
     onChange,
@@ -72,23 +72,18 @@ jest.mock('components/ui', () => ({
   )
 }));
 
-// `components/AssetRow` wraps TokenLogo + sparkline + price plumbing; stub it to
-// a button that surfaces the symbol and forwards the click so we can assert the
-// UIToken the drawer builds on select.
-jest.mock('components/AssetRow', () => ({
-  AssetRow: ({
-    asset,
-    onClick,
-    'data-testid': dataTestId
-  }: {
-    asset: { metadata: { symbol: string } };
-    onClick?: () => void;
-    'data-testid'?: string;
-  }) => (
-    <button data-testid={dataTestId} onClick={onClick}>
-      {asset.metadata.symbol}
-    </button>
+// `components/TokenLogo` renders inline SVG logos; stub it to a probe that
+// surfaces the `symbol`/`size` props the row passes through.
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
+    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
   )
+}));
+
+// `lib/prices` reaches for the live price feed; the fiat column only needs a
+// deterministic price per symbol here.
+jest.mock('lib/prices', () => ({
+  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 0, percentageChange24h: 0 })
 }));
 
 type Balance = {
@@ -272,5 +267,26 @@ describe('SelectTokenDrawer', () => {
 
     const row = within(screen.getByTestId('drawer-content')).getByTestId('send-token-BTC');
     expect(row).toBeInTheDocument();
+  });
+
+  it('draws each row as a list row: 40px logo, name, balance and fiat value', () => {
+    setBalances([BTC]);
+    renderDrawer();
+
+    const row = screen.getByTestId('send-token-BTC');
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-size', 'lg');
+    expect(within(row).getByText('Bitcoin')).toBeInTheDocument();
+    expect(within(row).getByText('1.50 BTC')).toBeInTheDocument();
+    expect(within(row).getByText('$3.00')).toBeInTheDocument();
+  });
+
+  it('groups the rows on the shared fill with inset hairlines, not full-bleed rules', () => {
+    setBalances([BTC, ETH]);
+    renderDrawer();
+
+    const group = screen.getByTestId('send-token-BTC').parentElement!;
+    expect(group.className).toContain('bg-fill');
+    expect(group.className).toContain('rounded-2xl');
+    expect(screen.getByTestId('send-token-ETH').className).toContain('before:bg-hairline');
   });
 });
