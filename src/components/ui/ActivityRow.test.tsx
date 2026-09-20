@@ -321,4 +321,19 @@ describe('ActivityRow', () => {
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
     });
   });
+
+  it('holds every row to one height: the title and subtitle each keep a single line', () => {
+    render(
+      <ActivityRow
+        testId="row"
+        icon={<svg />}
+        title="Guardian switched"
+        subtitle="OpenZeppelin → Gateway Operator, a subtitle long enough to wrap on a phone"
+        status="confirmed"
+      />
+    );
+
+    expect(screen.getByTestId('row-title')).toHaveClass('truncate');
+    expect(screen.getByTestId('row-subtitle')).toHaveClass('truncate');
+  });
 });
