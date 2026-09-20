@@ -1,13 +1,10 @@
 name: PR Tests
 
 on:
+  # Every pull request, whatever it targets. A stacked PR's base is the branch below
+  # it, so a base filter silently skipped lint, types and unit tests for every PR in a
+  # stack — they showed green on nothing but the changelog and e2e checks.
   pull_request:
-    branches:
-      - main
-      - dev
-      - next
-      - 'mw-**'
-      - 'feat/**'
 
 permissions:
   contents: read
