@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -21,6 +21,12 @@ export interface AddContactDrawerProps {
   address: string;
   /** The destination network chosen for a `0x` recipient; preselected here. */
   network?: BridgeNetworkId;
+  /**
+   * Reported upward so EVERY writer of this sheet's open state can gate on the in-flight write,
+   * not just the dismissals vaul routes through `onOpenChange`. The mobile back handler closes the
+   * sheet by setting that state directly, which is the fourth dismissal path.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 interface SheetBodyProps {
@@ -140,9 +146,22 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved,
  * address, which network the contact is for). Closes once saved, at which point the recipient
  * matches a contact and the pill reverts to "Address Book".
  */
-export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ open, onOpenChange, address, network }) => {
+export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
+  open,
+  onOpenChange,
+  onBusyChange,
+  address,
+  network
+}) => {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
+  const setBusy = useCallback(
+    (busy: boolean) => {
+      setSaving(busy);
+      onBusyChange?.(busy);
+    },
+    [onBusyChange]
+  );
 
   return (
     // A dismiss - swipe, backdrop, Escape - all route through onOpenChange, and the sheet body
@@ -166,7 +185,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ open, onOpen
             address={address}
             initialNetwork={network}
             onSaved={() => onOpenChange(false)}
-            onBusyChange={setSaving}
+            onBusyChange={setBusy}
           />
         </div>
       </DrawerContent>

@@ -170,6 +170,8 @@ jest.mock('./AddContactDrawer', () => ({
       <span data-testid="acd-address">{props.address ?? ''}</span>
       <span data-testid="acd-network">{props.network ?? ''}</span>
       <button data-testid="acd-close" onClick={() => props.onOpenChange(false)} />
+      {/* Lets a test put the sheet into the in-flight-write state the real SheetBody reports. */}
+      <button data-testid="acd-busy" onClick={() => props.onBusyChange?.(true)} />
     </div>
   )
 }));
@@ -456,6 +458,28 @@ describe('mobile back handler', () => {
     });
     expect(result).toBe(true);
     expect(screen.getByTestId('ad-open')).toHaveTextContent('false');
+    expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('does not close the add-contact drawer on mobile back while its save is in flight', () => {
+    renderFlow();
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-addcontact'));
+    });
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
+    act(() => {
+      fireEvent.click(screen.getByTestId('acd-busy'));
+    });
+
+    // This path writes the sheet's open state directly, so it never reaches the drawer's own
+    // dismiss guard. Tearing the sheet down here destroys the only node that can report a failed
+    // save. The gesture is still consumed, so back does not fall through to the Navigator.
+    let result: boolean | undefined;
+    act(() => {
+      result = capturedBackHandler!();
+    });
+    expect(result).toBe(true);
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
