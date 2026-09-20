@@ -33,10 +33,15 @@ export interface TabHeaderProps {
 }
 
 /**
- * Bare icon button for the header's action group: a 24px glyph in a 44px hit area, built on the
- * design system's `IconButton`. `active` renders the accent-colored selected state (e.g. the
- * search icon while search is open) and sets `aria-pressed`, so this action always reads as a
- * toggle rather than a one-shot button.
+ * The icon button of a tab root's title row: the design system's `IconButton` in its 44px circle —
+ * a 24px `ink` glyph on a `fill` circle, the same control the pushed-page back button and the
+ * sheets use, so an icon button looks the same wherever the wallet puts one. Flat, not raised: the
+ * raised bubble means "selected" now that the segmented control fills it with the accent, and a
+ * plain action must not claim it.
+ *
+ * `active` fills the circle with the accent and turns the glyph white (the search icon while
+ * search is open) and sets `aria-pressed`, so this action always reads as a toggle rather than a
+ * one-shot button. 44px inside the 56px row, so it can never set the row's height.
  */
 export const TabHeaderAction: FC<{
   label: string;
@@ -45,7 +50,15 @@ export const TabHeaderAction: FC<{
   onClick: () => void;
   'data-testid'?: string;
 }> = ({ label, icon, active = false, onClick, 'data-testid': dataTestId }) => (
-  <IconButton icon={icon} label={label} active={active} onClick={onClick} data-testid={dataTestId} />
+  <IconButton
+    icon={icon}
+    label={label}
+    appearance="circle"
+    circleSize="44"
+    active={active}
+    onClick={onClick}
+    data-testid={dataTestId}
+  />
 );
 
 /**
@@ -55,8 +68,12 @@ export const TabHeaderAction: FC<{
  *
  * 56px, not the 60px of a pushed page's header: 56 plus the 4px rule under it is 60, which is what
  * Home's `SegmentedActionBar` occupies (4 + 48px segments + 8 + its hairline), so the content line
- * does not move as tabs change. The 10px above and below the 36px title line is the whole of that
- * trim — the title itself stays 28px, and the 44px icon actions still clear the row's edges.
+ * does not move as tabs change. The title itself stays 28px.
+ *
+ * That 56px is fixed and has NO vertical padding for a child to argue with: the row's height is
+ * the only thing that sets the row's height. Both branches of the swap are the same 36px box — the
+ * title's line box, and the search field at `sm` — so opening search cannot move the rule, the
+ * filter row or anything under them by a pixel, whatever the field is later restyled to.
  *
  * The settings gear that used to live here is gone — Settings is a primary
  * bottom-nav destination now, so a gear on the very screens that show that
@@ -74,13 +91,14 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const transition: Transition = { default: springs.snappy, opacity: fade };
 
   return (
-    <header className="shrink-0 px-4 py-2.5 flex h-14 items-center justify-between gap-3">
+    <header className="shrink-0 px-4 flex h-14 items-center justify-between gap-3">
       <AnimatePresence initial={false} mode="popLayout">
         {searchOpen && search ? (
           <motion.div
             key="search"
             data-testid="tab-header-search"
-            className="min-w-0 flex-1"
+            // `h-9`: the same 36px box the title occupies, so the swap is height-neutral.
+            className="h-9 min-w-0 flex-1"
             // The field grows in from just shy of full size, slightly offset toward
             // the search icon it replaces (on the header's right edge) — closing
             // retraces the same path back toward the icon, not a plain fade.
@@ -106,7 +124,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
           <motion.h1
             key="title"
             data-testid="tab-header-title"
-            className="min-w-0 truncate text-title-tab text-ink"
+            className="h-9 min-w-0 truncate text-title-tab text-ink"
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -6 }}
