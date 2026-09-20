@@ -48,25 +48,36 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   }, [focusTitleOnMount]);
 
   return (
-    <header className={clsx('flex h-13 shrink-0 items-center gap-3', className)}>
-      {onBack && (
-        // `bare` is always `ink`, in a flow too: the flow accents are under 3:1 on white.
-        <IconButton icon={IconName.ChevronLeft} label={t('back')} onClick={onBack} data-testid={backTestId} />
-      )}
-      {title ? (
-        <h1
-          ref={titleRef}
-          tabIndex={focusTitleOnMount ? -1 : undefined}
-          // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
-          className="line-clamp-2 min-w-0 flex-1 text-title-page break-words text-ink outline-none"
-        >
-          {title}
-        </h1>
-      ) : (
-        <span className="flex-1" />
-      )}
-      {actions}
-      {onClose && <IconButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
-    </header>
+    <>
+      <header className={clsx('flex h-15 shrink-0 items-center gap-3', className)}>
+        {onBack && (
+          // `bare` is always `ink`, in a flow too: the flow accents are under 3:1 on white.
+          <IconButton
+            icon={IconName.ArrowLeft}
+            appearance="circle"
+            circleSize="44"
+            label={t('back')}
+            onClick={onBack}
+            data-testid={backTestId}
+          />
+        )}
+        {title ? (
+          <h1
+            ref={titleRef}
+            tabIndex={focusTitleOnMount ? -1 : undefined}
+            // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
+            className="line-clamp-2 min-w-0 flex-1 text-title-tab break-words text-ink outline-none"
+          >
+            {title}
+          </h1>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {actions}
+        {onClose && <IconButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
+      </header>
+      {/* The inset rule under the title, like the tab roots'. Sits inside the page's padding. */}
+      <div aria-hidden="true" className="h-1 shrink-0 rounded-full bg-fill" />
+    </>
   );
 };

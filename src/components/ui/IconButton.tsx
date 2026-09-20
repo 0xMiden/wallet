@@ -28,7 +28,8 @@ const iconButtonVariants = cva(
       },
       circleSize: {
         '32': '',
-        '36': ''
+        '36': '',
+        '44': ''
       },
       active: {
         true: '',
@@ -38,6 +39,8 @@ const iconButtonVariants = cva(
     compoundVariants: [
       { appearance: 'circle', circleSize: '32', class: 'h-8 w-8' },
       { appearance: 'circle', circleSize: '36', class: 'h-9 w-9' },
+      // A page header's back button: a full 44px target with the header's `ink` glyph.
+      { appearance: 'circle', circleSize: '44', class: 'h-11 w-11 text-ink' },
       // `bare` only: the accent-colored selected state (e.g. TabHeader's active search action).
       { appearance: 'bare', active: true, class: 'text-accent-primary' }
     ],
@@ -53,8 +56,8 @@ export interface IconButtonProps extends Omit<
   /** Accessible name. Required: an icon alone has no text for assistive tech to read. */
   label: string;
   appearance?: IconButtonAppearance;
-  /** `circle` only. 32px by default; 36px where the surrounding row needs a larger target. */
-  circleSize?: '32' | '36';
+  /** `circle` only. 32px by default; 36px where the surrounding row needs a larger target; 44px for a page header's back button. */
+  circleSize?: '32' | '36' | '44';
   /** `bare` only: renders the accent-colored selected state and `aria-pressed`, for a toggle
    *  action (e.g. TabHeader's search icon). Omit for a plain action button — no toggle
    *  semantics, no `aria-pressed`. */
@@ -98,7 +101,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
       onClick={handleClick}
       {...props}
     >
-      <Icon name={icon} size={appearance === 'circle' ? 'sm' : 'md'} fill="currentColor" />
+      <Icon name={icon} size={appearance === 'circle' && circleSize !== '44' ? 'sm' : 'md'} fill="currentColor" />
     </button>
   );
 });

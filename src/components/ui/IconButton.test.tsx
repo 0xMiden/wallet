@@ -118,3 +118,12 @@ it('forwards a data-testid', () => {
   render(<IconButton icon={IconName.Close} label="Close" onClick={jest.fn()} data-testid="my-icon-button" />);
   expect(screen.getByTestId('my-icon-button')).toBeInTheDocument();
 });
+
+describe('IconButton 44px circle', () => {
+  it('draws a page header back button: a 44px fill circle with an ink, medium glyph', () => {
+    render(<IconButton icon={IconName.ArrowLeft} appearance="circle" circleSize="44" label="Back" />);
+    const button = screen.getByRole('button', { name: 'Back' });
+    expect(button).toHaveClass('bg-fill', 'h-11', 'w-11', 'text-ink');
+    expect(button).not.toHaveClass('text-muted');
+  });
+});
