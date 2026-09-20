@@ -12,9 +12,20 @@ const addContactMock = jest.fn();
 const backMock = jest.fn();
 // Capture the page's mobile back handler so a test can fire the hardware/gesture back.
 let capturedMobileBack: (() => boolean) | undefined;
+let capturedMobileBackDeps: unknown[] | undefined;
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: (cb: () => boolean) => {
-    capturedMobileBack = cb;
+  // Registration happens inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately
+  // excluded, so the live handler is the one from the render that last CHANGED a dep. Capturing
+  // every render would hand tests the freshest closure and make a missing dep untestable.
+  useMobileBackHandler: (cb: () => boolean, deps: unknown[] = []) => {
+    const changed =
+      !capturedMobileBackDeps ||
+      deps.length !== capturedMobileBackDeps.length ||
+      deps.some((d, i) => !Object.is(d, capturedMobileBackDeps![i]));
+    if (changed) {
+      capturedMobileBackDeps = deps;
+      capturedMobileBack = cb;
+    }
   }
 }));
 const navigateMock = jest.fn();
@@ -69,6 +80,9 @@ jest.mock('utils/miden', () => ({
 const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
 
 beforeEach(() => {
+  // Both must reset, or the previous test's deps make the first render of this one skip its capture.
+  capturedMobileBack = undefined;
+  capturedMobileBackDeps = undefined;
   addContactMock.mockReset().mockResolvedValue(undefined);
   backMock.mockReset();
   navigateMock.mockReset();
