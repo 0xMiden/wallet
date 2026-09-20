@@ -200,15 +200,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     return true;
     // `addContactSaving` must stay in this list: the hook registers only when a dep changes, so a
     // handler reading it without it here keeps the closure captured while the save had not started.
-  }, [
-    showAddContactDrawer,
-    addContactSaving,
-    showContactsDrawer,
-    showTokenDrawer,
-    cardStack.length,
-    goBack,
-    onClose
-  ]);
+  }, [showAddContactDrawer, addContactSaving, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on send-flow entry.
   //
