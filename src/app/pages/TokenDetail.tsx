@@ -118,8 +118,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           />
 
           <div className="flex gap-2.5">
+            {/* The pair names the two flows it opens, so each takes that flow's colour, like the
+                tab bar's icons: Send blue, Receive green. Labels are the 19px bold CTA face, which
+                is the size the 3:1 floor on an action colour is allowed at. */}
             <Button
               variant={ButtonVariant.Primary}
+              accent="send"
               onClick={() => navigate({ pathname: '/send', search: `?tokenId=${tokenId}` })}
               data-testid="token-detail-send"
               className="min-w-0 flex-1 max-w-none"
@@ -128,7 +132,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               <span className="truncate">{t('send')}</span>
             </Button>
             <Button
-              variant={ButtonVariant.Secondary}
+              variant={ButtonVariant.Primary}
+              accent="receive"
               onClick={() => navigate('/receive')}
               data-testid="token-detail-receive"
               className="min-w-0 flex-1 max-w-none"
