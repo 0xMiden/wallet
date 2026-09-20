@@ -176,10 +176,17 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           {address}
         </span>
 
+        {/* The page's first line, where Send puts "Send to" and Swap "You Pay": `text-title-tab`
+            24px down from the top of the pane, so the three tabs line up as you swipe between
+            them. The `pt-2` is the column's 16px plus 8, not a rhythm of its own. */}
+        <h1 data-testid="receive-title" className="pt-2 text-title-tab text-ink">
+          {t('receiveAt')}
+        </h1>
+
         {/* The code, its network and the address: one centred block on the page itself, no card
             around it — the card only added an edge between the code and the actions below. */}
-        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-3 pt-2">
-          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-3">
+        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2 pt-2">
+          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
             {/* The QR is a fixed square (208px), not the leftover height: big enough to scan
                 across a table, small enough to leave the page room to breathe. */}
             <div data-testid="receive-qr-slot" className="relative w-full max-w-52">
@@ -234,7 +241,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           </div>
         </div>
 
-        <div className="mt-4 flex shrink-0 flex-col gap-3">
+        <div className="mt-2 flex shrink-0 flex-col gap-2">
           {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
               hairlines. */}
           <ListGroup data-testid="receive-actions">

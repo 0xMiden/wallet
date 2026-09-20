@@ -314,6 +314,20 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
+  it('leads with the page title, where send puts "Send to" and swap "You Pay"', async () => {
+    const container = await renderReceive();
+
+    const title = container.querySelector('[data-testid="receive-title"]')!;
+    expect(title.tagName).toBe('H1');
+    expect(title.textContent).toBe('receiveAt');
+    // The same type style as the two tabs beside it, so the line does not move as you swipe.
+    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    // First in the column, above the code.
+    const block = container.querySelector('[data-testid="receive-qr-block"]')!;
+    expect(block.parentElement!.contains(title)).toBe(true);
+    expect(title.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('names the network in a NetworkChip and keeps the caption to the shared QR image', async () => {
     const container = await renderReceive();
 
