@@ -53,7 +53,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col px-4 pb-8 pt-6">
+        <div className="flex flex-col px-4 pb-8">
           <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
 
           <PositionAreaChart position={position} />

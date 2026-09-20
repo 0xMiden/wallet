@@ -28,7 +28,7 @@ const EarnPositions: FC = () => {
       <PageHeader className="shrink-0 px-4" title={t('earnPositionsTitle')} onBack={goBack} />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col px-4 pb-8 pt-4">
+        <div className="flex flex-col px-4 pb-8">
           {showLoadError ? (
             <div
               className="mt-10 flex flex-col items-center gap-4 text-center"

@@ -80,7 +80,9 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
         />
       )}
 
-      <div data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pt-2 pb-4">
+      {/* No top padding: the 8px under the rule is `PageHeader`'s, the same gap a tab root's
+          body starts at. */}
+      <div data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
         {children}
       </div>
 

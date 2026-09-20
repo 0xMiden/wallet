@@ -60,10 +60,13 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
 
       {/* A tab root's title is not a navigation bar: it is the first line of the page, above the
           field it names, exactly where the swap page puts "You Pay". */}
+      {/* A pushed page starts under `PageHeader`'s own 8px; a tab root has no rule to start
+          under, so it keeps its own opening space. Horizontal scrolling is clipped: only a
+          deliberate carousel inside the page may scroll sideways. */}
       <div
         className={clsx(
           'no-scrollbar flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto',
-          tabRoot ? 'pt-6' : 'pt-2'
+          tabRoot && 'pt-6'
         )}
       >
         {tabRoot && (

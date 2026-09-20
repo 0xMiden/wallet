@@ -186,7 +186,7 @@ const RevealSeedPhrase: FC = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
         <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
 
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-2">
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4">
           {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
           <div aria-hidden="true" className="bg-fill rounded-2xl px-6 py-8">
             <div className="grid grid-cols-2 gap-x-6 gap-y-5">
@@ -232,7 +232,7 @@ const RevealSeedPhrase: FC = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
         <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={handleHide} />
 
-        <div className="flex-1 flex flex-col px-4 pt-4">
+        <div className="flex-1 flex flex-col px-4">
           {isGuardReady && (
             <>
               {/* Hidden field for copy */}
@@ -292,7 +292,7 @@ const RevealSeedPhrase: FC = () => {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
         <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
-        <div className="px-4 pt-4">
+        <div className="px-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
         </div>
       </div>

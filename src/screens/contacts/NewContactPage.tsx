@@ -137,7 +137,7 @@ export const NewContactPage: React.FC = () => {
         }
       >
         <form
-          className="flex flex-col gap-5 pt-6 pb-4"
+          className="flex flex-col gap-5 pb-4"
           onSubmit={event => {
             event.preventDefault();
             void save();

@@ -51,7 +51,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="flex min-h-full flex-col px-4 pb-8 pt-8">
+        <div className="flex min-h-full flex-col px-4 pb-8">
           <section aria-labelledby="earn-vault-apy-title">
             {/* The figure the page is about, then its label and its 24h move — all on named type
                 styles, and on `positive-tint-ink`, the only green that carries text. */}

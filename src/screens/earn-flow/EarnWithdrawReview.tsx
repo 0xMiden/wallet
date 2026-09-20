@@ -89,7 +89,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
-        <div className={clsx('flex flex-col px-6 pt-6')}>
+        <div className="flex flex-col px-6">
           <span className="text-label text-muted">{t('earnWithdrawAmount')}</span>
           <div className="mt-3 text-display text-ink">{toAdaptiveFixed(amountValue)}</div>
           <div className="flex items-center gap-1">

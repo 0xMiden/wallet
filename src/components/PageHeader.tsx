@@ -76,8 +76,17 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         {actions}
         {onClose && <IconButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
       </header>
-      {/* The inset rule under the title, like the tab roots'. Sits inside the page's padding. */}
-      <div aria-hidden="true" className="h-1 shrink-0 rounded-full bg-fill" />
+      {/*
+        The inset rule under the title, like the tab roots'. Sits inside the page's padding.
+
+        The 8px under it is the header's, not the page's: it is the same rule `TabRootHeader`
+        draws and the same `mb-2` it puts under it, so the first line of content sits at one
+        height whether the page is a tab root or pushed. Every page that used to set its own
+        `pt-*` here started its body somewhere else (2, 3, 4, 6 and 8 all shipped), which is
+        what made the encrypted-wallet-file page's first label sit against the rule while its
+        siblings had air. A caller adds no top padding of its own.
+      */}
+      <div aria-hidden="true" className="mb-2 h-1 shrink-0 rounded-full bg-fill" />
     </>
   );
 };
