@@ -115,6 +115,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           data-testid="earn-withdraw-review-confirm"
           title={isSubmitting ? t('withdrawing') : t('withdraw')}
           variant={ButtonVariant.Primary}
+          accent="earn"
           onClick={handleWithdraw}
           disabled={isSubmitting || amountValue <= 0 || !position.id}
           className="w-full max-w-none"

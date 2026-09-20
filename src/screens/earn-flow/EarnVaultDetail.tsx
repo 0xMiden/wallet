@@ -81,6 +81,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
               data-testid="earn-vault-deposit-btn"
               title={t('earnDeposit')}
               variant={ButtonVariant.Primary}
+              accent="earn"
               disabled={!vault.id}
               onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
               className="max-w-none"

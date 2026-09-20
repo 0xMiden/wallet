@@ -144,8 +144,18 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="open-position-btn" onClick={onClick} disabled={disabled}>
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    accent
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    accent?: string;
+  }) => (
+    <button data-testid="open-position-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
@@ -213,6 +223,12 @@ describe('EarnDepositReview', () => {
       expect(screen.getByText('500.00')).toBeInTheDocument();
       // No vault id => nothing to deposit into => CTA disabled.
       expect(screen.getByTestId('open-position-btn')).toBeDisabled();
+    });
+
+    it('gives the CTA the earn flow colour', () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=500');
+
+      expect(screen.getByTestId('open-position-btn')).toHaveAttribute('data-accent', 'earn');
     });
 
     it('strips thousands separators from the amount before parsing', () => {

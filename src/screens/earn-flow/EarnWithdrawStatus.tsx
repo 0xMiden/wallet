@@ -100,7 +100,13 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           </p>
         </section>
         <div className="w-full shrink-0 pt-10 pb-6">
-          <Button type="button" variant={ButtonVariant.Primary} onClick={onDone} className="w-full max-w-none">
+          <Button
+            type="button"
+            variant={ButtonVariant.Primary}
+            accent="earn"
+            onClick={onDone}
+            className="w-full max-w-none"
+          >
             {failed ? t('done') : t('hide')}
           </Button>
         </div>
