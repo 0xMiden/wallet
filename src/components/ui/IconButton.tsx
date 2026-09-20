@@ -7,8 +7,10 @@ import { colorTransitionClass } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
-/** `bare`: a 24px glyph alone in a 44px hit area, `ink` — page headers, tab-root actions.
- *  `circle`: a 32px (or 36px) circle on `fill`, `muted` glyph — sheets and overlays. */
+/** `bare`: a 24px glyph alone in a 44px hit area, `ink` — the last few rows that have not moved.
+ *  `circle`: a circle on `fill` with the glyph on it — 32px (or 36px) with a `muted` glyph on
+ *  sheets and overlays, 44px with a 24px `ink` glyph in a page or tab-root header. `active` fills
+ *  it with `accent` and turns the glyph white, the same pair the segmented selection uses. */
 export type IconButtonAppearance = 'bare' | 'circle';
 
 const iconButtonVariants = cva(
@@ -39,10 +41,17 @@ const iconButtonVariants = cva(
     compoundVariants: [
       { appearance: 'circle', circleSize: '32', class: 'h-8 w-8' },
       { appearance: 'circle', circleSize: '36', class: 'h-9 w-9' },
-      // A page header's back button: a full 44px target with the header's `ink` glyph.
+      // A page or tab-root header's button: a full 44px target with the header's `ink` glyph.
       { appearance: 'circle', circleSize: '44', class: 'h-11 w-11 text-ink' },
-      // `bare` only: the accent-colored selected state (e.g. TabHeader's active search action).
-      { appearance: 'bare', active: true, class: 'text-accent-primary' }
+      // `bare`: the accent-colored selected state, for the rows still on the bare glyph.
+      { appearance: 'bare', active: true, class: 'text-accent-primary' },
+      // `circle`: a held toggle fills the circle instead (a tab root's open search). White on
+      // `accent` is 3.0:1, which rule 6 allows for a glyph, and it matches the selected pill.
+      {
+        appearance: 'circle',
+        active: true,
+        class: 'bg-accent-primary text-pure-white hover:bg-accent-primary'
+      }
     ],
     defaultVariants: { appearance: 'bare', circleSize: '32', active: false }
   }
