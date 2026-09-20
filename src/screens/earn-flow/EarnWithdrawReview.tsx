@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Pill } from 'components/ui/Pill';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
@@ -89,28 +90,26 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
-          <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnWithdrawAmount')}</span>
-          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
-            {toAdaptiveFixed(amountValue)}
-          </div>
+          <span className="text-label text-muted">{t('earnWithdrawAmount')}</span>
+          <div className="mt-3 text-display text-ink">{toAdaptiveFixed(amountValue)}</div>
           <div className="flex items-center gap-1">
             <TokenLogo symbol={withdrawSymbol} size="md" />
-            <span className="font-heading text-2xl font-bold text-ink">{withdrawSymbol}</span>
+            <span className="text-entry-unit text-ink">{withdrawSymbol}</span>
           </div>
 
-          <div className="mt-8 space-y-6 pb-4">
-            <DetailRow label={t('route')} value={`${position.protocol} (${position.network}) -> Miden`} />
-            <DetailRow label={t('positionOwnerLabel')} value={truncateAddress(position.owner, false, 8, 8)} />
-            <DetailRow label={t('earnWithdrawalLabel')} value={t('earnFullPositionGasless')} />
-            <DetailRow label={t('earnEstimatedTimeLabel')} value={t('earnEstimatedTimeOneMinute')} />
-          </div>
+          {/* The shared detail card: one `fill` block of label/value rows, hairlines between
+              them, as on every other review in the app. */}
+          <DetailCard className="mt-8 mb-4">
+            <DetailRow label={t('route')}>{`${position.protocol} (${position.network}) -> Miden`}</DetailRow>
+            <DetailRow label={t('positionOwnerLabel')}>{truncateAddress(position.owner, false, 8, 8)}</DetailRow>
+            <DetailRow label={t('earnWithdrawalLabel')}>{t('earnFullPositionGasless')}</DetailRow>
+            <DetailRow label={t('earnEstimatedTimeLabel')}>{t('earnEstimatedTimeOneMinute')}</DetailRow>
+          </DetailCard>
         </div>
       </div>
 
       <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
-        {submitError && (
-          <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
-        )}
+        {submitError && <div className="mb-2 text-center text-caption text-negative-ink">{submitError}</div>}
         <Button
           data-testid="earn-withdraw-review-confirm"
           title={isSubmitting ? t('withdrawing') : t('withdraw')}
@@ -124,12 +123,5 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     </div>
   );
 };
-
-const DetailRow: FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="flex items-center justify-between gap-4 text-sm leading-tight">
-    <div className="text-ink font-regular">{label}</div>
-    <div className="text-right font-bold text-[#8C877F]">{value}</div>
-  </div>
-);
 
 export default EarnWithdrawReview;
