@@ -2,6 +2,7 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { accentForTransactionType } from 'components/flow/accent';
 import { ButtonVariant } from 'components/Button';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
@@ -58,6 +59,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={t('paymentSent', { defaultValue: 'Payment Sent!' })}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{

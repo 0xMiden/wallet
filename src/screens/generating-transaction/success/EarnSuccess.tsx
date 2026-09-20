@@ -2,6 +2,7 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { accentForTransactionType } from 'components/flow/accent';
 import { ButtonVariant } from 'components/Button';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
@@ -79,6 +80,7 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={t('youreEarning', { defaultValue: "You're Earning!" })}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{

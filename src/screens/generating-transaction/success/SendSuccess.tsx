@@ -2,6 +2,7 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { accentForTransactionType } from 'components/flow/accent';
 import { ButtonVariant } from 'components/Button';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -60,6 +61,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={title}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{

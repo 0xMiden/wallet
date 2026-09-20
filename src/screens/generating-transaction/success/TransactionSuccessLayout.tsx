@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
+import { FlowAccent } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
@@ -168,10 +169,11 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ ro
 };
 
 // Every call passed the same layout classes, so they live here.
-const FooterAction: FC<{ action: SuccessAction }> = ({ action }) => (
+const FooterAction: FC<{ action: SuccessAction; accent: FlowAccent }> = ({ action, accent }) => (
   <Button
     type="button"
     variant={action.variant ?? ButtonVariant.Primary}
+    accent={accent}
     title={action.label}
     onClick={action.onClick}
     className="w-full max-w-none"
@@ -185,6 +187,11 @@ export interface TransactionSuccessLayoutProps {
   title: string;
   /** Custom hero artwork; defaults to the green check circle. */
   hero?: ReactNode;
+  /**
+   * The flow this receipt closes, so its CTA matches the pages that led here
+   * (design-system.md, "Action colours"). Derive it with `accentForTransactionType`.
+   */
+  accent?: FlowAccent;
   /** Body content between the title and the footer (pill, amount block, rows). */
   children?: ReactNode;
   /** Paragraph shown above the footer buttons. */
@@ -203,6 +210,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   headerTitle,
   title,
   hero,
+  accent = 'brand',
   children,
   footerDescription,
   primaryAction,
@@ -234,7 +242,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       ? [secondaryAction, primaryAction]
       : [primaryAction, secondaryAction]
     : [primaryAction];
-  const actions = ordered.map(action => <FooterAction key={action.label} action={action} />);
+  const actions = ordered.map(action => <FooterAction key={action.label} action={action} accent={accent} />);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">

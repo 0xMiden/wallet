@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { ReactComponent as GuardianSwitchArt } from 'app/icons/guardian-switch-success.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { accentForTransactionType } from 'components/flow/accent';
 import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
@@ -73,6 +74,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       hero={<GuardianSwitchArt className="h-40 w-auto" aria-hidden="true" />}
       title={t(commitUnconfirmed ? 'guardianSwitchUnconfirmedHeading' : 'guardianSwitchSuccessTitle')}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
