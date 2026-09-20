@@ -6,7 +6,9 @@ import { useTranslation } from 'react-i18next';
 import aaveLogoUrl from 'app/icons/earn-provider-logos/aave.svg?url';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { Card } from 'components/ui/Card';
 import { Pill } from 'components/ui/Pill';
+import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
 import { EarnSummary, EarnVault } from './types';
@@ -30,18 +32,19 @@ export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => {
   );
 };
 
+/** One figure of the earn summary: a `fill` card with the spec's section label over a row value.
+ *  `cn` rather than `clsx` so a caller's padding or colour REPLACES the base one instead of
+ *  racing it in the stylesheet. */
 export const MetricCard: FC<{ label: string; value: string; valueClassName?: string; className?: string }> = ({
   label,
   value,
   valueClassName,
   className
 }) => (
-  <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-fill px-10', className)}>
-    <div className="text-center text-[10px] font-semibold uppercase leading-none text-gray-secondary">{label}</div>
-    <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-ink', valueClassName)}>
-      {value}
-    </div>
-  </div>
+  <Card padding="none" className={cn('flex flex-col items-center justify-center px-3 py-3', className)}>
+    <div className="text-center text-label text-muted">{label}</div>
+    <div className={cn('mt-1 text-center text-value text-ink', valueClassName)}>{value}</div>
+  </Card>
 );
 
 export const EarnSummaryPanel: FC<{
@@ -54,24 +57,27 @@ export const EarnSummaryPanel: FC<{
 
   return (
     <section aria-labelledby={titleId} className={className}>
-      <h1 id={titleId} className="text-base font-bold text-gray-secondary">
+      <h1 id={titleId} className="text-label text-muted">
         {t('earnTotalEarnedRewards')}
       </h1>
 
-      <div className="mt-0.5 font-heading text-[56px] font-bold leading-16 text-ink">{summary.totalRewards}</div>
+      {/* The figure the page is about, on the balance card's own type style. */}
+      <div className="mt-0.5 text-display text-ink">{summary.totalRewards}</div>
 
-      <div className="mt-0.5 text-base font-semibold text-status-positive">
+      {/* `positive-tint-ink`, not the raw fill: #90BA89 is 2.2:1 and never carries text. */}
+      <div className="mt-0.5 text-value text-positive-tint-ink">
         {t('earnEarningBlendedApy', { apy: summary.blendedApy })}
       </div>
 
-      {/* #503 — gap-3 so TOTAL DEPOSITED / ESTIMATED REWARDS don't abut. */}
+      {/* #503 — gap-3 so Total deposited / Estimated rewards don't abut. Equal columns, so the
+          two cards stay the same width whatever their labels wrap to. */}
       {showMetrics && (
-        <div className="mt-4 flex items-center justify-evenly gap-3">
+        <div className="mt-4 grid grid-cols-2 items-stretch gap-3">
           <MetricCard label={t('earnTotalDeposited')} value={summary.totalDeposited} />
           <MetricCard
             label={t('earnEstimatedRewards')}
             value={summary.estimatedRewards}
-            valueClassName="text-status-positive"
+            valueClassName="text-positive-tint-ink"
           />
         </div>
       )}
