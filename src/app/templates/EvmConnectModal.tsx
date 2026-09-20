@@ -55,11 +55,14 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
               />
 
               {status === 'connecting' && (
-                <div className="flex items-center justify-center py-12 text-sm text-grey-500">{t('preparing')}</div>
+                <div className="flex items-center justify-center py-12 text-body-sm text-muted">{t('preparing')}</div>
               )}
 
               {nativeReown.error && (
-                <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
+                <div
+                  className="rounded-2xl bg-negative-tint px-3 py-2 text-caption text-negative-tint-ink"
+                  role="alert"
+                >
                   {nativeReown.error}
                 </div>
               )}
