@@ -135,6 +135,67 @@ describe('parseDecryptedWalletFile', () => {
       })
     ).toThrow(MalformedBackupFileError);
   });
+
+  // Everything below is about a payload that is not merely wrong in one field
+  // but the wrong SHAPE. The reader runs on whatever survived decryption, so a
+  // truncated or hand-edited file reaches it as a primitive, an array, or an
+  // object whose `accounts` entries are not objects at all. Each of these must
+  // end as MalformedBackupFileError before any database import starts — a
+  // TypeError out of the parser would be reported to the user as a crash rather
+  // than as the file being damaged.
+  it.each([
+    ['a primitive', 'not-an-object'],
+    ['null', null],
+    ['an array', [legacyPayload]]
+  ])('rejects %s in place of the payload object', (_label, payload) => {
+    expect(() => parseDecryptedWalletFile(payload)).toThrow(MalformedBackupFileError);
+  });
+
+  it.each([
+    ['a primitive', 'miden-account-hd'],
+    ['null', null],
+    ['an array', [hdAccount]]
+  ])('rejects %s in place of a wallet account', (_label, account) => {
+    expect(() => parseDecryptedWalletFile({ ...legacyPayload, accounts: [account] })).toThrow(MalformedBackupFileError);
+  });
+
+  // `isHex` guards the two secret-bearing fields. A non-string reaches it from a
+  // file whose JSON carried a number or an object there, and it has to be
+  // refused as malformed rather than coerced on the way to the SDK.
+  it.each([
+    ['publicKeyCommitment', { publicKeyCommitment: 42 }],
+    ['secretKeyHex', { secretKeyHex: { hex: '0102' } }]
+  ])('rejects a non-string %s on an imported account', (_label, override) => {
+    expect(() =>
+      parseDecryptedWalletFile({
+        ...versionTwoPayload,
+        importedAccounts: [{ ...importedBackup, ...override }]
+      })
+    ).toThrow(MalformedBackupFileError);
+  });
+
+  // The v2 discriminator promises the imported-secret block is present and is a
+  // list. Without this the `.map` below it would throw a TypeError instead.
+  it.each([
+    ['missing', undefined],
+    ['not a list', { 0: importedBackup }]
+  ])('rejects a version 2 payload whose importedAccounts is %s', (_label, importedAccounts) => {
+    expect(() => parseDecryptedWalletFile({ ...versionTwoPayload, importedAccounts })).toThrow(
+      MalformedBackupFileError
+    );
+  });
+
+  // The legacy form may state how many imported accounts it left out, but that
+  // count is read by the restore screen, so a negative or fractional one is
+  // refused rather than displayed.
+  it.each([
+    ['negative', -1],
+    ['fractional', 1.5]
+  ])('rejects a legacy payload with a %s omitted-account count', (_label, omittedImportedAccountCount) => {
+    expect(() => parseDecryptedWalletFile({ ...legacyPayload, omittedImportedAccountCount })).toThrow(
+      MalformedBackupFileError
+    );
+  });
 });
 
 // The export encodes which account blocked the backup into the error message,
