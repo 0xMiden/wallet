@@ -243,7 +243,7 @@ jest.mock('app/templates/LanguageSettings', () => ({
 }));
 jest.mock('app/templates/SpendingLimits', () => ({
   __esModule: true,
-  default: () => <div data-testid="spending-limits-settings" />
+  default: mockLayoutPage('spending-limits-settings')
 }));
 jest.mock('app/templates/RevealSecret', () => ({
   __esModule: true,

@@ -201,7 +201,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'spending-limits',
         titleI18nKey: 'spendingLimits',
         Component: SpendingLimits,
-        testID: SettingsSelectors.SpendingLimitsButton
+        testID: SettingsSelectors.SpendingLimitsButton,
+        rendersSubPageLayout: true
       },
       {
         slug: 'guardian-settings',
