@@ -37,7 +37,9 @@ const QR_FILE_NAME = 'miden-address.png';
  * own green, the colour the rest of the page is painted in, and then runs the other four account
  * card colours. Every one is a palette colour, so the modules never lighten past a scannable QR.
  */
-const QR_PALETTE_CYCLE: readonly QRPalette[] = ['green', 'orange', 'slate', 'blue', 'purple'];
+// The code rests on the brand orange and cycles from there: the wallet's own colour first, the
+// other account-card colours after it.
+const QR_PALETTE_CYCLE: readonly QRPalette[] = ['orange', 'green', 'slate', 'blue', 'purple'];
 
 /** Resolution of the shared QR image; on screen the QR scales to the room the layout leaves. */
 const QR_EXPORT_SIZE = 300;
