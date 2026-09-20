@@ -63,9 +63,9 @@ describe('FlowLayout', () => {
     expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 
-  it('pins the footer with the mobile cushion and no navbar-collapse hook', () => {
+  it('pins a tab root CTA with the keyboard-aware cushion and no navbar-collapse hook', () => {
     render(
-      <FlowLayout title="Title" footer={<button>cta</button>}>
+      <FlowLayout tabRoot title="Title" footer={<button>cta</button>}>
         <p>content</p>
       </FlowLayout>
     );
@@ -75,18 +75,33 @@ describe('FlowLayout', () => {
     expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
   });
 
-  it('drops the CTA to the bottom when the tab bar is hidden', () => {
+  it('drops a pushed page CTA to the bottom, with no tab bar under it to clear', () => {
+    render(
+      <FlowLayout title="Title" footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+
+    const footer = screen.getByText('cta').parentElement;
+    expect(footer).toHaveClass('pb-4');
+    expect(footer?.className).not.toContain('4rem');
+  });
+
+  // The keyboard raises `data-hide-navbar` too, but only after a round trip through two components'
+  // state — a frame or two AFTER the keyboard inset has already moved the page. Reading the flag
+  // here made the cushion a second, later reflow, so the CTA rode the keyboard down and then hopped
+  // back up by 3rem. The cushion is a function of `--keyboard-height` alone now, so both land in
+  // the same frame and the CTA makes one move.
+  it('does not re-read the navbar flag, so the keyboard moves the CTA once', () => {
     document.body.setAttribute('data-hide-navbar', '');
     try {
       render(
-        <FlowLayout title="Title" footer={<button>cta</button>}>
+        <FlowLayout tabRoot title="Title" footer={<button>cta</button>}>
           <p>content</p>
         </FlowLayout>
       );
 
-      const footer = screen.getByText('cta').parentElement;
-      expect(footer).toHaveClass('pb-4');
-      expect(footer?.className).not.toContain('4rem');
+      expect(screen.getByText('cta').parentElement).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
     } finally {
       document.body.removeAttribute('data-hide-navbar');
     }

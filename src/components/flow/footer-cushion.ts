@@ -1,10 +1,14 @@
 import { isMobile } from 'lib/platform';
 
 /**
- * Bottom padding for a send step's CTA footer while the tab bar is showing (the
- * recipient step): the CTA sits ~17pt above the docked bar. Once the bar hides
- * (later steps, or the keyboard up) SendStepLayout drops the CTA to the bottom
- * instead. The class is keyboard-aware as a fallback, collapsing to 1rem.
+ * Bottom padding for the pinned CTA on a flow page that has the docked tab bar under it (a tab
+ * root: Send's recipient step, the swap amounts page): the CTA sits ~17pt above the bar. `FlowFooter`
+ * drops every other flow page's CTA to the bottom instead, since nothing is under it to clear.
+ *
+ * The keyboard term is the whole mechanism, not a fallback: `--keyboard-height` is written by the
+ * `keyboardWillShow`/`WillHide` listeners (lib/mobile/keyboard-inset) in the same step that grows
+ * the page's bottom inset, so the cushion collapses to 1rem and the page shrinks in ONE reflow and
+ * the CTA makes ONE move.
  *
  * Off-mobile the bar is a floating pill that needs the full 6rem.
  */
