@@ -216,7 +216,7 @@ jest.mock('app/templates/GeneralSettings', () => ({
   default: mockLayoutPage('general-settings')
 }));
 
-jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: () => <div data-testid="address-book" /> }));
+jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: mockLayoutPage('address-book') }));
 jest.mock('app/templates/DAppDrawerSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('dapp-drawer-settings')
@@ -273,7 +273,7 @@ jest.mock('./AdvancedSettings', () => ({
 }));
 jest.mock('./ExportAccountFile', () => ({
   __esModule: true,
-  default: () => <div data-testid="export-account-file" />
+  default: mockLayoutPage('export-account-file')
 }));
 jest.mock('./Networks', () => ({
   __esModule: true,

@@ -150,7 +150,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'address-book',
         titleI18nKey: 'addressBook',
         Component: AddressBook,
-        testID: SettingsSelectors.AddressBookButton
+        testID: SettingsSelectors.AddressBookButton,
+        rendersSubPageLayout: true
       },
       {
         slug: 'language',
