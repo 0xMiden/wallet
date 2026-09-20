@@ -172,7 +172,7 @@ describe('GeneralSettings', () => {
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
     expect(themeRow.querySelector('[data-slot="title"]')).toHaveTextContent('theme');
     expect(themeRow).toContainElement(screen.getByRole('radiogroup', { name: 'theme' }));
-    expect(themeRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(themeRow.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
     expect(themeRow.parentElement).toContainElement(
       screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
     );

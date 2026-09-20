@@ -63,7 +63,7 @@ const AdvancedSettings: FC = () => {
       </SubPageSection>
 
       <SubPageSection>
-        <ListGroup>
+        <ListGroup surface="outline">
           <ListRow
             title={t('editMidenFaucetId')}
             onClick={() => navigate('/settings/edit-miden-faucet-id')}

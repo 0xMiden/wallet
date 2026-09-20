@@ -48,7 +48,7 @@ const DAppDrawerSettings: FC = () => {
   return (
     <SubPageLayout data-testid="dapp-drawer-settings">
       <SubPageSection footnote={t('dAppsToggleDescription')}>
-        <ListGroup>
+        <ListGroup surface="outline">
           <SettingToggle
             checked={dAppEnabled}
             onChange={handleChange}
@@ -60,7 +60,7 @@ const DAppDrawerSettings: FC = () => {
       </SubPageSection>
 
       {hasConnectedDApps && (
-        <ListGroup>
+        <ListGroup surface="outline">
           <ListRow
             title={t('seeConnected')}
             onClick={() => navigate('/settings/dapps')}

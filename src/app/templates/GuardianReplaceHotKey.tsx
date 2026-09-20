@@ -66,7 +66,7 @@ const GuardianReplaceHotKey: FC = () => {
     >
       <Button
         type="button"
-        variant={ButtonVariant.Secondary}
+        variant={ButtonVariant.Ghost}
         size="sm"
         onClick={onClick}
         isLoading={submitting}

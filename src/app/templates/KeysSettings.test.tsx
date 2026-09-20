@@ -201,9 +201,9 @@ describe('KeysSettings — layout', () => {
 
     const reveal = screen.getByTestId('keys-reveal-private-key');
     const rotate = screen.getByTestId('keys-rotate-guardian');
-    // One ListGroup on the shared fill holds both rows.
+    // One outlined ListGroup holds both rows.
     expect(reveal.parentElement).toBe(rotate.parentElement);
-    expect(reveal.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(reveal.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
     // Rows are ListRows: the shared 16px title and a trailing chevron.
     expect(reveal.querySelector('[data-slot="title"]')).toHaveTextContent('revealPrivateKey');
     expect(rotate.querySelector('[data-slot="chevron"]')).not.toBeNull();

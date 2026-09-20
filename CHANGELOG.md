@@ -16,6 +16,7 @@
 - [CHANGE][all] Earn shows a dashed "No active positions" card, outlined vault rows with their TVL, and a See all action.
 - [CHANGE][all] Pushed pages open with a round back button, a larger title and an inset rule under it.
 - [CHANGE][all] Token detail: muted section titles, a larger price over an area chart, a bare copy control on the contract row and a dashed empty activity card.
+- [CHANGE][all] Settings sub-pages draw their groups as outlined cards and the rotate-key button as border-only.
 - [CHANGE][all] Send's review page is quieter: the address in body text, the network as a plain value, no fee note, "Expires" with Edit, and the reclaim reassurance as one caption under the card.
 - [CHANGE][all] Send's first page is titled like the other tabs, its address field fits two lines on a small phone and Paste, Address Book and Scan stay on one row.
 - [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.
