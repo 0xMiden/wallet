@@ -9,6 +9,7 @@
 ### Changes
 
 - [CHANGE][all] Lists and cards follow one rule about where they sit: a page that is a list (Settings and its sub-pages, the Address Book, Explore's app lists) draws its rows flush on the page margin with full-width dividers under a titled, iconed header; a group inside a page or a sheet keeps the grey card; and a card that has to stand on its own — Activity rows, pending transfers, Earn's cards and Home's prompt card — is outlined instead of filled.
+- [CHANGE][mobile] The pinned action on the send and swap pages glides to its new place in one move when the keyboard opens or closes, instead of jumping and then hopping back.
 - [CHANGE][mobile] Home's top action bar sits on its own light band that continues up through the status bar.
 - [CHANGE][mobile] The selected bottom-nav icon is drawn in the brand orange.
 - [CHANGE][all] Settings groups sit flush on the page under their section headers, with full-width dividers.
