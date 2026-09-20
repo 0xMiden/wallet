@@ -3,7 +3,7 @@ import type { ITransactionType } from 'lib/miden/db/types';
 /**
  * Highlight color of a flow. Each home action keeps its icon color as the accent of
  * its own flow (tokens in src/main.css); `brand` is the orange for everything else.
- * Primary CTAs stay brand orange in every flow.
+ * A flow owns its CTA too, so every page of a flow reads as one colour.
  */
 export type FlowAccent = 'brand' | 'send' | 'receive' | 'earn' | 'swap';
 
@@ -20,6 +20,17 @@ interface AccentClasses {
   stroke: string;
   /** A hairline in the flow's colour, quiet enough to stay a rule: the `before:` rule of a row. */
   rule: string;
+  /**
+   * The filled primary CTA: rest, hover and disabled in one string, so `Button` can swap the
+   * whole set rather than let tailwind-merge override them one modifier at a time (a leftover
+   * `dark:disabled:` from the brand set would otherwise survive into a flow's button).
+   *
+   * Disabled is the colour at 40%, the same ratio the brand's pre-blended `primary-disabled`
+   * is; unlike that token it stays translucent, which is what keeps one string correct in both
+   * themes. Hover is the colour at 90% — it dims toward the page in light mode and toward the
+   * page in dark mode, so the press target always moves, without a per-action hover token.
+   */
+  cta: string;
 }
 
 // Literal class strings, so Tailwind generates every one of them.
@@ -31,7 +42,8 @@ export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
     border: 'border-primary-500',
     tint: 'bg-primary-50',
     stroke: 'stroke-primary-500',
-    rule: 'before:bg-primary-500/25'
+    rule: 'before:bg-primary-500/25',
+    cta: 'bg-accent-primary hover:bg-accent-primary-hover disabled:bg-primary-disabled dark:disabled:bg-primary-disabled-dark'
   },
   send: {
     text: 'text-accent-send',
@@ -40,7 +52,8 @@ export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
     border: 'border-accent-send',
     tint: 'bg-accent-send-tint',
     stroke: 'stroke-accent-send',
-    rule: 'before:bg-accent-send/25'
+    rule: 'before:bg-accent-send/25',
+    cta: 'bg-accent-send hover:bg-accent-send/90 disabled:bg-accent-send/40'
   },
   receive: {
     text: 'text-accent-receive',
@@ -49,7 +62,8 @@ export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
     border: 'border-accent-receive',
     tint: 'bg-accent-receive-tint',
     stroke: 'stroke-accent-receive',
-    rule: 'before:bg-accent-receive/25'
+    rule: 'before:bg-accent-receive/25',
+    cta: 'bg-accent-receive hover:bg-accent-receive/90 disabled:bg-accent-receive/40'
   },
   earn: {
     text: 'text-accent-earn',
@@ -58,7 +72,8 @@ export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
     border: 'border-accent-earn',
     tint: 'bg-accent-earn-tint',
     stroke: 'stroke-accent-earn',
-    rule: 'before:bg-accent-earn/25'
+    rule: 'before:bg-accent-earn/25',
+    cta: 'bg-accent-earn hover:bg-accent-earn/90 disabled:bg-accent-earn/40'
   },
   swap: {
     text: 'text-accent-swap',
@@ -67,7 +82,8 @@ export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
     border: 'border-accent-swap',
     tint: 'bg-accent-swap-tint',
     stroke: 'stroke-accent-swap',
-    rule: 'before:bg-accent-swap/25'
+    rule: 'before:bg-accent-swap/25',
+    cta: 'bg-accent-swap hover:bg-accent-swap/90 disabled:bg-accent-swap/40'
   }
 };
 

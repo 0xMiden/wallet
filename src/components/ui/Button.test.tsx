@@ -127,6 +127,31 @@ describe('Button', () => {
       expect(screen.getByRole('button')).toHaveClass('bg-transparent', 'border-hairline', 'text-ink');
     });
 
+    it.each([
+      ['send', 'bg-accent-send'],
+      ['receive', 'bg-accent-receive'],
+      ['earn', 'bg-accent-earn'],
+      ['swap', 'bg-accent-swap']
+    ] as const)('primary takes the %s flow colour, not the brand orange', (accent, fill) => {
+      render(<Button accent={accent} />);
+
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass(fill, 'text-text-on-accent');
+      // The brand set has to be REPLACED, not merged with: a surviving
+      // `dark:disabled:` would repaint the flow's disabled button orange.
+      expect(button).not.toHaveClass('bg-accent-primary');
+      expect(button).not.toHaveClass('dark:disabled:bg-primary-disabled-dark');
+      expect(button).toHaveClass(`disabled:${fill}/40`);
+    });
+
+    it('leaves a non-primary variant on `fill` whatever the flow', () => {
+      render(<Button variant={ButtonVariant.Secondary} accent="swap" />);
+
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass('bg-fill', 'text-ink');
+      expect(button).not.toHaveClass('bg-accent-swap');
+    });
+
     it('colors icons from the label color', () => {
       render(<Button iconLeft="left" />);
 
