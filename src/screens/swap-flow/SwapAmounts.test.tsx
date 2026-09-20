@@ -58,7 +58,8 @@ jest.mock('components/Button', () => ({
 //     onAmountChange / onSelectToken callbacks.
 jest.mock('../send-flow/SelectAmount', () => ({
   SelectAmount: (props: any) => {
-    const key = props.label as string;
+    // The label is a styled node now; its text is still 'youPay' / 'youReceive'.
+    const key = typeof props.label === 'string' ? props.label : props.label?.props?.children;
     return (
       <div
         data-testid={`select-amount-${key}`}
@@ -291,16 +292,16 @@ describe('SwapAmounts', () => {
       renderComponent({ statusMessage: 'fetching price', statusIsError: false });
       const msg = screen.getByText('fetching price');
       expect(msg).toBeInTheDocument();
-      expect(msg).toHaveClass('text-[#808080]');
-      expect(msg).not.toHaveClass('text-status-negative');
+      expect(msg).toHaveClass('text-muted');
+      expect(msg).not.toHaveClass('text-negative-tint-ink');
     });
 
     it('renders an error-styled status message when statusIsError is true', () => {
       renderComponent({ statusMessage: 'pair unavailable', statusIsError: true });
       const msg = screen.getByText('pair unavailable');
       expect(msg).toBeInTheDocument();
-      expect(msg).toHaveClass('text-status-negative');
-      expect(msg).not.toHaveClass('text-[#808080]');
+      expect(msg).toHaveClass('text-negative-tint-ink');
+      expect(msg).not.toHaveClass('text-muted');
     });
   });
 });

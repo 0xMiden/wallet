@@ -69,6 +69,8 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  // The side labels are labels, not headings: the figure under them is the page's voice.
+  const fieldLabel = (text: string) => <span className="text-body-sm text-muted">{text}</span>;
   const offerAmountValue = Number(offerAmount);
   const offerAmountExceedsBalance = offerAmountValue > offerBalance;
   // Missing the fee asset outranks an over-balance amount: no amount at all is
@@ -81,10 +83,10 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
-      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto no-scrollbar pt-10">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto no-scrollbar pt-6">
         <SelectAmount
           embedded
-          label={t('youPay')}
+          label={fieldLabel(t('youPay'))}
           token={swapTokenToUIToken(offerToken, offerBalance)}
           logoSymbol={offerToken.logoSymbol}
           amount={offerAmount}
@@ -124,7 +126,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           // "You Receive" is the swap output — the user's balance of that token
           // isn't the spendable amount here, so no available-balance helper.
           showBalanceHelper={false}
-          label={t('youReceive')}
+          label={fieldLabel(t('youReceive'))}
           token={swapTokenToUIToken(requestToken)}
           logoSymbol={requestToken.logoSymbol}
           amount={requestAmount}
@@ -135,7 +137,10 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         />
 
         {statusMessage && (
-          <span className={clsx('text-sm font-medium', statusIsError ? 'text-status-negative' : 'text-[#808080]')}>
+          <span
+            className={clsx('text-body-sm', statusIsError ? 'text-negative-tint-ink' : 'text-muted')}
+            data-testid="swap-status-message"
+          >
             {statusMessage}
           </span>
         )}
