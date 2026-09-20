@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
@@ -102,12 +102,13 @@ jest.mock('app/templates/history/ActivityPendingHistory', () => ({
 // The grouped view owns its own data (History + the address book) and has its own suite; stubbed
 // here so this one is about which view the tab shows and what it passes to it.
 jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
-  ActivityGroupedHistory: (props: { programId?: string | null; search: string; filter: string }) => (
+  // `filter` is NOT one of its props any more; reading it back as '' is how this suite pins that.
+  ActivityGroupedHistory: (props: { programId?: string | null; search: string; filter?: string }) => (
     <div
       data-testid="grouped-history"
       data-program-id={props.programId ?? ''}
       data-search-query={props.search}
-      data-filter={props.filter}
+      data-filter={props.filter ?? ''}
     />
   )
 }));
@@ -339,30 +340,17 @@ describe('AllHistory', () => {
       expect(screen.getByRole('radiogroup', { name: 'activityView' })).toBeTruthy();
     });
 
-    it('offers the same filters as the row under the title, the current one checked', () => {
+    it('holds the two views and nothing else: no filters, no divider', () => {
       render(<AllHistory />);
-      fireEvent.click(getFilterButton('sent'));
       openMenu();
 
-      expect(screen.getByRole('radiogroup', { name: 'activityFilterOptions' })).toBeTruthy();
-      expect(screen.getByTestId('activity-filter-sent')).toHaveAttribute('aria-checked', 'true');
-      expect(screen.getByTestId('activity-filter-all')).toHaveAttribute('aria-checked', 'false');
+      const menu = screen.getByTestId('activity-view-menu');
+      // One radio group in the panel, and exactly two radios in it.
+      expect(within(menu).getAllByRole('radiogroup')).toHaveLength(1);
+      expect(within(menu).getAllByRole('radio')).toHaveLength(2);
       for (const id of ['all', 'pending', 'sent', 'received', 'faucet']) {
-        expect(screen.getByTestId(`activity-filter-${id}`)).toBeTruthy();
+        expect(screen.queryByTestId(`activity-filter-${id}`)).toBeNull();
       }
-    });
-
-    it('changes the filter from the menu and closes it', async () => {
-      render(<AllHistory />);
-      openMenu();
-
-      fireEvent.click(screen.getByTestId('activity-filter-faucet'));
-
-      expect(getHistory().getAttribute('data-filter')).toBe('faucet');
-      expect(hapticLight).toHaveBeenCalled();
-      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
-      // The row under the title agrees: both places write the one filter.
-      expect(getFilterButton('faucet')).toHaveAttribute('aria-checked', 'true');
     });
 
     it('switches to the grouped view, which replaces the feed and hides the filter row', async () => {
@@ -378,19 +366,35 @@ describe('AllHistory', () => {
       await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
     });
 
-    it('passes the search query and the filter to the grouped view too', () => {
+    it('passes the search query to the grouped view, and no filter at all', () => {
       render(<AllHistory />);
       openMenu();
       fireEvent.click(screen.getByTestId('activity-view-groups'));
-      openMenu();
-      fireEvent.click(screen.getByTestId('activity-filter-received'));
 
       fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
       fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'usdc' } });
 
       const grouped = screen.getByTestId('grouped-history');
-      expect(grouped.getAttribute('data-filter')).toBe('received');
       expect(grouped.getAttribute('data-search-query')).toBe('usdc');
+      // Grouping by counterparty is what this view narrows by: a filter with no visible control
+      // saying so would be an invisible narrowing.
+      expect(grouped.getAttribute('data-filter')).toBe('');
+    });
+
+    it("keeps the feed's own filter choice while the user is away in Groups", async () => {
+      render(<AllHistory />);
+      fireEvent.click(getFilterButton('sent'));
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-list'));
+
+      expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'true');
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
     });
 
     it('ignores a tap on the view that is already chosen', () => {

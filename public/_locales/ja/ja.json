@@ -1205,6 +1205,5 @@
   "activityGroupFaucet": "Faucet",
   "activityGroupGuardian": "Guardian",
   "activityGroupOther": "その他のアクティビティ",
-  "activityGroupPartialCount": "$count$+",
-  "activityFilterOptions": "アクティビティを絞り込む"
+  "activityGroupPartialCount": "$count$+"
 }

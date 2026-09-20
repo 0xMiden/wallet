@@ -4,12 +4,10 @@ import { useAccount } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 
 import { ActivityGroupList } from './ActivityGroupList';
-import { isPendingActivityEntry } from './activityGroups';
-import History, { ActivityFilter } from './History';
+import History from './History';
 
 interface ActivityGroupedHistoryProps {
   search: string;
-  filter: ActivityFilter;
   programId?: string | null;
 }
 
@@ -20,12 +18,11 @@ interface ActivityGroupedHistoryProps {
  * `History` still owns the loading and the paging — this only replaces what is drawn over the
  * entries (`renderEntries`) — so the two views can never disagree about which rows exist.
  *
- * The Pending filter is the one thing that reads differently here. In the feed it means "the
- * transfers waiting to be claimed", which are note cards with no counterparty to group by; here it
- * means the transactions still in flight, so it is passed as a predicate over the entries rather
- * than as the feed's filter. That leaves the feed's own Pending behaviour untouched.
+ * No filter is passed: grouping the whole history by counterparty is what this view narrows by,
+ * and there is no filter row here to say otherwise. The header's search still applies, because its
+ * field is on screen while it does.
  */
-export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ search, filter, programId }) => {
+export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ search, programId }) => {
   const account = useAccount();
   const { allContacts } = useFilteredContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -41,8 +38,6 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
 
   const nameOf = useCallback((address: string) => namesByAddress.get(address.trim().toLowerCase()), [namesByAddress]);
 
-  const pendingOnly = filter === 'pending';
-
   return (
     // `pb-28` clears the floating navbar, as the feed's own scroller does.
     <div ref={scrollRef} data-testid="activity-groups" className="min-h-0 flex-1 overflow-y-auto pb-28">
@@ -54,8 +49,6 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
           centerEmptyState
           scrollParentRef={scrollRef}
           searchQuery={search}
-          filter={pendingOnly ? 'all' : filter}
-          predicate={pendingOnly ? isPendingActivityEntry : undefined}
           renderEntries={view => (
             <ActivityGroupList
               entries={view.entries}

@@ -1205,6 +1205,5 @@
   "activityGroupFaucet": "Faucet",
   "activityGroupGuardian": "Guardian",
   "activityGroupOther": "기타 활동",
-  "activityGroupPartialCount": "$count$+",
-  "activityFilterOptions": "활동 필터"
+  "activityGroupPartialCount": "$count$+"
 }

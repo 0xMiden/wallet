@@ -5349,9 +5349,5 @@
         "content": "$1"
       }
     }
-  },
-  "activityFilterOptions": {
-    "message": "アクティビティを絞り込む",
-    "englishSource": "Filter activity"
   }
 }

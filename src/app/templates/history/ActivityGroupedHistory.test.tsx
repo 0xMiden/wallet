@@ -62,35 +62,35 @@ describe('ActivityGroupedHistory', () => {
     historyProps = {};
   });
 
-  it('rolls up the loaded entries and passes the search and filter straight through', () => {
+  it('rolls up the loaded entries and passes the search straight through', () => {
     loaded.push(entry(), entry({ key: 'entry-2' }));
-    render(<ActivityGroupedHistory search="usdc" filter="sent" programId="prog-1" />);
+    render(<ActivityGroupedHistory search="usdc" programId="prog-1" />);
 
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-count', '2');
     expect(historyProps.searchQuery).toBe('usdc');
-    expect(historyProps.filter).toBe('sent');
     expect(historyProps.programId).toBe('prog-1');
     expect(historyProps.address).toBe('0xme');
+  });
+
+  it('narrows by nothing else: grouping the whole history is what this view filters by', () => {
+    render(<ActivityGroupedHistory search="" />);
+
+    expect(historyProps.filter).toBeUndefined();
     expect(historyProps.predicate).toBeUndefined();
   });
 
+  it('keeps the rows still in flight, so a group can report them', () => {
+    loaded.push(entry({ type: HistoryEntryType.PendingTransaction }), entry({ key: 'entry-2' }));
+    render(<ActivityGroupedHistory search="" />);
+
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-count', '2');
+  });
+
   it('resolves a counterparty to its contact, whatever the case, and ignores a blank name', () => {
-    render(<ActivityGroupedHistory search="" filter="all" />);
+    render(<ActivityGroupedHistory search="" />);
 
     const list = screen.getByTestId('group-list');
     expect(list).toHaveAttribute('data-alice', 'Alice');
     expect(list).toHaveAttribute('data-stranger', '');
-  });
-
-  it("reads Pending as the transactions in flight rather than the feed's note cards", () => {
-    render(<ActivityGroupedHistory search="" filter="pending" />);
-
-    // The feed's own Pending filter would drop every history row; here the entries are kept and
-    // narrowed to the ones still in flight.
-    expect(historyProps.filter).toBe('all');
-    const predicate = historyProps.predicate as (entry: IHistoryEntry) => boolean;
-    expect(predicate(entry({ type: HistoryEntryType.PendingTransaction }))).toBe(true);
-    expect(predicate(entry({ type: HistoryEntryType.ProcessingTransaction }))).toBe(true);
-    expect(predicate(entry())).toBe(false);
   });
 });
