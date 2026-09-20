@@ -416,11 +416,11 @@ describe('Receive - Address', () => {
     const logo = (container: HTMLElement) => container.querySelector('[data-testid="receive-qr-logo"]')! as HTMLElement;
     const palette = () => mockQRCodeProps.mock.lastCall![0].palette;
 
-    it('opens on the flow green and walks the card palette, one tap at a time', async () => {
+    it('opens on the brand orange and walks the card palette, one tap at a time', async () => {
       const container = await renderReceive();
 
-      expect(palette()).toBe('green');
-      const order = ['orange', 'slate', 'blue', 'purple', 'green'];
+      expect(palette()).toBe('orange');
+      const order = ['green', 'slate', 'blue', 'purple', 'orange'];
       for (const next of order) {
         await act(async () => {
           fireEvent.click(logo(container));
@@ -474,22 +474,22 @@ describe('Receive - Address', () => {
       await act(async () => {
         fireEvent.click(logo(container));
       });
-      expect(palette()).toBe('orange');
+      expect(palette()).toBe('green');
     });
 
-    it('goes back to the flow green once the page is no longer the one on screen', async () => {
+    it('goes back to the brand orange once the page is no longer the one on screen', async () => {
       const container = await renderReceive();
 
       await act(async () => {
         fireEvent.click(logo(container));
       });
-      expect(palette()).toBe('orange');
+      expect(palette()).toBe('green');
 
       // The tab stays mounted under another one, so leaving is a page-active change.
       await setPageActive(false);
-      expect(palette()).toBe('green');
+      expect(palette()).toBe('orange');
       await setPageActive(true);
-      expect(palette()).toBe('green');
+      expect(palette()).toBe('orange');
     });
   });
 

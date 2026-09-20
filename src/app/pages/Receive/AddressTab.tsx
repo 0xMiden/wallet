@@ -37,7 +37,9 @@ const QR_FILE_NAME = 'miden-address.png';
  * own green, the colour the rest of the page is painted in, and then runs the other four account
  * card colours. Every one is a palette colour, so the modules never lighten past a scannable QR.
  */
-const QR_PALETTE_CYCLE: readonly QRPalette[] = ['green', 'orange', 'slate', 'blue', 'purple'];
+// The code rests on the brand orange and cycles from there: the wallet's own colour first, the
+// other account-card colours after it.
+const QR_PALETTE_CYCLE: readonly QRPalette[] = ['orange', 'green', 'slate', 'blue', 'purple'];
 
 /** Resolution of the shared QR image; on screen the QR scales to the room the layout leaves. */
 const QR_EXPORT_SIZE = 300;
@@ -178,12 +180,13 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           {address}
         </span>
 
-        {/* The page's first line, where Send puts "Send to" and Swap "You Pay": `text-title-tab`
-            24px down from the top of the pane, so the three tabs line up as you swipe between
-            them. */}
-        <h1 data-testid="receive-title" className="text-title-tab text-ink">
-          {t('receiveAt')}
-        </h1>
+        {/* The page's first line, in the same markup a send step's tab-root header uses, so the
+            title box starts at the identical offset on Send, Receive and Swap. */}
+        <header className="flex shrink-0 items-start justify-between gap-3">
+          <h1 data-testid="receive-title" className="min-w-0 text-title-tab text-ink">
+            {t('receiveAt')}
+          </h1>
+        </header>
 
         {/* The code, its network and the address: one centred block on the page itself, no card
             around it — the card only added an edge between the code and the actions below. */}
