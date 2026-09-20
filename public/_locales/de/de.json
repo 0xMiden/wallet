@@ -1196,5 +1196,15 @@
   "durationUnitDays": "Tag",
   "swapExpiryUnit": "Ablaufeinheit",
   "moreInfoAbout": "Weitere Informationen zu $label$",
-  "swapExpiryRange": "Geben Sie eine ganze Zahl von $min$ bis $max$ ein."
+  "swapExpiryRange": "Geben Sie eine ganze Zahl von $min$ bis $max$ ein.",
+  "activityView": "Aktivitätsansicht",
+  "activityViewOptions": "Ansichtsoptionen",
+  "activityViewList": "Liste",
+  "activityViewGroups": "Gruppen",
+  "activityGroupSwaps": "Swaps",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Sonstige Aktivität",
+  "activityGroupPartialCount": "$count$+",
+  "activityFilterOptions": "Aktivität filtern"
 }

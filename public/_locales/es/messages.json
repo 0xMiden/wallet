@@ -5308,5 +5308,50 @@
         "content": "$2"
       }
     }
+  },
+  "activityView": {
+    "message": "Vista de actividad",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Opciones de vista",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Lista",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Grupos",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Intercambios",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Otra actividad",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterOptions": {
+    "message": "Filtrar actividad",
+    "englishSource": "Filter activity"
   }
 }

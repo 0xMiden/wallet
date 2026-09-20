@@ -1196,5 +1196,15 @@
   "durationUnitDays": "День",
   "swapExpiryUnit": "Единица срока действия",
   "moreInfoAbout": "Подробнее о $label$",
-  "swapExpiryRange": "Введите целое число от $min$ до $max$."
+  "swapExpiryRange": "Введите целое число от $min$ до $max$.",
+  "activityView": "Вид активности",
+  "activityViewOptions": "Параметры отображения",
+  "activityViewList": "Список",
+  "activityViewGroups": "Группы",
+  "activityGroupSwaps": "Обмены",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Прочая активность",
+  "activityGroupPartialCount": "$count$+",
+  "activityFilterOptions": "Фильтр активности"
 }

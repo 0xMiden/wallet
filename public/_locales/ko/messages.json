@@ -5308,5 +5308,50 @@
         "content": "$2"
       }
     }
+  },
+  "activityView": {
+    "message": "활동 보기",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "보기 옵션",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "목록",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "그룹",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "스왑",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "기타 활동",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterOptions": {
+    "message": "활동 필터",
+    "englishSource": "Filter activity"
   }
 }

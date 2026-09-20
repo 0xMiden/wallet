@@ -1196,5 +1196,15 @@
   "durationUnitDays": "Jour",
   "swapExpiryUnit": "Unité d'expiration",
   "moreInfoAbout": "Plus d'informations sur $label$",
-  "swapExpiryRange": "Saisissez un nombre entier compris entre $min$ et $max$."
+  "swapExpiryRange": "Saisissez un nombre entier compris entre $min$ et $max$.",
+  "activityView": "Vue de l'activité",
+  "activityViewOptions": "Options d'affichage",
+  "activityViewList": "Liste",
+  "activityViewGroups": "Groupes",
+  "activityGroupSwaps": "Échanges",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Autre activité",
+  "activityGroupPartialCount": "$count$+",
+  "activityFilterOptions": "Filtrer l'activité"
 }

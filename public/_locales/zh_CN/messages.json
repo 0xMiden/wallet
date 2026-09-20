@@ -5308,5 +5308,50 @@
         "content": "$2"
       }
     }
+  },
+  "activityView": {
+    "message": "活动视图",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "视图选项",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "列表",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "分组",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "兑换",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "其他活动",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterOptions": {
+    "message": "筛选活动",
+    "englishSource": "Filter activity"
   }
 }

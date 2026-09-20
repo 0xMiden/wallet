@@ -1196,5 +1196,15 @@
   "durationUnitDays": "일",
   "swapExpiryUnit": "만료 단위",
   "moreInfoAbout": "$label$ 자세히 보기",
-  "swapExpiryRange": "$min$에서 $max$ 사이의 정수를 입력하세요."
+  "swapExpiryRange": "$min$에서 $max$ 사이의 정수를 입력하세요.",
+  "activityView": "활동 보기",
+  "activityViewOptions": "보기 옵션",
+  "activityViewList": "목록",
+  "activityViewGroups": "그룹",
+  "activityGroupSwaps": "스왑",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "기타 활동",
+  "activityGroupPartialCount": "$count$+",
+  "activityFilterOptions": "활동 필터"
 }
