@@ -350,7 +350,19 @@ it('consumes the mobile hardware back while a delete is in flight', async () => 
     reject(new Error('contact store unavailable'));
   });
   expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
-  // Not busy any more, so the gesture falls through to the default pop.
+
+  // Still in edit mode, so the gesture is consumed and closes the editor rather than falling
+  // through. It previously returned false here, which let the global bridge pop the whole page and
+  // discard whatever had been typed - the header chevron in this exact state only closes the
+  // editor, and the two have to agree.
+  await act(async () => {
+    expect(capturedMobileBack!()).toBe(true);
+  });
+  expect(screen.queryByTestId('contact-save')).not.toBeInTheDocument();
+  expect(screen.getByTestId('contact-send')).toBeInTheDocument();
+  expect(backMock).not.toHaveBeenCalled();
+
+  // Out of edit mode with nothing left to show, it falls through to the default pop.
   expect(capturedMobileBack!()).toBe(false);
 });
 
@@ -381,4 +393,114 @@ it('redirects to the address book for an unknown address or one of my accounts',
 
   render(<ContactDetailPage address="mtst1mine" />);
   expect(screen.getByTestId('redirect')).toBeInTheDocument();
+});
+
+it('keeps the failed rename on screen when the row leaves the store mid-write', async () => {
+  // The sixth exit. The five back-handler gates cannot help here: this is a render-time <Redirect>,
+  // not a navigation. The row can vanish under a rename for reasons this page never initiated -
+  // most concretely the render-phase self-heal in useFilteredContacts, which drops any contact
+  // whose address matches a wallet account. Gating that redirect on the delete flag alone left the
+  // rename's rejection with nowhere to land.
+  let reject: (e: Error) => void = () => undefined;
+  updateContactMock.mockReturnValueOnce(
+    new Promise<void>((_, rej) => {
+      reject = rej;
+    })
+  );
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paulina' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-save'));
+  });
+
+  // The row goes while the write is still in flight, by a cause outside this page.
+  contactsMock.mockReturnValue([ALICE, NINA]);
+
+  await act(async () => {
+    reject(new Error('contact store unavailable'));
+  });
+
+  // Lowering the guard at settle would redirect here and unmount the only node that can report it.
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+  expect(navigateMock).not.toHaveBeenCalled();
+});
+
+it('does not redirect when the write itself drops the row synchronously', async () => {
+  // The ordering half of the same guard. `updateSettings` applies its optimistic `set()` before its
+  // first await, so the row can be gone in the SAME tick the write starts. Raising the retain flag
+  // from an effect keyed on `busy` would land one render later - by then the page has already read
+  // the row as an unknown id and redirected. The raise has to be enqueued before the write call.
+  let reject: (e: Error) => void = () => undefined;
+  updateContactMock.mockImplementationOnce(() => {
+    contactsMock.mockReturnValue([ALICE, NINA]); // the optimistic removal, synchronous
+    return new Promise<void>((_, rej) => {
+      reject = rej;
+    });
+  });
+  const { rerender } = render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paulina' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-save'));
+  });
+
+  // `saving` lives in ContactView, so the write alone re-renders the CHILD. In the app the page
+  // itself re-renders too, because useFilteredContacts subscribes to the store that just changed;
+  // this suite mocks that hook to a plain jest.fn with no subscription, so the re-render has to be
+  // forced here or the page never re-reads the list and the defect cannot appear.
+  await act(async () => {
+    rerender(<ContactDetailPage address="0xpaul" />);
+  });
+
+  // Mid-write, row already absent: the page must still be here.
+  expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+  expect(screen.getByTestId('address-book-name-input')).toBeInTheDocument();
+
+  await act(async () => {
+    reject(new Error('contact store unavailable'));
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+});
+
+it('releases the row after a successful save, so a later removal still redirects', async () => {
+  // The F-026 trap, one level up: a parent-held flag raised on start and never lowered is what made
+  // the add-contact sheet permanently undismissable in round 5. Delete is safe to latch because
+  // success unmounts the page; save success keeps it mounted, so the flag has to come back down or
+  // this page renders a deleted contact forever.
+  const { rerender } = render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paulina' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-save'));
+  });
+  expect(updateContactMock).toHaveBeenCalled();
+
+  contactsMock.mockReturnValue([ALICE, NINA]);
+  await act(async () => {
+    rerender(<ContactDetailPage address="0xpaul" />);
+  });
+
+  expect(screen.getByTestId('redirect')).toHaveTextContent('/settings/address-book');
+});
+
+it('releases the row when the user leaves edit mode after a failed save', async () => {
+  // Leaving the editor acknowledges the error, so the reason for holding the row is gone. Closing
+  // the editor without releasing it would strand the page on a contact that no longer exists.
+  updateContactMock.mockRejectedValueOnce(new Error('contact store unavailable'));
+  const { rerender } = render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paulina' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-save'));
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+
+  fireEvent.click(screen.getByTestId('flow-back'));
+  contactsMock.mockReturnValue([ALICE, NINA]);
+  await act(async () => {
+    rerender(<ContactDetailPage address="0xpaul" />);
+  });
+
+  expect(screen.getByTestId('redirect')).toHaveTextContent('/settings/address-book');
 });

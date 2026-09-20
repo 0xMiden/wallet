@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -41,14 +41,16 @@ export function sendToContactPath(contact: Pick<WalletContact, 'address' | 'netw
 interface ContactViewProps {
   contact: WalletContact;
   onBack: () => void;
-  /** Called before the delete write starts, so the page stops treating the row's absence as unknown. */
-  onDeleteStart: () => void;
-  /** Called when the delete write rejects, so that latch is released. */
-  onDeleteFailed: () => void;
+  /**
+   * "Keep rendering me even if my row leaves the store." Raised BEFORE either write starts, so the
+   * page stops treating the row's absence as an unknown id, and lowered only once there is nothing
+   * left to show - which includes an error the user has not acknowledged, not just a settled write.
+   */
+  onRetain: (retain: boolean) => void;
   onDeleted: () => void;
 }
 
-const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStart, onDeleteFailed, onDeleted }) => {
+const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, onDeleted }) => {
   const { t } = useTranslation();
   const { updateContact, removeContact } = useContacts();
   const confirm = useConfirm();
@@ -67,11 +69,29 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
   // in-flight delete would write the pre-delete list back and resurrect the contact. One flag.
   const busy = saving || removing;
 
-  // The header back is not the only way off this page: on mobile the hardware back and the
-  // swipe gesture fall through to the global MobileBackBridge, which pops unconditionally with no
-  // knowledge of an in-flight write. Consume the gesture while busy so the write's own completion
-  // is what leaves, and let it fall through otherwise.
-  useMobileBackHandler(() => busy, [busy]);
+  // Leaving edit mode is the user acknowledging whatever the editor was showing, so it clears the
+  // error AND releases the row. Without the release the page would go on rendering a contact that
+  // no longer exists, with nothing left on screen to explain why.
+  const leaveEdit = useCallback(() => {
+    setError(undefined);
+    onRetain(false);
+    setEditing(false);
+  }, [onRetain]);
+
+  // The header back is not the only way off this page: on mobile the hardware back and the swipe
+  // gesture fall through to the global MobileBackBridge, which pops unconditionally with no
+  // knowledge of this page's state.
+  // Consume exactly the states the header back consumes. Gating on `busy` alone left edit mode
+  // disagreeing with the chevron: the chevron closed the editor and stayed, while the gesture fell
+  // through to the global bridge, which pops unconditionally and took the typed name with it.
+  useMobileBackHandler(() => {
+    if (busy) return true;
+    if (editing) {
+      leaveEdit();
+      return true;
+    }
+    return false;
+  }, [busy, editing, leaveEdit]);
 
   const trimmedName = name.trim();
   // Compare against the RESOLVED network, not the raw stored one: `contactNetwork` falls back to
@@ -89,8 +109,13 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
 
   const save = async () => {
     if (!trimmedName || !changed || busy) return;
+    // BEFORE the write, not from an effect keyed on `busy`: `updateSettings` applies its optimistic
+    // `set()` synchronously, so the row can leave the store in this same tick. A post-commit report
+    // arrives one render too late and the page redirects out from under the write.
+    onRetain(true);
     setSaving(true);
     setError(undefined);
+    let failed: string | undefined;
     try {
       await updateContact(contact.address, {
         name: trimmedName,
@@ -98,9 +123,13 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
       });
       setEditing(false);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      failed = err instanceof Error ? err.message : String(err);
+      setError(failed);
     }
     setSaving(false);
+    // Lower to what is still true. Clearing unconditionally here would drop the row while the
+    // rejection is on screen, unmounting the only node that can report it.
+    onRetain(failed !== undefined);
   };
 
   const remove = async () => {
@@ -114,14 +143,15 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
     // leave it live for a second tap.
     setRemoving(true);
     setError(undefined);
-    onDeleteStart();
+    onRetain(true);
     try {
       await removeContact(contact.address);
       onDeleted();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
       setRemoving(false);
-      onDeleteFailed();
+      // Stay retained: the row is already gone from the store and this error is the only thing
+      // left explaining why the contact is still on screen.
     }
   };
 
@@ -149,7 +179,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
         // only thing that can report a failure — restoring the silent failure the delete fix
         // removed. Every other control here is gated on `busy`; this one has to be too.
         onBack={() => {
-          if (!busy) setEditing(false);
+          if (!busy) leaveEdit();
         }}
         footer={
           <Button
@@ -247,18 +277,21 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
   const isMounted = useIsMounted();
   // Set on delete, so the contact vanishing from the store reads as leaving, not as an unknown id.
   const [deleted, setDeleted] = useState(false);
-  // True from the moment this page starts its OWN delete write until that write settles.
-  // `updateSettings` applies its optimistic `set()` synchronously (store/index.ts), so the row
-  // leaves the store the moment `removeContact` is called, not when it resolves. Without this the
-  // page reads its own optimistic removal as an unknown id and redirects mid-write, and the
-  // rejection is then reported to a page that has already gone.
-  const [deleting, setDeleting] = useState(false);
+  // Raised by ContactView before EITHER write starts, and lowered only when nothing is left to
+  // show. `updateSettings` applies its optimistic `set()` synchronously (store/index.ts), so the
+  // row leaves the store the moment `removeContact` or `updateContact` is called, not when it
+  // resolves. Without this the page reads that removal as an unknown id and redirects mid-write,
+  // and the rejection is then reported to a page that has already gone. It covers the save writer
+  // too: the row can vanish under a rename for reasons this page never initiated - most concretely
+  // the render-phase self-heal in `useFilteredContacts`, which drops any contact whose address
+  // matches a wallet account.
+  const [retain, setRetain] = useState(false);
   const found = allContacts.find(c => c.address === address && !c.accountInWallet);
   const lastKnown = useRef(found);
   if (found) lastKnown.current = found;
-  // While this page is itself the writer, keep rendering the row it is removing, so a failure has
-  // somewhere to be shown.
-  const contact = found ?? (deleting ? lastKnown.current : undefined);
+  // While there is anything left to show for this row - a write in flight, or an error the user
+  // has not acknowledged - keep rendering it, so a failure has somewhere to land.
+  const contact = found ?? (retain ? lastKnown.current : undefined);
 
   if (deleted) return null;
   if (!contact) return <Redirect to={ADDRESS_BOOK_PATH} />;
@@ -268,8 +301,7 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
       <ContactView
         contact={contact}
         onBack={back}
-        onDeleteStart={() => setDeleting(true)}
-        onDeleteFailed={() => setDeleting(false)}
+        onRetain={setRetain}
         onDeleted={() => {
           setDeleted(true);
           // Pop OUR OWN entry, and only while this page is still the live one. Replacing with the
