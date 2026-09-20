@@ -53,7 +53,7 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
 
   return (
     <Drawer open onOpenChange={open => !open && onResult(undefined)} screenKey="spending-limit-challenge">
-      <DrawerContent>
+      <DrawerContent data-testid="spending-limit-challenge">
         <DrawerHeader>
           <DrawerTitle>{t('spendingLimitChallengeTitle')}</DrawerTitle>
         </DrawerHeader>
