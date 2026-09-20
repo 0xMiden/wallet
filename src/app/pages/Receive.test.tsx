@@ -6,9 +6,34 @@ import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { PageActiveContext } from 'app/layouts/page-active';
+import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { Receive } from './Receive';
+
+// Surface the motion props the QR frame hands framer, so the logo's press dip is assertable, and
+// keep every other `motion.*` real (the copy button animates its own glyph).
+let mockReduceMotion = false;
+jest.mock('framer-motion', () => {
+  const actual = jest.requireActual('framer-motion');
+  const ReactActual = jest.requireActual('react');
+  const MotionDiv = ReactActual.forwardRef(({ animate, transition, children, ...rest }: any, ref: any) => (
+    <div
+      ref={ref}
+      data-animate={JSON.stringify(animate ?? null)}
+      data-transition={JSON.stringify(transition ?? null)}
+      {...rest}
+    >
+      {children}
+    </div>
+  ));
+  return {
+    ...actual,
+    useReducedMotion: () => mockReduceMotion,
+    motion: new Proxy(actual.motion, { get: (target: any, key: string) => (key === 'div' ? MotionDiv : target[key]) })
+  };
+});
 
 // Pending (claimable) notes moved to their own `/pending-notes` page — see
 // Pending.test.tsx for the claim-flow coverage. Receive is now address-only.
@@ -159,6 +184,7 @@ describe('Receive - Address', () => {
   });
 
   beforeEach(() => {
+    mockReduceMotion = false;
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
@@ -182,13 +208,28 @@ describe('Receive - Address', () => {
     }
   });
 
-  const renderReceive = async () => {
+  const renderReceive = async (pageActive = true) => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     await act(async () => {
-      testRoot!.render(<Receive />);
+      testRoot!.render(
+        <PageActiveContext.Provider value={pageActive}>
+          <Receive />
+        </PageActiveContext.Provider>
+      );
     });
     return testContainer;
+  };
+
+  /** Re-renders under a different page-active value, as leaving the tab does. */
+  const setPageActive = async (pageActive: boolean) => {
+    await act(async () => {
+      testRoot!.render(
+        <PageActiveContext.Provider value={pageActive}>
+          <Receive />
+        </PageActiveContext.Provider>
+      );
+    });
   };
 
   it('renders the account address', async () => {
@@ -250,7 +291,7 @@ describe('Receive - Address', () => {
     const container = await renderReceive();
 
     const actions = container.querySelector('[data-testid="receive-actions"]')!;
-    expect(actions).toHaveClass('rounded-2xl', 'bg-fill');
+    expect(actions).toHaveClass('rounded-2xl', 'bg-page');
     const share = actions.querySelector('[data-testid="receive-share"]')!;
     const crossChain = actions.querySelector('[data-testid="receive-cross-chain"]')!;
     expect(share.tagName).toBe('BUTTON');
@@ -278,17 +319,24 @@ describe('Receive - Address', () => {
     );
   });
 
-  it('sizes the QR from the height the layout leaves, square and capped, instead of scrolling', async () => {
+  it('draws the code on a white card at a fixed, scannable size instead of eating the page', async () => {
     const container = await renderReceive();
 
+    const card = container.querySelector('[data-testid="receive-qr-card"]')!;
+    // The card keeps the light tile the modules are scanned off, whatever the page is washed in.
+    expect(card).toHaveClass('rounded-2xl', 'bg-page', 'p-4');
     const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
-    expect(slot).toHaveClass('relative', 'flex-1', 'min-h-40', 'w-full');
+    // 208px, not the leftover height: the rest of the page gets the room back.
+    expect(slot).toHaveClass('relative', 'w-full', 'max-w-52');
+    expect(slot).not.toHaveClass('flex-1');
     const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
-    expect(frame).toHaveClass('aspect-square', 'h-full', 'max-h-72', 'max-w-full');
-    // The QR block grows into the free height; the notice and actions keep their own.
-    expect(container.querySelector('[data-testid="receive-qr-block"]')).toHaveClass('flex-1');
+    expect(frame).toHaveClass('aspect-square', 'w-full');
+    expect(frame.className).not.toContain('max-h-72');
+    // The chip and the address ride in the same card as the code.
+    expect(card.contains(container.querySelector('[data-testid="receive-network"]'))).toBe(true);
+    expect(card.contains(container.querySelector('[data-testid="receive-copy-address"]'))).toBe(true);
     // One column with the 16px gutter, clearing the floating tab bar off mobile.
-    const column = slot.closest('[data-testid="receive-qr-block"]')!.parentElement!;
+    const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
     expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-4', 'pb-20');
   });
 
@@ -299,6 +347,128 @@ describe('Receive - Address', () => {
     const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
     expect(column).toHaveClass('pb-18');
     expect(column).not.toHaveClass('pb-20');
+  });
+
+  describe('the receive green', () => {
+    it('washes the page and paints the rows, the chevron and the copy glyph in the flow accent', async () => {
+      const container = await renderReceive();
+
+      expect(container.querySelector('[data-testid="receive-page"]')).toHaveClass('bg-accent-receive-tint');
+
+      for (const testId of ['receive-share', 'receive-cross-chain']) {
+        const row = container.querySelector(`[data-testid="${testId}"]`)!;
+        expect(row.querySelector('[data-slot="icon"]')).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
+        expect(row).toHaveClass('before:bg-accent-receive/25');
+        // The titles stay `ink`: the accent is under 4.5:1 as text.
+        expect(row.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
+      }
+      expect(container.querySelector('[data-testid="receive-cross-chain"] [data-slot="chevron"]')).toHaveClass(
+        'stroke-accent-receive'
+      );
+
+      const copy = container.querySelector('[data-testid="receive-copy-address"]')!;
+      expect(copy.querySelector('[data-copy-icon]')).toHaveClass('text-accent-receive');
+      expect(copy).toHaveClass('focus-visible:ring-accent-receive');
+    });
+
+    it('leaves the test-funds notice in its own warning tone', async () => {
+      const container = await renderReceive();
+
+      // A status is not an accent: the warning keeps saying "warning", green page or not.
+      expect(container.querySelector('[data-testid="receive-test-funds-warning"]')).toHaveAttribute(
+        'data-tone',
+        'warning'
+      );
+    });
+
+    it('names the network with the shared NetworkChip, in the same tint as send and contacts', async () => {
+      const container = await renderReceive();
+
+      const chip = container.querySelector('[data-testid="receive-network"]')!;
+      expect(chip).toHaveClass('bg-network-miden-tint', 'text-network-miden-text');
+      expect(chip.querySelector('[data-testid="miden-logo"]')).not.toBeNull();
+    });
+  });
+
+  describe('the QR logo easter egg', () => {
+    const logo = (container: HTMLElement) => container.querySelector('[data-testid="receive-qr-logo"]')! as HTMLElement;
+    const palette = () => mockQRCodeProps.mock.lastCall![0].palette;
+
+    it('opens on the flow green and walks the card palette, one tap at a time', async () => {
+      const container = await renderReceive();
+
+      expect(palette()).toBe('green');
+      const order = ['orange', 'slate', 'blue', 'purple', 'green'];
+      for (const next of order) {
+        await act(async () => {
+          fireEvent.click(logo(container));
+        });
+        expect(palette()).toBe(next);
+      }
+      // One haptic per tap, and the address never moved.
+      expect(hapticLight).toHaveBeenCalledTimes(order.length);
+      expect(container.querySelector('[data-testid="receive-address-full"]')?.textContent).toBe('test-account-123');
+    });
+
+    it('carries an accessible name and a 44px-clear target over the middle of the code', async () => {
+      const container = await renderReceive();
+
+      const button = logo(container);
+      expect(button.tagName).toBe('BUTTON');
+      expect(button).toHaveAttribute('aria-label', 'receiveQrColorAction');
+      // 28% of the 208px code is 58px, past the 44px minimum.
+      expect(button).toHaveClass('h-[28%]', 'w-[28%]', 'absolute', 'left-1/2', 'top-1/2');
+    });
+
+    it('dips the code while the logo is held, on the tab bar press spring', async () => {
+      const container = await renderReceive();
+      const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+      expect(JSON.parse(frame.getAttribute('data-transition')!)).toEqual(tabBarMotion.press);
+
+      await act(async () => {
+        fireEvent.pointerDown(logo(container));
+      });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: tabBarMotion.pressScale });
+
+      await act(async () => {
+        fireEvent.pointerUp(logo(container));
+      });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+    });
+
+    it('does not dip under reduced motion, and still cycles', async () => {
+      mockReduceMotion = true;
+      const container = await renderReceive();
+      const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+
+      await act(async () => {
+        fireEvent.pointerDown(logo(container));
+      });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+      expect(JSON.parse(frame.getAttribute('data-transition')!)).toEqual(reducedMotionTransition);
+
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('orange');
+    });
+
+    it('goes back to the flow green once the page is no longer the one on screen', async () => {
+      const container = await renderReceive();
+
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('orange');
+
+      // The tab stays mounted under another one, so leaving is a page-active change.
+      await setPageActive(false);
+      expect(palette()).toBe('green');
+      await setPageActive(true);
+      expect(palette()).toBe('green');
+    });
   });
 
   it('does not render a pending tab switcher', async () => {

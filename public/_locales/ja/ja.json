@@ -1185,5 +1185,6 @@
   "deleteContact": "連絡先を削除",
   "saveContact": "保存",
   "contactAdded": "追加日",
-  "guardianCardMeta": "運営: $operator$ · $location$"
+  "guardianCardMeta": "運営: $operator$ · $location$",
+  "receiveQrColorAction": "QRコードの色を変更"
 }

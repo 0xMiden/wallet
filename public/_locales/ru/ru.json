@@ -1185,5 +1185,6 @@
   "deleteContact": "Удалить контакт",
   "saveContact": "Сохранить",
   "contactAdded": "Добавлен",
-  "guardianCardMeta": "Оператор: $operator$ · $location$"
+  "guardianCardMeta": "Оператор: $operator$ · $location$",
+  "receiveQrColorAction": "Изменить цвет QR-кода"
 }

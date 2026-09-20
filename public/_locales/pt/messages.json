@@ -5251,5 +5251,9 @@
         "content": "$2"
       }
     }
+  },
+  "receiveQrColorAction": {
+    "message": "Alterar a cor do código QR",
+    "englishSource": "Change the QR code color"
   }
 }

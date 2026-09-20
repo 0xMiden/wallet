@@ -1185,5 +1185,6 @@
   "deleteContact": "연락처 삭제",
   "saveContact": "저장",
   "contactAdded": "추가됨",
-  "guardianCardMeta": "운영: $operator$ · $location$"
+  "guardianCardMeta": "운영: $operator$ · $location$",
+  "receiveQrColorAction": "QR 코드 색상 변경"
 }

@@ -1185,5 +1185,6 @@
   "deleteContact": "Kişiyi sil",
   "saveContact": "Kaydet",
   "contactAdded": "Eklendi",
-  "guardianCardMeta": "İşleten: $operator$ · $location$"
+  "guardianCardMeta": "İşleten: $operator$ · $location$",
+  "receiveQrColorAction": "QR kodu rengini değiştir"
 }

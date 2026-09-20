@@ -1185,5 +1185,6 @@
   "deleteContact": "Eliminar contacto",
   "saveContact": "Guardar",
   "contactAdded": "Añadido",
-  "guardianCardMeta": "Operado por $operator$ · $location$"
+  "guardianCardMeta": "Operado por $operator$ · $location$",
+  "receiveQrColorAction": "Cambiar el color del código QR"
 }

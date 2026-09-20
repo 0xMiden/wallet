@@ -1185,5 +1185,6 @@
   "deleteContact": "删除联系人",
   "saveContact": "保存",
   "contactAdded": "添加时间",
-  "guardianCardMeta": "运营方：$operator$ · $location$"
+  "guardianCardMeta": "运营方：$operator$ · $location$",
+  "receiveQrColorAction": "更改二维码颜色"
 }
