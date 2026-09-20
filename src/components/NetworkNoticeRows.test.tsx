@@ -28,9 +28,12 @@ describe('NetworkNoticeRows (#875)', () => {
   it('separates the rows with inset hairlines, not a full-bleed rule', () => {
     render(<NetworkNoticeRows />);
 
-    const [first, second] = screen.getAllByRole('listitem');
-    expect(second.className).toContain('before:bg-hairline');
-    expect(second.className).toContain('before:inset-x-4');
-    expect(first.className).toContain('first:before:hidden');
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.className).toContain('before:bg-hairline');
+      expect(row.className).toContain('before:inset-x-4');
+      expect(row.className).toContain('first:before:hidden');
+    }
   });
 });

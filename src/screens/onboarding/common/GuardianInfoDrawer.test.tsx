@@ -58,6 +58,7 @@ jest.mock('lib/ui/drawer', () => ({
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
+  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-header">{children}</div>,
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
 }));
 
@@ -128,11 +129,23 @@ describe('GuardianInfoDrawer', () => {
     expect(screen.getByText('!')).toBeInTheDocument();
   });
 
-  it('draws a divider under exactly the first two rows and none under the last (hasDivider branch)', () => {
+  it('states the facts in the shared sheet header plus one fill group with inset hairlines', () => {
     const { container } = renderDrawer();
-    // Only the InfoRow divider wrappers use `border-b`; the third row passes
-    // `hasDivider={false}` so its wrapper class is `undefined`.
-    expect(container.querySelectorAll('.border-b')).toHaveLength(2);
+
+    // The title now sits in the app's one sheet header, not in a centred hero line of its own.
+    expect(screen.getByTestId('drawer-header')).toContainElement(screen.getByTestId('drawer-title'));
+    // No rules across the sheet: the group draws the separation, each row inset past the margin.
+    expect(container.querySelectorAll('.border-b')).toHaveLength(0);
+    const group = screen.getByText('guardianInfoWhatItDoesTitle').closest('[class*="bg-fill"]');
+    expect(group).not.toBeNull();
+    expect(group!.className).toContain('rounded-2xl');
+    expect(container.querySelectorAll('.before\\:bg-hairline')).toHaveLength(3);
+  });
+
+  it('carries no literal colours: every badge is on a token tint', () => {
+    const { container } = renderDrawer();
+
+    expect(container.innerHTML).not.toMatch(/#[0-9A-Fa-f]{6}/);
   });
 
   it('closes the drawer when the "gotIt" button is clicked', () => {
