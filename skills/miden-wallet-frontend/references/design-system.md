@@ -49,7 +49,7 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `page` | #FFFFFF | #191919 | The page, headers, sheets. |
 | `fill` | #F3F0EC | #262422 | Every contained element: list groups, detail cards, search, pills, inputs, secondary buttons, the sheet ✕. |
 | `fill-pressed` | #E9E5E0 | #33302D | A pressed or selected element on `fill`; the sheet handle. |
-| `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; under a tab root's title row and Home's action bar; a pushed page's header once content scrolls under it. |
+| `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; the outline on a segmented control's items; under Home's action bar; a pushed page's header once content scrolls under it. A tab root uses the 4px `fill` rule instead. |
 | `scrim` | #000 at 55% | same | The dim behind a sheet or an overlay. One value in both themes, and never blurred: the job is to dim the page, not to frost it. |
 
 #### The three list surfaces
@@ -234,7 +234,7 @@ side by side sit 10px apart (`gap-2.5`), each `flex-1`.
 
 | Element | Height |
 | --- | --- |
-| Tab root band | 61px title row + hairline (Home's action bar exactly), then 52px of filter row |
+| Tab root band | 56px title row + the 4px rule = 60px (Home's action bar), then 52px of filter row |
 | Page header | 52px |
 | CTA (`Button` lg) | 48px (label stays 19px bold: white on `accent` is 3.0:1, which only clears at 19px bold) |
 | Compact button (`Button` sm) | 36px |
@@ -283,10 +283,10 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 48px pill. `primary`: `accent`, white `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
 | Icon button | `IconButton` | Header: a bare 24px glyph in a 44px hit area, `ink`. Sheet and overlay: a 32px circle on `fill`, `muted` glyph. | `NavButton`, `CircleButton`, ad-hoc round buttons |
 | Pushed page header | `PageHeader` (`components/PageHeader`) | 52px row: bare chevron, 20px title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. No horizontal padding of its own: it takes the page's, so a caller in an unpadded parent passes `className="px-4"`. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the round back buttons and grey title bars |
-| Tab root header | `TabRootHeader` | The whole top of a tab root — Activity, Explore, Settings — in one component, never hand-assembled. A 60px title row (`TabHeader`: `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px) closed by a full-bleed `hairline`, so the band is 61px: exactly what Home's `SegmentedActionBar` occupies, and the content line does not move between tabs. Under it, tight, the optional filter row: `SegmentedControl` at `md`, 6px above and below, at the 16px page margin. The page passes `items`, `value`, `onChange` and a label; the look is not its to choose. | the 4px grey rule, `TabHeader` used directly, per-page filter rows |
+| Tab root header | `TabRootHeader` | The whole top of a tab root — Activity, Explore, Settings — in one component, never hand-assembled. A 56px title row (`TabHeader`: `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px, 10px above and below), then the 4px rule on `fill` inset to the page margin: 60px, what Home's `SegmentedActionBar` occupies, so the content line does not move between tabs. The rule is the header's, not the page's — that is what stopped there being three of them. Under it, tight, the optional filter row: `SegmentedControl` at `md`, 6px above and below, at the 16px page margin. The page passes `items`, `value`, `onChange` and a label; the look is not its to choose. | `TabHeader` used directly, per-page dividers and filter rows |
 | Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
 | Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, and every segment resizes on the same spring as the bubble. | — |
-| Segmented control | `SegmentedControl` | One choice out of a few, drawn like the tab bars (see below) and only that way: no track, the selection on the raised `page` bubble, `ink` on `muted`. There is no filled-pill appearance — white on `accent` is 3.0:1, which rule 6 allows only at 19px bold. `items` (`id`, label, optional icon, count, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, a few settings choices); `role` `radiogroup` (default) or `tablist` when each item opens its own panel. On a tab root it is reached only through `TabRootHeader`. | the Activity and Explore filter pills, the token detail and earn timeframe rows, `TabPicker` (theme, developer endpoint preset and network id) |
+| Segmented control | `SegmentedControl` | One choice out of a few, drawn one way: no track, every item an outlined pill (`hairline` on `page`, `ink` label, 8px apart), and the selected one under the bottom nav's own raised bubble — `raisedBubbleClassName` and `useTabBarMotion` verbatim, reaching 1px past the item so it covers the outline, which goes transparent rather than away so the width never shifts. The selected label stays `ink`: there is no filled-pill look, because white on `accent` is 3.0:1 and rule 6 allows that only at 19px bold. `items` (`id`, label, optional icon, count, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, a few settings choices); `role` `radiogroup` (default) or `tablist` when each item opens its own panel. On a tab root it is reached only through `TabRootHeader`. | the Activity and Explore filter pills, the token detail and earn timeframe rows, `TabPicker` (theme, developer endpoint preset and network id) |
 | Search | `SearchInput` | 44px pill on `fill`, no border, 16px glyph, left-aligned 16px text, clear button; a 1.5px `accent` ring while focused. | `SearchField`, `SearchAssetField` |
 | Text field | `TextField` | `text-label` `muted` label above; `text-body` text; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
@@ -389,11 +389,12 @@ step is `aria-hidden` and takes no pointer. Only mobile animates; reduced motion
 Home, Explore and the top action bar define the look and change only for consistency: card radii
 10px → 16px (prompt card) and 22px → full (action segments); Activity's 40px square icons → round;
 `opacity-50` text → `muted`; the hex literals #A8BBA3, #FFFFFF4D, #E5E5EA, #8E8E93, #ECEAE7 and
-`bg-red-500` → tokens; the TabHeader grey bar removed; Home and Explore bottom clearance unified.
+`bg-red-500` → tokens; Home and Explore bottom clearance unified. The 4px rule under a tab root's
+title stays — it is Ahmad's, and it is the divider every tab root uses.
 
-Home's action bar is also the ruler. Its 61px — 4px, 48px segments, 8px, a hairline — is what every
-other tab root's title row plus hairline has to come to, so the content line never moves as tabs
-change. `TabRootHeader` is where that number lives.
+Home's action bar is also the ruler. Its 60px — 4px, 48px segments, 8px — is what every other tab
+root's title row plus its rule has to come to, so the content line never moves as tabs change.
+`TabRootHeader` is where that number lives, and the 56px title row is what pays for the rule.
 
 ## Migration order
 
