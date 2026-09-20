@@ -8,6 +8,7 @@ import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { getCurrentLocale } from 'lib/i18n/core';
@@ -140,11 +141,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
             onSelect={setNetwork}
             testIdPrefix="contact"
           />
-          {error && (
-            <p role="alert" className="-mt-2 text-sm text-status-negative">
-              {error}
-            </p>
-          )}
+          <ErrorLine className="-mt-2">{error}</ErrorLine>
           <button
             type="button"
             onClick={() => {
