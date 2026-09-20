@@ -2,9 +2,14 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Input } from 'components/Input';
 import { StrictActionAuthentication } from 'components/StrictActionAuthentication';
+import { EmptyState } from 'components/ui/EmptyState';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { classifySpendingLimitChange } from 'lib/miden/spending-limits/change';
@@ -194,19 +199,19 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
   );
 
   return (
-    <section className="rounded-xl border border-border-faint bg-white p-4 flex flex-col gap-4">
-      <div>
-        <h2 className="text-base font-bold text-heading-gray">{row.asset.symbol}</h2>
-        {row.asset.name && row.asset.name !== row.asset.symbol && (
-          <p className="text-sm text-text-secondary-token">{row.asset.name}</p>
-        )}
-      </div>
-      <Input
+    // One section per asset: its symbol is the section label, its name the line under it, and the
+    // two fields, the reason it cannot be edited and the save action are its content.
+    <SubPageSection
+      className="gap-4"
+      title={row.asset.symbol}
+      description={row.asset.name && row.asset.name !== row.asset.symbol ? row.asset.name : undefined}
+    >
+      <TextField
         type="text"
         inputMode="decimal"
         label={t('spendingLimitDaily')}
         aria-label={`${row.asset.symbol} ${t('spendingLimitDaily')}`}
-        suffix={row.asset.symbol}
+        trailing={<span className="text-body text-muted">{row.asset.symbol}</span>}
         value={daily}
         disabled={!row.scaleKnown || saving}
         onChange={event => {
@@ -214,12 +219,12 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
           setError(null);
         }}
       />
-      <Input
+      <TextField
         type="text"
         inputMode="decimal"
         label={t('spendingLimitWeekly')}
         aria-label={`${row.asset.symbol} ${t('spendingLimitWeekly')}`}
-        suffix={row.asset.symbol}
+        trailing={<span className="text-body text-muted">{row.asset.symbol}</span>}
         value={weekly}
         disabled={!row.scaleKnown || saving}
         onChange={event => {
@@ -227,12 +232,13 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
           setError(null);
         }}
       />
-      {!row.scaleKnown && <p className="text-sm text-status-negative">{t('spendingLimitUnknownDecimals')}</p>}
-      {error && (
-        <p role="alert" className="text-sm text-status-negative">
-          {error}
-        </p>
+      {/* A standing condition, not something that just went wrong, so it is a note and not an alert. */}
+      {!row.scaleKnown && (
+        <Notice variant="inline" tone="negative">
+          {t('spendingLimitUnknownDecimals')}
+        </Notice>
       )}
+      <ErrorLine>{error}</ErrorLine>
       {authenticating ? (
         <StrictActionAuthentication reason={t('spendingLimitAuthenticationReason')} onResult={handleAuthentication} />
       ) : (
@@ -243,7 +249,7 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
           onClick={prepareSave}
         />
       )}
-    </section>
+    </SubPageSection>
   );
 };
 
@@ -308,21 +314,21 @@ const SpendingLimits: FC = () => {
   );
 
   return (
-    <div className="w-full flex flex-col gap-4 pb-6" data-testid="spending-limits-settings">
-      <div className="rounded-xl bg-gray-25 p-4 flex flex-col gap-2">
-        <p className="text-sm text-heading-gray">{t('spendingLimitLocalDisclosure')}</p>
-        <p className="text-sm text-heading-gray">{t('spendingLimitNotOnChain')}</p>
-      </div>
+    <SubPageLayout data-testid="spending-limits-settings">
+      <Notice tone="neutral">
+        <span className="flex flex-col gap-2">
+          <span>{t('spendingLimitLocalDisclosure')}</span>
+          <span>{t('spendingLimitNotOnChain')}</span>
+        </span>
+      </Notice>
       {loading || balancesLoading ? (
-        <p role="status" className="text-sm text-text-secondary-token">
+        <Notice variant="inline" role="status">
           {t('loading')}
-        </p>
+        </Notice>
       ) : loadError ? (
-        <p role="alert" className="text-sm text-status-negative">
-          {t('spendingLimitLoadFailed')}
-        </p>
+        <ErrorLine>{t('spendingLimitLoadFailed')}</ErrorLine>
       ) : rows.length === 0 || accountId === undefined ? (
-        <p className="text-sm text-text-secondary-token">{t('spendingLimitNoAssets')}</p>
+        <EmptyState icon={IconName.Wallet} title={t('spendingLimitNoAssets')} />
       ) : (
         rows.map(row => (
           <SpendingLimitRow
@@ -335,7 +341,7 @@ const SpendingLimits: FC = () => {
           />
         ))
       )}
-    </div>
+    </SubPageLayout>
   );
 };
 
