@@ -21,6 +21,55 @@ function reducedMotionVaulBlock(): string {
   return css.slice(start, end);
 }
 
+/** The block that puts vaul's open/close and snap-back on the tab-bar spring curves. */
+function sheetSpringBlock(): string {
+  const start = css.indexOf('[data-vaul-drawer],\n[data-vaul-overlay] {');
+  if (start === -1) throw new Error('no sheet-spring rule targeting [data-vaul-drawer] in main.css');
+  return css.slice(start, css.indexOf('\n}', start));
+}
+
+describe('main.css — sheet springs', () => {
+  const block = sheetSpringBlock();
+
+  it('drives the open animation and the drag-release snap-back off the shared curves', () => {
+    expect(block).toContain('animation-duration: var(--sheet-open-duration');
+    expect(block).toContain('animation-timing-function: var(--sheet-open-easing');
+    expect(block).toContain('transition-duration: var(--sheet-open-duration');
+    expect(block).toContain('transition-timing-function: var(--sheet-open-easing');
+  });
+
+  it('clamps only the snap-back duration and easing, never transition-property', () => {
+    // vaul sets `transition: none` inline while a drag is in progress; overriding the property
+    // would animate every pointer move.
+    expect(block).not.toMatch(/transition-property/);
+    expect(block).not.toMatch(/^\s*transition:/m);
+  });
+
+  it('gives the closing sheet its own, snappier curve', () => {
+    expect(css).toContain("[data-vaul-drawer][data-state='closed'],");
+    expect(css).toContain('animation-duration: var(--sheet-close-duration');
+    expect(css).toContain('animation-timing-function: var(--sheet-close-easing');
+  });
+
+  it('declares vaul’s own curve as the fallback, so a sheet still animates without the variables', () => {
+    expect(block).toContain('cubic-bezier(0.32, 0.72, 0, 1)');
+  });
+
+  it('is overridden by the reduced-motion block, which comes later at equal weight', () => {
+    expect(css.indexOf('[data-vaul-drawer],\n[data-vaul-overlay] {')).toBeLessThan(
+      css.indexOf('@media (prefers-reduced-motion: reduce) {\n  [data-vaul-drawer]')
+    );
+  });
+});
+
+describe('main.css — the sheet scrim', () => {
+  it('is one plain value in both themes: no blur, no per-theme override', () => {
+    const values = [...css.matchAll(/--ds-scrim:\s*([^;]+);/g)].map(m => m[1]!.trim());
+    expect(values).toHaveLength(1);
+    expect(values[0]).toMatch(/^rgba\(0, 0, 0, 0\.\d+\)$/);
+  });
+});
+
 describe('main.css — vaul reduced motion', () => {
   const block = reducedMotionVaulBlock();
 

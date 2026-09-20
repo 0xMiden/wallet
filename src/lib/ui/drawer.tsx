@@ -6,6 +6,7 @@ import { Drawer as VaulDrawer } from 'vaul';
 
 import { IconName } from 'app/icons/v2';
 import { IconButton } from 'components/ui/IconButton';
+import { sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
@@ -78,15 +79,24 @@ interface DrawerContentProps extends Omit<
   hideHandle?: boolean;
 }
 
-function DrawerContent({ className, overlayClassName, children, hideHandle = true, ...props }: DrawerContentProps) {
+function DrawerContent({
+  className,
+  overlayClassName,
+  children,
+  hideHandle = true,
+  style,
+  ...props
+}: DrawerContentProps) {
   return (
     <VaulDrawer.Portal>
-      <VaulDrawer.Overlay
-        className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
-      />
+      {/* A plain scrim, one token in both themes: dimming the page is the whole job, and a frosted
+          blur over it only smears whatever is underneath. */}
+      <VaulDrawer.Overlay style={sheetMotionVars} className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)} />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
+        // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
+        style={{ ...sheetMotionVars, ...style }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the

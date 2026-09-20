@@ -53,6 +53,33 @@ button:disabled,
 @import 'tippy.js/animations/shift-away-subtle.css';
 @import 'vaul/style.css';
 
+/* Every sheet opens and closes on the tab-bar springs, so arriving at one feels like switching
+ * nav tabs: bouncy in with a single overshoot, snappy out. vaul runs the open/close as a CSS
+ * `animation` and the drag-release snap-back as an INLINE `transition`, so the springs arrive as
+ * `linear()` curves in custom properties that `lib/ui/drawer.tsx` sets on both the sheet and its
+ * backdrop (`lib/animation/sheet.ts`); the declared fallbacks are vaul's own stock curve.
+ *
+ * The snap-back rule clamps `transition-duration`/`transition-timing-function` with `!important`
+ * (an inline style outranks a plain rule) but deliberately leaves `transition-property` alone:
+ * vaul sets `transition: none` inline while a drag is in progress, and overriding the property
+ * too would animate every pointer move.
+ *
+ * An overshoot on the way in lifts the sheet past its resting edge for a frame; vaul's own
+ * `::after` skirt (200% tall, `background: inherit`) is what fills the gap under it. */
+[data-vaul-drawer],
+[data-vaul-overlay] {
+  animation-duration: var(--sheet-open-duration, 0.5s);
+  animation-timing-function: var(--sheet-open-easing, cubic-bezier(0.32, 0.72, 0, 1));
+  transition-duration: var(--sheet-open-duration, 0.5s) !important;
+  transition-timing-function: var(--sheet-open-easing, cubic-bezier(0.32, 0.72, 0, 1)) !important;
+}
+
+[data-vaul-drawer][data-state='closed'],
+[data-vaul-overlay][data-state='closed'] {
+  animation-duration: var(--sheet-close-duration, 0.5s);
+  animation-timing-function: var(--sheet-close-easing, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
 /* vaul animates the sheet and its backdrop three ways, and reduced motion has
  * to beat all three:
  *   1. open/close — a CSS animation on [data-vaul-drawer] (slideFromBottom /
@@ -663,6 +690,10 @@ body[data-hide-navbar]::after {
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
     --ds-page: #ffffff;
+    /* The scrim behind a sheet or an overlay. One value in both themes: the sheet sits on its own
+     * surface, so what the scrim has to do is dim the page behind it, and that job does not change
+     * with the theme. Plain black at 55% — no blur, no gloss. */
+    --ds-scrim: rgba(0, 0, 0, 0.55);
     --ds-fill: #f3f0ec;
     --ds-fill-pressed: #e9e5e0;
     --ds-action-bar: #f9f9f9;

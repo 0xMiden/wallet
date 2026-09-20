@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+import { sheetMotionVars } from 'lib/animation';
 import { isExtension } from 'lib/platform';
 
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from './drawer';
@@ -87,6 +88,53 @@ describe('Drawer', () => {
     const header = document.querySelector('[data-slot="drawer-header"]')!;
     expect(header.className).not.toMatch(/\bborder-b\b/);
     expect(header.className).toContain('px-4');
+  });
+
+  it('dims the page behind with one plain scrim token and no blur', () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const overlay = document.querySelector('[data-vaul-overlay]')!;
+    expect(overlay.className).toContain('bg-scrim');
+    expect(overlay.className).not.toMatch(/backdrop-blur/);
+    // One value in both themes: no `dark:` variant to override it.
+    expect(overlay.className).not.toMatch(/\bdark:/);
+  });
+
+  it('runs the sheet and its backdrop on the tab-bar springs, on one timing', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet">
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    for (const el of [screen.getByTestId('sheet'), document.querySelector('[data-vaul-overlay]')!]) {
+      const style = (el as HTMLElement).style;
+      for (const [name, value] of Object.entries(sheetMotionVars)) {
+        expect(style.getPropertyValue(name)).toBe(value);
+      }
+    }
+  });
+
+  it('keeps a sheet’s own inline style beside the motion variables', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet" style={{ zIndex: 99 }}>
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const sheet = screen.getByTestId('sheet');
+    expect(sheet.style.zIndex).toBe('99');
+    expect(sheet.style.getPropertyValue('--sheet-open-easing')).toBe(sheetMotionVars['--sheet-open-easing']);
   });
 
   it('puts the sheet on the page surface', () => {

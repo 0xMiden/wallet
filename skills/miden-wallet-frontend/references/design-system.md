@@ -50,6 +50,7 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `fill` | #F3F0EC | #262422 | Every contained element: list groups, detail cards, search, pills, inputs, secondary buttons, the sheet ✕. |
 | `fill-pressed` | #E9E5E0 | #33302D | A pressed or selected element on `fill`; the sheet handle. |
 | `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; a header once content scrolls under it. |
+| `scrim` | #000 at 55% | same | The dim behind a sheet or an overlay. One value in both themes, and never blurred: the job is to dim the page, not to frost it. |
 
 ### Text
 
@@ -271,7 +272,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
 | Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, `text-title-section` title, `text-body-sm` `muted` body, a 36px `secondary` button. | `components/EmptyState` (moved), ad-hoc "No …" lines |
-| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 18px title left, 32px ✕ right, 16px margin, no rule under the header; rows in `ListGroup`s on `fill`; one decision per sheet; CTA pinned. | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
+| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 18px title left, 32px ✕ right, 16px margin, no rule under the header; rows in `ListGroup`s on `fill`; one decision per sheet; CTA pinned. Opens and closes on the tab-bar springs over a plain `scrim` (see Motion). | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
 | Confirm / alert | `useConfirm` / `useAlert` (`lib/ui/dialog`), rendered by `AlertSheet` with Radix AlertDialog semantics | Title, one sentence, a `destructive` or `primary` button over a `secondary` Cancel. | `ConfirmationModal`, `AlertModal` |
 | Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner`, `CircularProgress` |
 | Skeleton | `Skeleton` | `fill` blocks shaped like the content (`inverse` on a colored surface); tests find it by `data-slot="skeleton"`. | `lib/ui/skeleton`, ad-hoc `animate-pulse` |
@@ -297,6 +298,23 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `indicator` | shared `layoutId`, `springs.pill` | no longer used by a choice row: those are `SegmentedControl`, on the tab-bar motion below |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
 | `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
+
+### Sheets
+
+Every `Drawer` moves like a tab switch, through `lib/animation/sheet.ts`:
+
+- **In.** `springs.tabSwitch` — the nav highlight's own spring: ~350ms with one visible 7%
+  overshoot past the resting edge. vaul's `::after` skirt fills the gap the overshoot opens under
+  the sheet.
+- **Out.** `springs.tabIconPop` — ~225ms and flat, so dismissing is quick and never wobbles.
+- **Drag release.** The snap-back to rest uses the `in` curve; drag-to-dismiss and the snap
+  behaviour are vaul's, unchanged.
+- **Backdrop.** The `scrim` fades on the same curve and duration as the sheet it belongs to.
+- **How.** vaul runs the sheet as a CSS `animation` and the snap-back as an inline `transition`, so
+  these springs cannot be framer transitions: `springToLinearEasing` solves each one and
+  `lib/ui/drawer.tsx` hands it to `main.css` as a `linear()` curve in a custom property.
+- **Reduced motion.** `main.css`'s `prefers-reduced-motion` block clamps every vaul duration, so
+  the sheet and its scrim land at once, with no overshoot.
 
 ### Tab bars and segmented controls
 

@@ -50,10 +50,7 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
-      <DrawerContent
-        className="max-h-[78vh] overflow-hidden"
-        overlayClassName="bg-transparent backdrop-blur-0 dark:bg-transparent"
-      >
+      <DrawerContent className="max-h-[78vh] overflow-hidden" overlayClassName="bg-transparent">
         <DrawerHeader>
           <DrawerTitle>{t('whatIsAGuardian')}</DrawerTitle>
         </DrawerHeader>

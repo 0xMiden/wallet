@@ -190,6 +190,8 @@ export default {
         'rule-strong': 'var(--rule-strong)',
         // Design system, direction B. See skills/miden-wallet-frontend/references/design-system.md.
         page: 'var(--ds-page)',
+        /* The dim behind a sheet or an overlay — one value in both themes, no blur. */
+        scrim: 'var(--ds-scrim)',
         fill: 'var(--ds-fill)',
         'fill-pressed': 'var(--ds-fill-pressed)',
         // The top action bar's strip, a hair off `page` so the bar reads as its own band.
