@@ -200,7 +200,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
   if (account.type === WalletType.Guardian) {
     return (
       <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
-        <AccountBanner account={account} className="mb-6 text-heading-gray" />
+        <AccountBanner account={account} className="mb-6 text-ink" />
         <Alert
           type="warn"
           title={t('exportAccountFile')}
@@ -225,7 +225,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
         runExport(hasHardwareProtector ? undefined : password);
       }}
     >
-      <AccountBanner account={account} className="mb-6 text-heading-gray" />
+      <AccountBanner account={account} className="mb-6 text-ink" />
 
       <Alert
         type="warn"
@@ -261,7 +261,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
       )}
 
       {hasHardwareProtector ? (
-        <p className="text-sm text-heading-gray">{t('exportAccountFileHardwareDescription')}</p>
+        <p className="text-sm text-ink">{t('exportAccountFileHardwareDescription')}</p>
       ) : usePasscodeEntry ? (
         <PasscodeEntry
           key={passcodeAttempt}
