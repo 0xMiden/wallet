@@ -167,7 +167,7 @@ describe('GuardianReplaceHotKey — rendering', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('boom');
-    expect(alert).toHaveClass('text-negative-ink');
+    expect(alert).toHaveClass('text-caption', 'text-negative-ink');
   });
 
   it('disables the button when there is no current account', () => {
