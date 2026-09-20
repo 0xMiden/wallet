@@ -113,9 +113,11 @@ currency at 3:1 and the change pill at 4.5:1.
 
 Home's five actions each take one colour of the account card palette (`card-*`, the AccountsDrawer
 "Card color" picker), and that one brand colour is both the tab's icon in the top action bar and the
-accent of the tab's flow: back arrows, chevrons, the address caret, route card borders, the
-processing spinner and the summary arrow. The activity icon squares follow it too (`tx-sent`,
-`tx-received`, `tx-swap`, `tx-earn`); the faucet has no tab and keeps its rose #CCA4B8.
+accent of the tab's flow, on EVERY page of it: back arrows, chevrons, the address caret, route card
+borders, the processing spinner, the summary arrow, selected states, the swap direction glyph, a
+row's toggle — and the primary CTA, from the first step through review, processing and the receipt.
+The activity icon squares follow it too (`tx-sent`, `tx-received`, `tx-swap`, `tx-earn`); the faucet
+has no tab and keeps its rose #CCA4B8.
 
 The action colours are the card colours, so they are brand colours too (rule 7): never darkened for
 contrast. Glyphs, icons and borders take the brand colour, which needs 3:1. Text in an action's
@@ -147,8 +149,14 @@ Contrast of the brand colour as a glyph, light (dark is 3.37:1 or better everywh
   `fill`.
 - Text never takes the bare action colour: `text-accent-{flow}-ink` (or `ACCENT_CLASSES[flow].ink`),
   never `text-accent-{flow}`. A chevron that belongs to a text action takes the ink with its label.
-- The tint is the colour at 12% over the page, solid. The primary CTA stays `accent` (#E77537) in
-  every flow.
+- The tint is the colour at 12% over the page, solid.
+- The primary CTA takes the FLOW's colour (`Button`'s `accent` prop → `ACCENT_CLASSES[flow].cta`):
+  the fill at rest, at 90% on hover, at 40% disabled — the same ratio the brand's pre-blended
+  `primary-disabled` is, kept translucent so one string stays right in both themes. A flow is one
+  colour end to end, and a CTA in a different colour from the page it sits on was the one thing
+  that broke that. The brand orange stays on app-level surfaces — onboarding, settings, global
+  confirmations, contacts, the EVM bridge-in screens — which belong to no tab. Overview's action
+  colour IS the brand orange, so its flow needs nothing done to it.
 - `design-tokens.test.ts` asserts the brand values, the mapping, the aliases, the tints and the
   contrast of both the colour and its ink.
 
