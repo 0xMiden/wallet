@@ -323,7 +323,8 @@ const HIDDEN_TABS: Tab[] = [
   {
     slug: 'export-account-file',
     titleI18nKey: 'exportAccountFile',
-    Component: ExportAccountFile
+    Component: ExportAccountFile,
+    rendersSubPageLayout: true
   },
   {
     slug: 'networks',
