@@ -18,6 +18,7 @@
 - [CHANGE][all] Token detail: muted section titles, a larger price over an area chart, a bare copy control on the contract row and a dashed empty activity card.
 - [CHANGE][all] Settings sub-pages draw their groups as outlined cards and the rotate-key button as border-only.
 - [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
+- [CHANGE][all] Action buttons are 48px instead of 52px, so a pinned action takes less of the page.
 - [CHANGE][all] The swap page sits tighter, its You Pay and You Receive titles match Send's, its Review button waits on the quote with a wave of dots and lines up with Send's Confirm, and the page carries the swap colour throughout.
 - [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
 - [CHANGE][all] Scroll bars are hidden everywhere in the app; scrolling is unchanged.

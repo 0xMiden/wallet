@@ -54,7 +54,8 @@ const buttonVariants = cva(
           'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted'
       },
       size: {
-        lg: 'h-13 w-full max-w-92.5 text-cta',
+        // 48px, not 52: a pinned CTA (often with a secondary under it) was eating the page.
+        lg: 'h-12 w-full max-w-92.5 text-cta',
         sm: 'h-9 text-cta-sm'
       }
     },

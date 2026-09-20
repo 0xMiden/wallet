@@ -352,8 +352,8 @@ describe('TokenDetail', () => {
     expect(send).toBe(screen.getByRole('button', { name: 'send' }));
     expect(receive).toBe(screen.getByRole('button', { name: 'receive' }));
     // The 52px pill: accent fill for the primary, `fill` for the secondary.
-    expect(send).toHaveClass('rounded-full', 'h-13', 'bg-accent-primary', 'flex-1');
-    expect(receive).toHaveClass('rounded-full', 'h-13', 'bg-fill', 'text-ink', 'flex-1');
+    expect(send).toHaveClass('rounded-full', 'h-12', 'bg-accent-primary', 'flex-1');
+    expect(receive).toHaveClass('rounded-full', 'h-12', 'bg-fill', 'text-ink', 'flex-1');
     // 10px apart, each taking half the row.
     expect(send.parentElement).toBe(receive.parentElement);
     expect(send.parentElement).toHaveClass('flex', 'gap-2.5');
