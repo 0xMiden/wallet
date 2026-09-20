@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
-import { CheckboxIndicator } from 'components/ui/Checkbox';
+import { CheckboxConsent } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
@@ -186,16 +186,9 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
         )}
       </SubPageSection>
 
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={confirmed}
-        className="flex items-start gap-x-2 px-1 text-left"
-        onClick={() => setConfirmed(!confirmed)}
-      >
-        <CheckboxIndicator checked={confirmed} />
-        <span className="text-body text-ink">{t('encryptedWalletFileConfirmation')}</span>
-      </button>
+      <CheckboxConsent checked={confirmed} onCheckedChange={setConfirmed}>
+        {t('encryptedWalletFileConfirmation')}
+      </CheckboxConsent>
 
       {!hasHardwareProtector && isDisabled && (
         <Notice tone="negative" role="alert" title={t('error')}>
