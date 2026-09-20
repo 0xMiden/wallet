@@ -149,7 +149,9 @@ async function createFixture() {
   );
   writeFileSync(
     path.join(root, 'raw/mark.svg'),
-    '<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><path d="M15 10h45c32 0 32 40 4 43 32 3 28 37-4 37H15z" fill="#fff"/></svg>'
+    // The production mark's shape: orange outside, white negative space. The fixture used a plain
+    // white mark, which meant the recolor branch never ran in any test.
+    '<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="#E77537"/><circle cx="50" cy="50" r="20" fill="white"/></svg>'
   );
   writeFileSync(path.join(root, 'scenes.json'), `${JSON.stringify(fixtureManifest(), null, 2)}\n`);
   writeFileSync(path.join(root, 'theme.json'), `${JSON.stringify(fixtureTheme(), null, 2)}\n`);
@@ -224,6 +226,22 @@ describe('store listing asset composition', () => {
     const result = run(root);
     expect(result.status).not.toBe(0);
     expect(`${result.stdout}${result.stderr}`).toContain('headline zone exceeds 20 percent');
+  });
+
+  it('refuses a brand mark whose fill it does not recognise', async () => {
+    // The recolor used to skip silently when the mark did not match, compositing the orange mark
+    // onto the orange frame - invisible, in every asset, with nothing failing. A re-exported SVG
+    // that spells the fill differently must stop the build instead.
+    const root = await createFixture();
+    writeFileSync(
+      path.join(root, 'raw/mark.svg'),
+      '<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="#123456"/></svg>'
+    );
+
+    const result = run(root);
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain('does not use the expected Bread orange fill');
   });
 
   it('writes the bytes the renderer encoded, with no second pass', async () => {
