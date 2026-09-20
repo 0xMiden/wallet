@@ -316,7 +316,11 @@ export const TRANSACTION_COLORS = {
   // A dusty rose distinct from Received's green and Swap's purple, so a faucet
   // mint reads as its own accent rather than the previous highly-saturated
   // #891DB1. Mirrors --tx-faucet in main.css — keep both in sync.
-  faucet: '#CCA4B8'
+  faucet: '#CCA4B8',
+  // The slate every bridge row wears — and, since it moves no money on Miden, a
+  // Guardian op too. `TransactionIcon` paints the glyph with it and `HistoryView`
+  // hard-codes the same value as `bg-[#777487]`; keep the three in sync.
+  bridge: '#777487'
 } as const;
 
 /**

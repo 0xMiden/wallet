@@ -15,8 +15,12 @@ import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_C
  * Slate square behind the white swap glyph for bridge rows, and the accent for a Guardian op.
  * The same value the activity list paints on those rows (`bg-[#777487]`, HistoryView) — keep them
  * in sync, so a row's icon and its detail page's section rule are one colour.
+ *
+ * Read from `TRANSACTION_COLORS` rather than spelled out again: the bridge progress and receipt
+ * screens tint their summary arrow with it, and they cannot import this module without pulling
+ * in every glyph it draws.
  */
-const SLATE_ICON_BG = '#777487';
+const SLATE_ICON_BG = TRANSACTION_COLORS.bridge;
 
 /**
  * An earn row renders as failed (red cross + red accent) when the tx hard-failed, a

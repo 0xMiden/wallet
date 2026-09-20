@@ -2,6 +2,7 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
@@ -69,7 +70,11 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
       }}
       onClose={onDoneClick}
     >
-      <SuccessSummaryPill lhs={amountText} rhs={recipient} />
+      {/* A bridged send is drawn in the bridge slate everywhere it is listed — the Activity row's
+          glyph, its detail page's section rule — so its arrow is too. The page around it keeps the
+          Send flow's colour, which is the flow the user came through; the arrow is the one mark
+          that names the transaction, and the badge's default names a plain send. */}
+      <SuccessSummaryPill lhs={amountText} rhs={recipient} fillForArrow={TRANSACTION_COLORS.bridge} />
       <ReceiptRows rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );

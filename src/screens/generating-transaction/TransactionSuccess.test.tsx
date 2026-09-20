@@ -312,6 +312,9 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('Route');
     expect(container.textContent).toContain('Fast');
     expect(container.textContent).toContain('Via Epoch');
+    // And the arrow is the bridge slate this row's glyph carries in Activity and on its detail
+    // page — not the badge's default, which is the plain Send blue.
+    expect(container.querySelector('rect')?.style.fill).toBe('#777487');
     act(() => root.unmount());
   });
 

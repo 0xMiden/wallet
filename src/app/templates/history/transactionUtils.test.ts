@@ -316,7 +316,8 @@ describe('TRANSACTION_COLORS', () => {
     expect(TRANSACTION_COLORS).toEqual({
       send: 'var(--tx-sent)',
       receive: 'var(--tx-received)',
-      faucet: '#CCA4B8'
+      faucet: '#CCA4B8',
+      bridge: '#777487'
     });
   });
 
