@@ -1802,8 +1802,9 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     // ---- Phase 7: a PERMANENT node rejection is not deferred ----
     // A 400 cannot succeed on retry, so requeueing it would spend the whole 30-minute
     // MAX_QUEUED_AGE budget on lock-held syncs and then report the generic expiry instead of the
-    // node's own answer. The thrown text is asserted on `rawError`, because the terminal path
-    // rewrites `error` through `resolveTransactionErrorMessage`.
+    // node's own answer. The thrown text is checked on the error handed to
+    // `cancelTransactionAfterPipelineStopped`, not on the row's persisted `error`: the terminal
+    // path rewrites that field through `resolveTransactionErrorMessage`.
     networkUp = true;
     mockSyncState.mockRejectedValueOnce(new Error('grpc-status header missing, mapped from HTTP status code 400'));
     txStore.push({
@@ -1830,9 +1831,12 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     // ---- Phase 8: an ordinary failure AFTER the flip is not deferred ----
     // The guard's whole safety argument is that it cannot fire once the row has been picked up.
     // Every phase above injects at the pre-flight sync, so without this case deleting the
-    // `status === Queued && stage === 'syncing'` pair leaves the suite green. One case kills the
-    // CONJUNCTION; neither conjunct is separately killable here, because the status flip and the
-    // stage write land in one Dexie modify, so a post-flip row fails both at once.
+    // `status === Queued && stage === 'syncing'` pair leaves the suite green. This case kills the
+    // CONJUNCTION only, and that is the honest ceiling: neither conjunct is separately killable,
+    // because every path that reaches this catch with the row still Queued has already been
+    // stamped 'syncing' by the loop's own first step, and the status flip and stage write land in
+    // one Dexie modify. Each conjunct is defended by reachability, not by a test - a seeded row at
+    // another stage does not work, because the stamp overwrites it before the guard runs.
     mockNewTransaction.mockRejectedValueOnce(new Error('execution failed'));
     txStore.push({
       id: 'tx-8',
