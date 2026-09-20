@@ -102,12 +102,12 @@ describe('EarnFlowHeader', () => {
     expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
   });
 
-  it('wires the back button to goBack with the ChevronLeft icon and Back label', () => {
+  it('wires the back button to goBack with the shared header arrow and Back label', () => {
     render(<EarnFlowHeader vault={VAULT} />);
 
     const button = screen.getByTestId('icon-button');
     expect(button).toHaveAttribute('aria-label', 'back');
-    expect(button).toHaveAttribute('data-icon', String(IconName.ChevronLeft));
+    expect(button).toHaveAttribute('data-icon', String(IconName.ArrowLeft));
 
     expect(mockGoBack).not.toHaveBeenCalled();
     fireEvent.click(button);
@@ -118,10 +118,10 @@ describe('EarnFlowHeader', () => {
     render(<EarnFlowHeader vault={VAULT} />);
 
     const header = screen.getByRole('banner');
-    expect(header).toHaveClass('h-13', 'px-4', 'shrink-0');
+    expect(header).toHaveClass('h-15', 'px-4', 'shrink-0');
     // No bespoke divider or 26px title: the page header draws neither.
     expect(header).not.toHaveClass('border-b');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-page');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
   });
 
   it('shows the "asset on network" label as a neutral Pill in the header actions', () => {

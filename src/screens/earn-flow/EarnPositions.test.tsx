@@ -29,12 +29,14 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 // `app/icons/v2` is a heavy SVG barrel (coverage-ignored). Stub `Icon` to a
-// probe span and expose only the two IconName members this screen references.
+// probe span and expose only the IconName members this screen and the shared
+// page header reference.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className, fill }: { name: string; className?: string; fill?: string }) => (
     <span data-testid="icon" data-name={name} data-fill={fill} className={className} />
   ),
   IconName: {
+    ArrowLeft: 'ArrowLeft',
     ChevronLeft: 'ChevronLeft',
     ChevronRightLucide: 'ChevronRightLucide'
   }
@@ -152,10 +154,10 @@ describe('EarnPositions', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('exposes the back button with the ChevronLeft icon', () => {
+  it('exposes the back button with the shared header arrow', () => {
     render(<EarnPositions />);
 
-    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ChevronLeft"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ArrowLeft"]')).not.toBeNull();
   });
 
   it('fires haptics and navigates to the position route when a card is tapped', () => {
