@@ -76,7 +76,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-withdraw-review-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-withdraw-review-page">
       <PageHeader
         className="shrink-0 px-4"
         title={`${position.protocol} • ${position.asset}`}

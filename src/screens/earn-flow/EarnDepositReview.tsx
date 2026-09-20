@@ -150,7 +150,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   }, [account.publicKey, amountBaseUnits, faucetId, spendingLimitAssessment]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-review-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-review-page">
       <EarnFlowHeader vault={vault} />
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">

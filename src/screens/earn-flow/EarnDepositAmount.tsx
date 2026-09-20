@@ -60,7 +60,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-amount-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
       <EarnFlowHeader vault={vault} />
 
       <div className="min-h-0 flex-1">

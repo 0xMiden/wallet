@@ -24,7 +24,7 @@ const EarnPositions: FC = () => {
   const showLoadError = Boolean(error) && positions.length === 0 && !isLoading;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-positions-page">
       <PageHeader className="shrink-0 px-4" title={t('earnPositionsTitle')} onBack={goBack} />
 
       <div className="flex-1 overflow-y-auto">

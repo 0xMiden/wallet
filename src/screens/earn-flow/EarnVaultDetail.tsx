@@ -40,7 +40,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-vault-detail-page">
       <PageHeader
         className="shrink-0 px-4"
         title={`${vault.protocol} • ${vault.asset}`}

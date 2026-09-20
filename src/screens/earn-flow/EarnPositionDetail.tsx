@@ -45,7 +45,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-position-detail-page">
       <PageHeader
         className="shrink-0 px-4"
         title={t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
