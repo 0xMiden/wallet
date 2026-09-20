@@ -2,8 +2,8 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { accentForTransactionType } from 'components/flow/accent';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';

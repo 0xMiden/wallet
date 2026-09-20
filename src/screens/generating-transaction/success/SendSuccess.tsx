@@ -2,8 +2,8 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { accentForTransactionType } from 'components/flow/accent';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 

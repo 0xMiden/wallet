@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
-import { accentForTransactionType } from 'components/flow/accent';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';

@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { ReactComponent as GuardianSwitchArt } from 'app/icons/guardian-switch-success.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { accentForTransactionType } from 'components/flow/accent';
 import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
 
