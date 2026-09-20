@@ -143,6 +143,44 @@ it('leaves edit mode on back without saving', () => {
   expect(updateContactMock).not.toHaveBeenCalled();
 });
 
+it('survives the optimistic store dropping the contact mid-write and still reports the failure', async () => {
+  // `updateSettings` applies its optimistic `set()` synchronously, so the contact leaves the store
+  // the moment `removeContact` is CALLED, not when it resolves. The page must not read that
+  // absence as "unknown id" and redirect, or the rejection below is reported to a page that is
+  // already gone. The static-list mock the other tests use cannot see this.
+  let reject: (e: Error) => void = () => undefined;
+  removeContactMock.mockImplementationOnce(() => {
+    // The optimistic `set()` lands synchronously inside the call, before the round trip resolves.
+    contactsMock.mockReturnValue([ALICE, NINA, { name: 'Main', address: 'mtst1mine', accountInWallet: true }]);
+    return new Promise<void>((_, rej) => {
+      reject = (e: Error) => {
+        // `updateSettings` rolls the optimistic update back in its catch before rethrowing.
+        contactsMock.mockReturnValue([PAUL, ALICE, NINA, { name: 'Main', address: 'mtst1mine', accountInWallet: true }]);
+        rej(e);
+      };
+    });
+  });
+  const { rerender } = render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+
+  confirmMock.mockResolvedValueOnce(true);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-delete'));
+  });
+
+  // The store subscription re-renders the page while the write is still in flight.
+  await act(async () => {
+    rerender(<ContactDetailPage address="0xpaul" />);
+  });
+  expect(screen.queryByTestId('redirect')).toBeNull();
+
+  await act(async () => {
+    reject(new Error('contact store unavailable'));
+  });
+  expect(backMock).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+});
+
 it('keeps the user on the page and shows the error when the delete write fails', async () => {
   removeContactMock.mockRejectedValueOnce(new Error('contact store unavailable'));
   render(<ContactDetailPage address="0xpaul" />);
@@ -179,6 +217,33 @@ it('disables the delete button while the write is in flight', async () => {
   expect(screen.getByTestId('contact-delete')).toBeDisabled();
   fireEvent.click(screen.getByTestId('contact-delete'));
   expect(removeContactMock).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    release();
+  });
+});
+
+it('will not save while a delete is in flight, so the delete cannot be undone by a stale list', async () => {
+  let release: () => void = () => undefined;
+  removeContactMock.mockReturnValueOnce(
+    new Promise<void>(resolve => {
+      release = resolve;
+    })
+  );
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paul Graham' } });
+
+  confirmMock.mockResolvedValueOnce(true);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-delete'));
+  });
+
+  // Both writers replace the WHOLE contact list from their own render-time snapshot, so a save
+  // landing during a delete would write the pre-delete list back and resurrect the contact.
+  expect(screen.getByTestId('contact-save')).toBeDisabled();
+  fireEvent.click(screen.getByTestId('contact-save'));
+  expect(updateContactMock).not.toHaveBeenCalled();
 
   await act(async () => {
     release();

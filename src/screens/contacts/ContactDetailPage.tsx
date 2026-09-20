@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -39,10 +39,14 @@ export function sendToContactPath(contact: Pick<WalletContact, 'address' | 'netw
 interface ContactViewProps {
   contact: WalletContact;
   onBack: () => void;
+  /** Called before the delete write starts, so the page stops treating the row's absence as unknown. */
+  onDeleteStart: () => void;
+  /** Called when the delete write rejects, so that latch is released. */
+  onDeleteFailed: () => void;
   onDeleted: () => void;
 }
 
-const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted }) => {
+const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStart, onDeleteFailed, onDeleted }) => {
   const { t } = useTranslation();
   const { updateContact, removeContact } = useContacts();
   const confirm = useConfirm();
@@ -55,6 +59,11 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   // Only cleared on failure: a success unmounts this page via `onDeleted`.
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string>();
+
+  // `updateContact` and `removeContact` each rewrite the ENTIRE contact list from the same
+  // render-time snapshot, so two overlapping writers is last-writer-wins: saving during an
+  // in-flight delete would write the pre-delete list back and resurrect the contact. One flag.
+  const busy = saving || removing;
 
   const trimmedName = name.trim();
   // Compare against the RESOLVED network, not the raw stored one: `contactNetwork` falls back to
@@ -71,7 +80,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   };
 
   const save = async () => {
-    if (!trimmedName || !changed || saving) return;
+    if (!trimmedName || !changed || busy) return;
     setSaving(true);
     setError(undefined);
     try {
@@ -87,7 +96,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   };
 
   const remove = async () => {
-    if (removing) return;
+    if (busy) return;
     const confirmed = await confirm({ title: t('deleteContact'), children: t('deleteContactConfirm') });
     if (!confirmed) return;
     // Report the delete only once it has landed. Calling `onDeleted()` first navigated away before
@@ -97,12 +106,14 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
     // leave it live for a second tap.
     setRemoving(true);
     setError(undefined);
+    onDeleteStart();
     try {
       await removeContact(contact.address);
       onDeleted();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
       setRemoving(false);
+      onDeleteFailed();
     }
   };
 
@@ -132,7 +143,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
             title={t('saveContact')}
             variant={ButtonVariant.Primary}
             onClick={() => void save()}
-            disabled={!trimmedName || !changed || saving}
+            disabled={!trimmedName || !changed || busy}
             isLoading={saving}
             data-testid="contact-save"
             className="w-full max-w-none rounded-full text-base font-semibold"
@@ -165,7 +176,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
               hapticLight();
               void remove();
             }}
-            disabled={removing}
+            disabled={busy}
             data-testid="contact-delete"
             className="mt-2 h-12 w-full rounded-full bg-surface-interactive font-heading text-base font-bold text-status-negative disabled:opacity-50"
           >
@@ -222,7 +233,18 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
   const back = useBackWithFallback(ADDRESS_BOOK_PATH);
   // Set on delete, so the contact vanishing from the store reads as leaving, not as an unknown id.
   const [deleted, setDeleted] = useState(false);
-  const contact = allContacts.find(c => c.address === address && !c.accountInWallet);
+  // True from the moment this page starts its OWN delete write until that write settles.
+  // `updateSettings` applies its optimistic `set()` synchronously (store/index.ts), so the row
+  // leaves the store the moment `removeContact` is called, not when it resolves. Without this the
+  // page reads its own optimistic removal as an unknown id and redirects mid-write, and the
+  // rejection is then reported to a page that has already gone.
+  const [deleting, setDeleting] = useState(false);
+  const found = allContacts.find(c => c.address === address && !c.accountInWallet);
+  const lastKnown = useRef(found);
+  if (found) lastKnown.current = found;
+  // While this page is itself the writer, keep rendering the row it is removing, so a failure has
+  // somewhere to be shown.
+  const contact = found ?? (deleting ? lastKnown.current : undefined);
 
   if (deleted) return null;
   if (!contact) return <Redirect to={ADDRESS_BOOK_PATH} />;
@@ -232,6 +254,8 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
       <ContactView
         contact={contact}
         onBack={back}
+        onDeleteStart={() => setDeleting(true)}
+        onDeleteFailed={() => setDeleting(false)}
         onDeleted={() => {
           setDeleted(true);
           back();
