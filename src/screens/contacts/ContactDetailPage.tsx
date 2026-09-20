@@ -4,7 +4,7 @@ import { Clipboard } from '@capacitor/clipboard';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { Button, ButtonVariant } from 'components/Button';
+import { Button, ButtonVariant } from 'components/ui/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';

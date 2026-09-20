@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ReactComponent as ScanFrameIcon } from 'app/icons/scan-frame.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { Button, ButtonVariant } from 'components/Button';
+import { Button, ButtonVariant } from 'components/ui/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { Pill } from 'components/ui/Pill';

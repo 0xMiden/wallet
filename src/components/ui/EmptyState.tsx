@@ -3,7 +3,7 @@ import React from 'react';
 import clsx from 'clsx';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { Button, ButtonVariant } from 'components/Button';
+import { Button, ButtonVariant } from 'components/ui/Button';
 
 export interface EmptyStateSecondaryAction {
   label: string;
