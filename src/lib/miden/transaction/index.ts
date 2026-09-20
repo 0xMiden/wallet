@@ -64,6 +64,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { bridgeProviderOf } from './retry';
+import { isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
@@ -3097,10 +3098,15 @@ export const generateTransactionsLoop = async (
     // `nextTransaction` predates the stage stamp, and a concurrent user cancel
     // must win over this retry. Abandoned operations remain on the existing kill
     // path even here, since they may still be running after their caller rejects.
+    // A permanent rejection cannot succeed on retry, so deferring it only spends the 30-minute
+    // MAX_QUEUED_AGE budget on ~60 lock-held syncs and then reports the generic expiry instead of
+    // the node's own answer. `notes.ts` already carves the same predicate out of its transient set
+    // for the same reason, after a permanent 400 burned ~288 retries there.
     const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (
       !abandoned &&
       !isLockedError(e) &&
+      !isPermanentHttpRejection(e) &&
       currentRow?.status === ITransactionStatus.Queued &&
       currentRow.stage === 'syncing'
     ) {

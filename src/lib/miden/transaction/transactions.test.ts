@@ -1798,6 +1798,60 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx6.nextEligibleAt).toBeGreaterThanOrEqual(lockedRequeueStartedAt + 15);
     expect(tx6.nextEligibleAt).toBeLessThanOrEqual(lockedRequeueFinishedAt + 15);
     expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(2);
+
+    // ---- Phase 7: a PERMANENT node rejection is not deferred ----
+    // A 400 cannot succeed on retry, so requeueing it would spend the whole 30-minute
+    // MAX_QUEUED_AGE budget on lock-held syncs and then report the generic expiry instead of the
+    // node's own answer. The thrown text is asserted on `rawError`, because the terminal path
+    // rewrites `error` through `resolveTransactionErrorMessage`.
+    networkUp = true;
+    mockSyncState.mockRejectedValueOnce(new Error('grpc-status header missing, mapped from HTTP status code 400'));
+    txStore.push({
+      id: 'tx-7',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([7])
+    });
+
+    const result7 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result7).toBe(false);
+    const tx7 = txStore.find((t: any) => t.id === 'tx-7');
+    expect(tx7.status).not.toBe(ITransactionStatus.Queued);
+    expect(tx7.nextEligibleAt).toBeUndefined();
+    expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(3);
+    const permanentCall = mockCancelTransactionAfterPipelineStopped?.mock.calls[2];
+    expect(String(permanentCall?.[1])).toContain('400');
+
+    // ---- Phase 8: an ordinary failure AFTER the flip is not deferred ----
+    // The guard's whole safety argument is that it cannot fire once the row has been picked up.
+    // Every phase above injects at the pre-flight sync, so without this case deleting the
+    // `status === Queued && stage === 'syncing'` pair leaves the suite green. One case kills the
+    // CONJUNCTION; neither conjunct is separately killable here, because the status flip and the
+    // stage write land in one Dexie modify, so a post-flip row fails both at once.
+    mockNewTransaction.mockRejectedValueOnce(new Error('execution failed'));
+    txStore.push({
+      id: 'tx-8',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([8])
+    });
+
+    const result8 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result8).toBe(false);
+    const tx8 = txStore.find((t: any) => t.id === 'tx-8');
+    expect(tx8.status).not.toBe(ITransactionStatus.Queued);
+    expect(tx8.nextEligibleAt).toBeUndefined();
+    expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(4);
   });
 });
 
