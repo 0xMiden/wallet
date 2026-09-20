@@ -36,7 +36,7 @@ jest.mock('components/flow/FlowLayout', () => ({
     </div>
   )
 }));
-jest.mock('components/Button', () => ({
+jest.mock('components/ui/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
   Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
 }));

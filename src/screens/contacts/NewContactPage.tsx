@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
@@ -12,6 +12,7 @@ import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { Pill } from 'components/ui/Pill';
 import { TextField } from 'components/ui/TextField';
+import { usePreset } from 'lib/animation';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { isMobile } from 'lib/platform';
@@ -31,7 +32,7 @@ import { ContactNameInput } from './ContactNameInput';
  */
 export const NewContactPage: React.FC = () => {
   const { t } = useTranslation();
-  const reduceMotion = useReducedMotion();
+  const reveal = usePreset('reveal');
   const { addContact } = useContacts();
   const { allContacts } = useFilteredContacts();
   const back = useBackWithFallback(ADDRESS_BOOK_PATH);
@@ -202,14 +203,7 @@ export const NewContactPage: React.FC = () => {
 
           <AnimatePresence initial={false}>
             {isValid && (
-              <motion.div
-                key="network"
-                initial={reduceMotion ? false : { opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
+              <motion.div key="network" {...reveal} className="overflow-hidden">
                 <NetworkField
                   chain={isEvm ? 'ethereum' : 'miden'}
                   network={network}

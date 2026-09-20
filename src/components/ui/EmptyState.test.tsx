@@ -19,7 +19,7 @@ jest.mock('app/icons/v2', () => ({
 // `components/Button` pulls in framer-motion and haptics; stub it to a plain
 // button that reflects the props EmptyState sets, mirroring how other ui
 // components in this repo isolate it in tests.
-jest.mock('components/Button', () => ({
+jest.mock('components/ui/Button', () => ({
   Button: ({ title, onClick, className, 'data-testid': dataTestId }: any) => (
     <button data-testid={dataTestId ?? 'button'} data-classname={className} onClick={onClick}>
       {title}
