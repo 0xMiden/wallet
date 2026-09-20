@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
@@ -186,7 +187,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
         footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
       >
         <SubPageSection description={<p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>}>
-          {authError && <ErrorLine message={authError} />}
+          <ErrorLine>{authError}</ErrorLine>
         </SubPageSection>
       </SubPageLayout>
     );
@@ -214,7 +215,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
         }
       >
         <SubPageSection description={t('removeSeedPhraseConfirmation')}>
-          {authError && <ErrorLine message={authError} />}
+          <ErrorLine>{authError}</ErrorLine>
         </SubPageSection>
       </SubPageLayout>
     );
@@ -401,12 +402,5 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     </SubPageLayout>
   );
 };
-
-/** An error under a section's content, in the negative ink. */
-const ErrorLine: FC<{ message: string }> = ({ message }) => (
-  <p role="alert" className="px-1 text-caption text-negative-ink select-text">
-    {message}
-  </p>
-);
 
 export default VerifySeedPhraseFlow;

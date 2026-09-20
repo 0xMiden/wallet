@@ -10,6 +10,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { TextField } from 'components/ui/TextField';
@@ -227,11 +228,7 @@ export const NewContactPage: React.FC = () => {
 
           <ContactNameInput value={name} onChange={setName} />
 
-          {saveError && (
-            <p role="alert" className="-mt-2 text-caption text-negative-ink">
-              {saveError}
-            </p>
-          )}
+          <ErrorLine className="-mt-2">{saveError}</ErrorLine>
         </form>
       </FlowLayout>
 

@@ -3,6 +3,7 @@ import React, { FC, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { SubPageSection } from 'components/ui/SubPageLayout';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -77,11 +78,7 @@ const GuardianReplaceHotKey: FC = () => {
         {confirming ? t('confirmReplaceHotKey') : t('replaceHotKey')}
       </Button>
 
-      {error && (
-        <p role="alert" className="mt-3 px-1 text-caption wrap-break-word text-negative-ink select-text">
-          {error}
-        </p>
-      )}
+      <ErrorLine className="mt-3">{error}</ErrorLine>
     </SubPageSection>
   );
 };
