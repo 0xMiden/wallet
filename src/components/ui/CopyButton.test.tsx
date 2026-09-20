@@ -146,13 +146,38 @@ it('does not write to the clipboard while disabled', async () => {
   expect(mockWrite).not.toHaveBeenCalled();
 });
 
-it('clears its feedback timer on unmount without throwing', async () => {
+it('clears its feedback timer on unmount', async () => {
   jest.useFakeTimers();
   const { unmount } = render(<CopyButton text="0xabc123" />);
 
   await act(async () => {
     fireEvent.click(screen.getByRole('button'));
   });
+  expect(jest.getTimerCount()).toBe(1);
 
-  expect(() => unmount()).not.toThrow();
+  unmount();
+  // `not.toThrow()` was the whole assertion here before, and it held with the cleanup deleted —
+  // React 18 no-ops a setState after unmount, so nothing ever threw. Count the timer instead.
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+it('arms no timer when it is unmounted while the clipboard write is still pending', async () => {
+  jest.useFakeTimers();
+  let resolveWrite: () => void = () => undefined;
+  mockWrite.mockReturnValueOnce(
+    new Promise<void>(resolve => {
+      resolveWrite = resolve;
+    })
+  );
+  const { unmount } = render(<CopyButton text="0xabc123" />);
+
+  fireEvent.click(screen.getByRole('button'));
+  unmount();
+
+  // The timer is armed only after the awaited write, so at unmount there is nothing to clear and
+  // the cleanup cannot help. The continuation has to check liveness itself.
+  await act(async () => {
+    resolveWrite();
+  });
+  expect(jest.getTimerCount()).toBe(0);
 });

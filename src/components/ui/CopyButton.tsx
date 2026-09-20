@@ -46,12 +46,24 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  // `clearTimeout` alone is not enough: the timer is armed AFTER an awaited `Clipboard.write`, so a
+  // component unmounted while that write is still in flight (a real round trip through the Capacitor
+  // bridge on mobile) would have nothing to clear at unmount and would then arm a timer after
+  // teardown. The liveness flag is what stops the continuation running at all.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+      clearTimeout(timerRef.current);
+    },
+    []
+  );
 
   const handleCopy = async () => {
     hapticLight();
     try {
       await Clipboard.write({ string: text });
+      if (!mountedRef.current) return;
       setCopied(true);
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
