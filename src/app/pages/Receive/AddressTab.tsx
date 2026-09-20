@@ -155,9 +155,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   return (
     // Last-resort scroll only: the column below is laid out to fit between the top action bar and
     // the tab bar on every supported height, and scrolls only when even that does not fit.
-    // The whole page carries the Receive flow's colour as a wash, so the white QR card sits on it.
+    // The page keeps the app's own surface: the Receive green is carried by the affordances, not
+    // by a wash, and the code needs a plain light field around it to scan off.
     <div
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-accent-receive-tint"
+      className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
       style={{ touchAction: 'pan-y' }}
       data-testid="receive-page"
     >
@@ -175,14 +176,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           {address}
         </span>
 
-        {/* The QR block: one card, centred in the room the page leaves. */}
-        <div data-testid="receive-qr-block" className="flex flex-1 flex-col items-center justify-center py-2">
-          {/* The card the code is scanned off: `page`, so the modules keep a light tile to sit on
-              while the rest of the page carries the green. */}
-          <div
-            data-testid="receive-qr-card"
-            className="flex w-full flex-col items-center gap-3 rounded-2xl bg-page p-4"
-          >
+        {/* The code, its network and the address: one centred block on the page itself, no card
+            around it — the card only added an edge between the code and the actions below. */}
+        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-3 pt-2">
+          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-3">
             {/* The QR is a fixed square (208px), not the leftover height: big enough to scan
                 across a table, small enough to leave the page room to breathe. */}
             <div data-testid="receive-qr-slot" className="relative w-full max-w-52">
@@ -237,7 +234,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           </div>
         </div>
 
-        <div className="mt-5 flex shrink-0 flex-col gap-3">
+        <div className="mt-4 flex shrink-0 flex-col gap-3">
           {/* Test-funds warning sits before the share and bridge actions:
               the funding decision point named in #875. */}
           {network && (
@@ -249,9 +246,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               {t('receiveTestFundsBody', { network })}
             </Notice>
           )}
-          {/* On `page` rather than `fill`, which the green wash would swallow, and with the
-              flow accent on the glyphs, chevron and hairlines. */}
-          <ListGroup data-testid="receive-actions" className="bg-page">
+          {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
+              hairlines. */}
+          <ListGroup data-testid="receive-actions">
             <ListRow
               icon={<Icon name={IconName.Share} size="xs" />}
               title={t('share')}

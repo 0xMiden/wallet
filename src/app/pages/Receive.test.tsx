@@ -291,7 +291,8 @@ describe('Receive - Address', () => {
     const container = await renderReceive();
 
     const actions = container.querySelector('[data-testid="receive-actions"]')!;
-    expect(actions).toHaveClass('rounded-2xl', 'bg-page');
+    // The app's grouped fill list, like every other list in the wallet.
+    expect(actions).toHaveClass('rounded-2xl', 'bg-fill');
     const share = actions.querySelector('[data-testid="receive-share"]')!;
     const crossChain = actions.querySelector('[data-testid="receive-cross-chain"]')!;
     expect(share.tagName).toBe('BUTTON');
@@ -319,12 +320,13 @@ describe('Receive - Address', () => {
     );
   });
 
-  it('draws the code on a white card at a fixed, scannable size instead of eating the page', async () => {
+  it('draws the code at a fixed, scannable size on the page itself, with no card around it', async () => {
     const container = await renderReceive();
 
     const card = container.querySelector('[data-testid="receive-qr-card"]')!;
-    // The card keeps the light tile the modules are scanned off, whatever the page is washed in.
-    expect(card).toHaveClass('rounded-2xl', 'bg-page', 'p-4');
+    // No card: the code, its chip and the address sit straight on the page.
+    expect(card.className).not.toContain('bg-page');
+    expect(card.className).not.toContain('rounded-2xl');
     const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
     // 208px, not the leftover height: the rest of the page gets the room back.
     expect(slot).toHaveClass('relative', 'w-full', 'max-w-52');
@@ -332,7 +334,7 @@ describe('Receive - Address', () => {
     const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
     expect(frame).toHaveClass('aspect-square', 'w-full');
     expect(frame.className).not.toContain('max-h-72');
-    // The chip and the address ride in the same card as the code.
+    // The chip and the address stay in the same block as the code.
     expect(card.contains(container.querySelector('[data-testid="receive-network"]'))).toBe(true);
     expect(card.contains(container.querySelector('[data-testid="receive-copy-address"]'))).toBe(true);
     // One column with the 16px gutter, clearing the floating tab bar off mobile.
@@ -350,10 +352,13 @@ describe('Receive - Address', () => {
   });
 
   describe('the receive green', () => {
-    it('washes the page and paints the rows, the chevron and the copy glyph in the flow accent', async () => {
+    it('paints the rows, the chevron and the copy glyph in the flow accent', async () => {
       const container = await renderReceive();
 
-      expect(container.querySelector('[data-testid="receive-page"]')).toHaveClass('bg-accent-receive-tint');
+      // The page keeps the app's surface: the green is in the affordances, not a wash.
+      expect(container.querySelector('[data-testid="receive-page"]')!.className).not.toContain(
+        'bg-accent-receive-tint'
+      );
 
       for (const testId of ['receive-share', 'receive-cross-chain']) {
         const row = container.querySelector(`[data-testid="${testId}"]`)!;
