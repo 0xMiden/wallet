@@ -8,6 +8,8 @@
 - [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
 ### Changes
 
+- [CHANGE][all] The onboarding protection step names the mechanism it will actually use: "Face ID set up" on iOS and "Biometric set up" on every other platform, instead of one combined label (#497).
+- [CHORE][all] Store listing copy, screenshots and upload assets for the App Store, Google Play and the Chrome Web Store are generated from checked-in manifests by `yarn store-listing:*`, with a validator that enforces the documented per-store counts, dimensions and copy limits (#497).
 - [CHANGE][all] The encrypted wallet file now carries accounts imported from a private key, so restoring it brings them back with their keys instead of silently leaving them behind. A file written by an older version still restores, and names how many imported accounts it had to omit before you confirm. An imported account whose key the wallet cannot read is named rather than quietly dropped from the backup.
 - [CHANGE][all] Bottom tab bar: new Home, Explore and Activity glyphs, icons only at 32px with no labels (each tab keeps its name for assistive tech), and one light-grey pill that slides between tabs on the shared pill spring.
 - [CHANGE][all] The Overview segmented bar's pill and segment widths animate together on the pill spring instead of a width snap under a tween.

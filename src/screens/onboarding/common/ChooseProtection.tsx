@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ProtectedIllustration } from 'app/icons/onboarding/protected-illustration.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { isIOS } from 'lib/platform';
 
 export interface ChooseProtectionScreenProps {
   onSelectBiometric?: () => void;
@@ -15,6 +16,7 @@ export const ChooseProtectionScreen: React.FC<ChooseProtectionScreenProps> = ({
   onSelectPasscode
 }) => {
   const { t } = useTranslation();
+  const biometricLabel = isIOS() ? t('faceIdSetUp') : t('biometricSetUp');
   return (
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-choose-protection">
       <div className="min-h-full flex flex-col items-center px-6">
@@ -26,7 +28,7 @@ export const ChooseProtectionScreen: React.FC<ChooseProtectionScreenProps> = ({
         </div>
 
         <div className="w-full flex flex-col items-center gap-3 pb-6 shrink-0">
-          <Button title={t('useFaceIdOrBiometric')} onClick={onSelectBiometric} />
+          <Button title={biometricLabel} onClick={onSelectBiometric} />
           <Button title={t('setUpYourPasscode')} variant={ButtonVariant.Secondary} onClick={onSelectPasscode} />
         </div>
       </div>

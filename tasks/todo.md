@@ -224,3 +224,32 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
   assertions failed before the fix; 126 focused policy, settings, and identity
   tests pass after it, with TypeScript and scoped formatting green.
 - Remaining: full gates, Review Council, and delivery.
+
+# Issue #497 - unified store listings
+
+- [x] Inspect the three live listings and current checked-in store assets.
+- [x] Record the approved shared-core and platform-tailored design.
+- [x] Obtain design approval, then write the implementation plan.
+- [x] Build canonical copy, deterministic captures, compositor, and validators.
+- [x] Run visual verification against fresh generated montages and native mobile screenshots.
+- [ ] Run Review Council, then fix every actionable finding.
+- [ ] Push a PR with the publication checklist and babysit CI to green.
+- [ ] Admin squash merge, publish all three listings, verify them publicly, and close #497.
+
+## Review
+
+- The capture plan writes 20 raw product images from deterministic testnet fixtures and current iOS,
+  Android, extension, confirmation-window, and side-panel surfaces.
+- Two complete retries-disabled capture passes produced byte-identical hashes for all 20 raw PNGs;
+  two compositor passes produced byte-identical hashes for all 23 upload assets.
+- The compositor writes 23 assets: 6 App Store, 9 Google Play, and 8 Chrome Web Store files. The
+  validator confirms counts, order, copy limits, dimensions, opacity, alt text, and the approved
+  Chrome five-screenshot mapping.
+- Fresh montages capped at 1800 pixels show the shared orange visual system without clipping,
+  tooltip residue, personal data, stale platform wording, or unsupported claims.
+- Fresh iPhone simulator and Android emulator screenshots match every mobile scene's product
+  layout, routes, controls, operator roster, and platform wording. All configured public Guardian
+  endpoints returned HTTP 200 on 2026-09-16; the capture fixture keeps that reachable state
+  deterministic instead of recording transient sync or probe placeholders.
+- Review Council, repository-wide gates, PR CI, authorized publication, and public verification are
+  still pending.
