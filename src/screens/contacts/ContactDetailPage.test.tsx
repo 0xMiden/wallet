@@ -25,13 +25,13 @@ jest.mock('lib/woozie', () => ({
 jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => 'en_US' }));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => backMock }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('components/flow/FlowLayout', () => ({
-  FlowLayout: ({ title, titleAccessory, onBack, children, footer }: any) => (
-    <div>
-      <button type="button" onClick={onBack} data-testid="flow-back" />
+jest.mock('components/ui/SubPageLayout', () => ({
+  SubPageLayout: ({ title, headerActions, onBack, onSubmit, children, footer, ...rest }: any) => (
+    <div data-testid={rest['data-testid']}>
+      <button type="button" onClick={onBack} data-testid="page-back" />
       <h1>{title}</h1>
-      {titleAccessory}
-      {children}
+      {headerActions}
+      <form onSubmit={onSubmit}>{children}</form>
       {footer}
     </div>
   )
@@ -123,7 +123,7 @@ it('renames a contact from edit mode', async () => {
 it('leaves edit mode on back without saving', () => {
   render(<ContactDetailPage address="0xpaul" />);
   fireEvent.click(screen.getByTestId('contact-edit'));
-  fireEvent.click(screen.getByTestId('flow-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
 
   expect(screen.getByTestId('contact-send')).toBeInTheDocument();
   expect(backMock).not.toHaveBeenCalled();
