@@ -13,7 +13,10 @@ import React, {
 import { cva } from 'class-variance-authority';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
+// The svg module directly, never the `app/icons/v2` barrel: TextField is imported by almost
+// every screen, and the barrel's module graph evaluates ahead of a suite's own module
+// mock factories — Developer settings reads `MIDEN_NETWORK_NAME` out of one of them.
+import { ReactComponent as EyeOffIcon } from 'app/icons/v2/eye-off.svg';
 import { cn } from 'lib/ui/util';
 
 /** The element a `TextField` ref resolves to — an `<input>` or a `<textarea>`, chosen by `multiline`. */
@@ -85,7 +88,7 @@ const SecretCover: React.FC<{ multiline: boolean; onReveal: () => void }> = ({ m
         multiline ? 'rounded-lg-token' : 'rounded-full'
       )}
     >
-      <Icon name={IconName.EyeOff} size="sm" className="text-muted" />
+      <EyeOffIcon aria-hidden="true" className="h-5 w-5 text-muted" />
       <span className="text-caption text-muted">{t('clickToRevealField')}</span>
     </button>
   );
