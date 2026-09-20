@@ -66,10 +66,11 @@ export interface ListRowProps {
   'aria-label'?: string;
   'data-testid'?: string;
   /**
-   * Identifies the value the row stands for, where the title and the test id cannot: two tokens
-   * can share a symbol, so a caller that has to address one exactly passes its id here.
+   * Extra `data-*` attributes on the row element, for a harness that addresses a row by its value
+   * rather than by a fixed testid — Explore's app rows all share one testid and carry the app's
+   * url here.
    */
-  'data-token-id'?: string;
+  dataAttributes?: Record<`data-${string}`, string>;
 }
 
 type Leading = 'none' | 'avatar' | 'icon';
@@ -133,7 +134,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
     className,
     'aria-label': ariaLabel,
     'data-testid': dataTestId,
-    'data-token-id': dataTokenId
+    dataAttributes
   },
   ref
 ) {
@@ -204,9 +205,9 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         to={to}
         testID={dataTestId}
         data-testid={dataTestId}
-        data-token-id={dataTokenId}
         aria-label={ariaLabel}
         className={classes}
+        {...dataAttributes}
       >
         {content}
       </Link>
@@ -222,8 +223,8 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         onClick={() => hapticLight()}
         aria-label={ariaLabel}
         data-testid={dataTestId}
-        data-token-id={dataTokenId}
         className={classes}
+        {...dataAttributes}
       >
         {content}
       </a>
@@ -232,13 +233,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
 
   if (htmlFor) {
     return (
-      <label
-        htmlFor={htmlFor}
-        aria-label={ariaLabel}
-        data-testid={dataTestId}
-        data-token-id={dataTokenId}
-        className={classes}
-      >
+      <label htmlFor={htmlFor} aria-label={ariaLabel} data-testid={dataTestId} className={classes} {...dataAttributes}>
         {content}
       </label>
     );
@@ -261,8 +256,8 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         aria-pressed={radio ? undefined : checked}
         aria-label={ariaLabel}
         data-testid={dataTestId}
-        data-token-id={dataTokenId}
         className={classes}
+        {...dataAttributes}
       >
         {content}
       </button>
@@ -270,7 +265,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
   }
 
   return (
-    <div aria-label={ariaLabel} data-testid={dataTestId} data-token-id={dataTokenId} className={classes}>
+    <div aria-label={ariaLabel} data-testid={dataTestId} className={classes} {...dataAttributes}>
       {content}
     </div>
   );
