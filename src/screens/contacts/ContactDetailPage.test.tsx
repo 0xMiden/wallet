@@ -57,12 +57,14 @@ jest.mock('utils/miden', () => ({
 
 const PAUL = { name: 'Paul G', address: '0xpaul', network: 'sepolia', addedAt: Date.UTC(2026, 8, 18) };
 const ALICE = { name: 'Alice', address: 'mtst1alice' };
+// A `0x` contact saved before the network field existed, so it carries no `network`.
+const NINA = { name: 'Nina', address: '0xnina', addedAt: Date.UTC(2026, 8, 19) };
 
 beforeEach(() => {
   jest.clearAllMocks();
   updateContactMock.mockResolvedValue(undefined);
   removeContactMock.mockResolvedValue(undefined);
-  contactsMock.mockReturnValue([PAUL, ALICE, { name: 'Main', address: 'mtst1mine', accountInWallet: true }]);
+  contactsMock.mockReturnValue([PAUL, ALICE, NINA, { name: 'Main', address: 'mtst1mine', accountInWallet: true }]);
 });
 
 it('shows the full address, network and date, and sends to the contact', () => {
@@ -83,6 +85,19 @@ it('shows Miden for a Miden contact and sends without a network', () => {
 
   expect(screen.getByTestId('contact-network')).toHaveTextContent('miden');
   expect(sendToContactPath(ALICE)).toBe('/send?to=mtst1alice');
+});
+
+it('keeps Save disabled on a 0x contact stored without a network until something is edited', () => {
+  render(<ContactDetailPage address="0xnina" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+
+  // `contactNetwork` resolves Nina's missing network to the default, so the network state and the
+  // raw stored value differ by construction. Comparing against the raw value made this Save live
+  // with nothing edited, and saving wrote a network the user never chose.
+  expect(screen.getByTestId('contact-save')).toBeDisabled();
+
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Nina S' } });
+  expect(screen.getByTestId('contact-save')).toBeEnabled();
 });
 
 it('renames a contact from edit mode', async () => {
