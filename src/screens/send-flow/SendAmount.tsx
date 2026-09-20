@@ -88,6 +88,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}
+          accent="send"
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="send-amount-confirm"

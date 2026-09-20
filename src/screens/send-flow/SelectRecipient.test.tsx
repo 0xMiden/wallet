@@ -35,8 +35,8 @@ jest.mock('components/Button', () => {
   return {
     __esModule: true,
     ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-    Button: ({ variant: _variant, title, iconLeft, children, ...rest }: any) =>
-      ReactMock.createElement('button', { type: 'button', ...rest }, iconLeft, children ?? title)
+    Button: ({ variant: _variant, accent, title, iconLeft, children, ...rest }: any) =>
+      ReactMock.createElement('button', { type: 'button', 'data-accent': accent, ...rest }, iconLeft, children ?? title)
   };
 });
 
@@ -145,6 +145,12 @@ describe('SelectRecipient', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
+  });
+
+  it('gives Confirm the send flow colour', () => {
+    renderRecipient();
+
+    expect(screen.getByTestId('send-recipient-confirm')).toHaveAttribute('data-accent', 'send');
   });
 
   it('shows Miden as the network for a valid Miden recipient', () => {

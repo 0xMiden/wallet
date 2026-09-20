@@ -128,8 +128,8 @@ jest.mock('components/ui/DetailCard', () => ({
 jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span data-testid="token-logo" /> }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => (
-    <button type="button" {...rest}>
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
       {title}
     </button>
   )
@@ -550,6 +550,14 @@ describe('ReviewTransaction — onSubmit', () => {
       await flush();
 
       expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    });
+
+    it('gives the CTA the send flow colour', async () => {
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('send-review-submit')).toHaveAttribute('data-accent', 'send');
     });
 
     it('leaves an ordinary token CTA alone', async () => {

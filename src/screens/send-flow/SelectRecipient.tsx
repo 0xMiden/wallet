@@ -139,6 +139,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}
+          accent="send"
           onClick={onConfirm}
           disabled={!canConfirm}
           data-testid="send-recipient-confirm"

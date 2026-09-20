@@ -114,6 +114,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
         type="submit"
         title={t('addContact')}
         variant={ButtonVariant.Primary}
+        accent="send"
         disabled={!trimmedName || saving}
         isLoading={saving}
         data-testid="address-book-add-contact"

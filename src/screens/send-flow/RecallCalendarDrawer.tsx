@@ -215,6 +215,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
             {recallDate && (
               <Button
                 title={t('confirm')}
+                accent="send"
                 disabled={selectionInPast}
                 className="max-w-none"
                 onClick={() => applyDateTimeSelection(recallDate, recallTime)}

@@ -457,6 +457,7 @@ export const ReviewTransaction: React.FC = () => {
               type="button"
               title={t('sendPayment')}
               variant={ButtonVariant.Primary}
+              accent="send"
               onClick={onSubmit}
               isLoading={isSubmitting}
               // Disabled rather than merely rejected on press: the reason is known

@@ -190,7 +190,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
 
           {scanState === 'requesting' && (
             <div className="flex flex-col items-center gap-3 py-4">
-              <Spinner size="lg" />
+              <Spinner size="lg" className="text-accent-send" />
               <p className="text-body-sm text-muted">{t('requestingCamera')}</p>
             </div>
           )}

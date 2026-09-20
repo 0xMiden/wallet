@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { TokenLogo } from 'components/TokenLogo';
 import { Avatar } from 'components/ui/Avatar';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -51,10 +52,11 @@ export interface SelectAmountProps {
    */
   embedded?: boolean;
   /**
-   * The flow's accent for the field's own affordances (the token chevron). Send keeps the primary
-   * orange; swap passes its own, so a swap screen carries one colour throughout.
+   * The flow this field belongs to. Its action colour draws every affordance the field owns — the
+   * token chevron, the network pill and the page variant's Confirm button — so a flow's screen
+   * carries one colour throughout (design-system.md, "Action colours").
    */
-  accentClassName?: string;
+  accent?: FlowAccent;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
   logoSymbol?: string;
   /** Cross-chain deposit — swaps the Miden chip for a destination-network selector. */
@@ -95,7 +97,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onSelectToken,
   onConfirm,
   embedded = false,
-  accentClassName = 'text-primary-500',
+  accent = 'brand',
   logoSymbol,
   isBridge = false,
   network,
@@ -105,6 +107,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onSelectNetwork
 }) => {
   const { t } = useTranslation();
+  const accentClasses = ACCENT_CLASSES[accent];
 
   const availableFiat = token ? token.balance * token.fiatPrice : 0;
   // An amount typed here is converted to base units with `token.decimals`. When
@@ -133,7 +136,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
       <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
-      <Icon name={IconName.ChevronDown} size="sm" className={accentClassName} fill="currentColor" />
+      <Icon name={IconName.ChevronDown} size="sm" className={accentClasses.text} fill="currentColor" />
     </button>
   );
 
@@ -156,7 +159,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
         )}
         <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
-        <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
+        <Icon name={IconName.ChevronRightLucide} size="sm" className={accentClasses.text} />
       </button>
 
       {/* Connector aligning the two circle icons */}
@@ -185,7 +188,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             ) : (
               t('selectNetwork')
             )}
-            <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
+            <Icon name={IconName.ChevronRightLucide} size="sm" className={accentClasses.text} />
           </span>
           {network && (
             <span className="text-xs text-text-muted">
@@ -244,7 +247,12 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
         {title}
         {showNetworkPill && !isBridge && (
-          <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">
+          <span
+            className={clsx(
+              'self-start text-xs font-semibold text-pure-white px-3 py-1 rounded-full mb-3',
+              accentClasses.bg
+            )}
+          >
             {t('miden')}
           </span>
         )}
@@ -259,6 +267,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
+          accent={accent}
           onClick={onConfirm}
           // `onConfirm` is optional (the embedded variant omits it and returns
           // early above), so in this page variant a missing handler disables
