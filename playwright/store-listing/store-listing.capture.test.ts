@@ -93,7 +93,15 @@ describe('store listing capture plan', () => {
     '%s captures the actual platform branch at the exact raw dimensions',
     (platform, expected) => {
       const entries = capturePlan.filter(entry => entry.platform === platform);
-      expect(entries.length).toBeGreaterThan(0);
+      // The exact count, derived the same way the sibling test above derives manifestPaths: one
+      // capture per unique non-icon raw. It is NOT `scenes.platforms[platform].length`, which
+      // counts GENERATED assets - playStore's feature graphic reuses an existing raw and its icon
+      // renders an SVG, so neither has a capture of its own (6/7/7 here, 6/9/8 there).
+      // A missing platform key yields an empty set, so the length assertion below fails loudly
+      // rather than silently comparing against nothing.
+      const manifestAssets = scenes.platforms[platform] ?? [];
+      const expectedCaptures = new Set(manifestAssets.filter(asset => asset.kind !== 'icon').map(asset => asset.raw));
+      expect(entries).toHaveLength(expectedCaptures.size);
 
       for (const entry of entries) {
         expect(entry.platformFlag).toBe(expected.platformFlag);

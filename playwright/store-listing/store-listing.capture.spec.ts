@@ -50,9 +50,18 @@ async function settle(page: Page, item: CapturePlanEntry): Promise<void> {
     }));
     throw new Error(`${item.id} did not reach ${item.ready.testId}: ${JSON.stringify(state)}`, { cause: error });
   }
-  if (item.ready.text) {
-    await expect(page.getByText(item.ready.text, { exact: true }).first()).toBeVisible({ timeout: 30_000 });
-  }
+  // `ready.text` is optional, but the assertion that checks it is not. Resolve the wait to a
+  // boolean and assert unconditionally, so a scene that declares ready text can never silently
+  // skip its own gate - an assertion the harness can step over is not a gate.
+  const readyTextVisible = item.ready.text
+    ? await page
+        .getByText(item.ready.text, { exact: true })
+        .first()
+        .waitFor({ state: 'visible', timeout: 30_000 })
+        .then(() => true)
+        .catch(() => false)
+    : true;
+  expect(readyTextVisible, `${item.id} ready text ${JSON.stringify(item.ready.text)} never became visible`).toBe(true);
   await page.evaluate(async () => {
     await document.fonts.ready;
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
