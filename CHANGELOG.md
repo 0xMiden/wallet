@@ -10,6 +10,7 @@
 
 - [CHANGE][mobile] Home's top action bar sits on its own light band that continues up through the status bar.
 - [CHANGE][mobile] The selected bottom-nav icon is drawn in the brand orange.
+- [CHANGE][all] Settings groups sit flush on the page under their section headers, with full-width dividers.
 - [CHANGE][all] Send's review page is quieter: the address in body text, the network as a plain value, no fee note, "Expires" with Edit, and the reclaim reassurance as one caption under the card.
 - [CHANGE][all] Send's first page is titled like the other tabs, its address field fits two lines on a small phone and Paste, Address Book and Scan stay on one row.
 - [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.

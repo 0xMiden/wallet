@@ -5,6 +5,11 @@ import { cn } from 'lib/ui/util';
 export interface ListGroupProps {
   /** `ListRow`s, as direct children: each draws the hairline above itself. */
   children: React.ReactNode;
+  /**
+   * `fill` (default): the group is a 16px-radius `fill` surface. `plain`: no surface — the rows sit
+   * on the page, still divided by their hairlines (Settings' groups, under their coloured headers).
+   */
+  surface?: 'fill' | 'plain';
   /** Layout only (margins, width). */
   className?: string;
   'aria-label'?: string;
@@ -17,12 +22,13 @@ export interface ListGroupProps {
  */
 export const ListGroup: React.FC<ListGroupProps> = ({
   children,
+  surface = 'fill',
   className,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => (
   <div
-    className={cn('flex flex-col overflow-hidden rounded-2xl bg-fill', className)}
+    className={cn('flex flex-col overflow-hidden', surface === 'fill' && 'rounded-2xl bg-fill', className)}
     aria-label={ariaLabel}
     data-testid={dataTestId}
   >

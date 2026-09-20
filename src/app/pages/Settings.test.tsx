@@ -402,7 +402,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.queryByTestId('row-guardianSettings')).not.toBeInTheDocument();
   });
 
-  it('draws each group as a section label over a fill group whose rows all show a chevron', () => {
+  it('draws each group as a section label over a plain group whose rows all show a chevron', () => {
     render(<Settings tabSlug={null} />);
 
     // Settings' group headers are the `lg` SectionHeader variant, not the plain
@@ -410,7 +410,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     const heading = screen.getByRole('heading', { level: 2, name: 'preferences' });
     expect(heading).toHaveClass('text-ink', 'text-title-section');
     const row = screen.getByTestId('row-generalSettings');
-    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // Plain surface: no fill, rows flush with the page margin, hairlines full width.
+    expect(row.parentElement).not.toHaveClass('bg-fill');
+    expect(row.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    // The header drops the label's 4px inset so its glyph lines up with the rows.
+    expect(heading.closest('.px-0')).not.toBeNull();
     screen.getAllByTestId(/^row-/).forEach(r => expect(r).toHaveAttribute('data-chevron', 'true'));
   });
 
