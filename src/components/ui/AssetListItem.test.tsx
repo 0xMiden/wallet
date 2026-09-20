@@ -110,12 +110,46 @@ describe('AssetListItem', () => {
     });
   });
 
+  describe('selection', () => {
+    it('renders no check and reports no pressed state when selected is undefined', () => {
+      const { container } = renderItem({ onClick: jest.fn() });
+
+      expect(container.querySelector('[data-slot="check"]')).toBeNull();
+      expect(screen.getByRole('button')).not.toHaveAttribute('aria-pressed');
+    });
+
+    it('renders the round check in the brand accent and reports aria-pressed when selected', () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: true });
+
+      const check = container.querySelector('[data-slot="check"]')!;
+      expect(check).toBeTruthy();
+      expect(check.className).toContain('bg-accent-primary');
+      expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it("fills the check with a flow's own colour when an accent is given", () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: true, accent: 'swap' });
+
+      const check = container.querySelector('[data-slot="check"]')!;
+      expect(check.className).toContain('bg-accent-swap');
+      expect(check.className).not.toContain('bg-accent-primary');
+    });
+
+    it('renders no check on an unselected row but still reports the pressed state', () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: false });
+
+      expect(container.querySelector('[data-slot="check"]')).toBeNull();
+      expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+
   describe('onClick / interaction', () => {
-    it('exposes a button role, fires haptics then onClick when clicked', () => {
+    it('is a native button, fires haptics then onClick when clicked', () => {
       const onClick = jest.fn();
       renderItem({ onClick });
 
       const button = screen.getByRole('button');
+      expect(button.tagName).toBe('BUTTON');
       expect(button.className).toContain('cursor-pointer');
 
       fireEvent.click(button);
