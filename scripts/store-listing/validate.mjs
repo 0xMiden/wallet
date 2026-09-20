@@ -262,6 +262,15 @@ async function validatePackage({ scenes, rules, copy, root, asOf }) {
     validatePromotionalRecommendation(assets, rule);
 
     const indexedCopy = copyIndex(composedCopy[platformKey]);
+
+    // Both directions. The asset loop below proves every shipped asset has copy; this proves every
+    // shipped copy entry has an asset. Without it STORE_LISTING.md can promise a screenshot that
+    // has no file, which is only discovered by a human reading the upload form.
+    const sceneIds = new Set(assets.map(asset => asset.sceneId));
+    for (const sceneId of indexedCopy.keys()) {
+      assert(sceneIds.has(sceneId), `${rule.label} copy declares ${sceneId} but no scene asset produces it`);
+    }
+
     for (const asset of assets) {
       assert(!assetIds.has(asset.id), `Asset id must be unique: ${asset.id}`);
       assetIds.add(asset.id);

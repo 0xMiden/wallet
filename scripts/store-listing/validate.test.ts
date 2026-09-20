@@ -54,15 +54,30 @@ const canonicalCopyPath = path.join(repositoryRoot, 'store-listing/listing-copy.
 const temporaryDirectories: string[] = [];
 
 const sharedSceneOrder = ['wallet-keys', 'send-privacy', 'receive', 'guardian'];
+// The platform-specific scenes each store ships, in order, matching store-listing/generated/*/
+// copy.json exactly. The fixture must be the FULL canonical set, not a subset: the completeness
+// check below is bijective, so a copy entry the fixture omits would read as an orphaned entry.
 const platformDefinitions = {
-  appStore: { slug: 'app-store', width: 132, height: 286, surface: 'iphone', extra: 'ios-dapp-browser' },
-  playStore: { slug: 'play-store', width: 108, height: 192, surface: 'android', extra: 'android-dapp-browser' },
+  appStore: {
+    slug: 'app-store',
+    width: 132,
+    height: 286,
+    surface: 'iphone',
+    extras: ['ios-dapp-browser', 'ios-protection']
+  },
+  playStore: {
+    slug: 'play-store',
+    width: 108,
+    height: 192,
+    surface: 'android',
+    extras: ['android-dapp-browser', 'android-local-proving', 'android-protection']
+  },
   chromeWebStore: {
     slug: 'chrome-web-store',
     width: 128,
     height: 80,
     surface: 'chrome-side-panel',
-    extra: 'chrome-connect'
+    extras: ['chrome-connect']
   }
 } as const;
 
@@ -79,7 +94,7 @@ function copyText(platformKey: keyof typeof platformDefinitions, sceneId: string
 
 function screenshotAssets(platformKey: keyof typeof platformDefinitions): Asset[] {
   const definition = platformDefinitions[platformKey];
-  return [...sharedSceneOrder, definition.extra].map((sceneId, index) => {
+  return [...sharedSceneOrder, ...definition.extras].map((sceneId, index) => {
     const text = copyText(platformKey, sceneId);
     if (!text) throw new Error(`Missing canonical copy for ${platformKey} scene ${sceneId}`);
     return {
@@ -453,11 +468,26 @@ describe('store listing package validation', () => {
     // eligibility, proving the selected recommendation is a separate gate.
     const result = await runValidator(scenes => {
       const screenshots = scenes.platforms.playStore.filter(asset => asset.kind === 'screenshot');
-      screenshots[3].width = 100;
-      screenshots[4].width = 100;
+      // Leave three above the promotional short side, one short of the minimum of four, so the
+      // gate must fire. Sliced rather than indexed so it stays correct if the scene set grows.
+      screenshots.slice(3).forEach(shot => {
+        shot.width = 100;
+      });
     });
     expect(result.status).not.toBe(0);
     expect(output(result)).toContain('requires at least 4 promotional screenshots');
+  });
+
+  it('refuses copy that promises a screenshot no scene asset produces', async () => {
+    // The completeness check ran one way only: every asset needed copy, but a copy entry with no
+    // asset passed silently, so STORE_LISTING.md could promise an upload that has no file. The
+    // last App Store screenshot is dropped, which leaves the remaining order contiguous so this
+    // fails on the orphaned copy entry rather than on a sequence gap.
+    const result = await runValidator(scenes => {
+      scenes.platforms.appStore = scenes.platforms.appStore.filter(asset => asset.sceneId !== 'ios-protection');
+    });
+    expect(result.status).not.toBe(0);
+    expect(output(result)).toContain('copy declares ios-protection but no scene asset produces it');
   });
 
   it('refuses a rules file that omits its schema version', async () => {
