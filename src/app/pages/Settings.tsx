@@ -561,9 +561,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
           )
         ) : (
           // pb-22 reserves space at the bottom so the last row can scroll above
-          // the React BottomNav.
-          // `pt-2` matches the gap Activity and Explore leave under the header band.
-          <div className="flex w-full flex-col gap-5 px-4 pt-2 pb-22">
+          // the React BottomNav. No top padding: the 8px under the rule is
+          // TabRootHeader's, the same 8px the other tab roots' filter rows get.
+          <div className="flex w-full flex-col gap-5 px-4 pb-22">
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header
