@@ -44,6 +44,17 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
    * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
    */
   bodyRef?: React.RefObject<HTMLDivElement>;
+  /**
+   * Makes the body itself the page's `<form>`, so Enter in any field submits it and a page needs
+   * no wrapper of its own inside the scroll area (a wrapper is another element with its own gap,
+   * which is how pages drifted apart). The pinned footer sits OUTSIDE it, so a button there
+   * submits with `type="submit" form={formId}`.
+   */
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
+  /** The body form's id, for that footer button. Only meaningful with `onSubmit`. */
+  formId?: string;
+  /** The body form, for a page that focuses a field inside it on mount. Only with `onSubmit`. */
+  formRef?: React.RefObject<HTMLFormElement>;
   'data-testid'?: string;
 }
 
@@ -65,6 +76,9 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   footer,
   footerLayout = 'row',
   bodyRef,
+  onSubmit,
+  formId,
+  formRef,
   onClose,
   'data-testid': dataTestId,
   ...header
@@ -73,6 +87,9 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   const title = header.title ?? inherited.title;
   const onBack = header.onBack ?? inherited.onBack;
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
+  // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
+  // like a div one, so a page gains nothing and loses nothing by needing a form.
+  const bodyClassName = 'flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4';
 
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">
@@ -89,9 +106,15 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 
       {/* No top padding: the 8px under the rule is `PageHeader`'s, the same gap a tab root's
           body starts at. */}
-      <div ref={bodyRef} data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
-        {children}
-      </div>
+      {onSubmit ? (
+        <form ref={formRef} id={formId} onSubmit={onSubmit} data-slot="body" className={bodyClassName}>
+          {children}
+        </form>
+      ) : (
+        <div ref={bodyRef} data-slot="body" className={bodyClassName}>
+          {children}
+        </div>
+      )}
 
       {footer && (
         // The flow's own pinned footer, so a sub-page's CTA rides the keyboard up and down on the
