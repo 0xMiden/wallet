@@ -61,14 +61,15 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
 }
 
 describe('SelectRecipient', () => {
-  it('titles the step as the tab, with the entry below it on one row of pills that never wraps', () => {
+  it('titles the step as the tab, with the entry below it on pills that fit without scrolling sideways', () => {
     renderRecipient();
     const title = screen.getByRole('heading', { level: 1 });
     expect(title).toHaveClass('text-title-tab');
     expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-hero-name');
     const pills = screen.getByTestId('send-address-book').parentElement;
-    expect(pills).toHaveClass('overflow-x-auto');
-    expect(pills).not.toHaveClass('flex-wrap');
+    // The row fits on a phone: it wraps if a translation runs long, it never scrolls sideways.
+    expect(pills).toHaveClass('flex-wrap');
+    expect(pills?.className).not.toContain('overflow-x-auto');
   });
 
   it('hides the network selector before an address is entered', () => {
@@ -85,18 +86,18 @@ describe('SelectRecipient', () => {
       'Enter Miden or Ethereum Address'
     );
     expect(screen.queryByTestId('send-recipient-avatar')).not.toBeInTheDocument();
-    expect(screen.queryByText('Scan QR Code')).not.toBeInTheDocument();
+    expect(screen.queryByText('scan')).not.toBeInTheDocument();
   });
 
-  it('shows Scan QR Code with extracted icons and compact action pills while the address field is empty', () => {
+  it('shows Scan with extracted icons and compact action pills while the address field is empty', () => {
     renderRecipient({ onScan: jest.fn() });
 
-    expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
+    expect(screen.getByText('scan')).toBeInTheDocument();
     expect(screen.getByTestId('send-address-book-icon')).toBeInTheDocument();
     expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
     // Both pills are the app's shared Pill, so they are the same height, padding and type
     // scale as every other chip (the network chip beside them included).
-    for (const label of ['addressBook', 'Scan QR Code']) {
+    for (const label of ['addressBook', 'scan']) {
       expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-pill');
     }
   });

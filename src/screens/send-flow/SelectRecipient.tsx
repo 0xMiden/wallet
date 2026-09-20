@@ -103,8 +103,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const pillSet = !hasAddress ? 'empty' : showAddContact ? 'add' : 'book';
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified recipient placeholder copy.
   const addressPlaceholder = 'Enter Miden or Ethereum Address';
-  // eslint-disable-next-line i18next/no-literal-string -- Product-specified scanner copy.
-  const scanQrCodeLabel = 'Scan QR Code';
+  // "Scan" rather than "Scan QR Code": the three pills have to fit one row on a 375pt phone
+  // without scrolling sideways, and the frame glyph beside it already says what it scans.
+  const scanQrCodeLabel = t('scan');
 
   // Done label on the mobile keyboard. Set via the ref because this repo's
   // @types/react version types enterKeyHint on inputs but not textareas.
@@ -221,7 +222,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             key={pillSet}
             // One row that never wraps: on a narrow phone it scrolls sideways, bleeding past the
             // page's 24px gutter so the cut pill says there is more.
-            className="no-scrollbar -mx-6 flex items-start gap-2 overflow-x-auto px-6 [&>*]:shrink-0"
+            // One row that fits: no sideways scroll, and it wraps rather than overflowing if a
+            // translation runs long.
+            className="flex flex-wrap items-start gap-2"
             {...pillSwap}
           >
             {pillSet === 'add' ? (

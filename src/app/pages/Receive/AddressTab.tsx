@@ -158,7 +158,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
     <div
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+      className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
       style={{ touchAction: 'pan-y' }}
       data-testid="receive-page"
     >
