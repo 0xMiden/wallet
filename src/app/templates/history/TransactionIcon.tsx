@@ -11,8 +11,12 @@ import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
-/** Slate square behind the white swap glyph for bridge rows (matches the design). */
-const BRIDGE_ICON_BG = '#777487';
+/**
+ * Slate square behind the white swap glyph for bridge rows, and the accent for a Guardian op.
+ * The same value the activity list paints on those rows (`bg-[#777487]`, HistoryView) — keep them
+ * in sync, so a row's icon and its detail page's section rule are one colour.
+ */
+const SLATE_ICON_BG = '#777487';
 
 /**
  * An earn row renders as failed (red cross + red accent) when the tx hard-failed, a
@@ -46,8 +50,15 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
   if (entry.transactionIcon === 'FAILED') return '#CC5D5D';
 
   if (entry.txType === 'bridged-send' || entry.bridgeInProvider) {
-    return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : BRIDGE_ICON_BG;
+    return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : SLATE_ICON_BG;
   }
+
+  // A Guardian op carries no icon of its own, so it used to fall through to the
+  // RECEIVE default and paint its detail page's section rule green - the colour
+  // of money arriving, on a page where nothing moved. It takes the slate the
+  // activity list already gives the switch-guardian row instead. `replace-hot-key`
+  // joins it: the two share that page's guardian card and its "Details" section.
+  if (entry.txType === 'switch-guardian' || entry.txType === 'replace-hot-key') return SLATE_ICON_BG;
 
   // Earn rows keep the Earn accent across states; any failed earn leg goes red.
   if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
@@ -92,7 +103,7 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     return (
       <div
         className={`${config.container} rounded-10 flex items-center justify-center`}
-        style={{ backgroundColor: BRIDGE_ICON_BG }}
+        style={{ backgroundColor: SLATE_ICON_BG }}
       >
         <SwapIcon className={config.icon} />
       </div>

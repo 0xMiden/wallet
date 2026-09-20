@@ -182,6 +182,13 @@ describe('TransactionIcon', () => {
       expect(getTransactionIconBackgroundColor(makeEntry(overrides))).toBe('#777487');
     });
 
+    it.each([['switch-guardian' as const], ['replace-hot-key' as const]])(
+      'gives %s the same slate the activity row paints, not the receive green',
+      txType => {
+        expect(getTransactionIconBackgroundColor(makeEntry({ txType }))).toBe('#777487');
+      }
+    );
+
     it('reddens a failed bridge', () => {
       mockBridgeStatusOf.mockReturnValue('failed');
       expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'bridged-send' }))).toBe('#CC5D5D');
