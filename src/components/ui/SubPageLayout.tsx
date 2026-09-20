@@ -39,6 +39,11 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
   footer?: React.ReactNode;
   /** `stack` puts the footer's buttons one above the other, for labels too long to share a row. */
   footerLayout?: 'row' | 'stack';
+  /**
+   * The body element, for a page whose content pages itself as the body scrolls (an infinite
+   * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
+   */
+  bodyRef?: React.RefObject<HTMLDivElement>;
   'data-testid'?: string;
 }
 
@@ -59,6 +64,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   headerActions,
   footer,
   footerLayout = 'row',
+  bodyRef,
   onClose,
   'data-testid': dataTestId,
   ...header
@@ -83,7 +89,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 
       {/* No top padding: the 8px under the rule is `PageHeader`'s, the same gap a tab root's
           body starts at. */}
-      <div data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
+      <div ref={bodyRef} data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
         {children}
       </div>
 

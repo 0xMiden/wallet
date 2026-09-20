@@ -1,0 +1,82 @@
+import React, { FC, useMemo, useRef } from 'react';
+
+import { useTranslation } from 'react-i18next';
+
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { ACTIVITY_PATH } from 'app/pages/activity-paths';
+import { activityGroupMatcher, isActivityGroupKind } from 'app/templates/history/activityGroups';
+import History from 'app/templates/history/History';
+import { shortAddr } from 'app/templates/history/HistoryView';
+import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { useAccount } from 'lib/miden/front';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { Redirect } from 'lib/woozie';
+
+/** The name of each category group, the same copy the group's row in the list carries. */
+const KIND_LABELS: Record<string, string> = {
+  swap: 'activityGroupSwaps',
+  faucet: 'activityGroupFaucet',
+  guardian: 'activityGroupGuardian',
+  other: 'activityGroupOther'
+};
+
+export interface ActivityGroupPageProps {
+  /** `:kind` from the route. Anything this is not sends the user back to the tab. */
+  kind?: string;
+  /** `:id` — the counterparty address of an `address` group; absent for a category group. */
+  id?: string;
+}
+
+/**
+ * One activity group's own page: the Activity feed, narrowed to that group.
+ *
+ * It is the SAME list the tab renders, handed a predicate — so paging, the rows still in flight,
+ * the date separators and every row's rendering and detail link come with it, and the page can
+ * never describe a transaction differently from the feed it was opened from.
+ */
+export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
+  const { t } = useTranslation();
+  const account = useAccount();
+  const { allContacts } = useFilteredContacts();
+  const back = useBackWithFallback(ACTIVITY_PATH);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  const address = kind === 'address' ? id?.trim() : undefined;
+  const contactName = useMemo(() => {
+    if (!address) return undefined;
+    const wanted = address.toLowerCase();
+    return allContacts.find(contact => contact.address.trim().toLowerCase() === wanted)?.name?.trim() || undefined;
+  }, [allContacts, address]);
+
+  const predicate = useMemo(() => (isActivityGroupKind(kind) ? activityGroupMatcher(kind, id) : undefined), [kind, id]);
+
+  // An unknown kind, or an address group with no address: nothing to narrow by, so there is no
+  // page to show. Back to the tab rather than an empty list that looks like "no activity".
+  if (!isActivityGroupKind(kind) || !predicate) return <Redirect to={ACTIVITY_PATH} />;
+  if (kind === 'address' && !address) return <Redirect to={ACTIVITY_PATH} />;
+
+  const title =
+    kind === 'address' && address ? (
+      <span className="flex min-w-0 items-center gap-2">
+        <ContactAvatar address={address} name={contactName} size="sm" />
+        <span className="min-w-0 truncate">{contactName ?? shortAddr(address)}</span>
+      </span>
+    ) : (
+      t(KIND_LABELS[kind] ?? 'activity')
+    );
+
+  return (
+    <SubPageLayout title={title} onBack={back} focusTitleOnMount bodyRef={bodyRef} data-testid="activity-group-page">
+      <History
+        address={account.publicKey}
+        fullHistory
+        centerEmptyState
+        scrollParentRef={bodyRef}
+        predicate={predicate}
+      />
+    </SubPageLayout>
+  );
+};
+
+export default ActivityGroupPage;

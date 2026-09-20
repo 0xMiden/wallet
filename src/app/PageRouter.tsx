@@ -30,6 +30,7 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
@@ -155,6 +156,16 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <AllHistory programId={programId} />
       </TabLayout>
+    ))
+  ],
+  // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
+  // the counterparty's address and is absent for a category group (`/activity/group/swap`).
+  [
+    '/activity/group/:kind/:id?',
+    onlyReady(({ kind, id }) => (
+      <FullScreenPage key={`activity-group-${kind}-${id ?? ''}`} entrance="slide">
+        <ActivityGroupPage kind={kind ?? undefined} id={id ? decodeURIComponent(id) : undefined} />
+      </FullScreenPage>
     ))
   ],
   // Read-only "Network endpoints" screen, linked from the Settings row that's only
