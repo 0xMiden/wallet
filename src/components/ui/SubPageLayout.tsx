@@ -28,8 +28,8 @@ export const SubPageHeaderProvider: React.FC<{ value: SubPageHeaderConfig; child
 export interface SubPageLayoutProps extends SubPageHeaderConfig {
   /** A close button at the header's right, for a page that is dismissed rather than popped. */
   onClose?: () => void;
-  /** The page's sections, 20px apart. */
-  children: React.ReactNode;
+  /** The page's sections, 20px apart. Optional: a page can be its header alone. */
+  children?: React.ReactNode;
   /** Right side of the header row, e.g. an orange text action. */
   headerActions?: React.ReactNode;
   /**
