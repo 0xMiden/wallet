@@ -11,7 +11,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 // `lib/mobile/haptics` reaches for the Capacitor Haptics plugin; stub the one
-// helper the component fires so we can assert selection triggers feedback.
+// helper the row fires so we can assert selection triggers feedback.
 const mockHapticLight = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: () => mockHapticLight()
@@ -30,8 +30,28 @@ jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens()
 }));
 
+// `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
+// sheet consumes so we can drive account / balances / metadata by hand.
+const mockUseAccount = jest.fn(() => ({ publicKey: 'pk-abc' }) as { publicKey: string });
+const mockUseAllTokensBaseMetadata = jest.fn(() => ({}) as Record<string, unknown>);
+const mockUseAllBalances = jest.fn(
+  (_publicKey: string, _metadata: Record<string, unknown>) => ({ data: [] as unknown[] }) as { data?: unknown[] }
+);
+jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockUseAccount(),
+  useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata(),
+  useAllBalances: (publicKey: string, metadata: Record<string, unknown>) => mockUseAllBalances(publicKey, metadata)
+}));
+
+// `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
+// through a selector, so run the selector against a controllable slice.
+let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
+}));
+
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
-// surfaces the `symbol`/`size` props the component passes through.
+// surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
     <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
@@ -64,8 +84,18 @@ const IMIDEN: SwapToken = { symbol: 'IMIDEN', faucetId: 'fid-miden', decimals: 8
 const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, logoSymbol: 'ETH' };
 const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, logoSymbol: 'BTC' };
 
+type Balance = {
+  tokenId: string;
+  metadata: { symbol: string; decimals: number; scaleIsUnknown?: boolean };
+  balance: number;
+};
+
 const setTokens = (tokens: SwapToken[]) => {
   mockGetSwapTokens.mockReturnValue(tokens);
+};
+
+const setBalances = (balances: Balance[]) => {
+  mockUseAllBalances.mockReturnValue({ data: balances });
 };
 
 const renderDrawer = (overrides: Partial<React.ComponentProps<typeof SelectSwapTokenDrawer>> = {}) => {
@@ -76,13 +106,17 @@ const renderDrawer = (overrides: Partial<React.ComponentProps<typeof SelectSwapT
 };
 
 const tokenButton = (symbol: string) => screen.getByTestId(`swap-token-${symbol}`);
-// The selected side is `ListRow`'s own round check (the design system's mark), not a loose dot,
-// and the swap flow's own colour fills it (design-system.md, "Action colours").
+// The selected side is the design system's round check (as `AssetListItem` draws it), not a loose
+// dot, and the swap flow's own colour fills it (design-system.md, "Action colours").
 const selectedCheck = (symbol: string) => tokenButton(symbol).querySelector('[data-slot="check"]');
 
 beforeEach(() => {
   jest.clearAllMocks();
   setTokens([IMIDEN, IETH, IBTC]);
+  mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
+  mockUseAllTokensBaseMetadata.mockReturnValue({});
+  mockUseAllBalances.mockReturnValue({ data: [] });
+  mockStoreState = { tokenPrices: {} };
 });
 
 describe('SelectSwapTokenDrawer', () => {
@@ -109,9 +143,81 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // `logoSymbol` (not `symbol`) drives the logo, at the list row's 40px avatar size.
+    // `logoSymbol` (not `symbol`) drives the logo, at the home asset row's 36px default size.
     expect(logo).toHaveAttribute('data-symbol', 'ETH');
-    expect(logo).toHaveAttribute('data-size', 'lg');
+    expect(logo).not.toHaveAttribute('data-size');
+  });
+
+  describe('balances', () => {
+    it('passes the account public key and base metadata through to useAllBalances', () => {
+      mockUseAccount.mockReturnValue({ publicKey: 'pk-999' });
+      const metadata = { faucet: { symbol: 'M' } };
+      mockUseAllTokensBaseMetadata.mockReturnValue(metadata);
+      renderDrawer();
+
+      expect(mockUseAllBalances).toHaveBeenCalledWith('pk-999', metadata);
+    });
+
+    it('shows the held balance of each token under its symbol', () => {
+      setBalances([
+        { tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 },
+        { tokenId: 'fid-miden', metadata: { symbol: 'IMIDEN', decimals: 8 }, balance: 40 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).getByText('1.25 IETH')).toBeInTheDocument();
+      expect(within(tokenButton('IMIDEN')).getByText('40.00 IMIDEN')).toBeInTheDocument();
+    });
+
+    it('still lists a token the account holds nothing of, at zero', () => {
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IBTC')).getByText('0.00 IBTC')).toBeInTheDocument();
+    });
+
+    it('defaults to zero balances when useAllBalances yields no data', () => {
+      mockUseAllBalances.mockReturnValue({});
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).getByText('0.00 IETH')).toBeInTheDocument();
+    });
+
+    it('withholds the quantity of a held token whose decimals are the unknown placeholder', () => {
+      setBalances([
+        { tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 6, scaleIsUnknown: true }, balance: 1.25 }
+      ]);
+      renderDrawer();
+
+      const row = tokenButton('IETH');
+      expect(within(row).queryByText('1.25 IETH')).not.toBeInTheDocument();
+      // Symbol twice: the row title and the amount line that stands in for the quantity.
+      expect(within(row).getAllByText('IETH')).toHaveLength(2);
+    });
+  });
+
+  describe('fiat value', () => {
+    it('renders the fiat value on the right when the feed prices that symbol', () => {
+      mockStoreState = { tokenPrices: { IETH: { price: 2 } } };
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).getByText('$2.50')).toBeInTheDocument();
+    });
+
+    it('renders no fiat value for an unpriced DEX token rather than a $1-default figure', () => {
+      setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+    });
+
+    it('never renders $0.00 for a priced token the account holds none of', () => {
+      mockStoreState = { tokenPrices: { IBTC: { price: 2 } } };
+      renderDrawer();
+
+      expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
+    });
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {
@@ -138,15 +244,16 @@ describe('SelectSwapTokenDrawer', () => {
     expect(document.querySelector('[data-slot="check"]')).toBeNull();
   });
 
-  it('groups the rows on the shared fill with inset hairlines, not full-bleed rules', () => {
+  it('draws the rows like the home assets list: unboxed, 72px, divided by a hairline', () => {
     renderDrawer();
 
-    const group = tokenButton('IMIDEN').parentElement!;
-    expect(group.className).toContain('bg-fill');
-    expect(group.className).toContain('rounded-2xl');
-    // The hairline is drawn by each row, inset past its 40px avatar, and tinted with the flow.
-    expect(tokenButton('IETH').className).toContain('before:bg-accent-swap/25');
-    expect(tokenButton('IETH').className).toContain('before:left-[68px]');
+    const list = tokenButton('IMIDEN').parentElement!;
+    expect(list.className).toContain('divide-y');
+    expect(list.className).toContain('divide-rule-default');
+    // Not the boxed list group: no fill card, no 16px radius around the rows.
+    expect(list.className).not.toContain('bg-fill');
+    expect(list.className).not.toContain('rounded-2xl');
+    expect(tokenButton('IETH').className).toContain('h-18');
   });
 
   it('fires haptics, forwards the token and closes the drawer on select', () => {
