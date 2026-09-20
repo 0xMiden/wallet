@@ -94,7 +94,7 @@ function DrawerContent({ className, overlayClassName, children, hideHandle = tru
           // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
           // (env() and the var are 0 on extension/Android). The transition runs
           // in sync with the native keyboard slide.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-surface-solid text-body-sm outline-none',
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
           'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
           className
         )}
@@ -112,21 +112,22 @@ function DrawerContent({ className, overlayClassName, children, hideHandle = tru
 }
 
 /**
- * Drawer header / top bar: a large left-aligned title (via `DrawerTitle`, 28px
- * semibold) with a circular close button on the right, a bottom divider, and a
- * 16px gap to the content below (`mb-4`). The handle-less default closes through
- * this button — it reads `onClose` from the drawer context, so no extra wiring.
- * Children render in a column on the left (title + optional `DrawerDescription`).
+ * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` (optionally
+ * over a `DrawerDescription`) and the 32px circular close on the right, on the 16px sheet margin.
+ * No rule under it — separation inside a sheet comes from the `fill` groups below, not from a
+ * divider across the top (design-system.md, "Elevation"). The close reads `onClose` from the drawer
+ * context, so the handle-less default needs no extra wiring.
  */
 function DrawerHeader({ className, children }: { className?: string; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const { onClose } = useContext(DrawerContext);
   return (
-    <div data-slot="drawer-header" className={cn('border-b border-border-faint mb-4', className)}>
-      <div className="flex w-full items-center justify-between gap-3 p-4">
-        <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-        <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
-      </div>
+    <div
+      data-slot="drawer-header"
+      className={cn('flex w-full shrink-0 items-center justify-between gap-3 px-4 pt-5 pb-4', className)}
+    >
+      <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
+      <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
     </div>
   );
 }
@@ -139,7 +140,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
   return (
     <VaulDrawer.Title
       data-slot="drawer-title"
-      className={cn('text-left text-title-page text-ink', className)}
+      className={cn('text-left text-title-section text-ink', className)}
       {...props}
     >
       {children}

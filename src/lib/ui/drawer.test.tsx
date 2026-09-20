@@ -56,7 +56,7 @@ describe('Drawer', () => {
     expect(close.className).toContain('text-muted');
   });
 
-  it('renders DrawerTitle at 20px/26 Nunito 800, left-aligned, on the ink token', () => {
+  it('renders DrawerTitle at 18px/24 Nunito 800, left-aligned, on the ink token', () => {
     render(
       <Drawer open>
         <DrawerContent>
@@ -68,9 +68,37 @@ describe('Drawer', () => {
     );
 
     const title = screen.getByRole('heading', { name: 'Settings' });
-    expect(title).toHaveClass('text-title-page');
+    expect(title).toHaveClass('text-title-section');
     expect(title.className).toContain('text-left');
     expect(title.className).toContain('text-ink');
+  });
+
+  it('draws no rule under the header: a sheet separates with fill groups, not a divider', () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Settings</DrawerTitle>
+          </DrawerHeader>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const header = document.querySelector('[data-slot="drawer-header"]')!;
+    expect(header.className).not.toMatch(/\bborder-b\b/);
+    expect(header.className).toContain('px-4');
+  });
+
+  it('puts the sheet on the page surface', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet">
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    expect(screen.getByTestId('sheet').className).toContain('bg-page');
   });
 
   it('gives the sheet a 28px top radius', () => {

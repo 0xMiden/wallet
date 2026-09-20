@@ -175,8 +175,8 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 | `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | `TabHeader`, tab roots only |
 | `text-hero-value` | Nunito | 32 / 36 | 900 | `Hero` value: amounts on review and receipt |
 | `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name, outcome and passcode titles |
-| `text-title-page` | Nunito | 20 / 26 | 800 | `PageHeader`, `DrawerTitle`, `AlertSheet`, `SectionHeader` `xl` |
-| `text-title-section` | Nunito | 18 / 24 | 800 | `SectionHeader` `lg`, `EmptyState` title, Explore app names |
+| `text-title-page` | Nunito | 20 / 26 | 800 | `PageHeader`, `SectionHeader` `xl` |
+| `text-title-section` | Nunito | 18 / 24 | 800 | `DrawerTitle` (every sheet, `AlertSheet` included), `SectionHeader` `lg`, `EmptyState` title, Explore app names |
 | `text-cta` | Nunito | 19 / 24 | 800 | `Button` `lg` |
 | `text-cta-sm` | Nunito | 15 / 20 | 800 | `Button` `sm` |
 | `text-row-title` | Nunito | 16 / 20 | 700 | `ListRow`, Activity and asset row titles, a row's price |
@@ -271,7 +271,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
 | Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, `text-title-section` title, `text-body-sm` `muted` body, a 36px `secondary` button. | `components/EmptyState` (moved), ad-hoc "No …" lines |
-| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 20px title left, 32px ✕ right, 16px margin; one decision per sheet; CTA pinned. | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
+| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 18px title left, 32px ✕ right, 16px margin, no rule under the header; rows in `ListGroup`s on `fill`; one decision per sheet; CTA pinned. | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
 | Confirm / alert | `useConfirm` / `useAlert` (`lib/ui/dialog`), rendered by `AlertSheet` with Radix AlertDialog semantics | Title, one sentence, a `destructive` or `primary` button over a `secondary` Cancel. | `ConfirmationModal`, `AlertModal` |
 | Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner`, `CircularProgress` |
 | Skeleton | `Skeleton` | `fill` blocks shaped like the content (`inverse` on a colored surface); tests find it by `data-slot="skeleton"`. | `lib/ui/skeleton`, ad-hoc `animate-pulse` |
@@ -351,7 +351,7 @@ caller of what it replaces and deletes the retired component.
 3. **Motion foundation**: `presets.ts`, `MotionConfig`, the unguarded `Button` and `Toggle`
    springs.
 4. **Headers**: `PageHeader` in direction B, then `NavigationHeader`, `ScreenHeader` and the earn
-   headers onto it; `TabHeader` without its bar; `DrawerTitle` at 20px.
+   headers onto it; `TabHeader` without its bar; `DrawerTitle` at 18px.
 5. **Buttons**: `Button` and `IconButton` in `components/ui`.
 6. **Lists**: `ListGroup`, `ListRow`, `SectionHeader`, `EmptyState`; the contact picker (search and
    sections) is built on them.
