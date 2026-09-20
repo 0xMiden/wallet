@@ -85,7 +85,7 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
         className={cn(
           'group flex h-14 w-20 items-center justify-center rounded-full p-1 transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/30',
-          active ? 'text-ink' : 'text-muted'
+          active ? 'text-accent-primary' : 'text-muted'
         )}
       >
         <motion.span
