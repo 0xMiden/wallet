@@ -1026,3 +1026,18 @@ describe('Settings page — mobile body attribute effects', () => {
 //     TERMS_OF_USE_URL currently equals PRIVACY_POLICY_URL, so the tab lookup
 //     always resolves the Privacy tab first.
 //   Covering these would require changing the source, which the task forbids.
+
+it('has one rendering path for every sub-page: the page draws its own frame, the host adds none', () => {
+  // Was three: a page on the layout, a page with its own layout inside the host's scroller, and
+  // a page in a padded `font-heading` box under a header the host drew.
+  for (const slug of ['address-book', 'export-account-file', 'spending-limits', 'networks']) {
+    const { unmount } = render(<Settings tabSlug={slug} />);
+
+    expect(screen.getAllByTestId('nav-header')).toHaveLength(1);
+    // The layout's body is the only scroller, and nothing wraps it.
+    expect(document.querySelectorAll('.overflow-y-auto')).toHaveLength(1);
+    expect(document.querySelector('.font-heading')).toBeNull();
+
+    unmount();
+  }
+});
