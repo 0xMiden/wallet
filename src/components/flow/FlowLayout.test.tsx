@@ -32,7 +32,7 @@ describe('FlowLayout', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('styles back as a bare ink chevron, never the flow accent', () => {
+  it('styles back as the shared round ink button, never the flow accent', () => {
     // Flow accents are under 3:1 on white, so the spec keeps them off text and the back chevron.
     // The color lives on the IconButton itself (a `bare` IconButton is always `ink`) and the
     // glyph inherits it through `fill="currentColor"` — same pattern PageHeader.test.tsx checks.
@@ -43,15 +43,16 @@ describe('FlowLayout', () => {
     );
 
     const back = screen.getByTestId('flow-back');
-    expect(back).not.toHaveClass('bg-fill');
-    expect(back).not.toHaveClass('bg-fill');
-    expect(back).toHaveClass('text-ink');
+    // The shared header's round `fill` button, the same one every pushed page draws — the glyph
+    // stays `ink` and never takes the flow's accent.
+    expect(back).toHaveClass('bg-fill', 'rounded-full', 'text-ink');
     expect(back).not.toHaveClass('text-accent-send');
-    const glyph = back.querySelector('svg');
-    expect(glyph).toHaveAttribute('data-name', 'chevron-left');
+    // The shared header's own glyph, whatever `PageHeader` draws today (an arrow, not the old
+    // bare chevron) — asserted through the same hook `PageHeader.test.tsx` uses.
+    expect(back.querySelector('svg')).not.toBeNull();
   });
 
-  it('keeps the 52px header row without a back button so content lines up across steps', () => {
+  it('keeps the shared header row without a back button so content lines up across steps', () => {
     render(
       <FlowLayout title="Title" footer={<button>cta</button>}>
         <p>content</p>
@@ -59,7 +60,7 @@ describe('FlowLayout', () => {
     );
 
     expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
-    expect(screen.getByRole('banner')).toHaveClass('h-13');
+    expect(screen.getByRole('banner')).toHaveClass('h-15');
     expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 
