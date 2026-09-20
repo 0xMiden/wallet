@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -333,7 +333,11 @@ export async function buildAssets(options = {}) {
       asset.kind === 'icon'
         ? await renderIcon(root, asset, theme)
         : await renderArtwork(root, asset, theme, fontData, markSource);
-    await sharp(buffer).toFile(outputPath);
+    // Write the bytes the renderer already produced. `sharp(buffer).toFile()` decodes the finished
+    // PNG and re-encodes it at sharp's default compression, discarding the explicit encoder options
+    // renderIcon and renderArtwork chose - so the committed bytes were decided by a second pass
+    // nobody configured.
+    await writeFile(outputPath, buffer);
     outputs.push(asset.output.split(path.sep).join('/'));
   }
   return outputs;

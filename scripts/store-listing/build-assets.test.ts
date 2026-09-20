@@ -226,6 +226,22 @@ describe('store listing asset composition', () => {
     expect(`${result.stdout}${result.stderr}`).toContain('headline zone exceeds 20 percent');
   });
 
+  it('writes the bytes the renderer encoded, with no second pass', async () => {
+    // The writer used to hand the finished PNG back to sharp, which decoded and re-encoded it at
+    // sharp's DEFAULT compression - so the committed bytes came from a pass nobody configured and
+    // the renderer's explicit `compressionLevel: 9, adaptiveFiltering: false` was discarded.
+    // Re-encoding the written pixels at the renderer's own options must therefore reproduce the
+    // file exactly; a file left behind by a default-level second pass does not.
+    const root = await createFixture();
+    expect(run(root).status).toBe(0);
+
+    for (const asset of Object.values(fixtureManifest().platforms).flat()) {
+      const written = readFileSync(path.join(root, asset.output));
+      const atRendererOptions = await sharp(written).png({ compressionLevel: 9, adaptiveFiltering: false }).toBuffer();
+      expect(written.equals(atRendererOptions)).toBe(true);
+    }
+  });
+
   it('produces byte-identical PNGs in separate clean roots', async () => {
     const firstRoot = await createFixture();
     const secondRoot = await createFixture();
