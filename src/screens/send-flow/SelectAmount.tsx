@@ -231,6 +231,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       // the swap "You Receive" field) pass showBalanceHelper={false}.
       helper={helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
+      accent={accent}
       showDivider={!!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
