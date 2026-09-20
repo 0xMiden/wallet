@@ -84,8 +84,12 @@ const segment = cva(
       // Every item is an outlined pill on the page; the selected one hands its outline over to
       // the raised bubble that covers it, keeping the border transparent so the item's width —
       // and so the row — never shifts as the selection moves.
+      //
+      // `pure-black` on the accent bubble, not white: white measures 3.0:1 there, which rule 6
+      // permits only at 19px bold (the CTA), and these labels are 14px. Black is 7.0:1, and the
+      // accent is the same colour in both themes, so one label colour serves both.
       active: {
-        true: 'border border-transparent text-ink',
+        true: 'border border-transparent text-pure-black',
         false: 'border border-hairline bg-page text-ink'
       }
     },
@@ -159,7 +163,11 @@ function Segment<T extends string>({ item, active, focusable, size, layout, item
             </span>
           )}
           <span className="min-w-0 truncate">{item.label}</span>
-          {item.count !== undefined && <span className="tabular-nums text-muted">{item.count}</span>}
+          {/* The count quiets to `muted` beside an `ink` label, but inherits on the accent bubble —
+              `muted` on the accent is 1.5:1. */}
+          {item.count !== undefined && (
+            <span className={cn('tabular-nums', !active && 'text-muted')}>{item.count}</span>
+          )}
         </motion.span>
       </motion.button>
     </HighlightItem>
@@ -171,14 +179,14 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
 
 /**
  * A single choice out of a few, drawn like the tab bars: no strip behind the items, each one an
- * outlined pill on the page, and the selected one on the SAME raised bubble the bottom nav uses —
- * `raisedBubbleClassName` and `useTabBarMotion` verbatim, so the bubble, its shadow, its pressed
- * shadow and the spring it slides on are the bottom bar's, not a copy of them. Its content pops as
- * it lands and a press dips the item. One selection haptic per real change. Under reduced motion
- * the bubble moves instantly, nothing pops and a press does not scale.
+ * outlined pill on the page, and the selected one on the bottom nav's raised bubble —
+ * `raisedBubbleClassName` and `useTabBarMotion` verbatim, so the shadow, the pressed shadow and
+ * the spring it slides on are the bottom bar's, not a copy of them — filled with the brand accent.
+ * Its content pops as it lands and a press dips the item. One selection haptic per real change.
+ * Under reduced motion the bubble moves instantly, nothing pops and a press does not scale.
  *
- * The selected label stays `ink`, never white on `accent`: that pair is 3.0:1, which the spec
- * allows only at 19px bold, and these labels are 14px.
+ * The label on that bubble is `pure-black` (7.0:1), never white (3.0:1, which rule 6 allows only
+ * at 19px bold).
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
  * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
@@ -271,14 +279,16 @@ export function SegmentedControl<T extends string>({
           control, so two mounted controls never trade bubbles. Controlled and click-free: `value`
           decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
           absolutely positioned against the item's PADDING box, so it has to reach 1px past it to
-          cover the item's border and match the outlined pills beside it edge for edge. */}
+          cover the item's border and match the outlined pills beside it edge for edge. The bottom
+          nav's bubble in every respect but its fill, which is the brand accent here (Brian,
+          simulator review) — shadow, pressed shadow and spring are the shared ones. */}
       <Highlight
         controlledItems
         value={value}
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
-        className={cn('-inset-px', raisedBubbleClassName)}
+        className={cn('-inset-px', raisedBubbleClassName, 'bg-accent-primary')}
       >
         {items.map((item, index) => (
           <Segment
