@@ -246,8 +246,8 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         <OutcomeHero
           visual={
             <div className="flex size-16 items-center justify-center rounded-full bg-fill">
-              {/* Self-coloured brand glyph — no `fill`/`text-*` needed. */}
-              <Icon name={IconName.Share} size="md" />
+              {/* The glyph paints in `currentColor`, so the brand orange is set here. */}
+              <Icon name={IconName.Share} size="md" className="text-accent-primary" />
             </div>
           }
           title={t('encryptedWalletFileNotSavedTitle')}
