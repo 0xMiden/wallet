@@ -26,7 +26,9 @@ jest.mock('lib/mobile/haptics', () => ({
 // tests drive both branches.
 const mockIsExtension = { value: false };
 jest.mock('lib/platform', () => ({
-  isExtension: () => mockIsExtension.value
+  isExtension: () => mockIsExtension.value,
+  // The pinned footer now reaches `stepFooterCushionClass`, which reads this to size the cushion.
+  isMobile: () => false
 }));
 
 // `browser.runtime.reload` (extension reload path) — spy-able, unlike

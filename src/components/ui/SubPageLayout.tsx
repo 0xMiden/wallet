@@ -1,5 +1,6 @@
 import React, { createContext, useContext } from 'react';
 
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { PageHeader } from 'components/PageHeader';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { cn } from 'lib/ui/util';
@@ -87,12 +88,11 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
       </div>
 
       {footer && (
-        <div
-          data-slot="footer"
-          className={cn('flex shrink-0 gap-2.5 px-4 pt-3 pb-4', footerLayout === 'stack' && 'flex-col')}
-        >
+        // The flow's own pinned footer, so a sub-page's CTA rides the keyboard up and down on the
+        // same spring as the send and swap CTAs instead of jumping with the layout.
+        <FlowFooter data-slot="footer" className={cn('flex gap-2.5 px-4', footerLayout === 'stack' && 'flex-col')}>
           {footer}
-        </div>
+        </FlowFooter>
       )}
     </div>
   );
