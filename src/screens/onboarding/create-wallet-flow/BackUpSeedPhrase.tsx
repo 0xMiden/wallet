@@ -8,6 +8,7 @@ import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Pill } from 'components/ui/Pill';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import useIsMounted from 'lib/ui/useIsMounted';
 
 export interface BackUpSeedPhraseScreenProps extends HTMLAttributes<HTMLDivElement> {
   seedPhrase: string[];
@@ -29,14 +30,10 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   const isGuardReady = useScreenshotGuard();
 
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-      clearTimeout(copiedTimer.current);
-    },
-    []
-  );
+  // Shared hook rather than a local ref: it sets the flag in the effect BODY, so StrictMode's
+  // setup/cleanup/setup cannot latch it false for the life of the component (DeadletteredNotesNotice.tsx:54).
+  const isMounted = useIsMounted();
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   // Report "Copied" only once the write has landed. This is the recovery phrase: telling the user
   // it is on the clipboard when the write was refused is the one lie this screen must not tell.
@@ -46,11 +43,11 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
     } catch {
       return; // The words are on screen to copy by hand.
     }
-    if (!mountedRef.current) return;
+    if (!isMounted()) return;
     setIsCopied(true);
     clearTimeout(copiedTimer.current);
     copiedTimer.current = setTimeout(() => setIsCopied(false), 2000);
-  }, [seedPhrase]);
+  }, [seedPhrase, isMounted]);
 
   const onWordsVisibilityToggle = useCallback(() => {
     setIsWordsVisible(prev => !prev);

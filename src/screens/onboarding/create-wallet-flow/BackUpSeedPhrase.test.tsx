@@ -314,14 +314,39 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(result!.preventDefaultSpy).toHaveBeenCalled();
     });
 
-    it('removes its copy listener on unmount without throwing', () => {
+    it('removes the SAME copy listener it added, so the handler cannot outlive the screen', () => {
+      // `expect.any(Function)` used to sit in this slot, which is exactly the thing the bug changed:
+      // the old cleanup passed a freshly allocated `() => {}`, so removeEventListener was still
+      // called with a Function and the assertion passed while the real handler stayed on document
+      // for the life of the realm, rewriting every later copy.
+      const addSpy = jest.spyOn(document, 'addEventListener');
       const removeSpy = jest.spyOn(document, 'removeEventListener');
       const { unmount } = renderComponent();
 
-      expect(() => unmount()).not.toThrow();
-      expect(removeSpy).toHaveBeenCalledWith('copy', expect.any(Function));
+      const added = addSpy.mock.calls.find(([type]) => type === 'copy')?.[1];
+      expect(added).toBeInstanceOf(Function);
 
+      unmount();
+      expect(removeSpy).toHaveBeenCalledWith('copy', added);
+
+      addSpy.mockRestore();
       removeSpy.mockRestore();
+    });
+
+    it('stops rewriting the clipboard once unmounted', () => {
+      const { unmount } = renderComponent();
+      unmount();
+
+      const setData = jest.fn();
+      const { preventDefaultSpy } = dispatchCopy({
+        selection: { toString: () => 'Send 123 MIDEN to mtst1abc' },
+        clipboardData: { setData }
+      });
+
+      // Behavioural mirror of the identity check: a leaked handler would strip the digits and
+      // preventDefault() on a copy that has nothing to do with this screen.
+      expect(setData).not.toHaveBeenCalled();
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
     });
   });
 });

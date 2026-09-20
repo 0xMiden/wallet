@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import useIsMounted from 'lib/ui/useIsMounted';
 
 const COPIED_FEEDBACK_MS = 1500;
 
@@ -49,21 +50,17 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
   // `clearTimeout` alone is not enough: the timer is armed AFTER an awaited `Clipboard.write`, so a
   // component unmounted while that write is still in flight (a real round trip through the Capacitor
   // bridge on mobile) would have nothing to clear at unmount and would then arm a timer after
-  // teardown. The liveness flag is what stops the continuation running at all.
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-      clearTimeout(timerRef.current);
-    },
-    []
-  );
+  // teardown. The liveness check is what stops the continuation running at all — via the shared hook,
+  // which sets the flag in the effect BODY (a cleanup-only `useRef(true)` latches false forever after
+  // StrictMode's first simulated unmount; see DeadletteredNotesNotice.tsx:54).
+  const isMounted = useIsMounted();
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const handleCopy = async () => {
     hapticLight();
     try {
       await Clipboard.write({ string: text });
-      if (!mountedRef.current) return;
+      if (!isMounted()) return;
       setCopied(true);
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);

@@ -19,6 +19,7 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => confirmMock }));
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => navigateMock(...args),
+  HistoryAction: { Push: 'pushstate', Replace: 'replacestate' },
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">{to}</div>
 }));
 // The app's own locale id form, which `Intl` rejects as-is.
@@ -270,7 +271,11 @@ it('deletes only after confirming, then goes back', async () => {
     fireEvent.click(screen.getByTestId('contact-delete'));
   });
   expect(removeContactMock).toHaveBeenCalledWith('0xpaul');
-  expect(backMock).toHaveBeenCalled();
+  // A NAMED destination, not relative history: the write resolves after an unbounded await, and
+  // `back()` would traverse from wherever the user is by then. The contact is gone, so the address
+  // book is correct in every case.
+  expect(navigateMock).toHaveBeenCalledWith('/settings/address-book', 'replacestate');
+  expect(backMock).not.toHaveBeenCalled();
 });
 
 it('redirects to the address book for an unknown address or one of my accounts', () => {

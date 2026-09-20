@@ -16,7 +16,7 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { hapticLight } from 'lib/mobile/haptics';
 import { WalletContact } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
-import { navigate, Redirect } from 'lib/woozie';
+import { HistoryAction, navigate, Redirect } from 'lib/woozie';
 import { BridgeNetworkId } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 
@@ -137,7 +137,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
     return (
       <FlowLayout
         title={t('editContact')}
-        onBack={() => setEditing(false)}
+        // The error node below lives in THIS branch, so leaving edit mode mid-write destroys the
+        // only thing that can report a failure — restoring the silent failure the delete fix
+        // removed. Every other control here is gated on `busy`; this one has to be too.
+        onBack={() => {
+          if (!busy) setEditing(false);
+        }}
         footer={
           <Button
             title={t('saveContact')}
@@ -258,7 +263,11 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
         onDeleteFailed={() => setDeleting(false)}
         onDeleted={() => {
           setDeleted(true);
-          back();
+          // A NAMED destination, not `back()`. `back()` is relative history with a latch that
+          // re-arms on location change, so a delete that resolves after the user has moved on
+          // would traverse from wherever they are by then and overshoot by a screen. The contact
+          // is gone, so the address book is the correct destination in every case.
+          navigate(ADDRESS_BOOK_PATH, HistoryAction.Replace);
         }}
       />
     </div>
