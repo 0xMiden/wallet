@@ -42,6 +42,7 @@
 
 ### Fixes
 
+- [FIX][all] A transient RPC failure during the mandatory pre-send sync returns the transaction to the queue with a cooldown instead of marking it Failed before anything was built or submitted. (#822)
 - [CHORE][all] Development guidance now identifies the shared React bottom navigation as the active extension, mobile, and desktop implementation, so navigation changes no longer target the retired native overlay (#808).
 - [FIX][e2e] Balance helpers honor requested token symbols, and stress conservation tracks only the faucet deployed by the run so unrelated assets cannot create false loss or mask real loss (#770).
 - [FIX][all] **Keyboard focus no longer drops to the page when the Funding screen takes over the faucet card.** Activating the card from the keyboard replaced the button you had just pressed, so focus fell back to the start of the page. Focus now stays on the card while the Funding screen shows, and returns to the card's action if it ends without the card going away (#923).
