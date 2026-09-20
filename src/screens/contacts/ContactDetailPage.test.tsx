@@ -50,7 +50,8 @@ jest.mock('screens/send-flow/bridge-networks', () => ({
   BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
 }));
-jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: jest.fn().mockResolvedValue(undefined) } }));
+const clipboardWriteMock = jest.fn().mockResolvedValue(undefined);
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => clipboardWriteMock(...args) } }));
 jest.mock('utils/miden', () => ({
   detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
 }));
@@ -78,6 +79,21 @@ it('shows the full address, network and date, and sends to the contact', () => {
 
   fireEvent.click(screen.getByTestId('contact-send'));
   expect(navigateMock).toHaveBeenCalledWith('/send?to=0xpaul&network=sepolia');
+});
+
+it('copies the address through the shared CopyButton, not a private implementation', async () => {
+  render(<ContactDetailPage address="0xpaul" />);
+
+  // The row used to pass DetailRow a `{ label, onClick }` action backed by its own copied state and
+  // its own 1500ms constant. Asserting CopyButton's own node is what distinguishes the two: a test
+  // that only counted Clipboard.write calls passed either way.
+  const copy = screen.getByTestId('contact-copy');
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+
+  expect(clipboardWriteMock).toHaveBeenCalledWith({ string: '0xpaul' });
+  expect(copy.querySelector('[aria-live="polite"]')).not.toBeNull();
 });
 
 it('shows Miden for a Miden contact and sends without a network', () => {
