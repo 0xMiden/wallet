@@ -193,4 +193,17 @@ describe('ActivityGroupList', () => {
     expect(screen.queryByTestId('infinite-scroll')).toBeNull();
     expect(screen.getByTestId('activity-group-list')).toBeTruthy();
   });
+
+  it('draws the rows plain on the page, not as a card around the whole list', () => {
+    renderList([entry({ secondaryAddress: 'mtst1alice' }), entry({ txType: 'swap' })]);
+
+    const list = screen.getByTestId('activity-group-list');
+    // The `plain` surface: rows on the page's own margin, hairlines the full width of it.
+    expect(list).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    // None of the boxed surfaces: no rounded corner, no border, no grey fill.
+    expect(list).not.toHaveClass('rounded-2xl');
+    expect(list).not.toHaveClass('border');
+    expect(list).not.toHaveClass('bg-fill');
+    expect(list).not.toHaveClass('bg-page');
+  });
 });
