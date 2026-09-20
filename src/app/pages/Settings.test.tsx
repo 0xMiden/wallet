@@ -382,9 +382,8 @@ describe('Settings page — root menu (non-guardian)', () => {
     const { container } = render(<Settings tabSlug={null} />);
 
     expect(container.querySelector('header')!.className).toBe(referenceHeader);
-    // The hairline closes the band; the 4px grey rule that used to sit here is gone.
-    expect(container.querySelector('header')).toHaveClass('border-b', 'border-hairline');
-    expect(container.querySelector('header + .h-1')).toBeNull();
+    // The same 4px rule under it as Activity and Explore, drawn by the shared header.
+    expect(container.querySelector('header + div')).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
     // Settings does not filter, so the band is the title row alone.
     expect(screen.queryByRole('radiogroup')).toBeNull();
   });
