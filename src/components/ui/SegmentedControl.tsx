@@ -67,7 +67,10 @@ const segment = cva(
   [
     // `group` drives the bubble's pressed shadow; no overflow clip, or it would cut the shadow off.
     'group flex items-center justify-center rounded-full text-pill whitespace-nowrap',
-    'transition-colors duration-200 motion-reduce:transition-none',
+    // The label crossfades to white as the bubble arrives rather than switching under it:
+    // 280ms is `durations.normal`, the settle time of the `tabSwitch` spring the bubble rides.
+    // `motion-reduce` drops it to an instant swap, as the bubble's own transition does.
+    'transition-colors duration-280 motion-reduce:transition-none',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
     'disabled:cursor-default disabled:opacity-50'
   ],
@@ -85,11 +88,12 @@ const segment = cva(
       // the raised bubble that covers it, keeping the border transparent so the item's width —
       // and so the row — never shifts as the selection moves.
       //
-      // `pure-black` on the accent bubble, not white: white measures 3.0:1 there, which rule 6
-      // permits only at 19px bold (the CTA), and these labels are 14px. Black is 7.0:1, and the
-      // accent is the same colour in both themes, so one label colour serves both.
+      // White on the accent bubble. It measures 3.0:1, which rule 6 otherwise permits only at
+      // 19px bold — an accepted exception, Brian's call on the simulator (2026-09-20), recorded
+      // in design-system.md so it is not "fixed" later. `pure-black` (7.0:1) is what to go back
+      // to if it is ever reopened. The accent is one colour in both themes, so is the ratio.
       active: {
-        true: 'border border-transparent text-pure-black',
+        true: 'border border-transparent text-pure-white',
         false: 'border border-hairline bg-page text-ink'
       }
     },
@@ -163,8 +167,8 @@ function Segment<T extends string>({ item, active, focusable, size, layout, item
             </span>
           )}
           <span className="min-w-0 truncate">{item.label}</span>
-          {/* The count quiets to `muted` beside an `ink` label, but inherits on the accent bubble —
-              `muted` on the accent is 1.5:1. */}
+          {/* The count quiets to `muted` beside an `ink` label, but inherits the white on the
+              accent bubble — `muted` on the accent is 1.5:1 — and crossfades with it. */}
           {item.count !== undefined && (
             <span className={cn('tabular-nums', !active && 'text-muted')}>{item.count}</span>
           )}
@@ -185,8 +189,9 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
  * Its content pops as it lands and a press dips the item. One selection haptic per real change.
  * Under reduced motion the bubble moves instantly, nothing pops and a press does not scale.
  *
- * The label on that bubble is `pure-black` (7.0:1), never white (3.0:1, which rule 6 allows only
- * at 19px bold).
+ * The label on that bubble is `pure-white`, crossfading in on the bubble's own clock. That pair
+ * is 3.0:1 — an accepted exception to rule 6, chosen by the product owner and written down in
+ * design-system.md, not an oversight.
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
  * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
