@@ -2,6 +2,8 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { navigate } from 'lib/woozie';
@@ -28,6 +30,7 @@ import {
 export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, onDoneClick, onViewExplorer }) => {
   const { t } = useTranslation();
   const { amountText, feeText } = useReceiptAmount(transaction);
+  const nativeFaucetId = useMidenFaucetId();
   const isConsume = transaction?.type === 'consume';
   const destinationAddress = transaction?.secondaryAccountId;
   const recipient = destinationAddress ? truncateAddress(destinationAddress, false, 8, 8) : undefined;
@@ -74,8 +77,10 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       <SuccessSummaryPill
         lhs={amountText}
         rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient}
-        // A claim is money arriving: its arrow is the Receive green, not the Send blue.
-        fillForArrow={isConsume ? 'var(--action-receive)' : undefined}
+        // A claim carries the accent its own icon carries in Activity and on its detail page,
+        // not the Send blue: the received green, or the faucet's dusty rose when the note was
+        // minted by the faucet.
+        fillForArrow={isConsume ? claimAccentColor(transaction, nativeFaucetId) : undefined}
       />
       <ReceiptRows rows={rows} className="mt-6" />
     </TransactionSuccessLayout>

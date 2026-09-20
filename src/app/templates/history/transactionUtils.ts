@@ -319,6 +319,40 @@ export const TRANSACTION_COLORS = {
   faucet: '#CCA4B8'
 } as const;
 
+/**
+ * `isFaucetRequest` read off the transaction row instead of the history entry, for the two
+ * screens that hold an `ITransaction` and never build an entry — the summary badge and the
+ * receipt. The same three facts: a claim, of the native asset, whose sender is the faucet
+ * itself (`secondaryAccountId` is what History copies into the entry's `secondaryAddress`).
+ *
+ * `nativeFaucetId` is a parameter rather than `getNativeAssetIdSync()` because those screens
+ * take it from `useMidenFaucetId()`, which re-renders once discovery lands; `null` means "not
+ * known yet", so the claim reads as an ordinary one until it is — the same contract the badge's
+ * asset labels already follow.
+ */
+export const isFaucetMintTransaction = (
+  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
+  nativeFaucetId: string | null
+): boolean =>
+  transaction?.type === 'consume' &&
+  nativeFaucetId !== null &&
+  transaction.faucetId === nativeFaucetId &&
+  transaction.secondaryAccountId === nativeFaucetId;
+
+/**
+ * The accent a claim wears: the colour `getTransactionIconBackgroundColor` paints that same
+ * claim's glyph with, in Activity and on its detail page. A faucet mint takes the dusty rose;
+ * every other claim is money arriving from someone, in the received green.
+ *
+ * The summary badge's arrow sits directly under that glyph, so it asks this instead of naming
+ * the Receive action colour — which drew a green arrow beneath a rose icon on every faucet claim.
+ */
+export const claimAccentColor = (
+  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
+  nativeFaucetId: string | null
+): string =>
+  isFaucetMintTransaction(transaction, nativeFaucetId) ? TRANSACTION_COLORS.faucet : TRANSACTION_COLORS.receive;
+
 export const formatDate = (timestamp: number | string): string => {
   let date: Date;
 

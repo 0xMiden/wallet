@@ -137,7 +137,9 @@ describe('useTransactionSummaryBadgeContent', () => {
     return (
       <div data-testid="out">
         <span data-testid="lhs">{content.lhs}</span>
-        <TransactionSummaryBadge lhs={content.lhs} rhs={content.rhs} />
+        {/* `fillForArrow` forwarded, like every real caller does: the arrow's colour is part of
+            what the hook decides, and the rendered rect is where a wrong one shows up. */}
+        <TransactionSummaryBadge lhs={content.lhs} rhs={content.rhs} fillForArrow={content.fillForArrow} />
       </div>
     );
   };
@@ -170,6 +172,51 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
     expect(container.textContent).toContain('Consumed');
+    act(() => root.unmount());
+  });
+
+  // The arrow sits directly under the transaction's own icon on the detail page, so it takes
+  // that icon's colour. A claim from another account is the received green; a faucet mint is
+  // the dusty rose `TransactionIcon` gives it, which the Receive action green used to contradict
+  // on the very same screen.
+  it("paints an ordinary claim's arrow with the received green", async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1', secondaryAccountId: 'someone-else' })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
+    act(() => root.unmount());
+  });
+
+  it("paints a faucet mint's arrow with the faucet rose its icon carries", async () => {
+    mockNativeAssetId = 'faucet-native';
+    mockState.assetsMetadata = { 'faucet-native': { symbol: 'MIDEN', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 7n,
+        faucetId: 'faucet-native',
+        // The faucet minted it and sent it to itself's owner: sender IS the faucet.
+        secondaryAccountId: 'faucet-native'
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('#CCA4B8');
+    act(() => root.unmount());
+  });
+
+  // Before discovery lands the wallet cannot tell a faucet mint from any other claim, so it
+  // reads as the ordinary one rather than guessing the rose.
+  it('leaves a claim green while the native faucet id is still unknown', async () => {
+    mockNativeAssetId = null;
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 7n,
+        faucetId: 'faucet-native',
+        secondaryAccountId: 'faucet-native'
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
     act(() => root.unmount());
   });
 

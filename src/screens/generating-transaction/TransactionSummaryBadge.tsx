@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -264,7 +265,9 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: parts.join(', '),
         rhs: t('consumed', { defaultValue: 'Consumed' }),
-        fillForArrow: 'var(--action-receive)'
+        // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
+        // dusty rose on this very page, and the arrow used to sit green underneath it.
+        fillForArrow: claimAccentColor(transaction, nativeFaucetId)
       };
     }
 

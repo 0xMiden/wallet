@@ -202,6 +202,32 @@ describe('TransactionSuccess', () => {
     // The summary pill's right side reads "Consumed" instead of an address.
     expect(container.textContent).toContain('Consumed');
     expect(container.textContent).toContain('Transaction ID');
+    // And its arrow is the received green — the colour this claim's icon carries in Activity
+    // and on its detail page — not the Send blue and not the Receive action's own token.
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
+
+    act(() => root.unmount());
+  });
+
+  // The receipt shows the same claim the detail page does, so it reaches the same conclusion
+  // about its colour: a note minted by the faucet wears the dusty rose, not the green.
+  it("paints a faucet mint's receipt arrow with the faucet rose", async () => {
+    mockNativeAssetId = 'faucet-native';
+    mockState.assetsMetadata = { 'faucet-native': { symbol: 'MIDEN', decimals: 6 } };
+
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 5n,
+          faucetId: 'faucet-native',
+          secondaryAccountId: 'faucet-native'
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.querySelector('rect')?.style.fill).toBe('#CCA4B8');
 
     act(() => root.unmount());
   });
