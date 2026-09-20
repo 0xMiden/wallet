@@ -120,7 +120,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         value={fileName}
         label={t('name')}
         onChange={onFileNameChange}
-        trailing={<span className="font-sans text-base text-muted">{EXTENSION}</span>}
+        trailing={<span className="text-body text-muted">{EXTENSION}</span>}
         onKeyDown={handleNameInputTab}
         tabIndex={0}
         autoFocus
@@ -155,7 +155,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         />
         <p
           className={classNames(
-            'h-4 px-1 font-sans text-[13px] text-positive-ink',
+            'h-4 px-1 text-caption text-positive-ink',
             isValidPassword && passwordValue === verifyPassword ? 'block' : 'hidden'
           )}
         >
@@ -163,7 +163,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         </p>
         <p
           className={classNames(
-            'h-4 px-1 font-sans text-[13px] text-negative-ink',
+            'h-4 px-1 text-caption text-negative-ink',
             verifyPassword.length >= passwordValue.length && passwordValue !== verifyPassword ? 'block' : 'hidden'
           )}
         >

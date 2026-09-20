@@ -3,12 +3,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
+import { Notice } from 'components/ui/Notice';
 import { SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { Vault } from 'lib/miden/back/vault';
@@ -178,19 +178,18 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
         onClick={() => setConfirmed(!confirmed)}
       >
         <CheckboxIndicator checked={confirmed} />
-        <span className="cursor-pointer font-sans text-sm text-ink">{t('encryptedWalletFileConfirmation')}</span>
+        <span className="text-body text-ink">{t('encryptedWalletFileConfirmation')}</span>
       </button>
 
       {!hasHardwareProtector && isDisabled && (
-        <Alert
-          type="error"
-          title={t('error')}
-          description={`${t('unlockPasswordErrorDelay')} ${timeleft}`}
-          className="rounded-2xl"
-        />
+        <Notice tone="negative" role="alert" title={t('error')}>
+          {`${t('unlockPasswordErrorDelay')} ${timeleft}`}
+        </Notice>
       )}
       {hasHardwareProtector && errors.password && (
-        <Alert type="error" title={t('error')} description={errors.password.message || ''} className="rounded-2xl" />
+        <Notice tone="negative" role="alert" title={t('error')}>
+          {errors.password.message || ''}
+        </Notice>
       )}
 
       {usePasscodeEntry ? (
