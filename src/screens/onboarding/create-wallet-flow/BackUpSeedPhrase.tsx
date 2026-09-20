@@ -1,5 +1,6 @@
-import React, { HTMLAttributes, useCallback, useEffect, useState } from 'react';
+import React, { HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -27,27 +28,49 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   // The words are only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard();
 
-  const onCopyToClipboard = useCallback(() => {
-    navigator.clipboard.writeText(seedPhrase.join(' '));
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+      clearTimeout(copiedTimer.current);
+    },
+    []
+  );
+
+  // Report "Copied" only once the write has landed. This is the recovery phrase: telling the user
+  // it is on the clipboard when the write was refused is the one lie this screen must not tell.
+  const onCopyToClipboard = useCallback(async () => {
+    try {
+      await Clipboard.write({ string: seedPhrase.join(' ') });
+    } catch {
+      return; // The words are on screen to copy by hand.
+    }
+    if (!mountedRef.current) return;
     setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+    clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setIsCopied(false), 2000);
   }, [seedPhrase]);
 
   const onWordsVisibilityToggle = useCallback(() => {
     setIsWordsVisible(prev => !prev);
   }, []);
 
+  // The handler must be the SAME reference on the way out: the cleanup used to pass a freshly
+  // allocated arrow, which matches nothing, so this listener stayed on `document` for the life of
+  // the realm and one more was added per mount. Since it rewrites the clipboard payload to letters
+  // and spaces and calls preventDefault(), a leaked copy of it silently mangled every later
+  // select-and-copy in the app — an address or a transaction id included.
   useEffect(() => {
-    document.addEventListener('copy', event => {
+    const onDocumentCopy = (event: ClipboardEvent) => {
       const selectedText = window.getSelection()?.toString();
       const formattedText = selectedText?.replace(/[^a-zA-Z\s]/g, '').replace(/\s+/g, ' ');
       event.clipboardData?.setData('text/plain', formattedText || '');
       event.preventDefault(); // Prevent the default copy action
-    });
-
-    return () => {
-      document.removeEventListener('copy', () => {});
     };
+
+    document.addEventListener('copy', onDocumentCopy);
+    return () => document.removeEventListener('copy', onDocumentCopy);
   }, []);
 
   return (
@@ -97,7 +120,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
           variant={ButtonVariant.Ghost}
           title={t(isCopied ? 'copied' : 'copyToClipboard')}
           iconLeft={isCopied ? IconName.CheckboxCircleFill : IconName.FileCopy}
-          onClick={onCopyToClipboard}
+          onClick={() => void onCopyToClipboard()}
         />
       </div>
 

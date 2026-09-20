@@ -71,13 +71,12 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// jsdom exposes no `navigator.clipboard`; install a spy so `onCopyToClipboard`
-// can be verified.
+// The seed copy goes through `@capacitor/clipboard`, which has its own web implementation, so the
+// same call is correct on desktop, the extension and every mobile webview.
 const mockWriteText = jest.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  value: { writeText: mockWriteText },
-  configurable: true
-});
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: ({ string }: { string: string }) => mockWriteText(string) }
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -116,6 +115,7 @@ const dispatchCopy = ({
 
 beforeEach(() => {
   mockWriteText.mockClear();
+  mockWriteText.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -210,13 +210,15 @@ describe('BackUpSeedPhraseScreen', () => {
   });
 
   describe('copy to clipboard', () => {
-    it('writes the space-joined seed phrase and flips the button to the "copied" state', () => {
+    it('writes the space-joined seed phrase and flips the button to the "copied" state', async () => {
       renderComponent();
 
       const copyBtn = screen.getByTestId('btn-copyToClipboard');
       expect(copyBtn).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
 
-      fireEvent.click(copyBtn);
+      await act(async () => {
+        fireEvent.click(copyBtn);
+      });
 
       expect(mockWriteText).toHaveBeenCalledTimes(1);
       expect(mockWriteText).toHaveBeenCalledWith(SEED.join(' '));
@@ -225,11 +227,13 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(copied).toHaveAttribute('data-icon', 'ICON_CHECK');
     });
 
-    it('reverts to the default copy state after the 2s timeout', () => {
+    it('reverts to the default copy state after the 2s timeout', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
       expect(screen.getByTestId('btn-copied')).toBeInTheDocument();
 
       act(() => {
@@ -241,11 +245,13 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(screen.getByTestId('btn-copyToClipboard')).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
     });
 
-    it('stays in the copied state before the timeout elapses', () => {
+    it('stays in the copied state before the timeout elapses', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
 
       act(() => {
         jest.advanceTimersByTime(1999);

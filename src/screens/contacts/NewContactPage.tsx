@@ -123,7 +123,13 @@ export const NewContactPage: React.FC = () => {
     <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="contact-new">
       <FlowLayout
         title={t('newContact')}
-        onBack={back}
+        // `back` is claim-gated once per location, and `save()` calls it again when the write
+        // lands. A tap while the save is in flight consumes the claim AND navigates, which resets
+        // the claim — so the save's own `back()` then fires a second time and overshoots by a
+        // screen. The save navigates on completion regardless, so ignore the tap while it runs.
+        onBack={() => {
+          if (!saving) back();
+        }}
         footer={
           <Button
             title={t('addContact')}

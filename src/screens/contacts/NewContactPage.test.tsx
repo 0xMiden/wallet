@@ -22,8 +22,9 @@ jest.mock('react-i18next', () => ({
   })
 }));
 jest.mock('components/flow/FlowLayout', () => ({
-  FlowLayout: ({ title, children, footer }: any) => (
+  FlowLayout: ({ title, onBack, children, footer }: any) => (
     <div>
+      <button type="button" onClick={onBack} data-testid="flow-back" />
       <h1>{title}</h1>
       {children}
       {footer}
@@ -206,4 +207,30 @@ describe('TextField layout', () => {
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(field).toHaveAttribute('aria-describedby', alert.id);
   });
+});
+
+it('ignores the header back while the save is in flight, so the save navigates exactly once', async () => {
+  let resolveSave: () => void = () => undefined;
+  addContactMock.mockReturnValueOnce(
+    new Promise<void>(resolve => {
+      resolveSave = resolve;
+    })
+  );
+  render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paul' } });
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('address-book-add-contact'));
+  });
+
+  // `back` is claim-gated once per location. A tap here would navigate AND reset the claim, so the
+  // save's own back() would fire again and overshoot by a screen.
+  fireEvent.click(screen.getByTestId('flow-back'));
+  expect(backMock).not.toHaveBeenCalled();
+
+  await act(async () => {
+    resolveSave();
+  });
+  expect(backMock).toHaveBeenCalledTimes(1);
 });
