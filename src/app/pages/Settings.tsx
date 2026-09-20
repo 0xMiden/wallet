@@ -27,7 +27,7 @@ import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
-import { TabHeader } from 'components/ui/TabHeader';
+import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -517,10 +517,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
         )
       ) : (
         // Settings root is a primary tab destination, so it wears the same
-        // header as Activity and Explore: a plain title, no back chevron.
-        // Sub-pages above keep PageHeader — that back arrow is their only
-        // way out.
-        <TabHeader title={t('settings')} />
+        // header as Activity and Explore — the shared `TabRootHeader`, here
+        // without a filter row: a plain title, no back chevron. Sub-pages above
+        // keep PageHeader — that back arrow is their only way out.
+        <TabRootHeader title={t('settings')} />
       )}
 
       {/* Sibling sub-pages share a layout, so key their scrollers to prevent
@@ -562,7 +562,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
         ) : (
           // pb-22 reserves space at the bottom so the last row can scroll above
           // the React BottomNav.
-          <div className="flex w-full flex-col gap-5 px-4 pt-3 pb-22">
+          // `pt-2` matches the gap Activity and Explore leave under the header band.
+          <div className="flex w-full flex-col gap-5 px-4 pt-2 pb-22">
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header

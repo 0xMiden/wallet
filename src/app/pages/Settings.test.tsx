@@ -7,6 +7,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
 
+import { TabRootHeader } from 'components/ui/TabRootHeader';
+
 import { PRIVACY_POLICY_URL } from '../constants';
 // Import the component under test AFTER the mocks are declared.
 import Settings from './Settings';
@@ -363,11 +365,28 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 
-    // The root wears the same TabHeader as Activity and Explore — a plain
+    // The root wears the same TabRootHeader as Activity and Explore — a plain
     // heading, not the sub-page PageHeader.
     expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
     expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
+  });
+
+  // The Settings half of the tab-root parity check; Activity's and Explore's is
+  // `TabRootHeaderParity.test.tsx`, which compares against this same reference band.
+  it('draws the shared tab-root band, class for class, with no filter row of its own', () => {
+    const reference = render(<TabRootHeader title="settings" />);
+    const referenceHeader = reference.container.querySelector('header')!.className;
+    reference.unmount();
+
+    const { container } = render(<Settings tabSlug={null} />);
+
+    expect(container.querySelector('header')!.className).toBe(referenceHeader);
+    // The hairline closes the band; the 4px grey rule that used to sit here is gone.
+    expect(container.querySelector('header')).toHaveClass('border-b', 'border-hairline');
+    expect(container.querySelector('header + .h-1')).toBeNull();
+    // Settings does not filter, so the band is the title row alone.
+    expect(screen.queryByRole('radiogroup')).toBeNull();
   });
 
   it('gives the root no back affordance, since it is a tab destination', () => {
