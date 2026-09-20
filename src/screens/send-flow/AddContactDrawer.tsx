@@ -57,6 +57,10 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved,
         addedAt: Date.now(),
         ...(isEvm ? { network } : {})
       });
+      // Raise and lower in the same function. `onSaved` closes the sheet through the raw prop, and
+      // the flag lives in the PARENT, which outlives this body and survives close/reopen - so a
+      // success that does not lower it left the sheet permanently undismissable.
+      onBusyChange(false);
       onSaved();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
