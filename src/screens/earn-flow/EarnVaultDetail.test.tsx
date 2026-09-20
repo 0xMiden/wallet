@@ -274,7 +274,7 @@ describe('EarnVaultDetail', () => {
 
     expect(radio('1M')).toHaveAttribute('aria-checked', 'true');
     expect(radio('1D')).toHaveAttribute('aria-checked', 'false');
-    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised');
+    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary');
 
     fireEvent.click(radio('1D'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);

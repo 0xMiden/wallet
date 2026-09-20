@@ -324,7 +324,7 @@ describe('EarnPositionDetail', () => {
 
     expect(radio('1M')).toHaveAttribute('aria-checked', 'true');
     ['1D', '1W', 'All'].forEach(label => expect(radio(label)).toHaveAttribute('aria-checked', 'false'));
-    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised');
+    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary');
 
     fireEvent.click(radio('1W'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);

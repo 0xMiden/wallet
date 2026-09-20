@@ -175,10 +175,10 @@ describe('AllHistory', () => {
     expect(row).toHaveClass('px-4', 'py-1.5');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
     expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'false');
-    // The selection rides the bottom nav's raised white bubble, never a solid accent pill (white
-    // on the brand orange is 3.0:1); the rest are outlined pills on the page.
-    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-raised', 'shadow-raised');
-    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-ink');
+    // The selection rides the bottom nav's raised bubble in the brand accent, with a `pure-black`
+    // label (7.0:1; white on it would be 3.0:1); the rest are outlined pills on the page.
+    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-primary', 'shadow-raised');
+    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-pure-black');
     expect(bubbleIn(getFilterButton('sent'))).toBeNull();
     expect(getFilterButton('sent')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
   });

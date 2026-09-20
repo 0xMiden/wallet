@@ -138,12 +138,12 @@ it('draws Activity, Explore and the shared component as one band, class for clas
   expect(ref.row).toHaveClass('overflow-x-auto', 'px-4', 'py-1.5');
   expect(ref.row.className).not.toMatch(/(^|\s)bg-/);
 
-  // Every item is an outlined pill; the selected one carries the bottom nav's raised bubble over
-  // a transparent border of the same width, never a solid accent pill.
+  // Every item is an outlined pill; the selected one carries the bottom nav's raised bubble,
+  // filled with the accent, over a transparent border of the same width.
   const bubble = (item: HTMLElement) => item.querySelector('[data-slot="motion-highlight"]');
-  expect(bubble(ref.selected)).toHaveClass('bg-raised', 'shadow-raised');
+  expect(bubble(ref.selected)).toHaveClass('bg-accent-primary', 'shadow-raised');
   expect(bubble(ref.unselected)).toBeNull();
-  expect(ref.selected).toHaveClass('h-10', 'rounded-full', 'border', 'border-transparent', 'text-ink');
+  expect(ref.selected).toHaveClass('h-10', 'rounded-full', 'border', 'border-transparent', 'text-pure-black');
   expect(ref.unselected).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
 
   ref.unmount();

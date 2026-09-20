@@ -54,8 +54,10 @@ it('owns how the filter row looks: the page passes items and a selection, nothin
   const rest = screen.getByRole('radio', { name: 'Sent' });
 
   expect(selected).toHaveAttribute('aria-checked', 'true');
-  // The bottom nav's raised bubble over the selection; an outlined pill for everything else.
-  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised', 'shadow-raised');
+  // The bottom nav's raised bubble over the selection, filled with the accent and carrying a
+  // `pure-black` label; an outlined pill for everything else.
+  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary', 'shadow-raised');
+  expect(selected).toHaveClass('text-pure-black');
   expect(selected).not.toHaveClass('text-pure-white');
   expect(rest.querySelector('[data-slot="motion-highlight"]')).toBeNull();
   expect(rest).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
