@@ -199,3 +199,34 @@ describe('es locale parity with en (#469)', () => {
     }
   });
 });
+
+// Chrome parses `public/_locales/<loc>/messages.json` itself, before a line of the
+// extension runs, and REJECTS THE WHOLE EXTENSION when a `$name$` in `message` has
+// no matching `placeholders` entry:
+//
+//   Failed to load extension from: <dist>. Variable $tvl$ used but not defined.
+//
+// The unpacked extension then never loads, so Playwright's `--load-extension`
+// persistent context never comes up and every blockchain spec dies at
+// `browserType.launchPersistentContext: Timeout 180000ms exceeded` before any
+// assertion runs — on every PR stacked above the one that added the key, reading
+// like CI infrastructure flake rather than a one-line locale defect. `tsc`, jest and
+// `yarn lint:i18n` (which lints `src`, not `public/_locales`) are all blind to it;
+// this is the only gate that sees it.
+describe('Chrome i18n placeholder declarations', () => {
+  const ALL_LOCALES = fs
+    .readdirSync(LOCALES_DIR)
+    .filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
+
+  it.each(ALL_LOCALES)('%s declares every $placeholder$ its messages use', locale => {
+    const undeclared: string[] = [];
+    for (const [key, entry] of Object.entries(loadMessages(locale))) {
+      // Chrome matches placeholder names case-insensitively.
+      const declared = new Set(Object.keys(entry.placeholders ?? {}).map(name => name.toLowerCase()));
+      for (const [, name] of entry.message.matchAll(/\$([A-Za-z0-9_]+)\$/g)) {
+        if (!declared.has(name!.toLowerCase())) undeclared.push(`${key}: $${name}$`);
+      }
+    }
+    expect(undeclared).toEqual([]);
+  });
+});
