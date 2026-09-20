@@ -59,18 +59,18 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
-        // Miden patch: native navbar overlay window. Render the wallet's
-        // bottom navbar as a UIVisualEffectView+UIButtons in its own
-        // UIWindow at .normal+200 so it can paint over (and capture
-        // taps from) the dApp WKWebView at .normal+100. While the
-        // overlay is visible the React-side navbar is hidden via CSS.
+        // Miden patch: retained native navbar overlay API. A caller can render a
+        // UIVisualEffectView+UIButtons in a UIWindow at .normal+200 so
+        // it can paint over (and capture taps from) the dApp WKWebView
+        // at .normal+100. The wallet frontend currently uses React
+        // BottomNav and does not call these methods.
         CAPPluginMethod(name: "showNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hideNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setNativeNavbarActive", returnType: CAPPluginReturnPromise),
         // setNavbarSecondaryRow grows / shrinks the navbar pill to add
-        // a second row of quick-action buttons above the main nav row
-        // (e.g. Send / Receive on the Home tab). Pass an empty items
-        // array to collapse the row back into a single-row pill.
+        // a second row of quick-action buttons above the main nav row.
+        // Pass an empty items array to collapse the row back into a
+        // single-row pill.
         CAPPluginMethod(name: "setNavbarSecondaryRow", returnType: CAPPluginReturnPromise),
         // Miden patch: navbar compact mode with primary action button.
         // setNavbarAction switches the navbar to compact mode where
@@ -80,9 +80,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setNavbarAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearNavbarAction", returnType: CAPPluginReturnPromise),
         // morphNavbarOut slides the pill down off-screen on a spring;
-        // morphNavbarIn reverses it. Used when a bottom-sheet drawer
-        // is presented and the navbar would otherwise fight with it
-        // for the bottom of the viewport.
+        // morphNavbarIn reverses it, for a caller presenting a
+        // bottom-sheet drawer that would otherwise fight the pill for
+        // the bottom of the viewport.
         CAPPluginMethod(name: "morphNavbarOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "morphNavbarIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
@@ -830,14 +830,15 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 let x = CGFloat(xPos ?? 0)
                 let y = CGFloat(yPos ?? 0)
                 // The dApp lives in its own UIWindow at .normal+100,
-                // a plain UIWindow now. The wallet's bottom navbar is
-                // rendered as a *separate* native overlay window at
-                // .normal+200 (see MidenNavbarOverlayWindow + the
-                // showNativeNavbar plugin method) so the dApp WKWebView
-                // can fill this window's full height without any
-                // mask / passthrough trickery — the navbar window is
-                // higher in the window stack, so iOS handles both
-                // visual compositing and hit-testing natively.
+                // a plain UIWindow. A caller using the retained navbar
+                // overlay API gets a *separate* window at .normal+200
+                // (see MidenNavbarOverlayWindow + the showNativeNavbar
+                // plugin method), so this WKWebView can fill its own
+                // window's full height without any mask / passthrough
+                // trickery — the overlay window is higher in the stack,
+                // so iOS handles both visual compositing and
+                // hit-testing natively. The wallet frontend does not
+                // currently call it; its navigation is React BottomNav.
                 let window = UIWindow(windowScene: scene)
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
                 window.windowLevel = UIWindow.Level.normal + 100
@@ -1315,12 +1316,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - Native navbar overlay
     //
-    // The navbar overlay is a singleton MidenNavbarOverlayWindow stored
-    // here as a static so it survives across plugin instances. The
-    // wallet calls showNativeNavbar exactly once when it enters the
-    // active dApp state and hideNativeNavbar when it leaves. The active
-    // item is updated via setNativeNavbarActive without rebuilding the
-    // window.
+    // The retained navbar overlay is a singleton MidenNavbarOverlayWindow
+    // stored here as a static so it survives across plugin instances.
+    // A caller shows and hides it through the plugin API, and updates the
+    // active item via setNativeNavbarActive without rebuilding the window.
+    // The wallet frontend does not currently call these methods.
     private static var navbarOverlay: MidenNavbarOverlayWindow?
 
     @objc func setNavbarAction(_ call: CAPPluginCall) {

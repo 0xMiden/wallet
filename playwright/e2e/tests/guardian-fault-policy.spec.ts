@@ -262,4 +262,38 @@ test.describe('applyGuardianFaultAction', () => {
     expect(body.meta.retryable).toBe(true);
     expect(/paused/i.test(call.body)).toBe(false);
   });
+
+  // A request that still reaches the guardian (unfaulted, or only delayed) goes out through `passThrough`, which is
+  // where settlement tracking observes it; a request the fault answers or aborts must never get there.
+  test('continue action hands the request to passThrough instead of route.continue()', async () => {
+    const route = makeFakeRoute(DELTA_A);
+    let passedThrough = 0;
+    await applyGuardianFaultAction(route, { kind: 'continue' }, async () => {
+      passedThrough++;
+    });
+    expect(passedThrough).toBe(1);
+    expect(route.continueCalls).toBe(0);
+  });
+
+  test('delay action hands the request to passThrough after the delay', async () => {
+    const route = makeFakeRoute(DELTA_A);
+    let passedThroughAfterMs = -1;
+    const start = Date.now();
+    await applyGuardianFaultAction(route, { kind: 'delay', delayMs: 30 }, async () => {
+      passedThroughAfterMs = Date.now() - start;
+    });
+    expect(passedThroughAfterMs).toBeGreaterThanOrEqual(25); // small slack for timer jitter
+    expect(route.continueCalls).toBe(0);
+  });
+
+  for (const kind of ['abort', 'fulfill500', 'fulfillConflictPendingDelta'] as const) {
+    test(`${kind} action never reaches passThrough`, async () => {
+      const route = makeFakeRoute(DELTA_A);
+      let passedThrough = 0;
+      await applyGuardianFaultAction(route, { kind }, async () => {
+        passedThrough++;
+      });
+      expect(passedThrough).toBe(0);
+    });
+  }
 });

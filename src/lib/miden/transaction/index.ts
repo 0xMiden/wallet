@@ -64,6 +64,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { bridgeProviderOf } from './retry';
+import { isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
@@ -257,6 +258,11 @@ const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 // the prover recovers. Kept a bit longer than the pending-conflict cooldown to
 // avoid hammering a downed prover; MAX_QUEUED_AGE stays the terminal cap.
 const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
+
+// Cooldown (seconds) applied after an ordinary pre-send sync failure. It matches
+// the sync circuit breaker's first backoff window: long enough not to hammer a
+// temporarily inconsistent RPC pool, while MAX_QUEUED_AGE remains the terminal cap.
+const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
 // used only when the guardian didn't send a `retry_after_secs`. The guardian
@@ -952,14 +958,55 @@ const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<v
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  useWorker: boolean = true,
+  guardianProvider: GuardianAccountProvider
+) => {
+  let getAccounts = guardianProvider.getAccounts;
+  if (guardianProvider.prepareRecoveryTransaction) {
+    const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
+    if (!preparation.ready) return;
+    const { coldPublicKey } = preparation;
+    if (coldPublicKey) {
+      // A hot-key-only import stores no cold public key. The seed prompt derived
+      // one for this transaction; hand it to the cold-signing builders in memory
+      // only, for this run, and never write it to the account record.
+      getAccounts = async () =>
+        (await guardianProvider.getAccounts()).map(account =>
+          !account.coldPublicKey && sameWalletAccountId(account.publicKey, transaction.accountId)
+            ? { ...account, coldPublicKey }
+            : account
+        );
+    }
+  }
+  const provider: GuardianAccountProvider = {
+    ...guardianProvider,
+    getAccounts,
+    signWord: (publicKey, wordHex) => guardianProvider.signWord(publicKey, wordHex, transaction.id)
+  };
+  try {
+    await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
+  } finally {
+    // Never let the release become the pipeline's outcome. On mobile and desktop
+    // this is an intercom round trip (store/index.ts), so it can reject; thrown
+    // from `finally` it would replace the generate's own result or error AND
+    // skip the clearing, stranding the derived cold key with its idle timer
+    // already disarmed by beginRecoveryAuthorization.
+    await guardianProvider
+      .releaseRecoveryAuthorization?.(transaction.id)
+      .catch(e => console.warn('[generateTransaction] recovery authorization release failed:', e));
+  }
+};
+
+const generateTransactionWithProvider = async (
+  transaction: Transaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   _useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
-  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
-  // catch block which cancels the transaction — this is intentional fail-fast behavior,
-  // since the transaction can't be submitted without network anyway
+  // Errors propagate to the loop, which requeues ordinary transient failures
+  // while preserving the terminal handling for abandoned operations.
   await setTransactionStage(transaction.id, 'syncing');
   await syncUnderBoundedLock();
 
@@ -3000,7 +3047,9 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(tx => tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now);
+  const nextTransaction = queuedTransactions.find(
+    tx => !tx.awaitingRecoverySeed && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
+  );
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
@@ -3041,6 +3090,40 @@ export const generateTransactionsLoop = async (
     // offscreen deadline arrives as `OperationAbortedError` from the identical
     // point and is equally still running (`cancel.ts` treats the two as one class).
     const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+
+    // The initial sync is the only pipeline step that runs while the committed
+    // row is still Queued at `syncing`. An ordinary failure at that boundary is
+    // strictly pre-build for every transaction type, so defer it instead of
+    // turning a transient RPC error into a terminal failure. Re-read the row:
+    // `nextTransaction` predates the stage stamp, and a concurrent user cancel
+    // must win over this retry. Abandoned operations remain on the existing kill
+    // path even here, since they may still be running after their caller rejects.
+    // A permanent rejection cannot succeed on retry, so deferring it only spends the 30-minute
+    // MAX_QUEUED_AGE budget on ~60 lock-held syncs and then reports the generic expiry instead of
+    // the node's own answer. `notes.ts` already carves the same predicate out of its transient set
+    // for the same reason, after a permanent 400 burned ~288 retries there.
+    const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
+    if (
+      !abandoned &&
+      !isLockedError(e) &&
+      !isPermanentHttpRejection(e) &&
+      currentRow?.status === ITransactionStatus.Queued &&
+      currentRow.stage === 'syncing'
+    ) {
+      logger.warning('Pre-send sync failed; requeueing transaction for a later cycle');
+      try {
+        await requeueTransactionForRetry(
+          nextTransaction.id,
+          nextTransaction.type,
+          'syncing',
+          SYNC_FAILURE_REQUEUE_COOLDOWN_SEC
+        );
+      } catch (requeueError) {
+        logger.warning('Failed to requeue transaction after pre-send sync failure', requeueError);
+      }
+      return false;
+    }
+
     if (!abandoned && isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to

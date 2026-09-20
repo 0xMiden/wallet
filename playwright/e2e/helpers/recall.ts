@@ -27,6 +27,7 @@
  * "offset", or they are asserting a field that does not exist.
  */
 import type { Page } from '@playwright/test';
+import { IS_LOCALNET } from '../config/environments';
 
 /** ITransactionStatus.Completed — see src/lib/miden/db/types.ts. */
 export const COMPLETED = 2;
@@ -72,8 +73,11 @@ export async function armRecallBlocks(page: Page, blocks: number | null): Promis
   }, blocks);
 }
 
-/** True only on the hermetic local stack, whose block cadence this process configures. */
-export const IS_LOCALNET = process.env.E2E_NETWORK === 'localhost';
+/**
+ * True only on the hermetic local stack, whose block cadence this process
+ * configures. Re-exported, not re-derived: config/environments.ts owns it.
+ */
+export { IS_LOCALNET };
 
 /**
  * Convert a wall-clock recall window into a blocks offset — LOCALNET ONLY.

@@ -158,13 +158,20 @@ function withHexPrefix(value: string): string {
 }
 
 async function createGuardianClientContext(account: WalletAccount): Promise<GuardianClientContext> {
-  if (!account.coldPublicKey) {
+  // Prefer the cold key when the account has one (seed-based recovery). A
+  // hot-key-only import carries no cold key at all — its note recovery signs
+  // with the hot key instead, which the guardian accepts for these read
+  // endpoints exactly as it does for the everyday proposal flow
+  // (`front/guardian-manager` binds MultisigService to the hot signer).
+  const useCold = Boolean(account.coldPublicKey);
+  const signerPublicKey = useCold ? account.coldPublicKey : account.hotPublicKey;
+  if (!signerPublicKey) {
     throw new Error(`Recovered Guardian account ${account.publicKey} is missing its cold public key`);
   }
   const commitment = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
     if (!sdkAccount) throw new Error(`Recovered Guardian account ${account.publicKey} is unavailable locally`);
-    const details = await getSignerDetailsFromAccount(sdkAccount, true);
+    const details = await getSignerDetailsFromAccount(sdkAccount, useCold);
     return details.commitment;
   });
 
@@ -173,8 +180,8 @@ async function createGuardianClientContext(account: WalletAccount): Promise<Guar
   const guardian = new GuardianHttpClient(guardianEndpoint);
   guardian.setSigner(
     // Resolved per signature, never captured: a lock landing mid-run must stop
-    // the cold key from signing anything further.
-    new WalletSigner(withHexPrefix(account.coldPublicKey), withHexPrefix(commitment), (publicKey, wordHex) => {
+    // the signing key from signing anything further.
+    new WalletSigner(withHexPrefix(signerPublicKey), withHexPrefix(commitment), (publicKey, wordHex) => {
       const vault = liveVault();
       if (!vault) throw new Error('Wallet is locked: refusing to sign a Guardian recovery request');
       return vault.signWord(publicKey, wordHex);

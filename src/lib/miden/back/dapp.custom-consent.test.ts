@@ -106,9 +106,17 @@ jest.mock('./simulate-custom-tx', () => ({
  * reaches the user, so the view is supplied directly.
  */
 const mockSummaryBytesToView = jest.fn();
-jest.mock('app/confirm/decode', () => ({
-  summaryBytesToView: (...args: unknown[]) => mockSummaryBytesToView(...args)
-}));
+jest.mock('app/confirm/decode', () => {
+  const actual = jest.requireActual('app/confirm/decode');
+  return {
+    ...actual,
+    // The dry run's shape selector is stubbed to the summary decoder this suite already drives:
+    // WHICH shape arrives is decode.test.ts's subject, and what reaches the user is this file's.
+    // `netOutflowByFaucet` stays real so the per-faucet netting is exercised here too.
+    simulatedBytesToView: (result: { summaryBytes?: string }) =>
+      result.summaryBytes === undefined ? undefined : mockSummaryBytesToView(result.summaryBytes)
+  };
+});
 
 const mockReleaseNoteIds = jest.fn(async () => undefined);
 jest.mock('lib/miden/note-quarantine', () => ({

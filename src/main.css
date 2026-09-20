@@ -369,7 +369,10 @@ body[data-hide-navbar]::after {
   right: 0;
   bottom: 0;
   left: 0;
-  height: max(16px, env(safe-area-inset-bottom));
+  /* The same floor mobile.html declares. The fallback is load-bearing: this rule is global
+   * and the stylesheet ships on every entry page, while the property is declared on the
+   * mobile page only. */
+  height: var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)));
   background-color: var(--color-app-bg);
   pointer-events: none;
 }
@@ -404,6 +407,20 @@ body[data-hide-navbar]::after {
     /* Design system tokens (Foundations + Typography + Radius/Spacing) */
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
+    /* Per-action accents: each home action (Send, Receive, Earn, Swap) keeps its
+     * icon color as the highlight color of its own flow: back arrows, chevrons,
+     * links, selected states. The primary CTA stays --accent-primary. Tints are
+     * the accent at 12% pre-blended over the page, solid like the other fills. */
+    --accent-send: #91acc1;
+    --accent-send-tint: #f2f5f8;
+    --accent-receive: #99ac94;
+    --accent-receive-tint: #f3f5f2;
+    --accent-earn: #777487;
+    --accent-earn-tint: #efeef1;
+    --accent-swap: #beacd2;
+    --accent-swap-tint: #f7f5fa;
+    /* Circular navigation buttons (back, close) */
+    --surface-nav-button: #f9f9f9;
     --text-primary: #3f3f3f;
     --text-secondary: rgba(63, 63, 63, 0.65);
     --text-tertiary: #0000009c;
@@ -486,6 +503,15 @@ body[data-hide-navbar]::after {
      * derive dark values by inverting text/surface and keeping action/status hues. */
     --accent-primary: #e77537;
     --accent-primary-hover: #f08b57;
+    --accent-send: #91acc1;
+    --accent-send-tint: #272b2d;
+    --accent-receive: #99ac94;
+    --accent-receive-tint: #282b28;
+    --accent-earn: #777487;
+    --accent-earn-tint: #242426;
+    --accent-swap: #beacd2;
+    --accent-swap-tint: #2d2b2f;
+    --surface-nav-button: #363636;
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.65);
     --text-tertiary: rgba(255, 255, 255, 0.4);

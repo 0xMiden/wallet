@@ -71,17 +71,6 @@ jest.mock('lib/miden/back/miden-client-proxy', () => {
   };
 });
 
-// The speculation singleton, made settable per test. `initSpeculationManager` returns
-// null — leaving `getSpeculationManager()` null — whenever the send that would claim a
-// speculation runs in the offscreen realm (issue #260), which is the extension's
-// DEFAULT configuration. The real module cannot reach that state here: jsdom has no
-// `chrome.offscreen`, so its gate always wires a manager and the two SPECULATE
-// handlers' null branches — now the default production path — would never be executed.
-_g.__mainTest.speculationManager = null;
-jest.mock('lib/miden/back/speculation-manager', () => ({
-  initSpeculationManager: jest.fn(() => (globalThis as any).__mainTest.speculationManager),
-  getSpeculationManager: () => (globalThis as any).__mainTest.speculationManager
-}));
 const proxyMock: any = jest.requireMock('lib/miden/back/miden-client-proxy');
 
 // In-memory storage so connectivity-state's mirror (the copy the popup renders, and
@@ -183,11 +172,18 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn(),
   updateCurrentAccount: jest.fn(),
   revealMnemonic: jest.fn(),
+  exportWalletBackupMaterial: jest.fn(),
   revealPrivateKey: jest.fn(),
+  exportAccountFile: jest.fn(),
   removeAccount: jest.fn(),
   editAccount: jest.fn(),
   importAccount: jest.fn(),
   updateSettings: jest.fn(),
+  listSpendingLimits: jest.fn(),
+  saveSpendingLimit: jest.fn(),
+  assessOutgoingSpendingLimit: jest.fn(),
+  getStrictAuthenticationProtectors: jest.fn(),
+  verifyStrictActionAuthentication: jest.fn(),
   signTransaction: jest.fn(),
   getAuthSecretKey: jest.fn(),
   getAllDAppSessions: jest.fn(),
@@ -222,17 +218,28 @@ beforeEach(async () => {
   // effect of the code under test — otherwise a test's stated setup can be deleted and
   // it still passes on state leaked from the previous one.
   connectivityMock.resetConnectivityState();
-  _g.__mainTest.speculationManager = null;
   Actions.isDAppEnabled.mockResolvedValue(true);
   Actions.getFrontState.mockResolvedValue({ status: 'Ready', accounts: [] });
   Actions.revealMnemonic.mockResolvedValue('the mnemonic');
+  Actions.exportWalletBackupMaterial.mockResolvedValue({
+    seedPhrase: 'seed',
+    accounts: [],
+    midenClientDbContent: 'db',
+    importedAccounts: []
+  });
   Actions.revealPrivateKey.mockResolvedValue('deadbeef');
+  Actions.exportAccountFile.mockResolvedValue('BAUG');
   Actions.importAccount.mockResolvedValue('mtst1imported-pk');
   Actions.signTransaction.mockResolvedValue('hex-signature');
   Actions.getAuthSecretKey.mockResolvedValue('secret-key');
   Actions.getAllDAppSessions.mockResolvedValue({});
   Actions.removeDAppSession.mockResolvedValue({});
   Actions.processDApp.mockResolvedValue({ payload: 'response' });
+  Actions.listSpendingLimits.mockResolvedValue([{ revision: 'revision-1' }]);
+  Actions.saveSpendingLimit.mockResolvedValue({ revision: 'revision-2' });
+  Actions.assessOutgoingSpendingLimit.mockResolvedValue({ revision: 'revision-1', breaches: [{}] });
+  Actions.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+  Actions.verifyStrictActionAuthentication.mockResolvedValue(undefined);
   mockClient.importNoteBytes.mockResolvedValue('note-id-1');
   mockClient.syncState.mockResolvedValue(undefined);
   mockClient.exportNote.mockResolvedValue(new Uint8Array([1, 2, 3]));
@@ -516,13 +523,18 @@ describe('processRequest', () => {
   });
 
   it('ImportFromClientRequest delegates to registerImportedWallet', async () => {
+    const importedAccounts = [
+      { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+    ];
     const res = await dispatch({
       type: WalletMessageType.ImportFromClientRequest,
       password: 'pw',
       mnemonic: 'm',
-      walletAccounts: []
+      walletAccounts: [],
+      formatVersion: 2,
+      importedAccounts
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', []);
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], 2, importedAccounts);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 
@@ -558,6 +570,15 @@ describe('processRequest', () => {
     const res = await dispatch({ type: WalletMessageType.RevealMnemonicRequest, password: 'pw' });
     expect(res.type).toBe(WalletMessageType.RevealMnemonicResponse);
     expect(res.mnemonic).toBe('the mnemonic');
+  });
+
+  it('ExportWalletBackupMaterialRequest returns the authenticated snapshot from Actions', async () => {
+    const res = await dispatch({ type: WalletMessageType.ExportWalletBackupMaterialRequest, password: 'pw' });
+    expect(Actions.exportWalletBackupMaterial).toHaveBeenCalledWith('pw');
+    expect(res).toEqual({
+      type: WalletMessageType.ExportWalletBackupMaterialResponse,
+      material: { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] }
+    });
   });
 
   it('RemoveAccountRequest / EditAccountRequest delegate to Actions', async () => {
@@ -597,12 +618,81 @@ describe('processRequest', () => {
     expect(res.privateKey).toBe('deadbeef');
   });
 
+  it('ExportAccountFileRequest returns the base64 account file from Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.ExportAccountFileRequest,
+      accountPublicKey: 'mtst1account',
+      password: 'pw'
+    });
+    expect(Actions.exportAccountFile).toHaveBeenCalledWith('mtst1account', 'pw');
+    expect(res).toEqual({ type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BAUG' });
+  });
+
   it('UpdateSettingsRequest forwards settings to Actions', async () => {
     await dispatch({
       type: WalletMessageType.UpdateSettingsRequest,
       settings: { fiat: 'USD' }
     });
     expect(Actions.updateSettings).toHaveBeenCalledWith({ fiat: 'USD' });
+  });
+
+  it('dispatches spending-limit list and save requests', async () => {
+    const draft = {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '90',
+      asset: { symbol: 'MIDEN', decimals: 8 }
+    };
+
+    const listed = await dispatch({ type: WalletMessageType.GetSpendingLimitsRequest, accountId: 'account-a' });
+    const saved = await dispatch({
+      type: WalletMessageType.SaveSpendingLimitRequest,
+      draft,
+      observedRevision: 'revision-1',
+      strictlyAuthenticated: false
+    });
+
+    expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+    expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', false);
+    expect(listed).toEqual({
+      type: WalletMessageType.GetSpendingLimitsResponse,
+      configurations: [{ revision: 'revision-1' }]
+    });
+    expect(saved).toEqual({
+      type: WalletMessageType.SaveSpendingLimitResponse,
+      configuration: { revision: 'revision-2' }
+    });
+  });
+
+  it('dispatches a serializable spending-limit preflight request', async () => {
+    const assessed = await dispatch({
+      type: WalletMessageType.AssessSpendingLimitRequest,
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      amount: '20'
+    });
+
+    expect(Actions.assessOutgoingSpendingLimit).toHaveBeenCalledWith('account-a', 'faucet-a', '20');
+    expect(assessed).toEqual({
+      type: WalletMessageType.AssessSpendingLimitResponse,
+      assessment: { revision: 'revision-1', breaches: [{}] }
+    });
+  });
+
+  it('dispatches strict authentication protector and verification requests', async () => {
+    const protectors = await dispatch({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+    const verified = await dispatch({
+      type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+      credential: 'secret'
+    });
+
+    expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
+    expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('secret');
+    expect(protectors).toEqual({
+      type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+      protectors: { hardware: true, password: false }
+    });
+    expect(verified).toEqual({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
   });
 
   it('SignTransactionRequest returns hex signature', async () => {
@@ -1030,65 +1120,5 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.sign_id).toBe('sign-y');
-  });
-});
-
-/**
- * The two SPECULATE handlers, in the configuration the realm gate created (issue
- * #260): flag-on Chrome, `getSpeculationManager()` is null and both handlers must be
- * inert but still ANSWER — the popup's `requestSpeculateSend` /
- * `requestSpeculateInvalidate` are intercom requests, so a throw or a missing
- * response surfaces as a rejected request on the review screen rather than as the
- * silent no-op it is meant to be.
- */
-describe('SPECULATE handlers (issue #260 realm gate)', () => {
-  const params = {
-    accountId: 'mtst1acct',
-    recipientAccountId: 'mtst1recip',
-    faucetId: 'mtst1faucet',
-    noteType: 'private' as const,
-    amount: '1234'
-  };
-
-  it('answers SpeculateSendRequest without throwing when there is no manager', async () => {
-    expect(_g.__mainTest.speculationManager).toBeNull();
-    await expect(dispatch({ type: WalletMessageType.SpeculateSendRequest, ...params })).resolves.toEqual({
-      type: WalletMessageType.SpeculateSendResponse
-    });
-  });
-
-  it('answers SpeculateInvalidate without throwing when there is no manager', async () => {
-    expect(_g.__mainTest.speculationManager).toBeNull();
-    await expect(dispatch({ type: WalletMessageType.SpeculateInvalidate })).resolves.toEqual({
-      type: WalletMessageType.SpeculateInvalidateResponse
-    });
-  });
-
-  // The other half: where a manager IS wired (flag-off, or a browser with no
-  // chrome.offscreen) the request still has to reach it, with `amount` decoded back
-  // from the string the intercom message carries into the bigint SpeculationParams
-  // hashes on — a mismatch there is a guaranteed cache miss.
-  it('forwards the decoded params to a wired manager, amount as a BigInt', async () => {
-    const speculate = jest.fn();
-    _g.__mainTest.speculationManager = { speculate, invalidate: jest.fn() };
-
-    await dispatch({ type: WalletMessageType.SpeculateSendRequest, ...params });
-
-    expect(speculate).toHaveBeenCalledWith({
-      accountId: 'mtst1acct',
-      recipientAccountId: 'mtst1recip',
-      faucetId: 'mtst1faucet',
-      noteType: 'private',
-      amount: 1234n
-    });
-  });
-
-  it('forwards SpeculateInvalidate to a wired manager', async () => {
-    const invalidate = jest.fn();
-    _g.__mainTest.speculationManager = { speculate: jest.fn(), invalidate };
-
-    await dispatch({ type: WalletMessageType.SpeculateInvalidate });
-
-    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 });

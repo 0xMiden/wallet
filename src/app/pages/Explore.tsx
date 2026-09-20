@@ -9,7 +9,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
+import { AccountsDrawer, BalanceCard } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
@@ -61,13 +61,16 @@ const Explore: FC = () => {
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
 
-  const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
+  const {
+    data: claimableNotes,
+    isFallback: claimableNotesAreCached,
+    mutate: mutateClaimableNotes
+  } = useClaimableNotes(account.publicKey);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
   const shouldAutoConsume = isAutoConsumeEnabled();
 
   const address = account.publicKey;
 
-  const [search, setSearch] = useState('');
   const [pullDistance, setPullDistance] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -167,7 +170,7 @@ const Explore: FC = () => {
     }
   }, [address]);
 
-  const filteredTokens = useMemo(() => {
+  const sortedTokens = useMemo(() => {
     const sorted = [...allTokenBalances].sort((a, b) => {
       const aIsNative = a.tokenId === midenFaucetId;
       const bIsNative = b.tokenId === midenFaucetId;
@@ -177,12 +180,8 @@ const Explore: FC = () => {
       const bFiatValue = b.balance * getTokenPrice(tokenPrices, b.metadata.symbol).price;
       return bFiatValue - aFiatValue;
     });
-    if (!search.trim()) return sorted;
-    const query = search.toLowerCase();
-    return sorted.filter(
-      asset => asset.metadata.symbol.toLowerCase().includes(query) || asset.metadata.name?.toLowerCase().includes(query)
-    );
-  }, [allTokenBalances, midenFaucetId, search, tokenPrices]);
+    return sorted;
+  }, [allTokenBalances, midenFaucetId, tokenPrices]);
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -291,12 +290,14 @@ const Explore: FC = () => {
             address={address}
             tokenPrices={tokenPrices}
             balances={allTokenBalances}
-            filteredTokens={filteredTokens}
-            search={search}
-            onSearchChange={setSearch}
+            sortedTokens={sortedTokens}
             account={account}
             balancesLoading={balancesLoading}
             claimableNotes={manuallyClaimableNotes}
+            // A faucet baseline has to be a LIVE list: the hook serves the list
+            // saved last session first, and a native note newer than that cache
+            // would otherwise count as this request's mint arriving.
+            fundingNotes={claimableNotesAreCached ? undefined : claimableNotes}
           />
         </div>
       </div>
@@ -310,24 +311,22 @@ interface HomeOverviewProps {
   address: string;
   tokenPrices: TokenPrices;
   balances: TokenBalanceData[];
-  filteredTokens: TokenBalanceData[];
-  search: string;
-  onSearchChange: (v: string) => void;
+  sortedTokens: TokenBalanceData[];
   account: WalletAccount;
   balancesLoading: boolean;
   claimableNotes: readonly PendingNoteValue[] | undefined;
+  fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
   balances,
-  filteredTokens,
-  search,
-  onSearchChange,
+  sortedTokens,
   account,
   balancesLoading,
-  claimableNotes
+  claimableNotes,
+  fundingNotes
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
@@ -366,17 +365,16 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         balances={balances}
         balancesLoading={balancesLoading}
         claimableNotes={claimableNotes}
+        fundingNotes={fundingNotes}
         tokenPrices={tokenPrices}
       />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
+        <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
       </div>
 
-      <SearchInput value={search} onChange={onSearchChange} placeholder={t('searchForTokens')} />
-
       <div className="flex flex-col divide-y divide-rule-default">
-        {filteredTokens.map(asset => (
+        {sortedTokens.map(asset => (
           <AssetRow
             key={asset.tokenId}
             asset={asset}

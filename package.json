@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -19,7 +19,7 @@
     "watch:dist": "mv3-hot-reload",
     "build": "yarn build:extension && yarn build:mobile",
     "build:extension": "cross-env TARGET_BROWSER=chrome yarn build:bg && cross-env TARGET_BROWSER=chrome yarn build:cs && cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
-    "check:deps": "yarn check --integrity",
+    "check:deps": "yarn check --integrity --production=false",
     "prebuild": "yarn -s check:deps && rimraf ./dist && yarn ts",
     "prebuild:bg": "yarn -s check:deps",
     "prebuild:cs": "yarn -s check:deps",
@@ -64,6 +64,7 @@
     "ts": "tsc --pretty",
     "lint": "eslint src --max-warnings 0",
     "check:prover-pin": "node scripts/check-native-prover-pin.mjs",
+    "check:update-manifest": "node scripts/validate-update-manifest.mjs",
     "store-listing:copy": "node scripts/store-listing/compose-copy.mjs",
     "store-listing:assets": "node scripts/store-listing/build-assets.mjs",
     "store-listing:capture:build": "cross-env MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MODE_ENV=development yarn build:mobile && cross-env MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=true TARGET_BROWSER=chrome yarn build:chrome",
@@ -86,6 +87,7 @@
     "test:e2e:bridge:run": "playwright test --config playwright.bridge.config.ts",
     "test:e2e:bridge": "yarn test:e2e:blockchain:build && playwright test --config playwright.bridge.config.ts",
     "test:e2e:bridge:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:bridge",
+    "e2e:real": "node scripts/e2e-real.mjs",
     "test:e2e:earn:run": "playwright test --config playwright.earn.config.ts",
     "test:e2e:earn": "cross-env EPOCH_ALLOCATOR_URL=http://127.0.0.1:8548 EPOCH_POSITIONS_URL=http://127.0.0.1:8549 E2E_EVM_RPC_URL=http://127.0.0.1:8545 E2E_NETWORK=localhost yarn test:e2e:blockchain:build && cross-env EPOCH_ALLOCATOR_URL=http://127.0.0.1:8548 EPOCH_POSITIONS_URL=http://127.0.0.1:8549 E2E_EVM_RPC_URL=http://127.0.0.1:8545 yarn test:e2e:earn:run",
     "test:e2e:resilience:run": "playwright test --config playwright.resilience.config.ts",
@@ -134,6 +136,7 @@
   "dependencies": {
     "@capacitor/android": "^8.0.1",
     "@capacitor/app": "^8.0.0",
+    "@capacitor/clipboard": "^8.0.0",
     "@capacitor/core": "^8.0.1",
     "@capacitor/filesystem": "^8.0.0",
     "@capacitor/haptics": "^8.0.0",
@@ -150,7 +153,7 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.39",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.16.0",
+    "@miden-sdk/miden-sdk": "0.16.1",
     "@miden-sdk/miden-wallet-adapter-base": "0.16.0",
     "@miden-sdk/miden-wallet-adapter-miden": "0.16.0",
     "@miden-sdk/react": "0.16.0",
@@ -197,6 +200,7 @@
     "i18next-browser-languagedetector": "^8.0.0",
     "inter-ui": "3.13.1",
     "json-rpc-2.0": "^1.4.2",
+    "jsqr": "1.4.0",
     "micro-memoize": "4.0.9",
     "nanoid": "^5.0.9",
     "npm-run-all": "4.1.5",
@@ -351,7 +355,7 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.16.0",
+    "@miden-sdk/miden-sdk": "0.16.1",
     "@miden-sdk/react": "0.16.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",

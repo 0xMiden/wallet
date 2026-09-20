@@ -67,6 +67,10 @@ export class Vault {
     return state.currentAccount;
   }
 
+  async fetchSeedPhraseStatus() {
+    return 'stored';
+  }
+
   async isOwnMnemonic() {
     return state.ownMnemonic;
   }
