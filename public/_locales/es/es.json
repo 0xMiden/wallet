@@ -918,6 +918,8 @@
   "tokenInfo": "Información sobre el token",
   "fungible": "Fungible",
   "network": "Red",
+  "tokenActivityEmptyTitle": "No activity yet",
+  "tokenActivityEmptyBody": "Transactions with this token will appear here.",
   "recentActivity": "Actividad reciente",
   "type": "Tipo",
   "txIdLabel": "ID de transacción",

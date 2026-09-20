@@ -135,6 +135,8 @@ jest.mock('app/templates/history/History', () => ({
 jest.mock('recharts', () => ({
   LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
   Line: () => <div data-testid="line" />,
+  AreaChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
+  Area: () => <div data-testid="line" />,
   YAxis: (props: { domain?: [number, number] }) => (
     <div data-testid="yaxis" data-domain={JSON.stringify(props.domain)} />
   ),
@@ -376,7 +378,7 @@ describe('TokenDetail', () => {
       ['token-detail-activity', 'recentActivity']
     ] as const) {
       const heading = within(screen.getByTestId(section)).getByRole('heading', { level: 2, name: key });
-      expect(heading).toHaveClass('text-muted', 'text-label');
+      expect(heading).toHaveClass('text-muted', 'text-title-section');
       expect(heading).not.toHaveClass('uppercase');
       expect(heading).not.toHaveClass('text-center');
       // The English copy itself is sentence case: only the first word is capitalised.
@@ -499,7 +501,7 @@ describe('TokenDetail', () => {
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent(`tokenDetailChange24h_${label}`);
-      expect(pill).toHaveClass('rounded-full', 'h-6', inkClass);
+      expect(pill).toHaveClass('rounded-full', 'h-8', inkClass);
     });
 
     it('shows a skeleton in the chart slot until the first kline load resolves', () => {
@@ -600,7 +602,7 @@ describe('TokenDetail', () => {
 
       // Equal-width segments across the chart, 32px tall.
       expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-      expect(option('1D')).toHaveClass('flex-1', 'h-8');
+      expect(option('1D')).toHaveClass('flex-1', 'h-10');
 
       expect(option('1D')).toHaveAttribute('role', 'radio');
       expect(option('1D')).toHaveAttribute('aria-checked', 'true');
@@ -639,9 +641,9 @@ describe('TokenDetail', () => {
       expect(within(contract).getByText('contract')).toBeInTheDocument();
 
       const copy = within(contract).getByTestId('token-detail-copy-contract');
-      // Regular weight (`HashChip`'s own `font-normal` overrides `DetailRow`'s bold value style),
-      // truncated in the middle, not the full 49-char id dumped in bold.
-      expect(copy).toHaveClass('font-normal');
+      // A bare copy control in the row's value style, its id truncated in the middle, not the
+      // full 49-char id.
+      expect(copy).toHaveClass('text-ink');
       expect(copy).not.toHaveTextContent(TOKEN_ID);
       expect(copy).toHaveTextContent(TOKEN_ID.slice(0, 7));
       expect(copy).toHaveTextContent(TOKEN_ID.slice(-4));

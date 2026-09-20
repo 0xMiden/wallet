@@ -47,6 +47,8 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /** Passed to `HistoryView`: replaces the default empty card's surface, title and body. */
+  emptyState?: { surface?: 'fill' | 'dashed'; title?: string; description?: string };
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   tokenId?: string;
@@ -66,6 +68,7 @@ const History = memo<HistoryProps>(
     scrollParentRef,
     fullHistory,
     centerEmptyState,
+    emptyState,
     tokenId,
     searchQuery,
     filter,
@@ -283,6 +286,7 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        emptyState={emptyState}
         pendingItems={pendingItems}
         renderPendingItem={renderPendingItem}
         className={className}

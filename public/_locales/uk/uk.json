@@ -918,6 +918,8 @@
   "tokenInfo": "Інформація про токен",
   "fungible": "Замінний",
   "network": "Мережа",
+  "tokenActivityEmptyTitle": "No activity yet",
+  "tokenActivityEmptyBody": "Transactions with this token will appear here.",
   "recentActivity": "Останні дії",
   "type": "Тип",
   "txIdLabel": "Ідентифікатор транзакції",

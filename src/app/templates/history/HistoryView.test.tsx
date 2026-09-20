@@ -93,10 +93,23 @@ jest.mock('components/ui', () => ({
 // Imported from its own module path in the source (not the `components/ui`
 // barrel mocked above), so it needs its own mock.
 jest.mock('components/ui/EmptyState', () => ({
-  EmptyState: ({ icon, title, className }: { icon: string; title: string; className?: string }) => (
-    <div data-testid="empty-state" data-classname={className}>
+  EmptyState: ({
+    icon,
+    title,
+    description,
+    surface,
+    className
+  }: {
+    icon: string;
+    title: string;
+    description?: string;
+    surface?: string;
+    className?: string;
+  }) => (
+    <div data-testid="empty-state" data-classname={className} data-surface={surface}>
       <span data-testid="icon" data-name={icon} />
       <h3>{title}</h3>
+      {description && <p>{description}</p>}
     </div>
   )
 }));
@@ -242,6 +255,21 @@ describe('HistoryView empty state', () => {
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
     expect(container.querySelector('.mt-8')).toBeNull();
     expect(container.querySelector('.m-4')).toBeNull();
+  });
+
+  it('lets a caller replace the empty card: its surface, title and body', () => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[]}
+        fullHistory
+        emptyState={{ surface: 'dashed', title: 'Nothing here', description: 'It will show up.' }}
+      />
+    );
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    expect(screen.getByText('Nothing here')).toBeInTheDocument();
+    expect(screen.getByText('It will show up.')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state')).toHaveAttribute('data-surface', 'dashed');
   });
 });
 
@@ -597,13 +625,13 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
   });
 
-  it('renders every row on the shared fill card, with no border', () => {
+  it('renders every row as an outlined card on the page: a hairline edge, no fill', () => {
     renderFull();
     const rows = screen.getAllByTestId('activity-row');
     expect(rows.length).toBeGreaterThan(0);
     rows.forEach(row => {
-      expect(row).toHaveClass('bg-fill', 'rounded-2xl', 'px-4', 'py-3');
-      expect(row.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+      expect(row).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'px-4', 'py-3');
+      expect(row).not.toHaveClass('bg-fill');
       expect(row).not.toHaveClass('bg-white');
     });
   });

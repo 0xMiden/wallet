@@ -37,6 +37,8 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /** Replaces the default "no operations" card: its surface, title and body. */
+  emptyState?: { surface?: 'fill' | 'dashed'; title?: string; description?: string };
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   className?: string;
@@ -349,6 +351,7 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
+    emptyState,
     pendingItems,
     renderPendingItem,
     className
@@ -390,7 +393,13 @@ const HistoryView = memo<HistoryViewProps>(
         // row below) — not vertically centered in the remaining tab height.
         return (
           <div className="flex flex-col pt-4">
-            <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            <EmptyState
+              icon={IconName.ArrowUpDown}
+              surface={emptyState?.surface}
+              title={emptyState?.title ?? t('noOperationsFound')}
+              description={emptyState?.description}
+              className="w-full"
+            />
           </div>
         );
       }
@@ -398,7 +407,13 @@ const HistoryView = memo<HistoryViewProps>(
         // Full history outside the Activity tab (the token page) sits under its own section
         // header, which already spaces it; the summary view keeps its own margin.
         <div className={classNames('flex flex-col justify-left', !fullHistory && 'm-4')}>
-          <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+          <EmptyState
+            icon={IconName.ArrowUpDown}
+            surface={emptyState?.surface}
+            title={emptyState?.title ?? t('noOperationsFound')}
+            description={emptyState?.description}
+            className="w-full"
+          />
         </div>
       );
     }

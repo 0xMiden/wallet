@@ -919,6 +919,8 @@
   "fungible": "Fungible",
   "network": "Network",
   "recentActivity": "Recent activity",
+  "tokenActivityEmptyTitle": "No activity yet",
+  "tokenActivityEmptyBody": "Transactions with this token will appear here.",
   "type": "Type",
   "txIdLabel": "Transaction ID",
   "notesSection": "Notes",

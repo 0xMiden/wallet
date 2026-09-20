@@ -4051,6 +4051,14 @@
     "message": "ネットワーク",
     "englishSource": "Network"
   },
+  "tokenActivityEmptyTitle": {
+    "message": "No activity yet",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Transactions with this token will appear here.",
+    "englishSource": "Transactions with this token will appear here."
+  },
   "recentActivity": {
     "message": "最近の活動",
     "englishSource": "Recent activity"
