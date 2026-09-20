@@ -158,6 +158,90 @@ describe('QRCode', () => {
     });
   });
 
+  describe('palette treatments', () => {
+    /** Resolves every `--qr-*` token to a distinct, assertable color. */
+    const stubTokens = () =>
+      jest.spyOn(window, 'getComputedStyle').mockReturnValue({
+        getPropertyValue: (name: string) => `resolved(${name})`
+      } as unknown as CSSStyleDeclaration);
+
+    it('draws the flat accent by default, with no gradient', () => {
+      render(<QRCode address={ADDRESS} size={200} />);
+
+      const opts = ctorOptions();
+      expect(opts.dotsOptions.color).toBe(ACCENT_FALLBACK);
+      expect(opts.dotsOptions.gradient).toBeUndefined();
+      expect(opts.cornersSquareOptions.gradient).toBeUndefined();
+    });
+
+    it('blends two card colors across the dots and both corner marks', () => {
+      const gcs = stubTokens();
+      try {
+        const { container } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
+
+        const opts = ctorOptions();
+        const gradient = {
+          type: 'linear',
+          rotation: Math.PI / 4,
+          colorStops: [
+            { offset: 0, color: 'resolved(--qr-green)' },
+            { offset: 1, color: 'resolved(--qr-blue)' }
+          ]
+        };
+        expect(opts.dotsOptions).toMatchObject({ color: 'resolved(--qr-green)', gradient });
+        expect(opts.cornersSquareOptions).toMatchObject({ gradient });
+        expect(opts.cornersDotOptions).toMatchObject({ gradient });
+        // The tile the modules sit on never changes: that is what keeps the QR scannable.
+        expect(opts.backgroundOptions).toEqual({ color: '#FFFFFF' });
+        expect(container.querySelector('[data-testid="qr-code"]')).toHaveAttribute('data-qr-palette', 'green');
+      } finally {
+        gcs.mockRestore();
+      }
+    });
+
+    it('repaints when the palette changes', () => {
+      const gcs = stubTokens();
+      try {
+        const { rerender } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
+        expect(mockUpdate).toHaveBeenCalledTimes(1);
+
+        rerender(<QRCode address={ADDRESS} size={200} palette="purple" />);
+
+        expect(mockConstructor).toHaveBeenCalledTimes(1);
+        expect(mockUpdate).toHaveBeenCalledTimes(2);
+        expect(mockUpdate.mock.calls[1][0].dotsOptions.color).toBe('resolved(--qr-purple)');
+      } finally {
+        gcs.mockRestore();
+      }
+    });
+
+    it('paints the shared image caption in the treatment color', async () => {
+      const gcs = stubTokens();
+      mockGetRawData.mockResolvedValue(new Blob(['png-bytes'], { type: 'image/png' }));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const ctx = { fillText: jest.fn(), drawImage: jest.fn(), fillRect: jest.fn(), fillStyle: '' };
+      const getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as any);
+      (globalThis as any).createImageBitmap = jest.fn().mockResolvedValue({ close: jest.fn() });
+      const toBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function (callback: BlobCallback) {
+        callback(new Blob(['captioned'], { type: 'image/png' }));
+      };
+      try {
+        const ref = React.createRef<QRCodeHandle>();
+        render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Devnet" palette="slate" />);
+
+        await ref.current!.getImageBlob();
+        expect(ctx.fillStyle).toBe('resolved(--qr-slate)');
+      } finally {
+        HTMLCanvasElement.prototype.toBlob = toBlob;
+        delete (globalThis as any).createImageBitmap;
+        getContext.mockRestore();
+        warn.mockRestore();
+        gcs.mockRestore();
+      }
+    });
+  });
+
   describe('reactivity', () => {
     it('reuses the same instance and calls update() again when props change', () => {
       const { rerender } = render(<QRCode address={ADDRESS} size={200} />);

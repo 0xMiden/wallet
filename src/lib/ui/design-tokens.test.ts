@@ -368,3 +368,23 @@ describe.each([':root', '.dark'] as const)('action colour contrast in %s', selec
     }
   });
 });
+
+// The QR palette. The modules are always drawn on a white tile, so these five never flip with the
+// theme: they are the light card colors, pinned.
+describe('QR palette', () => {
+  const light = themeVars(':root');
+  const dark = themeVars('.dark');
+  const NAMES = ['qr-slate', 'qr-orange', 'qr-blue', 'qr-green', 'qr-purple'] as const;
+
+  it.each(NAMES)('%s matches its light card color', name => {
+    expect(light[name]).toBe(light[name.replace('qr-', 'card-')]);
+  });
+
+  it.each(NAMES)('%s is not redeclared in dark mode', name => {
+    expect(dark[name]).toBeUndefined();
+  });
+
+  it.each(NAMES)('%s stays scannable on the white tile (3:1 or better)', name => {
+    expect(contrast(light[name]!, '#FFFFFF')).toBeGreaterThanOrEqual(3);
+  });
+});
