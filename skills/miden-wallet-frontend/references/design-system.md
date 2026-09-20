@@ -203,7 +203,7 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 
 | Type style | Face | Size / line | Weight | Where |
 | --- | --- | --- | --- | --- |
-| `text-display` | Nunito | 48 / 52 | 800 | The balance on the balance card (scaled down inline to fit, `leading-none`) |
+| `text-display` | Nunito | 48 / 52 | 800 | The balance on the balance card (scaled down inline to fit, `leading-none`), and the one figure a page is about where no card holds it: Earn's total rewards, a vault's APY, a deposit or withdraw review's amount |
 | `text-entry` | Nunito | 48 / 56 | 800 | Amount and recipient entry |
 | `text-entry-unit` | Nunito | 22 / 28 | 700 | The unit beside an entry or the balance ("USD") |
 | `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | `TabHeader`, tab roots only |
@@ -267,6 +267,16 @@ segmented control's thumb and a raised bubble.
 
 Raised is only for interactive toggles and bubbles. Cards, list groups and detail cards stay flat.
 
+### Charts
+
+A chart's paint is a token, passed as the custom property itself — recharts and raw SVG both take
+`var(--…)` wherever they take a colour, and the value then follows the theme like everything else.
+A literal hex in a `stroke`, `fill`, `stopColor` or a `ChartContainer` config is the same mistake as
+one in a class. The three earn charts use `var(--status-positive)` for the series, `var(--ds-page)`
+for the ring around the last-point dot and `var(--ds-hairline)` for a reference line. A tooltip sits
+on `ink` with `pure-white` text: `muted` is tuned for `page` and `fill`, so the quiet second line is
+the same white held back (`text-pure-white/70`), not a grey token.
+
 Flat does not mean one fill: separation comes from whichever of the three list surfaces above the
 group sits on. A `hairline` border is the `outline` surface, not elevation, and it is how a card
 holds its edge on `page` (Activity's rows, pending transfers, Earn's cards, the home prompt card).
@@ -286,6 +296,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 48px pill. `primary`: `accent`, white `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
 | Icon button | `IconButton` | Always a circle, so an icon button reads the same wherever the wallet puts one. Page and tab-root header: `circle` at 44px — a `fill` circle with a 24px `ink` glyph, the full 44px target. Sheet and overlay: `circle` at 32px (36px where the row needs a bigger target) on `fill`, `muted` glyph. A held toggle (a tab root's open search) fills the circle with `accent` and turns the glyph white — 3:1, which rule 6 allows for a glyph, and the same pair the segmented selection carries. Flat, never the raised bubble: that now means "selected". `bare` (a glyph with no circle) is legacy, kept only for rows not yet moved. | `NavButton`, `CircleButton`, ad-hoc round buttons, the bare header glyph |
 | Pushed page header | `PageHeader` (`components/PageHeader`) | 52px row: bare chevron, 20px title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. No horizontal padding of its own: it takes the page's, so a caller in an unpadded parent passes `className="px-4"`. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the round back buttons and grey title bars |
+| Metric tile | `MetricCard` (`screens/earn-flow/components`) | A figure too small for a hero and too plain for a row: a `Card` on `fill` with `padding="none"`, 12px of its own, a centred `text-label` `muted` caption over a centred `text-value`. Two or three up in an equal-column grid with a 8–12px gap, so a wrapped caption cannot make one tile narrower than its neighbour. Sentence case, never uppercase: it is a label, not a heading. | the 10px uppercase `rounded-10` earn tiles |
 | Tab root header | `TabRootHeader` | The whole top of a tab root — Activity, Explore, Settings — in one component, never hand-assembled. A 56px title row (`TabHeader`: `text-title-tab` title left, 44px `circle` `IconButton` actions right, the search field swapping into the title's place), then the 4px rule on `fill` inset to the page margin: 60px, what Home's `SegmentedActionBar` occupies, so the content line does not move between tabs. **The row carries no vertical padding** — in a column flex parent that padding made the 44px action the row's automatic minimum and pushed it to 64px — and both sides of the search swap are the same 36px box, so opening search moves nothing. 8px under the rule, then the optional filter row: `SegmentedControl` at `md`, 4px above and below, at the 16px page margin. The rule, that 8px and the row's padding are the header's; a page's body adds no top padding of its own, and passes only `items`, `value`, `onChange` and a label. | `TabHeader` used directly, per-page dividers, gaps and filter rows |
 | Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
 | Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, and every segment resizes on the same spring as the bubble. | — |
