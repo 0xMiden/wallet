@@ -1,4 +1,3 @@
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
   activityGroupKeyOf,
   activityGroupMatcher,
@@ -7,6 +6,7 @@ import {
   isActivityGroupKind,
   isPendingActivityEntry
 } from './activityGroups';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 
 const FAUCET = 'miden-native-faucet';
 
