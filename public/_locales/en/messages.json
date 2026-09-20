@@ -5341,9 +5341,5 @@
         "content": "$1"
       }
     }
-  },
-  "activityFilterOptions": {
-    "message": "Filter activity",
-    "englishSource": "Filter activity"
   }
 }

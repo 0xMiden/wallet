@@ -3,14 +3,10 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as CheckIcon } from 'app/icons/v2/checkmark.svg';
-import { ListGroup } from 'components/ui/ListGroup';
-import { ListRow } from 'components/ui/ListRow';
 import { Popover } from 'components/ui/Popover';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { ActivityView } from 'lib/settings/constants';
 import { cn } from 'lib/ui/util';
-
-import type { ActivityFilter } from './History';
 
 /** One labelled choice in the menu's view picker, with the i18n key of its name. */
 const VIEW_CHOICES: { view: ActivityView; labelKey: string }[] = [
@@ -105,31 +101,17 @@ export interface ActivityViewMenuProps {
   anchorRef: React.RefObject<HTMLElement | null>;
   view: ActivityView;
   onViewChange: (view: ActivityView) => void;
-  filter: ActivityFilter;
-  onFilterChange: (filter: ActivityFilter) => void;
-  /** The same filters the feed's own row offers, already translated. */
-  filters: readonly { id: ActivityFilter; label: string }[];
 }
 
 /**
- * The Activity tab's view switcher: the two views as labelled thumbnails with radio marks, a
- * divider, then the tab's filters as checkable rows — the whole thing hanging off the header's
- * round icon button.
+ * The Activity tab's view switcher, hanging off the header's round icon button: the two views as
+ * labelled thumbnails with radio marks, and nothing else.
  *
- * The filters are here as well as in the row under the title because the row is a List-view
- * affordance: in the Groups view it is gone, and this menu is where the filter is chosen. Both
- * write the same state, so a filter picked in either place is the one the other shows.
+ * It holds NO filters. The filter row lives where it always has, under the title in List view; the
+ * Groups view has neither, because rolling the history up by counterparty IS the filtering there
+ * (Brian, simulator review). One choice per menu, so the panel stays the size of that choice.
  */
-export const ActivityViewMenu: React.FC<ActivityViewMenuProps> = ({
-  open,
-  onClose,
-  anchorRef,
-  view,
-  onViewChange,
-  filter,
-  onFilterChange,
-  filters
-}) => {
+export const ActivityViewMenu: React.FC<ActivityViewMenuProps> = ({ open, onClose, anchorRef, view, onViewChange }) => {
   const { t } = useTranslation();
 
   return (
@@ -142,7 +124,9 @@ export const ActivityViewMenu: React.FC<ActivityViewMenuProps> = ({
       screenKey="activity-view"
       data-testid="activity-view-menu"
     >
-      <div role="radiogroup" aria-label={t('activityView')} className="flex gap-2 p-2">
+      {/* 12px all round rather than the 8px it took when a list sat under it: the thumbnails are
+          the whole panel now, so their inset is the panel's own margin. */}
+      <div role="radiogroup" aria-label={t('activityView')} className="flex gap-2 p-3">
         {VIEW_CHOICES.map(choice => (
           <ViewChoice
             key={choice.view}
@@ -155,28 +139,6 @@ export const ActivityViewMenu: React.FC<ActivityViewMenuProps> = ({
             }}
           />
         ))}
-      </div>
-
-      <div aria-hidden="true" className="mx-4 h-px bg-hairline" />
-
-      {/* Its own name, not the header row's: both are radio groups over the same filters, and two
-          identically named groups in one document are indistinguishable to a screen reader. */}
-      <div role="radiogroup" aria-label={t('activityFilterOptions')} className="px-4 py-1">
-        <ListGroup surface="plain">
-          {filters.map(item => (
-            <ListRow
-              key={item.id}
-              radio
-              checked={filter === item.id}
-              title={item.label}
-              data-testid={`activity-filter-${item.id}`}
-              onClick={() => {
-                onFilterChange(item.id);
-                onClose();
-              }}
-            />
-          ))}
-        </ListGroup>
       </div>
     </Popover>
   );

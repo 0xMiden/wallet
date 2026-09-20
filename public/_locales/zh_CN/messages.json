@@ -5341,9 +5341,5 @@
         "content": "$1"
       }
     }
-  },
-  "activityFilterOptions": {
-    "message": "筛选活动",
-    "englishSource": "Filter activity"
   }
 }

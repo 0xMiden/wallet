@@ -73,8 +73,10 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             />
           </>
         }
-        // The filter row belongs to the feed: the Groups view rolls the rows up by counterparty,
-        // and its filter is chosen in the menu instead. Both write the same state.
+        // The filter row belongs to the feed. The Groups view rolls the history up by counterparty,
+        // which is its own filtering, so it carries no row — and no filter anywhere else either:
+        // a narrowing with no visible control saying so is worse than none. The feed's choice is
+        // kept while the user is away in Groups, and the row shows it again on the way back.
         filter={
           view === 'list'
             ? { items: filters, value: filter, onChange: setFilter, 'aria-label': t('activityFilters') }
@@ -88,9 +90,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         anchorRef={menuAnchorRef}
         view={view}
         onViewChange={setActivityView}
-        filter={filter}
-        onFilterChange={setFilter}
-        filters={filters}
       />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
@@ -105,7 +104,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         <ActivityGroupedHistory
           key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
           search={search}
-          filter={filter}
           programId={programId}
         />
       ) : (

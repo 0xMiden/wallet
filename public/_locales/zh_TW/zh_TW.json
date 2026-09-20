@@ -1203,6 +1203,5 @@
   "activityGroupFaucet": "Faucet",
   "activityGroupGuardian": "Guardian",
   "activityGroupOther": "其他活動",
-  "activityGroupPartialCount": "$count$+",
-  "activityFilterOptions": "篩選活動"
+  "activityGroupPartialCount": "$count$+"
 }

@@ -1203,6 +1203,5 @@
   "activityGroupFaucet": "Faucet",
   "activityGroupGuardian": "Guardian",
   "activityGroupOther": "Inna aktywność",
-  "activityGroupPartialCount": "$count$+",
-  "activityFilterOptions": "Filtruj aktywność"
+  "activityGroupPartialCount": "$count$+"
 }

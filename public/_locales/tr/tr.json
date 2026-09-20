@@ -1203,6 +1203,5 @@
   "activityGroupFaucet": "Faucet",
   "activityGroupGuardian": "Guardian",
   "activityGroupOther": "Diğer etkinlikler",
-  "activityGroupPartialCount": "$count$+",
-  "activityFilterOptions": "Etkinliği filtrele"
+  "activityGroupPartialCount": "$count$+"
 }

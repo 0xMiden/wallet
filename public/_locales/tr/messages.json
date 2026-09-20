@@ -5341,9 +5341,5 @@
         "content": "$1"
       }
     }
-  },
-  "activityFilterOptions": {
-    "message": "Etkinliği filtrele",
-    "englishSource": "Filter activity"
   }
 }
