@@ -128,7 +128,12 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
     }
 
     const list = (
-      <ListGroup surface="outline" data-testid="activity-group-list" className="mt-4">
+      // `plain`, not a card: this page IS the list, so the rows sit on the page's own margin with
+      // full-width hairlines between them — the Settings root and Explore's app lists again, and
+      // the reading Brian asked for on the simulator ("just rows, like a chat interface").
+      // `outline` would put a box around a whole screen of rows, which is the thing the three
+      // list surfaces exist to stop.
+      <ListGroup surface="plain" data-testid="activity-group-list" className="mt-4">
         {groups.map(group => (
           <ListRow
             key={`${group.kind}:${group.id}`}
