@@ -800,11 +800,12 @@ describe('Settings page — recovery phrase row', () => {
 });
 
 describe('Settings page — active tab routing', () => {
-  it('renders a hasOwnLayout tab without a navigation header', () => {
+  it('renders a page that sets its own header per step without one from the host', () => {
     render(<Settings tabSlug="reveal-seed-phrase" />);
 
     expect(screen.getByTestId('reveal-seed-flow')).toBeInTheDocument();
-    // Own-layout pages render neither the header nor the root menu.
+    // The host draws no header of its own: this page's layout sets a title and a back per step,
+    // and the mock stands in for the whole page. The root menu is gone either way.
     expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
