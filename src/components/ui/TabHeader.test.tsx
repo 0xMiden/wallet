@@ -374,3 +374,17 @@ describe('TabHeader — search swap animation', () => {
     expect(button.className).toMatch(/duration-\d/);
   });
 });
+
+describe('TabHeader divider', () => {
+  it('ends in a full-bleed hairline by default and an inset 4px rule on request', () => {
+    const { container, rerender } = render(<TabHeader title="Activity" />);
+    expect(container.querySelector('header')).toHaveClass('border-b', 'border-hairline');
+    expect(container.querySelector('.h-1')).toBeNull();
+
+    rerender(<TabHeader title="Activity" divider="rule" />);
+    expect(container.querySelector('header')).not.toHaveClass('border-b');
+    const rule = container.querySelector('header + div');
+    expect(rule).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
+    expect(rule).toHaveAttribute('aria-hidden', 'true');
+  });
+});

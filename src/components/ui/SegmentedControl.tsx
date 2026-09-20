@@ -44,6 +44,12 @@ export interface SegmentedControlProps<T extends string = string> {
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
   role?: SegmentedControlRole;
+  /**
+   * `bubble` (default): the tab bars' raised white bubble under the selection, `ink` on `muted`.
+   * `pills`: every item is a pill — the selection a solid `accent` pill with a white label, the
+   * rest outlined by a hairline on `page` with an `ink` label (Activity's filters).
+   */
+  appearance?: SegmentedControlAppearance;
   'aria-label'?: string;
   /** Layout only (margins, padding, width); the look is the control's own. */
   className?: string;
@@ -52,14 +58,20 @@ export interface SegmentedControlProps<T extends string = string> {
 
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
 // bubble's shadow and the focus ring, which a scrolling row would otherwise clip.
-const container = cva('flex items-center gap-1 py-1', {
+export type SegmentedControlAppearance = 'bubble' | 'pills';
+
+const container = cva('flex items-center py-1', {
   variants: {
+    appearance: {
+      bubble: 'gap-1',
+      pills: 'gap-2'
+    },
     layout: {
       scroll: 'overflow-x-auto no-scrollbar',
       fill: 'w-full'
     }
   },
-  defaultVariants: { layout: 'scroll' }
+  defaultVariants: { appearance: 'bubble', layout: 'scroll' }
 });
 
 const segment = cva(
@@ -83,11 +95,23 @@ const segment = cva(
       active: {
         true: 'text-ink',
         false: 'text-muted'
+      },
+      appearance: {
+        bubble: '',
+        pills: ''
       }
     },
-    defaultVariants: { size: 'md', layout: 'scroll', active: false }
+    compoundVariants: [
+      // White reads 3:1 on the accent, so a pill label stays at the bold `text-pill` size.
+      { appearance: 'pills', active: true, class: 'px-6 text-pure-white' },
+      { appearance: 'pills', active: false, class: 'px-6 border border-hairline bg-page text-ink' }
+    ],
+    defaultVariants: { size: 'md', layout: 'scroll', active: false, appearance: 'bubble' }
   }
 );
+
+// The pills look draws the selection as a solid accent pill, not the raised bubble.
+const accentPillClassName = 'rounded-full bg-accent-primary';
 
 const content = cva('flex min-w-0 items-center', {
   variants: {
@@ -115,6 +139,7 @@ interface SegmentProps<T extends string> {
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
+  appearance: SegmentedControlAppearance;
   itemRole: 'radio' | 'tab';
   onSelect: (id: T) => void;
 }
@@ -124,7 +149,16 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, itemRole, onSelect }: SegmentProps<T>) {
+function Segment<T extends string>({
+  item,
+  active,
+  focusable,
+  size,
+  layout,
+  appearance,
+  itemRole,
+  onSelect
+}: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active);
 
@@ -140,7 +174,7 @@ function Segment<T extends string>({ item, active, focusable, size, layout, item
         data-testid={item['data-testid']}
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
-        className={segment({ size, layout, active })}
+        className={segment({ size, layout, active, appearance })}
       >
         <motion.span
           data-pop={pop.phase}
@@ -182,6 +216,7 @@ export function SegmentedControl<T extends string>({
   size = 'md',
   layout = 'scroll',
   role = 'radiogroup',
+  appearance = 'bubble',
   'aria-label': ariaLabel,
   className,
   'data-testid': dataTestId
@@ -256,7 +291,7 @@ export function SegmentedControl<T extends string>({
       // scrolls, so a row scrolled sideways does not throw the bubble off its item.
       layoutScroll={layout === 'scroll'}
       onKeyDown={handleKeyDown}
-      className={cn(container({ layout }), className)}
+      className={cn(container({ layout, appearance }), className)}
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
           control, so two mounted controls never trade bubbles. Controlled and click-free: `value`
@@ -267,7 +302,7 @@ export function SegmentedControl<T extends string>({
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
-        className={cn('inset-0', raisedBubbleClassName)}
+        className={cn('inset-0', appearance === 'pills' ? accentPillClassName : raisedBubbleClassName)}
       >
         {items.map((item, index) => (
           <Segment
@@ -277,6 +312,7 @@ export function SegmentedControl<T extends string>({
             focusable={index === focusIndex}
             size={size}
             layout={layout}
+            appearance={appearance}
             itemRole={role === 'tablist' ? 'tab' : 'radio'}
             onSelect={select}
           />

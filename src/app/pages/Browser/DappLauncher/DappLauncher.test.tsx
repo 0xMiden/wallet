@@ -89,6 +89,12 @@ beforeEach(() => {
   resetRevealed();
 });
 
+// jsdom does not implement scrollIntoView; the shared segmented control keeps its selection in
+// view, so give it a no-op to call.
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: jest.fn(), configurable: true });
+});
+
 describe('DappLauncher', () => {
   it('renders the sections from config, in order, each in its own layout', async () => {
     await renderLauncher();
@@ -161,13 +167,13 @@ describe('DappLauncher', () => {
   it('filters the sections by category chip, with a selection haptic only when the choice changes', async () => {
     await renderLauncher();
 
-    expect(screen.getByTestId('explore-chip-all')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('explore-chip-all')).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByTestId('explore-chip-all'));
     expect(hapticSelection).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('explore-chip-games'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-checked', 'true');
     await waitFor(() => expect(sectionIds()).toEqual(['games']));
 
     fireEvent.click(screen.getByTestId('explore-chip-tools'));

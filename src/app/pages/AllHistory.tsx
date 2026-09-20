@@ -46,6 +46,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
       <TabHeader
         title={t('activity')}
+        divider="rule"
         search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
         actions={
           <TabHeaderAction
@@ -67,8 +68,9 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         items={filters}
         value={filter}
         onChange={setFilter}
+        appearance="pills"
         aria-label={t('activityFilters')}
-        className="shrink-0 px-4 py-2"
+        className="shrink-0 px-4 py-4"
       />
 
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}

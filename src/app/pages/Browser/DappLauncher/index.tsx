@@ -139,6 +139,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
     <>
       <TabHeader
         title={t('explore')}
+        divider="rule"
         search={{
           open: searchOpen,
           value: query,
@@ -163,7 +164,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
       {/* `layoutScroll`, so the sections' layout moves measure through the scroll. */}
       <motion.main
         layoutScroll
-        className="grow overflow-y-auto pt-2 pb-24"
+        className="grow overflow-y-auto pb-24"
         style={{ overscrollBehavior: 'contain' }}
         data-testid="explore-launcher"
       >
