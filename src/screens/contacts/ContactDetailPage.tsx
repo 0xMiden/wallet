@@ -54,6 +54,8 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   const [name, setName] = useState(contact.name);
   const [network, setNetwork] = useState<BridgeNetworkId | undefined>(bridgeNetwork?.id);
   const [saving, setSaving] = useState(false);
+  // Only cleared on failure: a success unmounts this page via `onDeleted`.
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string>();
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -101,10 +103,23 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   };
 
   const remove = async () => {
+    if (removing) return;
     const confirmed = await confirm({ title: t('deleteContact'), children: t('deleteContactConfirm') });
     if (!confirmed) return;
-    onDeleted();
-    await removeContact(contact.address);
+    // Report the delete only once it has landed. Calling `onDeleted()` first navigated away before
+    // the write was attempted, so a rejection left the user on a list still showing the contact
+    // with nothing said. The busy flag is the other half of the same change: until now the button
+    // was safe only because the page unmounted before the await, so awaiting first would otherwise
+    // leave it live for a second tap.
+    setRemoving(true);
+    setError(undefined);
+    try {
+      await removeContact(contact.address);
+      onDeleted();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+      setRemoving(false);
+    }
   };
 
   // The name is already in the page header (or, while editing, the name field below), so the
@@ -166,8 +181,9 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
               hapticLight();
               void remove();
             }}
+            disabled={removing}
             data-testid="contact-delete"
-            className="mt-2 h-12 w-full rounded-full bg-surface-interactive font-heading text-base font-bold text-status-negative"
+            className="mt-2 h-12 w-full rounded-full bg-surface-interactive font-heading text-base font-bold text-status-negative disabled:opacity-50"
           >
             {t('deleteContact')}
           </button>

@@ -125,6 +125,48 @@ it('leaves edit mode on back without saving', () => {
   expect(updateContactMock).not.toHaveBeenCalled();
 });
 
+it('keeps the user on the page and shows the error when the delete write fails', async () => {
+  removeContactMock.mockRejectedValueOnce(new Error('contact store unavailable'));
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+
+  confirmMock.mockResolvedValueOnce(true);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-delete'));
+  });
+
+  // The delete used to navigate away before the write was even attempted, so a rejection left the
+  // user on a list still showing the contact with nothing said.
+  expect(backMock).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+});
+
+it('disables the delete button while the write is in flight', async () => {
+  let release: () => void = () => undefined;
+  removeContactMock.mockReturnValueOnce(
+    new Promise<void>(resolve => {
+      release = resolve;
+    })
+  );
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+
+  confirmMock.mockResolvedValueOnce(true);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-delete'));
+  });
+
+  // Awaiting the write before navigating means the button outlives the tap, so it has to be held
+  // shut: a second tap would otherwise re-open the confirm and fire a redundant write.
+  expect(screen.getByTestId('contact-delete')).toBeDisabled();
+  fireEvent.click(screen.getByTestId('contact-delete'));
+  expect(removeContactMock).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    release();
+  });
+});
+
 it('deletes only after confirming, then goes back', async () => {
   render(<ContactDetailPage address="0xpaul" />);
   fireEvent.click(screen.getByTestId('contact-edit'));
