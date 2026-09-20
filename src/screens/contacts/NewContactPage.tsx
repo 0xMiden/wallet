@@ -17,7 +17,7 @@ import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
-import { HistoryAction, navigate } from 'lib/woozie';
+import useIsMounted from 'lib/ui/useIsMounted';
 import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
@@ -37,6 +37,7 @@ export const NewContactPage: React.FC = () => {
   const { addContact } = useContacts();
   const { allContacts } = useFilteredContacts();
   const back = useBackWithFallback(ADDRESS_BOOK_PATH);
+  const isMounted = useIsMounted();
 
   const [address, setAddress] = useState('');
   // The invalid-address message waits until the field is left (or filled by paste or scan), so it
@@ -113,11 +114,9 @@ export const NewContactPage: React.FC = () => {
         addedAt: Date.now(),
         ...(isEvm ? { network } : {})
       });
-      // A NAMED destination, not `back()`. `back()` reads live location at call time, so a save
-      // that resolves after the location moved for any other reason - an auto-lock navigation,
-      // hardware back on mobile - traverses from wherever the user is by then. Same rule as the
-      // delete in ContactDetailPage; this is its sibling site.
-      navigate(ADDRESS_BOOK_PATH, HistoryAction.Replace);
+      // Pop our own entry, and only while this page is still live - see the delete in
+      // ContactDetailPage for why a named Replace duplicates the address book in history.
+      if (isMounted()) back();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : String(err));
       setSaving(false);

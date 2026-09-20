@@ -256,6 +256,57 @@ it('will not save while a delete is in flight, so the delete cannot be undone by
   });
 });
 
+it('will not leave edit mode while a write is in flight, so the error still has somewhere to show', async () => {
+  let reject: (e: Error) => void = () => undefined;
+  removeContactMock.mockReturnValueOnce(
+    new Promise<void>((_, rej) => {
+      reject = rej;
+    })
+  );
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+
+  confirmMock.mockResolvedValueOnce(true);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-delete'));
+  });
+
+  // The role="alert" node lives only in the editing branch, so leaving edit mode mid-write would
+  // destroy the only thing that can report the failure below.
+  fireEvent.click(screen.getByTestId('flow-back'));
+  expect(screen.getByTestId('contact-save')).toBeInTheDocument();
+
+  await act(async () => {
+    reject(new Error('contact store unavailable'));
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+});
+
+it('does not navigate when the page is gone by the time the delete resolves', async () => {
+  let resolve: () => void = () => undefined;
+  removeContactMock.mockReturnValueOnce(
+    new Promise<void>(res => {
+      resolve = res;
+    })
+  );
+  const { unmount } = render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+
+  confirmMock.mockResolvedValueOnce(true);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-delete'));
+  });
+
+  unmount();
+  await act(async () => {
+    resolve();
+  });
+
+  // `back()` reads live location at call time, so navigating from a page the user already left
+  // would traverse from wherever they are now. Liveness is what makes a relative pop safe.
+  expect(backMock).not.toHaveBeenCalled();
+});
+
 it('deletes only after confirming, then goes back', async () => {
   render(<ContactDetailPage address="0xpaul" />);
   fireEvent.click(screen.getByTestId('contact-edit'));
@@ -271,11 +322,9 @@ it('deletes only after confirming, then goes back', async () => {
     fireEvent.click(screen.getByTestId('contact-delete'));
   });
   expect(removeContactMock).toHaveBeenCalledWith('0xpaul');
-  // A NAMED destination, not relative history: the write resolves after an unbounded await, and
-  // `back()` would traverse from wherever the user is by then. The contact is gone, so the address
-  // book is correct in every case.
-  expect(navigateMock).toHaveBeenCalledWith('/settings/address-book', 'replacestate');
-  expect(backMock).not.toHaveBeenCalled();
+  // Pops our own entry rather than replacing it with the address-book URL, which would leave that
+  // URL duplicated in two adjacent history entries and make the next Back appear to do nothing.
+  expect(backMock).toHaveBeenCalledTimes(1);
 });
 
 it('redirects to the address book for an unknown address or one of my accounts', () => {

@@ -93,7 +93,7 @@ it('saves a 0x contact with its network and goes back', async () => {
   expect(addContactMock).toHaveBeenCalledWith(
     expect.objectContaining({ address: EVM, name: 'Paul', network: 'sepolia' })
   );
-  expect(navigateMock).toHaveBeenCalledWith('/settings/address-book', 'replacestate');
+  expect(backMock).toHaveBeenCalled();
 });
 
 it('saves a Miden contact without a network', async () => {
@@ -238,9 +238,6 @@ it('ignores the header back while the save is in flight, so the save navigates e
   await act(async () => {
     resolveSave();
   });
-  // The success path navigates to a NAMED destination, so a location change during the write
-  // cannot make it traverse from somewhere else. Same rule as the delete in ContactDetailPage.
-  expect(navigateMock).toHaveBeenCalledTimes(1);
-  expect(navigateMock).toHaveBeenCalledWith('/settings/address-book', 'replacestate');
-  expect(backMock).not.toHaveBeenCalled();
+  // Exactly once: the in-flight tap was ignored, and the save's own completion pops one entry.
+  expect(backMock).toHaveBeenCalledTimes(1);
 });

@@ -16,7 +16,8 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { hapticLight } from 'lib/mobile/haptics';
 import { WalletContact } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
-import { HistoryAction, navigate, Redirect } from 'lib/woozie';
+import useIsMounted from 'lib/ui/useIsMounted';
+import { navigate, Redirect } from 'lib/woozie';
 import { BridgeNetworkId } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 
@@ -236,6 +237,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
 export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) => {
   const { allContacts } = useFilteredContacts();
   const back = useBackWithFallback(ADDRESS_BOOK_PATH);
+  const isMounted = useIsMounted();
   // Set on delete, so the contact vanishing from the store reads as leaving, not as an unknown id.
   const [deleted, setDeleted] = useState(false);
   // True from the moment this page starts its OWN delete write until that write settles.
@@ -263,11 +265,13 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
         onDeleteFailed={() => setDeleting(false)}
         onDeleted={() => {
           setDeleted(true);
-          // A NAMED destination, not `back()`. `back()` is relative history with a latch that
-          // re-arms on location change, so a delete that resolves after the user has moved on
-          // would traverse from wherever they are by then and overshoot by a screen. The contact
-          // is gone, so the address book is the correct destination in every case.
-          navigate(ADDRESS_BOOK_PATH, HistoryAction.Replace);
+          // Pop OUR OWN entry, and only while this page is still the live one. Replacing with the
+          // address-book URL instead left it duplicated in two adjacent entries (the page is
+          // entered by a push FROM the address book), so the next Back popped onto an identical
+          // URL and appeared to do nothing. Liveness is the "has the user moved on" signal that
+          // a relative back needs: moving away unmounts this page, and then we must not navigate
+          // at all rather than traverse from wherever they now are.
+          if (isMounted()) back();
         }}
       />
     </div>
