@@ -103,7 +103,10 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
     // a hairline rule, like the bottom nav's top rule, divide it from the content under it.
     <div
       role="tablist"
-      className={cn('flex items-center gap-1 overflow-hidden border-b border-hairline px-3 pt-1 pb-2', className)}
+      className={cn(
+        'flex items-center gap-1 overflow-hidden border-b border-hairline bg-action-bar px-3 pt-1 pb-2',
+        className
+      )}
     >
       {/* The white pill slides between segments on the shared Highlight primitive; its layoutId is
           scoped to this bar, so two mounted bars never trade pills. */}

@@ -487,6 +487,21 @@ body[data-hide-navbar] [data-navbar-cushion='true'] {
  * padding. On iOS WKWebView that strip is not repainted when TabLayout is
  * replaced, so the last shadow pixels can survive after the footer is gone.
  * Paint the strip explicitly while the navbar is hidden. */
+/* Home's top action bar band continues up through the status-bar safe area,
+ * which body paints above #root. TabLayout sets the attribute while Home is
+ * the active tab on mobile. */
+body[data-home-band]::before {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: env(safe-area-inset-top);
+  background-color: var(--ds-action-bar);
+  pointer-events: none;
+}
+
 body[data-hide-navbar]::after {
   content: '';
   position: fixed;
@@ -626,6 +641,7 @@ body[data-hide-navbar]::after {
     --ds-page: #ffffff;
     --ds-fill: #f3f0ec;
     --ds-fill-pressed: #e9e5e0;
+    --ds-action-bar: #f9f9f9;
     --ds-hairline: rgba(63, 63, 63, 0.1);
     --ds-ink: #3f3f3f;
     --ds-muted: #6b6b6b;
@@ -729,6 +745,7 @@ body[data-hide-navbar]::after {
     --ds-page: #191919;
     --ds-fill: #262422;
     --ds-fill-pressed: #33302d;
+    --ds-action-bar: #1e1e1e;
     --ds-hairline: rgba(255, 255, 255, 0.09);
     /* A drop shadow barely reads on #191919, so dark raises the bubble with the lighter fill, a
      * lit top edge and a faint ring. */

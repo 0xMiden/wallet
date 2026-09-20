@@ -89,7 +89,8 @@ describe('SegmentedActionBar — exports & structure', () => {
     // No band of its own: it sits on the page, snug under the status bar (4px above the 48px
     // segments, 8px below), with a hairline rule on its bottom edge like the bottom nav's top rule.
     expect(tablist).toHaveClass('px-3', 'gap-1', 'pt-1', 'pb-2', 'border-b', 'border-hairline');
-    expect(tablist.className).not.toMatch(/(^|\s)bg-/);
+    // Its own band, on the action-bar token, so it reads as one strip with the status bar above.
+    expect(tablist).toHaveClass('bg-action-bar');
     expect(tablist.className).not.toMatch(/(^|\s)(h-\d+|pt-[2-9]|py-)/);
 
     const tabs = screen.getAllByRole('tab');

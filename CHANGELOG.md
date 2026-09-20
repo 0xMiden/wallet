@@ -8,6 +8,7 @@
 - [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
 ### Changes
 
+- [CHANGE][mobile] Home's top action bar sits on its own light band that continues up through the status bar.
 - [CHANGE][all] Send's review page is quieter: the address in body text, the network as a plain value, no fee note, "Expires" with Edit, and the reclaim reassurance as one caption under the card.
 - [CHANGE][all] Send's first page is titled like the other tabs, its address field fits two lines on a small phone and Paste, Address Book and Scan stay on one row.
 - [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.

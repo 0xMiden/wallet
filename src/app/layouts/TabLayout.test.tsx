@@ -613,6 +613,30 @@ describe('TabLayout — docked bar hides while scrolling down on mobile', () => 
   });
 });
 
+describe('TabLayout — Home band through the status bar', () => {
+  afterEach(() => document.body.removeAttribute('data-home-band'));
+
+  it('flags body while Home is the active tab on mobile, and clears it on Explore', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { unmount } = renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+    unmount();
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+
+    mockLocation.pathname = '/browser';
+    renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+  });
+
+  it('never flags body off-mobile', () => {
+    mockPlatform.isMobile = false;
+    mockLocation.pathname = '/';
+    renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+  });
+});
+
 describe('TabLayout — mount fade and tab panes', () => {
   const initialOf = () => screen.getByTestId('motion-div').getAttribute('data-initial');
   const paneOf = (id: string) => document.querySelector(`[data-tab-pane="${id}"]`);

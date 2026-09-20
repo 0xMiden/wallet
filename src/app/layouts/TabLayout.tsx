@@ -272,6 +272,16 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
 
+  // Mobile, Home only: the body paints the status-bar safe area above the
+  // app, so the action bar's band is drawn up there by a fixed pseudo-element
+  // on body (main.css), keyed off this attribute — the panes clip their
+  // overflow, so nothing inside the layout can reach that strip.
+  useEffect(() => {
+    if (!isMobile()) return;
+    document.body.toggleAttribute('data-home-band', showActionBar);
+    return () => document.body.removeAttribute('data-home-band');
+  }, [showActionBar]);
+
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the
   // route we're already on stays a silent no-op.
