@@ -3,14 +3,13 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
 import { ErrorLine } from 'components/ui/ErrorLine';
-import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
@@ -242,14 +241,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
         }
       >
         <SubPageSection description={t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}>
-          {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
-          <div aria-hidden="true" className="rounded-2xl bg-fill px-6 py-8">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-              {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="h-1.5 w-full rounded-full bg-fill-pressed" />
-              ))}
-            </div>
-          </div>
+          <SeedPhrasePlaceholder />
           {authError && (
             <Notice tone="negative" role="alert" title={t('error')} className="mt-3">
               {authError}
@@ -257,16 +249,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
           )}
         </SubPageSection>
 
-        <Hero
-          className="mt-auto pt-4"
-          visual={
-            <div className="flex size-16 items-center justify-center rounded-full bg-accent-primary">
-              <Icon name={IconName.EyeOff} size="md" fill="white" />
-            </div>
-          }
-          name={t('viewThisInPrivatePlace')}
-          subtitle={t('anyoneWithRecoveryPhrase')}
-        />
+        <SeedPhrasePrivacyHero className="mt-auto pt-4" />
       </SubPageLayout>
     );
   }
@@ -347,18 +330,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
             <>
               <input ref={fieldRef} value={mnemonic ?? ''} readOnly className="sr-only" tabIndex={-1} />
 
-              <div className="rounded-2xl bg-fill p-5">
-                <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-                  {words.map((word, idx) => (
-                    <div key={idx} className="flex min-w-0 items-center gap-2">
-                      <span className="w-5 text-right text-caption text-muted">{idx + 1}.</span>
-                      <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
-                        {word}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <SeedPhraseGrid words={words} />
 
               {!remove && (
                 <Pill

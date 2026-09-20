@@ -4,14 +4,13 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { PageHeader } from 'components/PageHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
-import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { Vault } from 'lib/miden/back/vault';
@@ -173,57 +172,53 @@ const RevealSeedPhrase: FC = () => {
 
   if (seedStatus && seedStatus !== 'stored')
     return (
-      <p role="status" className="p-4">
+      // The same page the verify flow draws for this state, on the same frame.
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={leave}
+        data-testid="reveal-seed-state"
+        footer={<Button className="flex-1 max-w-none" title={t('close')} onClick={leave} />}
+      >
         {/* Three distinct states, not two: a removal still to finish, one that
             finished, and a wallet imported from a key that never had a phrase
             here at all. Telling that last user their seed was removed is false.
             VerifySeedPhraseFlow carries the identical mapping. */}
-        {t(SEED_STATE_NOTICE[seedStatus])}
-      </p>
+        <SubPageSection description={<p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>} />
+      </SubPageLayout>
     );
 
   if (step === 'warning') {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={leave}
+        focusTitleOnMount
+        data-testid="reveal-seed-warning"
+        footer={
+          <>
+            <Button
+              className="flex-1 max-w-none"
+              variant={ButtonVariant.Secondary}
+              title={t('close')}
+              onClick={leave}
+            />
+            <Button
+              className="flex-1 max-w-none"
+              variant={ButtonVariant.Primary}
+              title={t('view')}
+              onClick={handleView}
+              disabled={hasHardwareProtector === null || isSubmitting}
+              isLoading={isSubmitting}
+            />
+          </>
+        }
+      >
+        <SubPageSection footnote={t('pleaseWriteDownRecoveryPhrase')}>
+          <SeedPhrasePlaceholder />
+        </SubPageSection>
 
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4">
-          {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
-          <div aria-hidden="true" className="bg-fill rounded-2xl px-6 py-8">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-              {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="h-1.5 w-full rounded-full bg-fill-pressed" />
-              ))}
-            </div>
-          </div>
-
-          <p className="mt-4 text-center text-body text-muted">{t('pleaseWriteDownRecoveryPhrase')}</p>
-
-          {/* The shared outcome hero, the same one the verify flow's warning step draws. */}
-          <Hero
-            className="mt-auto pt-8"
-            visual={
-              <div className="flex size-16 items-center justify-center rounded-full bg-accent-primary">
-                <Icon name={IconName.EyeOff} size="md" fill="white" />
-              </div>
-            }
-            name={t('viewThisInPrivatePlace')}
-            subtitle={t('anyoneWithRecoveryPhrase')}
-          />
-        </div>
-
-        <div className="flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
-          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
-          <Button
-            className="flex-1"
-            variant={ButtonVariant.Primary}
-            title={t('view')}
-            onClick={handleView}
-            disabled={hasHardwareProtector === null || isSubmitting}
-            isLoading={isSubmitting}
-          />
-        </div>
-      </div>
+        <SeedPhrasePrivacyHero className="mt-auto pt-4" />
+      </SubPageLayout>
     );
   }
 
@@ -234,66 +229,51 @@ const RevealSeedPhrase: FC = () => {
   // Revealed view
   if (secret && words.length > 0) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={handleHide} />
-
-        <div className="flex-1 flex flex-col px-4">
-          {isGuardReady && (
-            <>
-              {/* Hidden field for copy */}
-              <input ref={fieldRef} value={secret || ''} readOnly className="sr-only" tabIndex={-1} />
-
-              {/* Copy is the shared Pill, like every other copy action in the wallet. */}
-              <div className="mb-4 flex justify-center">
-                <Pill
-                  icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
-                  onClick={copy}
-                  data-testid="reveal-seed-copy"
-                >
-                  <CopyLabel copied={copied} copiedLabel={t('copied')}>
-                    {t('copyToClipboard')}
-                  </CopyLabel>
-                </Pill>
-              </div>
-
-              {/* Word grid: the group's own `fill` surface, and each word a row value. */}
-              <div className="rounded-2xl bg-fill p-5">
-                <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-                  {words.map((word, idx) => (
-                    <span key={idx} className="text-center text-value text-ink">
-                      {word.charAt(0).toUpperCase() + word.slice(1)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Hide button */}
-        <div className="px-4 pb-8 pt-4 mt-auto">
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={handleHide}
+        data-testid="reveal-seed-review"
+        footer={
           <Button
-            className="w-full justify-center"
+            className="flex-1 max-w-none"
             variant={ButtonVariant.Primary}
             title={t('hideRecoveryPhrase')}
             onClick={handleHide}
           />
-        </div>
-      </div>
+        }
+      >
+        {isGuardReady && (
+          <SubPageSection className="gap-3">
+            {/* Hidden field for copy */}
+            <input ref={fieldRef} value={secret || ''} readOnly className="sr-only" tabIndex={-1} />
+
+            <SeedPhraseGrid words={words} />
+
+            {/* Copy is the shared Pill, like every other copy action in the wallet. */}
+            <Pill
+              className="self-start"
+              icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
+              onClick={copy}
+              data-testid="reveal-seed-copy"
+            >
+              <CopyLabel copied={copied} copiedLabel={t('copied')}>
+                {t('copyToClipboard')}
+              </CopyLabel>
+            </Pill>
+          </SubPageSection>
+        )}
+      </SubPageLayout>
     );
   }
 
   // Auth error fallback
   if (authError) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
-        <div className="px-4">
-          <Notice tone="negative" role="alert" title={t('error')}>
-            {authError}
-          </Notice>
-        </div>
-      </div>
+      <SubPageLayout title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-error">
+        <Notice tone="negative" role="alert" title={t('error')}>
+          {authError}
+        </Notice>
+      </SubPageLayout>
     );
   }
 
@@ -303,9 +283,7 @@ const RevealSeedPhrase: FC = () => {
   const usePasscodeEntry = isMobile();
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
-
+    <SubPageLayout title={t('recoveryPhrase')} onBack={leave} data-testid="reveal-seed-auth">
       <Drawer
         open={showPasswordDrawer}
         onOpenChange={open => !open && handlePasswordDrawerClose()}
@@ -352,7 +330,7 @@ const RevealSeedPhrase: FC = () => {
           )}
         </DrawerContent>
       </Drawer>
-    </div>
+    </SubPageLayout>
   );
 };
 
