@@ -37,7 +37,8 @@ function parseArguments(argv) {
   const options = {
     source: 'store-listing/listing-copy.json',
     outputRoot: 'store-listing/generated',
-    markdown: 'STORE_LISTING.md'
+    markdown: 'STORE_LISTING.md',
+    rules: 'store-listing/store-rules.json'
   };
 
   for (let index = 0; index < argv.length; index += 2) {
@@ -47,6 +48,7 @@ function parseArguments(argv) {
     if (flag === '--source') options.source = value;
     else if (flag === '--output-root') options.outputRoot = value;
     else if (flag === '--markdown') options.markdown = value;
+    else if (flag === '--rules') options.rules = value;
     else throw new Error(`Unknown argument: ${flag}`);
   }
 
@@ -87,26 +89,47 @@ function assertCharacterLimit(label, value, limit) {
   assert(Array.from(value).length <= limit, `${label} exceeds ${limit} characters`);
 }
 
-function validateFields(source, descriptions) {
+// The unit is part of the key name, and it is load-bearing: Apple enforces the keyword field in
+// UTF-8 BYTES while every other limit is a documented character count, so a uniform length check
+// would undercount non-ASCII keywords and let an over-long field through.
+function assertCopyLimit(label, value, limits, key) {
+  const limit = limits?.[key];
+  assert(typeof limit === 'number', `${label}: store rules declare no ${key}`);
+  if (key.endsWith('Bytes')) {
+    assert(typeof value === 'string', `${label} must be a string`);
+    assert(Buffer.byteLength(value, 'utf8') <= limit, `${label} exceeds ${limit} bytes`);
+    return;
+  }
+  assertCharacterLimit(label, value, limit);
+}
+
+function validateFields(source, descriptions, rules) {
   const appStore = source.platforms.appStore.fields;
   const playStore = source.platforms.playStore.fields;
   const chrome = source.platforms.chromeWebStore.fields;
 
-  assertCharacterLimit('App Store name', appStore.name, 30);
-  assertCharacterLimit('App Store subtitle', appStore.subtitle, 30);
-  assertCharacterLimit('App Store promotionalText', appStore.promotionalText, 170);
-  // Apple enforces the keyword field in UTF-8 bytes, while the other limits
-  // below are documented character counts. Non-ASCII input must not undercount.
+  const limitsFor = platformKey => {
+    const limits = rules?.platforms?.[platformKey]?.copyLimits;
+    assert(limits, `Store rules declare no copyLimits for ${platformKey}`);
+    return limits;
+  };
+  const appLimits = limitsFor('appStore');
+  const playLimits = limitsFor('playStore');
+  const chromeLimits = limitsFor('chromeWebStore');
+
+  assertCopyLimit('App Store name', appStore.name, appLimits, 'nameCharacters');
+  assertCopyLimit('App Store subtitle', appStore.subtitle, appLimits, 'subtitleCharacters');
+  assertCopyLimit('App Store promotionalText', appStore.promotionalText, appLimits, 'promotionalTextCharacters');
   const keywords = Array.isArray(appStore.keywords) ? appStore.keywords.join(',') : appStore.keywords;
-  assert(Buffer.byteLength(keywords, 'utf8') <= 100, 'App Store keywords exceeds 100 bytes');
-  assertCharacterLimit('App Store description', descriptions.appStore, 4000);
+  assertCopyLimit('App Store keywords', keywords, appLimits, 'keywordsBytes');
+  assertCopyLimit('App Store description', descriptions.appStore, appLimits, 'descriptionCharacters');
 
-  assertCharacterLimit('Google Play name', playStore.name, 30);
-  assertCharacterLimit('Google Play shortDescription', playStore.shortDescription, 80);
-  assertCharacterLimit('Google Play description', descriptions.playStore, 4000);
+  assertCopyLimit('Google Play name', playStore.name, playLimits, 'nameCharacters');
+  assertCopyLimit('Google Play shortDescription', playStore.shortDescription, playLimits, 'shortDescriptionCharacters');
+  assertCopyLimit('Google Play description', descriptions.playStore, playLimits, 'descriptionCharacters');
 
-  assertCharacterLimit('Chrome name', chrome.name, 75);
-  assertCharacterLimit('Chrome shortDescription', chrome.shortDescription, 132);
+  assertCopyLimit('Chrome name', chrome.name, chromeLimits, 'nameCharacters');
+  assertCopyLimit('Chrome shortDescription', chrome.shortDescription, chromeLimits, 'shortDescriptionCharacters');
 }
 
 function validatePlatformTerms(source) {
@@ -244,7 +267,7 @@ function generatedFields(fields) {
   return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, renderFieldValue(value)]));
 }
 
-function compose(source) {
+function compose(source, rules) {
   assert(source.schemaVersion === 1, 'schemaVersion must be 1');
   assert(source.product?.name, 'product name is required');
   assert(source.product?.valueLine, 'product value line is required');
@@ -273,7 +296,7 @@ function compose(source) {
   const descriptions = Object.fromEntries(
     platformEntries.map(platform => [platform.key, renderDescription([...sharedBlocks, ...platform.blocks])])
   );
-  validateFields(source, descriptions);
+  validateFields(source, descriptions, rules);
 
   return Object.fromEntries(
     platformEntries.map(platform => [
@@ -333,7 +356,8 @@ function renderMarkdown(outputs) {
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const source = JSON.parse(await readFile(path.resolve(options.source), 'utf8'));
-  const outputs = compose(source);
+  const rules = JSON.parse(await readFile(path.resolve(options.rules), 'utf8'));
+  const outputs = compose(source, rules);
 
   for (const platformKey of platformKeys) {
     const output = outputs[platformKey];

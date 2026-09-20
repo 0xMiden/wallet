@@ -244,7 +244,9 @@ async function validatePackage({ scenes, rules, copy, root, asOf }) {
   assert(scenes.platforms && rules.platforms, 'Platform manifests are required');
   validatePunctuation(scenes, rules, copy);
   validateRuleAge(rules, asOf);
-  const composedCopy = compose(copy);
+  // `rules` is threaded in: compose enforces the copy limits the rules file declares, so calling
+  // it without them would make the validator stop checking exactly what it exists to gate.
+  const composedCopy = compose(copy, rules);
 
   // Uniqueness spans stores. Reusing an id or output path could cause reports
   // and hashes to attribute one platform's pixels to another.

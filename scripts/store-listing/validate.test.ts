@@ -183,6 +183,13 @@ function validRules(): StoreRules {
         recommendations: {
           promotionalScreenshots: { enforcedForThisPackage: false }
         },
+        copyLimits: {
+          nameCharacters: 30,
+          subtitleCharacters: 30,
+          promotionalTextCharacters: 170,
+          keywordsBytes: 100,
+          descriptionCharacters: 4000
+        },
         requiredKinds: {}
       },
       playStore: {
@@ -205,6 +212,7 @@ function validRules(): StoreRules {
             orientation: 'portrait'
           }
         },
+        copyLimits: { nameCharacters: 30, shortDescriptionCharacters: 80, descriptionCharacters: 4000 },
         requiredKinds: {
           featureGraphic: { count: 1, width: 102, height: 50, alphaAllowed: false },
           icon: { count: 1, width: 51, height: 51, alphaAllowed: true }
@@ -226,6 +234,7 @@ function validRules(): StoreRules {
         recommendations: {
           promotionalScreenshots: { enforcedForThisPackage: false }
         },
+        copyLimits: { nameCharacters: 75, shortDescriptionCharacters: 132 },
         requiredKinds: {
           smallPromo: { count: 1, width: 44, height: 28, alphaAllowed: false },
           marquee: { count: 1, width: 140, height: 56, alphaAllowed: false },

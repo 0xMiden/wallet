@@ -62,7 +62,13 @@ function serializeSource(source: CopySource): string {
     .replaceAll(String.fromCodePoint(0x2014), '\\u2014')}\n`;
 }
 
-function generate(source: CopySource) {
+type RulesOverride = (rules: StoreRulesFixture) => void;
+
+type StoreRulesFixture = {
+  platforms: Record<string, { copyLimits: Record<string, number> }>;
+};
+
+function generate(source: CopySource, mutateRules?: RulesOverride) {
   // Every invocation gets an isolated output tree. Reusing one directory could
   // hide a generator that failed to replace a stale file.
   const directory = mkdtempSync(path.join(tmpdir(), 'bread-listing-copy-'));
@@ -73,9 +79,18 @@ function generate(source: CopySource) {
   const markdownPath = path.join(directory, 'STORE_LISTING.md');
   writeFileSync(sourcePath, serializeSource(source));
 
+  // The limits come from the rules file, so a test that wants to prove a limit is enforced has to
+  // be able to move it. Start from the shipped rules and let the caller edit a copy.
+  const rulesPath = path.join(directory, 'store-rules.json');
+  const rules = JSON.parse(
+    readFileSync(path.join(repositoryRoot, 'store-listing/store-rules.json'), 'utf8')
+  ) as StoreRulesFixture;
+  mutateRules?.(rules);
+  writeFileSync(rulesPath, JSON.stringify(rules, null, 2));
+
   const result = spawnSync(
     process.execPath,
-    [scriptPath, '--source', sourcePath, '--output-root', outputRoot, '--markdown', markdownPath],
+    [scriptPath, '--source', sourcePath, '--output-root', outputRoot, '--markdown', markdownPath, '--rules', rulesPath],
     { cwd: repositoryRoot, encoding: 'utf8' }
   );
 
@@ -254,6 +269,33 @@ describe('store listing copy composition', () => {
 
     expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(schema.required).toEqual(expect.arrayContaining(['shared', 'platforms', 'screenshots']));
+  });
+
+  it('enforces the copy limit the rules file declares, not a literal in the generator', () => {
+    // The limits used to be hardcoded, so the dated source-linked rules file stated numbers that
+    // nothing read. Lowering one here must now reject copy that passes at the shipped limit.
+    const { result } = generate(loadCanonicalSource(), rules => {
+      rules.platforms.playStore.copyLimits.shortDescriptionCharacters = 10;
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain('Google Play shortDescription exceeds 10 characters');
+  });
+
+  it('measures the App Store keyword limit in bytes, not characters', () => {
+    // Apple enforces this field in UTF-8 bytes. Every other limit is a character count, so a
+    // generator that applied one length rule uniformly would let an over-long keyword list through
+    // whenever the text is non-ASCII.
+    const source = loadCanonicalSource();
+    // 60 two-byte characters: 60 characters, 120 bytes. Under a 100-character cap, over 100 bytes.
+    source.platforms.appStore.fields.keywords = Array.from({ length: 60 }, () => 'é').join('');
+
+    const { result } = generate(source, rules => {
+      rules.platforms.appStore.copyLimits.keywordsBytes = 100;
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain('App Store keywords exceeds 100 bytes');
   });
 
   it('produces byte-identical files on repeated runs', () => {
