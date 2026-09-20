@@ -52,7 +52,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         <Button
           data-testid={secondaryAction['data-testid']}
           variant={ButtonVariant.Secondary}
-          className="mt-1 h-9 w-auto px-4 text-sm"
+          size="sm"
+          className="mt-1 w-auto px-4"
           onClick={secondaryAction.onClick}
           title={secondaryAction.label}
         />

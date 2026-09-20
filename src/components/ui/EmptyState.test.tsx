@@ -20,8 +20,10 @@ jest.mock('app/icons/v2', () => ({
 // button that reflects the props EmptyState sets, mirroring how other ui
 // components in this repo isolate it in tests.
 jest.mock('components/ui/Button', () => ({
-  Button: ({ title, onClick, className, 'data-testid': dataTestId }: any) => (
-    <button data-testid={dataTestId ?? 'button'} data-classname={className} onClick={onClick}>
+  // `size` is surfaced because the compact action is EmptyState's contract with Button, not a
+  // local style: a mock that dropped it would let the size silently regress to the `lg` default.
+  Button: ({ title, onClick, className, size, 'data-testid': dataTestId }: any) => (
+    <button data-testid={dataTestId ?? 'button'} data-classname={className} data-size={size} onClick={onClick}>
       {title}
     </button>
   ),
@@ -124,5 +126,13 @@ describe('EmptyState', () => {
     expect(action).toHaveTextContent('Add a contact');
     fireEvent.click(action);
     expect(onClick).toHaveBeenCalledTimes(1);
+
+    // The compact size comes from Button's own `sm` variant, not from utility classes here. The
+    // hand-rolled copy had already drifted from it (text-sm is 14px where the variant is 15px) and
+    // left the lg default's leading and max-width un-neutralised. Assert the PROP, not Button's
+    // rendered classes: Button is mocked in this suite, so asserting its internals would pass on
+    // the mock rather than on the component.
+    expect(action).toHaveAttribute('data-size', 'sm');
+    expect(action.getAttribute('data-classname')).not.toMatch(/h-9|text-sm/);
   });
 });
