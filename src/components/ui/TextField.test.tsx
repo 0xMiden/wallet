@@ -1,8 +1,10 @@
 import React, { createRef, useState } from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import TextFieldDefault, { TextField } from './TextField';
+import TextFieldDefault, { SECRET_REVEAL_MS, TextField } from './TextField';
+
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 describe('TextField — exports & defaults', () => {
   it('exposes the same component as the default and named export', () => {
@@ -220,5 +222,75 @@ describe('TextField — leading prefix', () => {
   it('ignores the prefix on a multi-line field', () => {
     render(<TextField multiline leading="1." value="" onChange={() => undefined} />);
     expect(screen.queryByText('1.')).not.toBeInTheDocument();
+  });
+});
+
+describe('TextField — secret', () => {
+  const cover = () => document.querySelector('[data-slot="secret-cover"]');
+
+  it('covers a filled secret until it is focused, and again when focus leaves', () => {
+    render(<TextField secret multiline value="my private key" onChange={jest.fn()} />);
+    const field = screen.getByRole('textbox');
+
+    expect(cover()).toBeInTheDocument();
+    fireEvent.focus(field);
+    expect(cover()).toBeNull();
+    fireEvent.blur(field);
+    expect(cover()).toBeInTheDocument();
+  });
+
+  it('covers nothing while the field is empty, and covers what was typed into an uncontrolled one', () => {
+    render(<TextField secret data-testid="key" />);
+    const field = screen.getByTestId('key');
+
+    expect(cover()).toBeNull();
+    fireEvent.change(field, { target: { value: 'aabb' } });
+    fireEvent.blur(field);
+    expect(cover()).toBeInTheDocument();
+
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.blur(field);
+    expect(cover()).toBeNull();
+  });
+
+  it('covers a revealed secret again after the reveal window, and when the window goes away', () => {
+    jest.useFakeTimers();
+    try {
+      render(<TextField secret value="my private key" onChange={jest.fn()} />);
+      const field = screen.getByRole('textbox');
+
+      fireEvent.focus(field);
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS);
+      });
+      // Blurring the element is what re-covers it; jsdom fires no blur event of its own.
+      expect(field).not.toHaveFocus();
+
+      fireEvent.focus(field);
+      expect(cover()).toBeNull();
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(field).not.toHaveFocus();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('still reports focus and blur to the caller', () => {
+    const onFocus = jest.fn();
+    const onBlur = jest.fn();
+    render(<TextField secret value="x" onChange={jest.fn()} onFocus={onFocus} onBlur={onBlur} />);
+
+    fireEvent.focus(screen.getByRole('textbox'));
+    fireEvent.blur(screen.getByRole('textbox'));
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an ordinary field uncovered', () => {
+    render(<TextField value="not a secret" onChange={jest.fn()} />);
+    expect(cover()).toBeNull();
   });
 });

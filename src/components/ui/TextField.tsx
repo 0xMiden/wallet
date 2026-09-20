@@ -1,7 +1,19 @@
-import React, { forwardRef, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, useCallback, useId } from 'react';
+import React, {
+  forwardRef,
+  InputHTMLAttributes,
+  ReactNode,
+  TextareaHTMLAttributes,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState
+} from 'react';
 
 import { cva } from 'class-variance-authority';
+import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { cn } from 'lib/ui/util';
 
 /** The element a `TextField` ref resolves to — an `<input>` or a `<textarea>`, chosen by `multiline`. */
@@ -13,13 +25,15 @@ export type TextFieldElement = HTMLInputElement | HTMLTextAreaElement;
 // `size` variant name collide with nothing we want to expose here.
 type SharedFieldAttrs = Omit<
   InputHTMLAttributes<HTMLInputElement> & TextareaHTMLAttributes<HTMLTextAreaElement>,
-  'onChange' | 'value' | 'defaultValue' | 'size'
+  'onChange' | 'onFocus' | 'onBlur' | 'value' | 'defaultValue' | 'size'
 >;
 
 export interface TextFieldProps extends SharedFieldAttrs {
   value?: string;
   defaultValue?: string;
   onChange?: (event: React.ChangeEvent<TextFieldElement>) => void;
+  onFocus?: (event: React.FocusEvent<TextFieldElement>) => void;
+  onBlur?: (event: React.FocusEvent<TextFieldElement>) => void;
   /** 13px bold `muted` label above the field, associated to it via `htmlFor`/`id`. */
   label?: ReactNode;
   /** Helper copy below the field. Hidden while `error` is set. */
@@ -34,11 +48,50 @@ export interface TextFieldProps extends SharedFieldAttrs {
   trailing?: ReactNode;
   /** Single-line only: a short `muted` prefix inside the field before the text, such as a seed word's number. */
   leading?: ReactNode;
+  /**
+   * Key material: cover the value whenever the field is not focused, and give up focus after
+   * `SECRET_REVEAL_MS` or as soon as the window loses it. A private key typed, pasted or revealed
+   * is on screen only while someone is deliberately looking at it.
+   */
+  secret?: boolean;
   containerClassName?: string;
   'data-testid'?: string;
 }
 
-const fieldVariants = cva('flex w-full bg-fill text-ink transition-shadow duration-150', {
+/** How long a revealed secret stays revealed before the field hands focus back. */
+export const SECRET_REVEAL_MS = 30_000;
+
+/**
+ * The cover over a `secret` field's value while nobody is looking at it. Its own component so
+ * that `TextField` — which almost every screen renders — does not pull `useTranslation` into
+ * every one of their tests for a string only key material ever shows.
+ *
+ * Over the field, not instead of it: the value stays where it is, so a tap lands the caret where
+ * it was aimed. Frosted rather than dimmed, because the job is to make characters unreadable,
+ * which a `scrim` would not do.
+ */
+const SecretCover: React.FC<{ multiline: boolean; onReveal: () => void }> = ({ multiline, onReveal }) => {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      data-slot="secret-cover"
+      onClick={onReveal}
+      className={cn(
+        'absolute inset-0 flex cursor-text flex-col items-center justify-center gap-1',
+        'bg-page/60 backdrop-blur-sm',
+        multiline ? 'rounded-lg-token' : 'rounded-full'
+      )}
+    >
+      <Icon name={IconName.EyeOff} size="sm" className="text-muted" />
+      <span className="text-caption text-muted">{t('clickToRevealField')}</span>
+    </button>
+  );
+};
+
+const fieldVariants = cva('relative flex w-full bg-fill text-ink transition-shadow duration-150', {
   variants: {
     multiline: {
       true: 'flex-col items-stretch gap-2 rounded-lg-token px-4 py-3',
@@ -74,10 +127,13 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       multiline,
       trailing,
       leading,
+      secret,
       containerClassName,
       className,
       id,
       rows,
+      onFocus,
+      onBlur,
       'data-testid': dataTestId,
       ...rest
     },
@@ -90,14 +146,60 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     const invalid = Boolean(error);
     const describedBy = error ? errorId : hint ? hintId : undefined;
 
+    // The cover needs to know whether there is anything to hide. A controlled field says so
+    // directly; an uncontrolled one (a `register`ed field) only ever tells us through `onChange`.
+    const fieldRef = useRef<TextFieldElement | null>(null);
+    const [focused, setFocused] = useState(false);
+    const [typed, setTyped] = useState(false);
+    const hasValue = value !== undefined ? value !== '' : typed || Boolean(defaultValue);
+    const covered = Boolean(secret) && hasValue && !focused;
+
+    // A revealed secret gives itself back: after half a minute, or the moment the window goes
+    // away (a screenshot, a task switch, another app on top).
+    useEffect(() => {
+      if (!secret || !focused) return undefined;
+      const hide = () => fieldRef.current?.blur();
+      const timer = setTimeout(hide, SECRET_REVEAL_MS);
+      window.addEventListener('blur', hide);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('blur', hide);
+      };
+    }, [secret, focused]);
+
     // A single callback ref forwarded to whichever tag renders, so the caller's ref (typed as the
     // union) can be handed straight to a concrete `<input>`/`<textarea>` ref prop without `as`.
     const setRef = useCallback(
       (node: TextFieldElement | null) => {
+        fieldRef.current = node;
         if (typeof forwardedRef === 'function') forwardedRef(node);
         else if (forwardedRef) forwardedRef.current = node;
       },
       [forwardedRef]
+    );
+
+    const handleChange = useCallback(
+      (event: React.ChangeEvent<TextFieldElement>) => {
+        setTyped(event.target.value !== '');
+        onChange?.(event);
+      },
+      [onChange]
+    );
+
+    const handleFocus = useCallback(
+      (event: React.FocusEvent<TextFieldElement>) => {
+        setFocused(true);
+        onFocus?.(event);
+      },
+      [onFocus]
+    );
+
+    const handleBlur = useCallback(
+      (event: React.FocusEvent<TextFieldElement>) => {
+        setFocused(false);
+        onBlur?.(event);
+      },
+      [onBlur]
     );
 
     const fieldClassName = cn(
@@ -127,7 +229,9 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               rows={rows ?? 2}
               value={value}
               defaultValue={defaultValue}
-              onChange={onChange}
+              onChange={handleChange}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
               aria-invalid={invalid}
               aria-describedby={describedBy}
               data-testid={dataTestId}
@@ -146,7 +250,9 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
                 id={fieldId}
                 value={value}
                 defaultValue={defaultValue}
-                onChange={onChange}
+                onChange={handleChange}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 data-testid={dataTestId}
@@ -157,6 +263,8 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
           )}
 
           {trailingSlot}
+
+          {covered && <SecretCover multiline={Boolean(multiline)} onReveal={() => fieldRef.current?.focus()} />}
         </div>
 
         {error ? (
