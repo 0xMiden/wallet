@@ -2,12 +2,11 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
-
-import { TabRootHeader } from 'components/ui/TabRootHeader';
 
 import { PRIVACY_POLICY_URL } from '../constants';
 // Import the component under test AFTER the mocks are declared.
