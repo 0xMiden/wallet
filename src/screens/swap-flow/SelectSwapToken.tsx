@@ -24,6 +24,10 @@ export interface SelectSwapTokenDrawerProps {
  * One `ListGroup` of `ListRow`s, the way the address book and Settings draw a list: rows on the
  * shared `fill` with hairlines inset past the logo, and the chosen side marked with the design
  * system's round check rather than a loose dot. `ListRow` fires the tap haptic itself.
+ *
+ * The rows carry the swap accent, so the check on the chosen side and the hairlines between the
+ * rows are the flow's purple like every other page of the swap (design-system.md, "Action
+ * colours"); the symbols stay `ink`.
  */
 export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   open,
@@ -53,6 +57,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                   title={token.symbol}
                   avatar={<TokenLogo symbol={token.logoSymbol} size="lg" />}
                   checked={token.faucetId === currentFaucetId}
+                  accent="swap"
                   onClick={() => onSelectToken(token)}
                   data-testid={`swap-token-${token.symbol}`}
                 />

@@ -55,9 +55,10 @@ export interface ListRowProps {
    */
   haptic?: boolean;
   /**
-   * Paints the row's chrome in a flow's colour: the leading glyph and its circle, the chevron and
-   * the hairline above the row. The title, subtitle and value stay `ink`/`muted`, which is what
-   * keeps the row readable — an accent is under 4.5:1 as text. Undefined leaves the neutral row.
+   * Paints the row's chrome in a flow's colour: the leading glyph and its circle, the chevron, the
+   * check of a selected row and the hairline above the row. The title, subtitle and value stay
+   * `ink`/`muted`, which is what keeps the row readable — an accent is under 4.5:1 as text.
+   * Undefined leaves the neutral row.
    */
   accent?: FlowAccent;
   /** Layout only (margins). */
@@ -177,7 +178,12 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         <span
           data-slot="check"
           aria-hidden="true"
-          className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-accent-primary"
+          className={cn(
+            'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-accent-primary',
+            // A selected state is one of the things a flow's colour carries (design-system.md,
+            // "Action colours"), so an accented row's check is the flow's fill, not the brand's.
+            tone?.bg
+          )}
         >
           <CheckIcon className="h-2 w-2.5 fill-pure-white" />
         </span>

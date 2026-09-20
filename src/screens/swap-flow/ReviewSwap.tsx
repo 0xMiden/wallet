@@ -53,7 +53,7 @@ function formatFillsIn(t: TFunction, swapEta?: SwapEta): string {
 }
 
 const SwapArrows: React.FC = () => (
-  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-pure-white">
+  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-swap text-pure-white">
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M5.5 13V4M5.5 4L3 6.5M5.5 4L8 6.5"
@@ -129,6 +129,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   return (
     <ReviewLayout
       hero={hero}
+      accent="swap"
       heroDivider={false}
       dividers={false}
       primary={{ label: t('swap'), onPress: onSubmit, 'data-testid': 'swap-submit' }}
@@ -165,7 +166,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
               enterKeyHint="done"
               value={expirySeconds}
               onChange={event => onExpirySecondsChange(event.target.value)}
-              className="w-16 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-right font-heading text-[15px] font-bold text-ink outline-none [appearance:textfield] focus:border-accent-primary [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="w-16 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-right font-heading text-[15px] font-bold text-ink outline-none [appearance:textfield] focus:border-accent-swap [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
             <span>{t('seconds')}</span>
           </label>
@@ -173,6 +174,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         <DetailRow label={t('swapAutoConsume')}>
           <Toggle
             data-testid="swap-auto-consume"
+            accent="swap"
             value={autoConsume}
             onChangeValue={onAutoConsumeChange}
             aria-label={t('swapAutoConsume')}

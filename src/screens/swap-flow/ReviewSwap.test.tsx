@@ -41,8 +41,8 @@ jest.mock('components/Button', () => {
   return {
     __esModule: true,
     ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
-    Button: ({ title, onClick, type, 'data-testid': dataTestId }: any) =>
-      R.createElement('button', { type, onClick, 'data-testid': dataTestId }, title)
+    Button: ({ title, onClick, type, accent, 'data-testid': dataTestId }: any) =>
+      R.createElement('button', { type, onClick, 'data-accent': accent, 'data-testid': dataTestId }, title)
   };
 });
 
@@ -253,6 +253,11 @@ describe('ReviewSwap', () => {
       fireEvent.click(screen.getByText('back'));
       expect(props.onGoBack).toHaveBeenCalledTimes(1);
       expect(props.onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('gives the primary CTA the swap flow colour', () => {
+      renderComponent();
+      expect(screen.getByTestId('swap-submit')).toHaveAttribute('data-accent', 'swap');
     });
 
     it('labels the primary CTA "swap" and the secondary CTA "back"', () => {

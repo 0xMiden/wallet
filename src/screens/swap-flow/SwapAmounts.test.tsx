@@ -47,6 +47,7 @@ jest.mock('components/Button', () => ({
     onClick,
     disabled,
     variant,
+    accent,
     children,
     'data-testid': dataTestId
   }: {
@@ -54,10 +55,11 @@ jest.mock('components/Button', () => ({
     onClick?: () => void;
     disabled?: boolean;
     variant?: string;
+    accent?: string;
     children?: React.ReactNode;
     'data-testid'?: string;
   }) => (
-    <button data-testid={dataTestId} data-variant={variant} onClick={onClick} disabled={disabled}>
+    <button data-testid={dataTestId} data-variant={variant} data-accent={accent} onClick={onClick} disabled={disabled}>
       {children ?? title}
     </button>
   ),
@@ -287,6 +289,12 @@ describe('SwapAmounts', () => {
 
       fireEvent.click(cta);
       expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives the review button the swap flow colour', () => {
+      renderComponent({ canProceed: true });
+
+      expect(screen.getByTestId('swap-review-submit')).toHaveAttribute('data-accent', 'swap');
     });
 
     it('disables the review button when canProceed is false', () => {
