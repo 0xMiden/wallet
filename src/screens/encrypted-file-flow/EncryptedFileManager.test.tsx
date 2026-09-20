@@ -21,9 +21,9 @@ import { EncryptedFileStep } from './types';
  *     by hand — this is the only way to reach `onSubmit`'s `isSubmitting`
  *     early-return and its `clearErrors` try/catch (real RHF never throws
  *     there).
- *   - The three step/drawer child components, the drawer primitives, the nav
- *     header, i18n, woozie navigation and the mobile back handler are all thin
- *     jest.fn()-backed harnesses.
+ *   - The three step components, the shared header provider, i18n, woozie
+ *     navigation and the mobile back handler are all thin jest.fn()-backed
+ *     harnesses.
  *
  * Note on coverage: `onAction`'s `GoBack`, `Finish` and `default` switch cases
  * are dead code — the component only ever dispatches `Navigate` and
@@ -101,35 +101,20 @@ jest.mock('react-hook-form', () => ({
   })
 }));
 
-// vaul drawer primitives — always render children plus probes to fire
-// `onOpenChange` with both `false` and `true`, and surface `open`.
-jest.mock('lib/ui/drawer', () => ({
-  Drawer: ({
-    open,
-    onOpenChange,
+// The flow hands its steps one header through the shared provider; surface the value it publishes
+// so the title and the back handler are assertable without rendering a real page frame.
+jest.mock('components/ui/SubPageLayout', () => ({
+  __esModule: true,
+  SubPageHeaderProvider: ({
+    value,
     children
   }: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
+    value: { title?: React.ReactNode; onBack?: () => void };
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
-      <button data-testid="drawer-close" onClick={() => onOpenChange(false)} />
-      <button data-testid="drawer-open" onClick={() => onOpenChange(true)} />
+    <div data-testid="subpage-header" data-title={String(value.title ?? '')}>
+      <button data-testid="subpage-back" onClick={value.onBack} />
       {children}
-    </div>
-  ),
-  DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
-  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-header">{children}</div>,
-  DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
-}));
-
-jest.mock('components/PageHeader', () => ({
-  __esModule: true,
-  PageHeader: (props: { title?: string; onBack?: () => void; className?: string }) => (
-    <div data-testid="nav-header" className={props.className}>
-      <span data-testid="nh-title">{props.title}</span>
-      <button data-testid="nh-back" onClick={props.onBack} />
     </div>
   )
 }));
@@ -198,6 +183,7 @@ const renderFlow = () => render(<EncryptedFileFlow />);
 
 const setWalletStep = () => {
   mockActiveRoute = { name: EncryptedFileStep.WalletPassword };
+  mockRenderRoute = { name: EncryptedFileStep.WalletPassword, animationIn: 'push', animationOut: 'pop' };
 };
 
 const setExportStep = (renderName: string = EncryptedFileStep.ExportFilePassword) => {
@@ -220,41 +206,33 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Wrapper wiring + wallet-password (drawer) step.
+// Wrapper wiring + wallet-password step.
 // ---------------------------------------------------------------------------
 describe('EncryptedFileFlow / wallet-password step', () => {
-  it('renders the localized drawer and hides the export chrome on the wallet-password step', () => {
+  it('renders the first step as a page inside the navigator, under the flow header', () => {
     setWalletStep();
     renderFlow();
 
     expect(screen.getByTestId('nav-provider')).toBeInTheDocument();
-    expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'true');
-    expect(screen.getByTestId('drawer-title')).toHaveTextContent('encryptedWalletFile');
+    expect(screen.getByTestId('subpage-header')).toHaveAttribute('data-title', 'encryptedWalletFile');
+    expect(screen.getByTestId('navigator')).toBeInTheDocument();
     expect(screen.getByTestId('wallet-password-step')).toBeInTheDocument();
-    // Export chrome (header + navigator form) is hidden on the first step.
-    expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('navigator')).not.toBeInTheDocument();
+    // No sheet over the page any more: every step is a pushed page on the shared frame.
+    expect(screen.queryByTestId('drawer')).not.toBeInTheDocument();
   });
 
-  it('forwards the current wallet password into the drawer step', () => {
+  it('forwards the current wallet password into the first step', () => {
     setWalletStep();
     mockWatch = { fileName: '', filePassword: '', walletPassword: 'super-secret' };
     renderFlow();
     expect(screen.getByTestId('wps-password')).toHaveTextContent('super-secret');
   });
 
-  it('closes the flow (navigate /settings) when the drawer requests close', () => {
+  it('closes the flow (navigate /settings) from the shared header back', () => {
     setWalletStep();
     renderFlow();
-    fireEvent.click(screen.getByTestId('drawer-close'));
+    fireEvent.click(screen.getByTestId('subpage-back'));
     expect(navigateMock).toHaveBeenCalledWith('/settings');
-  });
-
-  it('does not close the flow when the drawer reports open (the !open guard)', () => {
-    setWalletStep();
-    renderFlow();
-    fireEvent.click(screen.getByTestId('drawer-open'));
-    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('closes the flow when the wallet-password step goes back', () => {
@@ -264,17 +242,13 @@ describe('EncryptedFileFlow / wallet-password step', () => {
     expect(navigateMock).toHaveBeenCalledWith('/settings');
   });
 
-  it('advances to the export-password step and collapses the drawer on next', () => {
+  it('advances to the export-password step on next', () => {
     setWalletStep();
     renderFlow();
-    expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'true');
 
     fireEvent.click(screen.getByTestId('wps-next'));
 
     expect(navigateToMock).toHaveBeenCalledWith(EncryptedFileStep.ExportFilePassword);
-    // setDrawerOpen(false) -> open collapses even though we are still on the
-    // wallet-password route in this mocked-navigator setup.
-    expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');
   });
 
   it('sets the wallet-password form value on change (SetFormValues action)', () => {
@@ -294,44 +268,31 @@ describe('EncryptedFileFlow / wallet-password step', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Export chrome (header + form) on non-wallet-password steps.
+// The export steps, on the same frame as the first one.
 // ---------------------------------------------------------------------------
 describe('export chrome / renderStep', () => {
-  it('shows the navigation header + form and keeps the drawer closed off the wallet step', () => {
+  it('shows the flow header and form on the export steps too', () => {
     setExportStep();
     renderFlow();
 
-    expect(screen.getByTestId('nav-header')).toBeInTheDocument();
-    expect(screen.getByTestId('nh-title')).toHaveTextContent('encryptedWalletFile');
-    // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
-    expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
+    expect(screen.getByTestId('subpage-header')).toHaveAttribute('data-title', 'encryptedWalletFile');
     expect(screen.getByTestId('navigator')).toBeInTheDocument();
-    expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');
+    expect(screen.queryByTestId('drawer')).not.toBeInTheDocument();
   });
 
   it('treats an undefined active route as a non-wallet step (optional-chaining branch)', () => {
     mockActiveRoute = undefined;
     mockRenderRoute = { name: EncryptedFileStep.ExportFilePassword, animationIn: 'push', animationOut: 'pop' };
     renderFlow();
-    expect(screen.getByTestId('nav-header')).toBeInTheDocument();
+    expect(screen.getByTestId('subpage-header')).toBeInTheDocument();
     expect(screen.getByTestId('export-password-step')).toBeInTheDocument();
   });
 
-  it('closes the flow when the navigation header back button is pressed', () => {
+  it('closes the flow when the shared header back button is pressed', () => {
     setExportStep();
     renderFlow();
-    fireEvent.click(screen.getByTestId('nh-back'));
+    fireEvent.click(screen.getByTestId('subpage-back'));
     expect(navigateMock).toHaveBeenCalledWith('/settings');
-  });
-
-  it('renders nothing for the WalletPassword route inside the navigator', () => {
-    setExportStep(EncryptedFileStep.WalletPassword);
-    renderFlow();
-    // Navigator is present but its rendered step (null) contributes no children.
-    expect(screen.getByTestId('navigator')).toBeEmptyDOMElement();
-    expect(screen.queryByTestId('export-password-step')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('export-complete-step')).not.toBeInTheDocument();
   });
 
   it('renders the export-password step and wires its callbacks', () => {
@@ -498,6 +459,6 @@ describe('EncryptedFileManager (named export)', () => {
     setWalletStep();
     render(<EncryptedFileManager />);
     expect(screen.getByTestId('encrypted-file-manager-flow')).toBeInTheDocument();
-    expect(screen.getByTestId('drawer-title')).toHaveTextContent('encryptedWalletFile');
+    expect(screen.getByTestId('subpage-header')).toHaveAttribute('data-title', 'encryptedWalletFile');
   });
 });

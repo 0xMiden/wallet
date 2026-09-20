@@ -9,7 +9,7 @@ import { PasscodeEntry } from 'components/PasscodeEntry';
 import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
 import { Notice } from 'components/ui/Notice';
-import { SubPageSection } from 'components/ui/SubPageLayout';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { Vault } from 'lib/miden/back/vault';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
@@ -118,10 +118,11 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
 
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<TextFieldElement>) => {
-      if (e.key === 'Enter' && confirmed) {
-        e.preventDefault();
-        onSubmit();
-      }
+      if (e.key !== 'Enter') return;
+      // Always swallowed: this step is now a page inside the flow's form, so an un-prevented
+      // Enter would submit the EXPORT before the confirmation has even been ticked.
+      e.preventDefault();
+      if (confirmed) onSubmit();
     },
     [onSubmit, confirmed]
   );
@@ -140,8 +141,23 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   }
 
   return (
-    // A sheet's content, not a page: the drawer brings the title and the margins.
-    <div className="flex min-h-0 flex-1 flex-col gap-5" data-testid="encrypted-file-wallet-password">
+    // A page on the shared frame: the header, the 16px margin and the pinned action all come from
+    // the layout, and the flow above hands it the title and the back.
+    <SubPageLayout
+      data-testid="encrypted-file-wallet-password"
+      footer={
+        usePasscodeEntry ? undefined : (
+          <Button
+            className="flex-1 max-w-none"
+            variant={ButtonVariant.Primary}
+            title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+            disabled={!continueEnabled}
+            onClick={() => onSubmit()}
+            isLoading={isSubmitting}
+          />
+        )
+      }
+    >
       <SubPageSection
         description={t(
           hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription'
@@ -192,7 +208,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
         </Notice>
       )}
 
-      {usePasscodeEntry ? (
+      {usePasscodeEntry && (
         <PasscodeEntry
           onSubmit={code => onSubmit(code)}
           onChange={value => {
@@ -202,19 +218,10 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           error={errors.password?.message ?? null}
           disabled={isDisabled || !confirmed}
           isSubmitting={isSubmitting}
-          className="mt-auto"
-        />
-      ) : (
-        <Button
-          className="mt-auto w-full max-w-none"
-          variant={ButtonVariant.Primary}
-          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-          disabled={!continueEnabled}
-          onClick={() => onSubmit()}
-          isLoading={isSubmitting}
+          className="mt-auto pb-2"
         />
       )}
-    </div>
+    </SubPageLayout>
   );
 };
 
