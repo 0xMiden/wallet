@@ -376,15 +376,20 @@ describe('TabHeader — search swap animation', () => {
 });
 
 describe('TabHeader divider', () => {
-  it('ends in a full-bleed hairline by default and an inset 4px rule on request', () => {
-    const { container, rerender } = render(<TabHeader title="Activity" />);
-    expect(container.querySelector('header')).toHaveClass('border-b', 'border-hairline');
-    expect(container.querySelector('.h-1')).toBeNull();
+  it('ends in a full-bleed hairline, never the 4px grey rule, and there is no way to ask for one', () => {
+    const { container } = render(<TabHeader title="Activity" />);
 
-    rerender(<TabHeader title="Activity" divider="rule" />);
-    expect(container.querySelector('header')).not.toHaveClass('border-b');
-    const rule = container.querySelector('header + div');
-    expect(rule).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
-    expect(rule).toHaveAttribute('aria-hidden', 'true');
+    const header = container.querySelector('header');
+    expect(header).toHaveClass('border-b', 'border-hairline');
+    // The retired rule: a 4px bar on `fill`, inset to the page margin.
+    expect(container.querySelector('.h-1')).toBeNull();
+    expect(container.querySelector('.bg-fill')).toBeNull();
+  });
+
+  it('is 60px of row plus that hairline: the height of the home tab action bar', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+
+    // h-15 = 60px; the border adds the 61st. Home's SegmentedActionBar is 4 + 48 + 8 + 1.
+    expect(container.querySelector('header')).toHaveClass('h-15', 'shrink-0', 'border-b');
   });
 });
