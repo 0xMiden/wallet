@@ -52,6 +52,28 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; a header once content scrolls under it. |
 | `scrim` | #000 at 55% | same | The dim behind a sheet or an overlay. One value in both themes, and never blurred: the job is to dim the page, not to frost it. |
 
+#### The three list surfaces
+
+A group of rows or a card takes one of three surfaces, chosen by where it sits, not by what it
+holds. `ListGroup` and `Card` both declare it as `surface`. This replaces the earlier "every
+contained element is `fill`, borders never outline a card" rule: `fill` is now one of three, and
+the `outline` a card used to be forbidden is the right answer for a card that has to hold its own
+edge on the page.
+
+| Surface | Shape | Where | Replaces |
+| --- | --- | --- | --- |
+| `plain` | No surface. Rows sit on the page's own 16px margin, hairlines run the full width, each group introduced by a `SectionHeader size="lg"` with the group's glyph. | A page whose body IS the list: Settings root and every settings sub-page (General, Language, Networks, Keys, Advanced, Developer, Authorized DApps), the Address Book, Explore's app lists. | full-page lists drawn as one `fill` or `outline` card |
+| `fill` (default) | 16px radius on `fill`, hairlines inset past the leading visual. | A group embedded in a page or a sheet that has to read as one block: the Receive actions, detail and review cards, a sheet's choices, the add-contact sheet, a small group beside other content. | ad-hoc `rounded-2xl bg-fill` stacks |
+| `outline` | 16px radius, `bg-page` with a `hairline` border. | A card that has to separate itself where it sits: Activity's rows, pending transfers, Earn's cards, the home prompt card. | the same cards drawn as lone `fill` blocks on `page` |
+
+A `plain` group has no surface to anchor it, so its `SectionHeader` is load-bearing: the label is
+what says where the group starts. The one exception is a page whose whole body is a single list
+(Networks, Language, Keys) — there the page header is the label. Watch the four details that make
+`plain` work: rows flush to the page margin (the group sets `px-0` on its children), hairlines full
+width, the section label on the same margin rather than the 4px list inset (`SubPageSection` does
+both from its `icon` prop), and enough clearance under the last row that it does not touch a pinned
+CTA.
+
 ### Text
 
 | Token | Light | Dark | Use |
@@ -241,8 +263,10 @@ segmented control's thumb and a raised bubble.
 
 Raised is only for interactive toggles and bubbles. Cards, list groups and detail cards stay flat.
 
-Cards and row cards are `fill` with no border; borders never outline a card; hairlines only divide
-rows inside a group.
+Flat does not mean one fill: separation comes from whichever of the three list surfaces above the
+group sits on. A `hairline` border is the `outline` surface, not elevation, and it is how a card
+holds its edge on `page` (Activity's rows, pending transfers, Earn's cards, the home prompt card).
+Hairlines inside a group still only divide its rows. Nothing gets a shadow to separate it.
 
 ### Screen sizes
 
@@ -267,11 +291,11 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
 | Toggle | `Toggle` on Radix Switch (*planned*) | 51 × 31, `accent` when on. Until then `components/Toggle` (on the `press` preset) is the one to use. | `ToggleSwitch`, `SettingToggle` |
 | Checkbox | `CheckboxRow`, `CheckboxIndicator` (`components/ui/Checkbox`) | `CheckboxIndicator`: the one selection mark, 22px round, a `page` disc with a hairline edge (the same mark `ChoiceCardGroup` draws); checked, an `accent` fill springs in (`snappy`) and the check draws in (`pathLength`, tab-bar spring), reversed on uncheck, instant under reduced motion. `CheckboxRow`: a `ListGroup` row that is itself the `role="checkbox"` button (box leading, `text-row-title` title, `text-caption` `muted` description, inset hairline); tap, Space or Enter toggles it with `hapticSelection` and the press dip. A native `button` today; Radix Checkbox can replace the internals later. | `components/Checkbox` (deleted); still to migrate: atoms `Checkbox`, `FormCheckbox` |
-| List group | `ListGroup` | 16px radius on `fill`; hairlines between rows, inset past the leading visual. | ad-hoc stacks |
+| List group | `ListGroup` | One of the three list surfaces (see Surfaces), set by `surface`: `plain` for a page that is a list, `fill` (default, 16px radius) for a group embedded in a page or a sheet, `outline` for a card that has to separate itself. Hairlines between rows, inset past the leading visual on `fill` and `outline`, full width on `plain`. | ad-hoc stacks, full-page lists drawn as one card |
 | List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, `text-row-title` over a `text-caption` `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
-| Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink` (Settings' coloured group headers). | ~40 hand-styled headings, uppercase labels |
+| Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink`. `lg` + `icon` on the page margin is the standard header of a `plain` group, on Settings root, its sub-pages, the Address Book and Explore alike; `SubPageSection` takes the glyph as `icon` and applies the rest. | ~40 hand-styled headings, uppercase labels |
 | Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; `text-body-sm` `muted` label, `text-value` `ink` value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
-| Card | `Card`, `CardButton` | `fill`, 16px radius, no border, on `page`; cards in a list are separated by space (12px), never by an outline. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). Anything drawn inside a card sits on `page` (an icon tile, a neutral icon circle), since grey on `fill` disappears. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
+| Card | `Card`, `CardButton` | 16px radius on `fill` (default) or `outline` (see Surfaces); cards in a list are separated by space (12px). The home prompt card (`PromptCard`, in `PromptCarousel`) is `outline`, like an Activity row — it is one actionable card on the page, not a grey block; its carousel dots are `hairline` so they read beside that edge. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). Anything drawn inside a card sits on `page` (an icon tile, a neutral icon circle), since grey on `fill` disappears. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
 | Choice cards | `ChoiceCardGroup` | One choice out of a set of cards (a guardian operator, a recovery method, an import type): each a `Card`-look `fill` surface, 16px radius, no border, min 72px, all rows as tall as the tallest; leading 48px logo tile or icon, `text-row-title` title, `text-caption` `muted` subtitle or meta line, a badge top right (`Pill` "Current", `StatusBadge`), a trailing `CheckboxIndicator` as its radio mark. Chosen: a 2px inset `accent` ring and the mark filled `accent` with the drawn check (not raised: cards stay flat). Behaves like `SegmentedControl`: `radiogroup`/`radio`, roving tab stop, arrows and Home/End move focus and choice together, `hapticSelection` once per real change, tab-bar press dip and check pop, still under reduced motion. | the guardian picker's bordered tiles and grey header strip, outlined option buttons |
 | Text action | `TextAction` | `text-action` `accent-tint-ink`, no underline, 44px hit area, tap haptic: "Learn more", "Use a custom URL". | underlined `primary-500` links, hand-styled text buttons |
 | Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the `text-hero-value` or `text-hero-name`, then a `text-body-sm` `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |

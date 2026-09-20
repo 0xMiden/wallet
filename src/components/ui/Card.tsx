@@ -65,9 +65,11 @@ export interface CardProps {
 }
 
 /**
- * The design system's card (skills/miden-wallet-frontend/references/design-system.md, "Card"): a
- * `fill` surface with 16px corners and no border. Cards sit on `page` and are separated by space,
- * never outlined; hairlines only divide the rows of a group inside one surface.
+ * The design system's card (skills/miden-wallet-frontend/references/design-system.md, "Surfaces"):
+ * 16px corners on one of two surfaces. `fill` is the default, for a card embedded in a page or a
+ * sheet that has to read as one block; `outline` is a hairline edge on `page`, for a card that has
+ * to separate itself where it sits (Activity's rows, pending transfers, Earn's cards, the home
+ * prompt card). Hairlines inside a card only divide its rows.
  */
 export const Card: React.FC<CardProps> = ({
   children,
