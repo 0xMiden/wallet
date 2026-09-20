@@ -55,6 +55,9 @@ export type { BottomNavProps, BottomNavItem } from './BottomNav';
 export { TabHeader, TabHeaderAction } from './TabHeader';
 export type { TabHeaderProps } from './TabHeader';
 
+export { TabRootHeader } from './TabRootHeader';
+export type { TabRootHeaderProps, TabRootFilter } from './TabRootHeader';
+
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
 

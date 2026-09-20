@@ -33,6 +33,7 @@ import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
 import { StatusBadge } from './StatusBadge';
 import { TabHeader, TabHeaderAction } from './TabHeader';
+import { TabRootHeader } from './TabRootHeader';
 import { TextAction } from './TextAction';
 import { TextField } from './TextField';
 import { WaveDots } from './WaveDots';
@@ -74,6 +75,7 @@ describe('components/ui barrel', () => {
     BottomNav,
     TabHeader,
     TabHeaderAction,
+    TabRootHeader,
     SearchInput,
     Sparkline,
     ActivityRow,
