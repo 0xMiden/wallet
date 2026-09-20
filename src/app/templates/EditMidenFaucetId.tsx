@@ -87,7 +87,7 @@ const EditMidenFaucetId: FC = () => {
         />
 
         {submitSuccess && (
-          <p role="status" className="px-1 font-sans text-sm text-positive-ink">
+          <p role="status" className="px-1 text-caption text-positive-ink">
             {t('faucetIdUpdated')}
           </p>
         )}

@@ -78,7 +78,7 @@ const GuardianReplaceHotKey: FC = () => {
       </Button>
 
       {error && (
-        <p role="alert" className="mt-3 px-1 font-sans text-sm wrap-break-word text-negative-ink select-text">
+        <p role="alert" className="mt-3 px-1 text-caption wrap-break-word text-negative-ink select-text">
           {error}
         </p>
       )}
