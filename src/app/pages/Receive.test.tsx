@@ -356,7 +356,7 @@ describe('Receive - Address', () => {
     expect(card.contains(container.querySelector('[data-testid="receive-copy-address"]'))).toBe(true);
     // One column with the 16px gutter, clearing the floating tab bar off mobile.
     const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
-    expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-4', 'pb-20');
+    expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-6', 'pb-20');
   });
 
   it('clears the docked tab bar on mobile', async () => {

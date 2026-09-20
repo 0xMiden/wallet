@@ -164,7 +164,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     >
       <div
         className={cn(
-          'mx-auto flex min-h-full w-full max-w-150 flex-col px-4 pt-4',
+          // `pt-6` and a title with no padding of its own: the same construction as a send step's
+          // tab-root header and the swap page, so the three titles land on one line.
+          'mx-auto flex min-h-full w-full max-w-150 flex-col px-4 pt-6',
           // Clears the tab bar that overlays the page (TabLayout): 57px docked on an iPhone, 64px
           // floating elsewhere, plus the 16px gutter.
           isMobile() ? 'pb-18' : 'pb-20'
@@ -178,8 +180,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
 
         {/* The page's first line, where Send puts "Send to" and Swap "You Pay": `text-title-tab`
             24px down from the top of the pane, so the three tabs line up as you swipe between
-            them. The `pt-2` is the column's 16px plus 8, not a rhythm of its own. */}
-        <h1 data-testid="receive-title" className="pt-2 text-title-tab text-ink">
+            them. */}
+        <h1 data-testid="receive-title" className="text-title-tab text-ink">
           {t('receiveAt')}
         </h1>
 
