@@ -59,8 +59,18 @@ jest.mock('screens/generating-transaction/components', () => ({
 }));
 
 jest.mock('screens/generating-transaction/TransactionSummaryBadge', () => ({
-  TransactionSummaryBadge: ({ lhs, rhs }: { lhs?: React.ReactNode; rhs?: React.ReactNode }) => (
-    <div data-testid="summary-badge">
+  // `fillForArrow` surfaced as an attribute: the real badge paints it into an SVG the stub does
+  // not draw, and an earn screen handing it the default (the Send blue) is the bug below.
+  TransactionSummaryBadge: ({
+    lhs,
+    rhs,
+    fillForArrow
+  }: {
+    lhs?: React.ReactNode;
+    rhs?: React.ReactNode;
+    fillForArrow?: string;
+  }) => (
+    <div data-testid="summary-badge" data-arrow-fill={fillForArrow}>
       {lhs} → {rhs}
     </div>
   )
@@ -145,6 +155,9 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByText('withdrawalProcessingDescription')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
     expect(screen.getByTestId('summary-badge')).toHaveTextContent('42.25 USDC → Miden');
+    // A withdraw is an earn row wherever it is drawn, so its arrow is the earn slate its icon
+    // takes in Activity — not the badge's default, which is the Send flow's blue.
+    expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', 'var(--tx-earn)');
 
     fireEvent.click(screen.getByRole('button', { name: 'hide' }));
     expect(navigate).toHaveBeenCalledWith('/');

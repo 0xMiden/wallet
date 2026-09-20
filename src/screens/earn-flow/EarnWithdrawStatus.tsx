@@ -63,7 +63,9 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         }}
         onClose={onDone}
       >
-        <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
+        {/* An earn row's icon is the earn slate wherever it is drawn, so the arrow beside it is
+            too — the default is the Send blue, which is another flow's colour. */}
+        <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow="var(--tx-earn)" className="mt-4" />
         <ReceiptRows
           className="mt-4"
           rows={[
@@ -92,7 +94,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
             visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
             name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
           />
-          <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
+          <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow="var(--tx-earn)" className="mt-4" />
           <p className="mt-4 text-center text-sm font-medium text-ink">
             {failed
               ? (inputs.error ?? t('transactionErrorDescription'))
