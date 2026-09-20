@@ -14,6 +14,7 @@ import { getCurrentLocale } from 'lib/i18n/core';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletContact } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
 import useIsMounted from 'lib/ui/useIsMounted';
@@ -65,6 +66,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleteStar
   // render-time snapshot, so two overlapping writers is last-writer-wins: saving during an
   // in-flight delete would write the pre-delete list back and resurrect the contact. One flag.
   const busy = saving || removing;
+
+  // The header back is not the only way off this page: on mobile the hardware back and the
+  // swipe gesture fall through to the global MobileBackBridge, which pops unconditionally with no
+  // knowledge of an in-flight write. Consume the gesture while busy so the write's own completion
+  // is what leaves, and let it fall through otherwise.
+  useMobileBackHandler(() => busy, [busy]);
 
   const trimmedName = name.trim();
   // Compare against the RESOLVED network, not the raw stored one: `contactNetwork` falls back to

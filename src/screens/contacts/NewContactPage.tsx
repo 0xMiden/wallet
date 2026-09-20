@@ -15,6 +15,7 @@ import { TextField } from 'components/ui/TextField';
 import { usePreset } from 'lib/animation';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import useIsMounted from 'lib/ui/useIsMounted';
@@ -50,6 +51,9 @@ export const NewContactPage: React.FC = () => {
   const [saveError, setSaveError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [showScanDrawer, setShowScanDrawer] = useState(false);
+
+  // Same rule as the contact detail page: the gated header back is not the only exit on mobile.
+  useMobileBackHandler(() => saving, [saving]);
 
   const trimmedAddress = address.trim();
   const trimmedName = name.trim();

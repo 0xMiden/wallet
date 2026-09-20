@@ -10,6 +10,13 @@ import { NewContactPage } from './NewContactPage';
 
 const addContactMock = jest.fn();
 const backMock = jest.fn();
+// Capture the page's mobile back handler so a test can fire the hardware/gesture back.
+let capturedMobileBack: (() => boolean) | undefined;
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (cb: () => boolean) => {
+    capturedMobileBack = cb;
+  }
+}));
 const navigateMock = jest.fn();
 const contactsMock = jest.fn();
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
@@ -239,5 +246,28 @@ it('ignores the header back while the save is in flight, so the save navigates e
     resolveSave();
   });
   // Exactly once: the in-flight tap was ignored, and the save's own completion pops one entry.
+  expect(backMock).toHaveBeenCalledTimes(1);
+});
+
+it('consumes the mobile hardware back while the save is in flight', async () => {
+  let resolveSave: () => void = () => undefined;
+  addContactMock.mockReturnValueOnce(
+    new Promise<void>(resolve => {
+      resolveSave = resolve;
+    })
+  );
+  render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paul' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('address-book-add-contact'));
+  });
+
+  // Same rule as the detail page: the gated header back is not the only exit on mobile.
+  expect(capturedMobileBack!()).toBe(true);
+
+  await act(async () => {
+    resolveSave();
+  });
   expect(backMock).toHaveBeenCalledTimes(1);
 });

@@ -9,6 +9,13 @@ const removeContactMock = jest.fn();
 const confirmMock = jest.fn();
 const navigateMock = jest.fn();
 const backMock = jest.fn();
+// Capture the page's mobile back handler so a test can fire the hardware/gesture back.
+let capturedMobileBack: (() => boolean) | undefined;
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (cb: () => boolean) => {
+    capturedMobileBack = cb;
+  }
+}));
 const contactsMock = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useContacts: () => ({ updateContact: updateContactMock, removeContact: removeContactMock })
@@ -305,6 +312,32 @@ it('does not navigate when the page is gone by the time the delete resolves', as
   // `back()` reads live location at call time, so navigating from a page the user already left
   // would traverse from wherever they are now. Liveness is what makes a relative pop safe.
   expect(backMock).not.toHaveBeenCalled();
+});
+
+it('consumes the mobile hardware back while a delete is in flight', async () => {
+  let reject: (e: Error) => void = () => undefined;
+  removeContactMock.mockReturnValueOnce(
+    new Promise<void>((_, rej) => {
+      reject = rej;
+    })
+  );
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  confirmMock.mockResolvedValueOnce(true);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-delete'));
+  });
+
+  // The gated header back is not the only exit: hardware back and the swipe gesture fall through
+  // to the global bridge, which pops unconditionally and would unmount the error surface.
+  expect(capturedMobileBack!()).toBe(true);
+
+  await act(async () => {
+    reject(new Error('contact store unavailable'));
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+  // Not busy any more, so the gesture falls through to the default pop.
+  expect(capturedMobileBack!()).toBe(false);
 });
 
 it('deletes only after confirming, then goes back', async () => {
