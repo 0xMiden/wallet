@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
-import { Loader } from 'components/Loader';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
 import { springs, useMotion } from 'lib/animation';
@@ -42,9 +41,20 @@ function formatDateTime(unixSeconds: number): string {
   });
 }
 
-// One card per incoming note. The header row is a toggle that folds the
-// detail rows and the hint line, for every status. The action footer stays
-// visible: Decline and Accept for an open note, Details for a claimed one.
+// One card per incoming note.
+//
+// While the note is still open, the header row is a toggle that folds the detail rows and the
+// hint line, and the footer carries Decline and Accept. The disclosure exists for that decision:
+// it is what you read before accepting or declining.
+//
+// Once the note is claimed the decision is made and the card is just a received transaction, so
+// the toggle, the chevron, the folded section and the whole action footer all go.
+//
+// The row itself then opens the transaction, the way every other settled row in this feed does.
+// That is not decoration: while a claim is represented by one of these cards, `History` SUPPRESSES
+// the real `consume` row it would otherwise duplicate, so until the tab is remounted this card is
+// the only thing standing for that transaction. An inert row would leave `/history-details/:txId`
+// unreachable for it for the rest of the session.
 export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivityCardProps) => {
   const { t } = useTranslation();
   const { note, status, txId } = item;
@@ -75,17 +85,9 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
       break;
   }
 
-  let hint = t('activityNotYetAccepted');
-  let hintTone = 'text-text-secondary-token';
-  switch (status) {
-    case 'claimed':
-      hint = t('activityTransferAccepted');
-      break;
-    case 'failed':
-      hint = t('noteClaimFailedRetry');
-      hintTone = 'text-status-negative';
-      break;
-  }
+  // The hint belongs to the folded section, which only an open note has.
+  const hint = status === 'failed' ? t('noteClaimFailedRetry') : t('activityNotYetAccepted');
+  const hintTone = status === 'failed' ? 'text-status-negative' : 'text-text-secondary-token';
 
   const rows: Array<{ key: string; label: string; value: string }> = [
     { key: 'from', label: t('from'), value: sender },
@@ -94,50 +96,72 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
   if (note.receivedAt !== undefined) {
     rows.push({ key: 'received', label: t('activityReceivedOn'), value: formatDateTime(note.receivedAt) });
   }
-  if (claimed && item.claimedAt !== undefined) {
-    rows.push({ key: 'claimed', label: t('activityClaimedOn'), value: formatDateTime(item.claimedAt) });
-  }
+
+  // Whatever the status, the header row stays a real `button` — a disclosure toggle while the
+  // note is open, the route to the transaction once it is claimed — so the row keeps an
+  // accessible name from its own content and the card needs no label of its own.
+  const openDetails = claimed && txId ? () => navigate(`/history-details/${encodeURIComponent(txId)}`) : undefined;
+
+  const headerRow = (
+    <ActivityRow
+      testId="pending-activity-row"
+      entryKey={note.id}
+      className="min-w-0 flex-1 py-3"
+      icon={<Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />}
+      iconBg="bg-tx-received"
+      title={t('received')}
+      subtitle={`${t('from')}: ${sender}`}
+      amount={{
+        value: amount === undefined ? '' : `+${amount}`,
+        symbol: note.metadata.symbol,
+        direction: 'positive'
+      }}
+      status={claimed ? 'claimed' : 'pending'}
+    />
+  );
 
   return (
-    <Card asChild surface="outline" padding="none">
+    <Card asChild surface="outline" padding="none" interactive={Boolean(openDetails)}>
       <article className="flex flex-col overflow-hidden" data-pending-status={status}>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
-          aria-expanded={expanded}
-          aria-controls={detailsId}
-          onClick={() => {
-            hapticLight();
-            setExpanded(value => !value);
-          }}
-        >
-          <ActivityRow
-            testId="pending-activity-row"
-            entryKey={note.id}
-            className="min-w-0 flex-1 py-3"
-            icon={<Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />}
-            iconBg="bg-tx-received"
-            title={t('received')}
-            subtitle={`${t('from')}: ${sender}`}
-            amount={{
-              value: amount === undefined ? '' : `+${amount}`,
-              symbol: note.metadata.symbol,
-              direction: 'positive'
+        {claimed ? (
+          // A real `button`, not a `div` with a click handler: the row has to answer Enter and
+          // Space and take focus, like the Details action it replaces.
+          <button
+            type="button"
+            className="flex w-full items-center px-4 text-left focus-visible:outline-accent-primary"
+            disabled={!openDetails}
+            onClick={() => {
+              hapticLight();
+              openDetails?.();
             }}
-            status={claimed ? 'claimed' : 'pending'}
-          />
-          <motion.span
-            aria-hidden
-            className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
-            animate={{ rotate: expanded ? 180 : 0 }}
-            transition={transition}
           >
-            <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
-          </motion.span>
-        </button>
+            {headerRow}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => {
+              hapticLight();
+              setExpanded(value => !value);
+            }}
+          >
+            {headerRow}
+            <motion.span
+              aria-hidden
+              className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
+              animate={{ rotate: expanded ? 180 : 0 }}
+              transition={transition}
+            >
+              <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
+            </motion.span>
+          </button>
+        )}
 
         <AnimatePresence initial={false}>
-          {expanded && (
+          {expanded && !claimed && (
             <motion.div
               id={detailsId}
               initial={{ height: 0, opacity: 0 }}
@@ -146,7 +170,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               transition={transition}
               className="overflow-hidden"
             >
-              <dl className="border-t border-rule-default divide-y divide-rule-default text-sm">
+              <dl className="border-t border-hairline divide-y divide-hairline text-sm">
                 {rows.map(row => (
                   <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
                     <dt className="text-text-secondary-token">{row.label}</dt>
@@ -169,61 +193,39 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
           )}
         </AnimatePresence>
 
-        {claimed ? (
-          txId && (
+        {/* A claimed transfer has no footer at all — no actions are left to take — so the card
+            ends with its row rather than with a rule over an empty element.
+            The open transfer's actions are ordinary design-system buttons: the app's pill, at the
+            app's size, with the card's own padding around them. `className` here sets width only;
+            nothing restyles a Button from the call site. */}
+        {!claimed && (
+          // The row's layout is STATIC: Decline takes 40%, Accept the rest, and a button is
+          // either there or it is not. The previous footer expanded Decline from 0 to 40% through
+          // an `AnimatePresence` with `initial={false}` — which only suppresses the entry
+          // animation for what is present when that `AnimatePresence` FIRST mounts. Switching the
+          // Activity filter renders a different list, so every card remounted and the width tween
+          // replayed from zero on each tab change, reflowing the whole footer.
+          <div className="flex gap-2.5 px-4 pb-4">
+            {onReject && status !== 'claiming' && (
+              <Button
+                variant={ButtonVariant.Secondary}
+                className="w-2/5 max-w-none whitespace-nowrap"
+                title={t('activityRejectTransfer')}
+                disabled={!canAccept}
+                onClick={() => onReject(note)}
+              />
+            )}
+            {/* A claim in flight is the Button's own loading state: the accent fill stays, the
+                label is swapped for the spinner at the label's width and taps are refused. It is
+                NOT `disabled`, which would grey the one action in progress. */}
             <Button
-              className="w-full max-w-none rounded-none! h-12 min-h-12 border-t border-rule-default text-sm"
-              variant={ButtonVariant.Secondary}
-              title={t('activityTransferDetails')}
-              onClick={() => navigate(`/history-details/${encodeURIComponent(txId)}`)}
-            />
-          )
-        ) : (
-          <div className="flex overflow-hidden border-t border-rule-default">
-            <AnimatePresence initial={false}>
-              {onReject && status !== 'claiming' && (
-                <motion.div
-                  key="reject"
-                  className="shrink-0 overflow-hidden"
-                  initial={{ width: 0, opacity: 0 }}
-                  animate={{ width: '40%', opacity: 1 }}
-                  exit={{ width: 0, opacity: 0 }}
-                  transition={transition}
-                >
-                  <Button
-                    variant={ButtonVariant.Secondary}
-                    className="w-full max-w-none rounded-none! h-12 min-h-12 px-3 whitespace-nowrap text-sm"
-                    title={t('activityRejectTransfer')}
-                    disabled={!canAccept}
-                    onClick={() => onReject(note)}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <Button
-              className={`flex-1 max-w-none rounded-none! h-12 min-h-12 px-3 text-sm ${status === 'claiming' ? 'bg-primary-500 text-pure-white' : ''}`}
+              className="min-w-0 flex-1 max-w-none"
               title={actionLabel}
-              disabled={!canAccept}
-              aria-label={actionLabel}
+              disabled={!canAccept && status !== 'claiming'}
+              isLoading={status === 'claiming'}
               aria-busy={busy}
               onClick={() => onAccept(note)}
-            >
-              <span className="relative flex h-5 w-full items-center justify-center">
-                <AnimatePresence initial={false}>
-                  <motion.span
-                    key={status === 'claiming' ? 'spinner' : 'label'}
-                    className="absolute inset-0 flex items-center justify-center whitespace-nowrap"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={transition}
-                    aria-hidden
-                  >
-                    {status === 'claiming' ? <Loader color="white" /> : actionLabel}
-                  </motion.span>
-                </AnimatePresence>
-              </span>
-            </Button>
+            />
           </div>
         )}
       </article>

@@ -207,7 +207,7 @@ it('keeps the navbar while the Activity tab is mounted under another tab', () =>
   expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
 });
 
-it('opens the same details and footer for a pending and a claimed note', () => {
+it('folds the details of a pending note and drops the disclosure once it is claimed', () => {
   const [, , claimed] = mockItems;
   if (!claimed) throw new Error('Missing note fixtures');
   claimed.status = 'claimed';
@@ -216,9 +216,14 @@ it('opens the same details and footer for a pending and a claimed note', () => {
   const pendingCard = expandCard('first');
   expect(within(pendingCard).getByText('activityNotYetAccepted')).toBeInTheDocument();
   expect(within(pendingCard).getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
-  const claimedCard = expandCard('third');
-  expect(within(claimedCard).getByText('activityTransferAccepted')).toBeInTheDocument();
-  expect(within(claimedCard).getByRole('button', { name: 'activityTransferDetails' })).toBeInTheDocument();
+
+  // The decision is made, so the row is no longer a toggle and has no action footer left: the
+  // row itself is what opens the transaction.
+  const claimedCard = screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]');
+  if (!(claimedCard instanceof HTMLElement)) throw new Error('Missing claimed card');
+  expect(within(claimedCard).queryByRole('button', { expanded: false })).toBeNull();
+  expect(within(claimedCard).queryByRole('button', { expanded: true })).toBeNull();
+  expect(within(claimedCard).queryByText('activityTransferDetails')).toBeNull();
   expect(within(claimedCard).queryByRole('button', { name: 'activityAcceptTransfer' })).not.toBeInTheDocument();
   delete claimed.txId;
 });
