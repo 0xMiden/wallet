@@ -189,13 +189,16 @@ describe('SpendingLimitChallenge', () => {
 describe('formatUsdMicroAmount', () => {
   it.each([
     [0n, '$0.00'],
-    [1n, '$0.00'],
+    // A sub-cent breach must never render as $0.00 - that would show a limit and a total as equal
+    // when the account is actually over. This is the exact case the charge rounds up for too.
+    [1n, '$0.01'],
     [10_000n, '$0.01'],
     [1_000_000n, '$1.00'],
     [1_500_000n, '$1.50'],
-    [1_234_567n, '$1.23'],
-    // Load-bearing case: 123.456789 rounds to $123.46 but formatter truncates to $123.45 (third decimal is 6, rounding and truncation diverge).
-    [123_456_789n, '$123.45']
+    [1_234_567n, '$1.24'],
+    // Load-bearing case: 123.456789 rounds UP to $123.46 (third decimal is 6, so the cent below is
+    // never enough) - pins rounding, not truncation.
+    [123_456_789n, '$123.46']
   ])('formats %s as %s', (value, expected) => {
     expect(formatUsdMicroAmount(value)).toBe(expected);
   });

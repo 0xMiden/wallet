@@ -16,8 +16,15 @@ import { StrictActionAuthentication } from './StrictActionAuthentication';
 const USD_STORAGE_DECIMALS = 6;
 const USD_DISPLAY_DECIMALS = 2;
 
+const MICRO_PER_CENT = 10n ** BigInt(USD_STORAGE_DECIMALS - USD_DISPLAY_DECIMALS);
+
 /**
- * Format micro-dollars as an exact two-decimal display string.
+ * Format micro-dollars as a two-decimal display string, rounded UP to the cent.
+ *
+ * Up, because the charge itself (`usdMicroFromAmount`) rounds up: displaying anything less would
+ * show a limit and a breach as equal (or a breach as "Over by $0.00") when the account is actually
+ * over by a sub-cent amount, and would show a charge lower than what actually leaves the account.
+ * Limits are unaffected - the settings parser only ever writes whole cents.
  *
  * Deliberately NOT delegated to `lib/i18n/numbers`, for the same reason `formatUsdLimitInput` in
  * `SpendingLimits.tsx` isn't: that module's automatic mock rounds through `parseFloat`, so a
@@ -26,10 +33,10 @@ const USD_DISPLAY_DECIMALS = 2;
  */
 export function formatUsdMicroAmount(value: bigint): string {
   if (value < 0n) throw new RangeError('Invalid USD amount');
-  const digits = value.toString().padStart(USD_STORAGE_DECIMALS + 1, '0');
-  const integerPart = digits.slice(0, -USD_STORAGE_DECIMALS);
-  const fraction = digits.slice(-USD_STORAGE_DECIMALS, -USD_STORAGE_DECIMALS + USD_DISPLAY_DECIMALS);
-  return `$${integerPart}.${fraction}`;
+  const cents = (value + MICRO_PER_CENT - 1n) / MICRO_PER_CENT;
+  const integerPart = cents / 100n;
+  const fractionPart = cents % 100n;
+  return `$${integerPart}.${fractionPart.toString().padStart(USD_DISPLAY_DECIMALS, '0')}`;
 }
 
 export interface SpendingLimitChallengeProps {
