@@ -555,9 +555,10 @@ export class IosWalletPage implements WalletPage {
     // separate context. On mobile there's no SW; a reload would drop the
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
-    // Claimable notes live on their own /pending-notes page (mounts the claim UI
+    // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
+    // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/pending-notes');
+    await this.navigateTo('/history?filter=pending');
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full
@@ -591,7 +592,7 @@ export class IosWalletPage implements WalletPage {
     // timeout (default 180s) still has ~50s left for balance polling
     // after this resolves.
     await this.pollForCondition(
-      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+      `var btn = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
         `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
         `btn.click(); return true;`,
       120_000
@@ -644,13 +645,13 @@ export class IosWalletPage implements WalletPage {
     // (`confirmDrainedOrThrow`); this brings iOS in line.
     //
     // Report where the wallet actually ended up: still on the transaction
-    // progress route means the consume is merely slow, while a pending-notes
-    // page with the Claim All button back means it went nowhere.
+    // progress route means the consume is merely slow, while the Pending list with its Accept
+    // All button back means it went nowhere.
     const surface = await this.cdp
       .eval<string>(
         `var h = String(location.hash || ''); ` +
-          `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
-          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
+          `var claimAll = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
+          `return 'hash=' + h + ' acceptAllButton=' + (claimAll ? 'present' : 'absent');`
       )
       .catch(() => 'unreadable');
 

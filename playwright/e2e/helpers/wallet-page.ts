@@ -20,7 +20,7 @@ const SYNC_WAIT_MS = 3_500;
 /**
  * Floor for any claim-drain budget when running against the LOCAL stack (#718).
  *
- * Every `claimAllNotes` / `claimNotesByGroup` budget in the specs was tuned
+ * Every `claimAllNotes` budget in the specs was tuned
  * against devnet/testnet, where a consume finishes in seconds — measured, the
  * whole three-note `multi-claim` journey runs in ~41s there. The local stack packs
  * a node, sequencer, ntx-builder, prover, guardian, note-transport and two Chrome
@@ -251,7 +251,6 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * "Claim All". Chrome-only: mobile page objects cover their React Claim All
    * button path separately.
    */
-  claimNotesByGroup(timeoutMs?: number): Promise<void>;
   // getGuardianAuthInfo is declared on the shared WalletPage interface (above)
   // so the iOS POM implements it too — the 3-key auth assertion runs on both.
   // IndexedDB forensics (listIndexedDBStores / dumpIndexedDBStore) come from
@@ -2078,11 +2077,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // to hydrate rather than for a fixed 3s.
     await this.waitForStoreReady(3_000);
     await this.injectClaimableMetadata();
-    // Claimable notes live on their own /pending-notes page, which mounts the
-    // claim UI directly (no tab to switch to). navigateTo() is a full goto, so
-    // the app re-boots — wait for the rehydrated store (the /pending-notes route
-    // is `onlyReady`-gated on it) instead of another fixed 3s.
-    await this.navigateTo('/pending-notes');
+    // Incoming transfers live on the Activity tab's Pending filter. `AllHistory` reads the
+    // filter off the location, so the deep link lands on the pending list directly — the
+    // dedicated /pending-notes page it replaced is gone. navigateTo() is a full goto, so the app
+    // re-boots; wait for the rehydrated store (the route is `onlyReady`-gated on it) instead of
+    // another fixed 3s.
+    await this.navigateTo('/history?filter=pending');
     await this.waitForStoreReady(3_000);
   }
 
@@ -2135,82 +2135,28 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       stuckSameCountIters = pending === lastPending ? stuckSameCountIters + 1 : 0;
       lastPending = pending;
 
-      // Let the React UI render buttons for newly-arrived notes before probing.
-      // `pending > 0` means the store already has notes, so exactly one of the
-      // two affordances below is on its way — wait for whichever arrives first
-      // instead of sleeping. Capped at the old 2s so the "neither rendered"
-      // path (handled further down) costs no more than it used to.
-      const claimAllBtn = this.page.getByTestId('claim-all-button');
-      const assetRows = this.page.getByTestId('pending-asset-row');
-      await claimAllBtn
-        .or(assetRows)
-        .first()
-        .waitFor({ state: 'visible', timeout: 2_000 })
-        .catch(() => {});
+      // Let the React UI render the action for newly-arrived transfers before probing.
+      // `pending > 0` means the store already has notes, so the one bulk action below is on its
+      // way — wait for it instead of sleeping, capped at the old 2s so the "never rendered" path
+      // (handled further down) costs no more than it used to.
+      const acceptAllBtn = this.page.getByTestId('pending-row-accept-all');
+      await acceptAllBtn.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
 
-      // Desktop fast path: a single "Claim All" button drains every faucet.
-      if (await claimAllBtn.isVisible().catch(() => false)) {
-        console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} clicking Claim All`);
-        await claimAllBtn.click();
+      // The Pending list has exactly ONE bulk action: Accept All takes every waiting transfer
+      // whatever its asset or sender. The two-level per-asset claim the old pages offered is
+      // gone, and with it the fallback that drove it.
+      if (await acceptAllBtn.isVisible().catch(() => false)) {
+        console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} clicking Accept All`);
+        await acceptAllBtn.click();
         // LEFT AS A SLEEP: head start for the consume the click enqueued. No
         // usable signal — the pending count only moves on the NEXT sync, and the
-        // enqueued row's id isn't exposed to the harness by the Claim All path.
+        // enqueued row's id isn't exposed to the harness by the Accept All path.
         await this.page.waitForTimeout(8_000);
         continue;
       }
 
-      // Two-level fallback: open each per-faucet summary row, claim every note
-      // in the detail view, then go back. The list re-renders as notes are
-      // claimed, so re-read the row count and operate on .first() each pass.
-      const rowCount = await assetRows.count().catch(() => 0);
-      if (rowCount > 0) {
-        console.log(
-          `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} opening ${rowCount} faucet row(s)`
-        );
-        for (let r = 0; r < rowCount; r++) {
-          try {
-            // Re-query each pass; rows shift as faucets drain.
-            const row = this.page.getByTestId('pending-asset-row').first();
-            if (!(await row.isVisible().catch(() => false))) break;
-            await row.click({ timeout: 5_000 });
-
-            // The detail view renders asynchronously (its balance read queues
-            // behind the WASM lock). Wait for the buttons this pass is about to
-            // count, capped at the 1s this replaced.
-            const claimBtns = this.page.getByTestId('claim-button');
-            await claimBtns
-              .first()
-              .waitFor({ state: 'visible', timeout: 1_000 })
-              .catch(() => {});
-
-            const claimCount = await claimBtns.count().catch(() => 0);
-            for (let i = 0; i < claimCount; i++) {
-              try {
-                await this.page.getByTestId('claim-button').first().click({ timeout: 5_000 });
-                // LEFT AS A SLEEP: spacing between per-note claims. The list
-                // re-render is the only observable and it is not addressable
-                // per note (every button carries the same testid).
-                await this.page.waitForTimeout(1_000);
-              } catch {
-                // button may vanish mid-iteration as the list re-renders
-              }
-            }
-            // A successful claim can navigate to the transaction progress
-            // screen. Reloading the pending route also reliably returns from
-            // the in-page asset detail view, which has no desktop back button.
-            await this.reloadAndPreparePending();
-          } catch {
-            // Row vanished as the list re-rendered — try the next pass.
-          }
-        }
-        // LEFT AS A SLEEP: settle window for the consumes this pass enqueued,
-        // same missing signal as the Claim All path above.
-        await this.page.waitForTimeout(5_000);
-        continue;
-      }
-
-      // Cache says notes are pending but the receive page hasn't rendered
-      // buttons. Two causes: (a) React hasn't rehydrated from the updated store
+      // Cache says transfers are pending but the list hasn't rendered the
+      // action. Two causes: (a) React hasn't rehydrated from the updated store
       // yet — resolves on its own; (b) the notes are gated by
       // `extensionClaimingNoteIds` because a prior claim's consume stalled and
       // never committed (common on slow networks like testnet). A client-side
@@ -2250,7 +2196,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Shared drain-loop tail for `claimAllNotes` / `claimNotesByGroup`.
+   * Shared drain-loop tail for `claimAllNotes`.
    *
    * The loop wants two consecutive zero reads before declaring a wallet drained,
    * but the deadline is only checked at the TOP of each iteration while the
@@ -2534,131 +2480,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         db.close();
       }
     });
-  }
-
-  /**
-   * Drain pending notes via the per-faucet GROUP-claim path (Pending tab → open
-   * an asset-summary row → asset detail view → group "Claim N/M" button, or the
-   * per-note Claim buttons), exercising `handleClaimGroup` / `AssetPendingDetail`
-   * — the two-level claim UI that the top-level "Claim All" (claimAllNotes) never
-   * reaches. Chrome desktop only.
-   */
-  async claimNotesByGroup(requestedTimeoutMs: number = 180_000): Promise<void> {
-    const STABLE_ZERO_THRESHOLD = 2;
-    const timeoutMs = effectiveClaimBudgetMs(requestedTimeoutMs);
-    await this.reloadAndPreparePending();
-
-    // Clock starts after reload/prepare — same reasoning as claimAllNotes (#615).
-    const deadline = Date.now() + timeoutMs;
-
-    const readPendingCount = (): Promise<number> =>
-      this.page.evaluate(async () => {
-        const storage = await new Promise<any>(resolve => {
-          chrome.storage.local.get(['miden_sync_data'], resolve);
-        });
-        const notes = storage?.miden_sync_data?.notes;
-        return Array.isArray(notes) ? notes.length : 0;
-      });
-
-    let stableZero = 0;
-    let iteration = 0;
-    let lastPending = -1;
-    let stuckSameCountIters = 0;
-    while (Date.now() < deadline && stableZero < STABLE_ZERO_THRESHOLD) {
-      iteration++;
-      await this.triggerSync();
-      const pending = await readPendingCount();
-
-      if (pending === 0) {
-        stableZero++;
-        // Spacing between the two consecutive zero samples — deliberately a sleep.
-        if (stableZero < STABLE_ZERO_THRESHOLD) await this.page.waitForTimeout(2_000);
-        continue;
-      }
-      stableZero = 0;
-      stuckSameCountIters = pending === lastPending ? stuckSameCountIters + 1 : 0;
-      lastPending = pending;
-
-      // Open the first per-faucet summary row → asset detail view. `pending > 0`
-      // means the row is on its way, so wait for it rather than sleeping 2s
-      // (capped at that 2s, so the "never rendered" branch below is unchanged).
-      const row = this.page.getByTestId('pending-asset-row').first();
-      await row.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
-      if (!(await row.isVisible().catch(() => false))) {
-        // Poll spacing before re-syncing — deliberately a sleep.
-        await this.page.waitForTimeout(3_000);
-        continue;
-      }
-      await row.click({ timeout: 5_000 });
-
-      // The detail view (and its claim buttons) render asynchronously — a balance
-      // read behind the WASM lock gates them. Wait for either claim affordance to
-      // appear before acting, else we'd go back having clicked nothing.
-      const groupBtn = this.page.getByTestId('claim-group-button');
-      const noteBtn = this.page.getByTestId('claim-button');
-      await groupBtn
-        .or(noteBtn)
-        .first()
-        .waitFor({ state: 'visible', timeout: 15_000 })
-        .catch(() => {});
-
-      let clicked = false;
-      // Prefer the group-level "Claim N/M" button (handleClaimGroup).
-      if (await groupBtn.isVisible().catch(() => false)) {
-        try {
-          await groupBtn.click({ timeout: 10_000 });
-          clicked = true;
-        } catch {
-          // disabled/transient — fall through to per-note buttons
-        }
-      }
-      if (!clicked) {
-        const noteCount = await noteBtn.count().catch(() => 0);
-        for (let i = 0; i < noteCount; i++) {
-          try {
-            await this.page.getByTestId('claim-button').first().click({ timeout: 5_000 });
-            clicked = true;
-            // LEFT AS A SLEEP: same missing per-note signal as claimAllNotes.
-            await this.page.waitForTimeout(1_000);
-          } catch {
-            // button vanished as the list re-rendered
-          }
-        }
-      }
-      console.log(
-        `[WalletPage.claimNotesByGroup] iter=${iteration} pending=${pending} claimed=${clicked} (stuck ${stuckSameCountIters})`
-      );
-      // LEFT AS A SLEEP: head start for the enqueued consume (see claimAllNotes).
-      await this.page.waitForTimeout(clicked ? 8_000 : 2_000);
-
-      // A successful group claim navigates to the transaction progress screen.
-      // Reload the pending route so the next iteration always resumes at the
-      // asset summary rather than depending on an in-page back control.
-      await this.reloadAndPreparePending();
-
-      // If the count hasn't budged for a few passes, a prior claim may have left
-      // notes gated by `isBeingClaimed`; a full reload clears the in-memory gate.
-      if (stuckSameCountIters >= 3) stuckSameCountIters = 0;
-      // Poll spacing before the next sync round — deliberately a sleep.
-      await this.page.waitForTimeout(2_000);
-    }
-
-    // Same guard as claimAllNotes: the loop exits on EITHER the deadline OR the
-    // two-sample proof, so without `stableZero < THRESHOLD` a fully confirmed
-    // drain that lands past the clock still threw.
-    if (Date.now() >= deadline && stableZero < STABLE_ZERO_THRESHOLD) {
-      await this.confirmDrainedOrThrow('claimNotesByGroup', {
-        readPendingCount,
-        timeoutMs,
-        iteration,
-        lastPending,
-        stableZero,
-        stableZeroThreshold: STABLE_ZERO_THRESHOLD
-      });
-    }
-
-    console.log(`[WalletPage.claimNotesByGroup] drained after ${iteration} iteration(s)`);
-    await this.navigateHome();
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
