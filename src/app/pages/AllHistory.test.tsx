@@ -128,8 +128,10 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: jest.fn()
 }));
 
+const mockLocationSearch = { value: '' };
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  useLocation: () => ({ search: mockLocationSearch.value })
 }));
 
 const getHistory = () => screen.getByTestId('history');
@@ -450,5 +452,41 @@ describe('AllHistory', () => {
         expect(screen.getByTestId('activity-view-menu').style.opacity).toBe('1');
       });
     });
+  });
+});
+
+describe('AllHistory — opened at a filter', () => {
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  beforeEach(() => {
+    localStorage.clear();
+    HTMLElement.prototype.scrollIntoView = jest.fn();
+  });
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+    mockLocationSearch.value = '';
+  });
+
+  it('opens on the Pending filter when the link asked for it', () => {
+    mockLocationSearch.value = '?filter=pending';
+    render(<AllHistory />);
+
+    expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
+    expect(screen.getByTestId('history')).toHaveAttribute('data-filter', 'pending');
+  });
+
+  it('ignores a filter it does not have, rather than showing an empty list', () => {
+    mockLocationSearch.value = '?filter=nonsense';
+    render(<AllHistory />);
+
+    expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
+  });
+
+  it('follows a later link, because the tab stays mounted under the others', () => {
+    const { rerender } = render(<AllHistory />);
+    expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
+
+    mockLocationSearch.value = '?filter=pending';
+    rerender(<AllHistory />);
+    expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
   });
 });

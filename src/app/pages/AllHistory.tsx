@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useRef, useState } from 'react';
+import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -13,16 +13,36 @@ import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { setActivityView, useActivityView } from 'lib/settings/activity-view';
+import { useLocation } from 'lib/woozie';
 
 type AllHistoryProps = {
   programId?: string | null;
 };
 
+const FILTERS: ActivityFilter[] = ['all', 'pending', 'sent', 'received', 'faucet'];
+
+/**
+ * The filter a link asked for, e.g. `/history?filter=pending` — which is where every
+ * received-transfer notification and the home prompt now land (`ACTIVITY_PENDING_PATH`).
+ */
+function filterFromSearch(search: string): ActivityFilter | undefined {
+  const asked = new URLSearchParams(search).get('filter');
+  return FILTERS.find(candidate => candidate === asked);
+}
+
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<ActivityFilter>('all');
+  const { search: locationSearch } = useLocation();
+  const [filter, setFilter] = useState<ActivityFilter>(() => filterFromSearch(locationSearch) ?? 'all');
+  // `TabLayout` keeps a visited tab mounted, so a notification arriving while Activity is already
+  // open does not remount this page — the initial state above would never be re-read. Following
+  // the location is what makes the deep link work on the second and every later tap.
+  useEffect(() => {
+    const asked = filterFromSearch(locationSearch);
+    if (asked) setFilter(asked);
+  }, [locationSearch]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Remembered per device in the app's settings module, so the tab reopens in the view the user
