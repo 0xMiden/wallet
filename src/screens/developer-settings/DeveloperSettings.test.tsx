@@ -182,8 +182,9 @@ beforeEach(() => {
   mockUseConfirm.mockReturnValue(confirm);
 });
 
-/** A stored override: testnet's defaults with one endpoint the user authored. */
-const saved = (rpcUrl: string) => ({
+/** A stored override: testnet's defaults with one endpoint the user authored. `allowNoGuardian`
+ * differs from every preset's `false` in the case that asserts the restore carries URLs only. */
+const saved = (rpcUrl: string, allowNoGuardian = false) => ({
   rpcUrl,
   proverUrl: 'https://prover.testnet',
   noteTransportUrl: 'https://ntl.testnet',
@@ -191,7 +192,7 @@ const saved = (rpcUrl: string) => ({
   faucetApiUrl: 'https://faucet-api.testnet',
   explorerUrl: 'https://scan.testnet',
   guardianUrl: 'https://guardian.testnet',
-  allowNoGuardian: false,
+  allowNoGuardian,
   networkName: 'testnet'
 });
 
@@ -347,7 +348,10 @@ describe('DeveloperSettings', () => {
   // The screen is most often opened ON a saved custom override, and those endpoints are remembered
   // exactly like ones typed here: the restore reads them from the form it opened with.
   it('gives back endpoints saved in an earlier session, after a hop through a preset', () => {
-    activeOverride = { ...saved('https://saved.example'), presetName: 'custom' };
+    // `allowNoGuardian: true` differs from every preset's `false`, and the fixture's networkName
+    // ('testnet') differs from the devnet hop: between them they make the URL-ONLY half of the
+    // restore observable, which is otherwise invisible to a green suite.
+    activeOverride = { ...saved('https://saved.example', true), presetName: 'custom' };
     render(<DeveloperSettings />);
     const picker = screen.getByTestId('dev-endpoint-preset');
 
@@ -355,6 +359,24 @@ describe('DeveloperSettings', () => {
     fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
 
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://saved.example');
+    // Only the URL fields come back: the network id and the toggle read what the last preset set.
+    expect(
+      within(screen.getByTestId('dev-endpoint-network-id')).getByTestId('dev-endpoint-network-devnet')
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+  });
+
+  // The two sources in one walk: what was typed here outranks what the screen opened with.
+  it('prefers an endpoint typed now over the one it opened with', () => {
+    activeOverride = { ...saved('https://saved.example'), presetName: 'custom' };
+    render(<DeveloperSettings />);
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
   });
 
   // The other side of the same rule, and what pins the guard: a screen opened on a PRESET has
