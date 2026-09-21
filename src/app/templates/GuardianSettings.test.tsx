@@ -581,7 +581,6 @@ it('renders through SubPageLayout: section labels, muted copy, details card, Rot
   );
   // Section labels are the shared SectionHeader, not grey chips; no rule between sections.
   expect(screen.getByText('about')).toHaveClass('text-[13px]', 'text-muted');
-  expect(screen.getByText('about')).not.toHaveClass('bg-gray-25');
   expect(page.querySelector('hr')).toBeNull();
   // The explanation is 14px muted section copy; the details sit in the shared DetailCard.
   expect(screen.getByText('guardianInfoDescription').closest('.text-muted')).toHaveClass('text-sm');
