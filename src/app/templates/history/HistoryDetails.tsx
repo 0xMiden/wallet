@@ -636,6 +636,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
             onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate(ACTIVITY_PENDING_PATH) : undefined}
+            offerCancelOrder={receipt.offerCancel}
+            reclaimPending={receipt.reclaimPending}
+            isCancellingOrder={actions.isCancellingOrder}
+            cancelOrderError={actions.cancelOrderError}
+            onCancelOrder={actions.onCancelOrder}
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
