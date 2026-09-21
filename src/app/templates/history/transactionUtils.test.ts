@@ -328,6 +328,11 @@ describe('TRANSACTION_COLORS', () => {
   // vars), so each must stay byte-for-byte in sync with main.css or the Activity
   // row and the detail hero drift apart again. This covered the faucet alone
   // while send and receive had the same exposure and no guard at all.
+  //
+  // What it does NOT cover: any OTHER file that copies one of these hues. It reads
+  // main.css and this module and nothing else, so a third copy elsewhere stays
+  // invisible here - which is exactly how TransactionSummaryBadge kept painting the
+  // retired send and swap colours. That file carries its own guard.
   it.each([
     ['send', '--tx-sent'],
     ['receive', '--tx-received'],

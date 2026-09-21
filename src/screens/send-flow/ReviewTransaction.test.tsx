@@ -958,4 +958,15 @@ describe('ReviewTransaction — E2E share-privately hook', () => {
     unmount();
     expect((globalThis as any).__TEST_SET_SHARE_PRIVATELY__).toBeUndefined();
   });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - which is the distinction a source match could
+  // not make, and how a banner once shipped behind an early return.
+  it('names the network it will commit on', () => {
+    // Without params the screen redirects and renders nothing, so the params are the test.
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    render(<ReviewTransaction />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
 });

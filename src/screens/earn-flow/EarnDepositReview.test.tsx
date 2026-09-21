@@ -499,4 +499,12 @@ describe('EarnDepositReview', () => {
       expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });
   });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - the distinction a source match cannot make.
+  it('names the network it will commit on', () => {
+    renderReview('vault-1', '?amount=10');
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
 });

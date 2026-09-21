@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { presets } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { Card, CardButton, type CardPadding } from './Card';
+import { Card, CardButton, type CardPadding, FOCUSABLE_CLASSES } from './Card';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -134,7 +134,26 @@ describe('CardButton', () => {
       'w-full',
       'active:bg-fill-pressed',
       'focus-visible:ring-2',
+      'focus-visible:ring-accent-primary'
+    );
+    expect(hasBorderClass(button)).toBe(false);
+  });
+
+  // Enumerated on purpose, NOT derived from FOCUSABLE_CLASSES. An `it.each(FOCUSABLE_CLASSES)`
+  // reads its cases from the very constant it checks, so deleting a line just removes a case and
+  // the suite stays green - verified by mutation, which is how this assertion got written twice.
+  // The expectation has to be independent of the thing it pins.
+  it('gives CardButton every focusable class', () => {
+    render(<CardButton onClick={jest.fn()}>go</CardButton>);
+
+    const button = screen.getByRole('button');
+    expect(button).toHaveClass(
+      'select-none',
+      'outline-none',
+      'focus-visible:ring-2',
       'focus-visible:ring-accent-primary',
+      'focus-visible:ring-offset-2',
+      'focus-visible:ring-offset-page',
       // `disabled:` matches `:disabled`, so these are only real on the button. They used to be
       // claimed by a `Card` variant that renders a `div`, where they could never fire.
       'disabled:cursor-default',
@@ -142,7 +161,12 @@ describe('CardButton', () => {
       'disabled:hover:bg-fill',
       'disabled:active:bg-fill'
     );
-    expect(hasBorderClass(button)).toBe(false);
+  });
+
+  // The other half of the pin: the list above is exhaustive only while the constant is this size,
+  // so a line added without a matching assertion fails here rather than shipping unpinned.
+  it('has no focusable class the assertion above does not name', () => {
+    expect(FOCUSABLE_CLASSES).toHaveLength(3);
   });
 
   it('fires the tap haptic and then the handler', () => {

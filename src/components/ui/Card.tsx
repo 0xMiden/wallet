@@ -39,8 +39,12 @@ const cardVariants = cva('rounded-2xl bg-fill text-left', {
   defaultVariants: { padding: 'tile', pressable: false }
 });
 
-/** The focusable half of the old split: real on a `button`, inert on anything that cannot focus. */
-const FOCUSABLE_CLASSES = [
+/**
+ * The focusable half of the old split: real on a `button`, inert on anything that cannot focus.
+ * Exported so the test can iterate it rather than restating its lines, which is what let half of
+ * it go unpinned when it moved off the cva variant.
+ */
+export const FOCUSABLE_CLASSES = [
   'select-none outline-none',
   'focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-page',
   'disabled:cursor-default disabled:opacity-50 disabled:hover:bg-fill disabled:active:bg-fill'

@@ -76,8 +76,12 @@ describe('BridgeDeposit (#875)', () => {
     mockNavigate.mockClear();
   });
 
-  // A full-screen route renders outside TabLayout, so it never had the ribbon either.
-  it('names the network on a screen that commits value', () => {
+  // The NOT-YET-CONNECTED prompt. `beforeEach` sets `connected: false`, and this suite stubs
+  // EvmBridgeDepositScreen, so this case covers only that prompt - the connected flow that
+  // actually commits is EvmBridgeDepositScreen's own shell, registered in the banner registry.
+  // Named honestly because the first version of this test claimed to cover the committing screen
+  // and asserted against the one that commits nothing.
+  it('names the network on the connect-your-wallet prompt', () => {
     render(<BridgeDeposit />);
 
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
