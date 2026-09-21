@@ -29,6 +29,12 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
+      # One job, 500ms blocks: the deleted fast-blocks matrix existed so
+      # send-private saw a block in the commit-relay window. That cadence now
+      # lives here, and the rest of the suite spends less wall clock waiting
+      # on 3s blocks. run-local-node patches start-test-node.sh from this env.
+      MIDEN_NODE_BLOCK_INTERVAL: 500ms
+      MIDEN_NODE_BATCH_INTERVAL: 500ms
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

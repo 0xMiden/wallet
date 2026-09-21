@@ -58,7 +58,9 @@ export default defineConfig({
   // now closes that gap.
   use: {
     headless: false, // Extensions require headed mode
-    trace: 'on', // Always record traces for debugging
+    // CI only uploads artifacts on failure, so recording traces on green specs
+    // is disk I/O the 2 vCPU local-e2e job never ships. Local runs keep `on`.
+    trace: process.env.CI ? 'retain-on-failure' : 'on',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     // Playwright defaults BOTH of these to 0 = unbounded. An action whose

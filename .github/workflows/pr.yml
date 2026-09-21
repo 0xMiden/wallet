@@ -266,20 +266,28 @@ jobs:
             echo "mock-e2e ${{ needs.mock-e2e.result }}"; exit 1; fi
           echo "unit and mock-e2e ok"
 
+  # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
+  # one ubuntu-latest). Three shards keep billed minutes about the same and cut
+  # wall clock under 25m. The required-check name stays on the merge gate.
   coverage:
-    name: Coverage Check (95% minimum)
+    name: Coverage shard ${{ matrix.shard }}/3
     needs: translations
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
+    env:
+      JEST_COVERAGE_SHARD: '1'
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          # Fork PRs: the head branch lives in the fork, not the base repo.
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
@@ -291,10 +299,37 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
-      - name: Run Coverage Check
-        uses: borales/actions-yarn@v4
+      - name: Run Coverage shard
+        run: yarn test:coverage --shard=${{ matrix.shard }}/3 --coverageReporters=json --coverageReporters=text-summary
+
+      - uses: actions/upload-artifact@v4
         with:
-          cmd: test:coverage
+          name: coverage-shard-${{ matrix.shard }}
+          path: coverage/coverage-final.json
+          if-no-files-found: error
+
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
+    steps:
+      - name: Check shards
+        run: |
+          if [ "${{ needs.coverage.result }}" != "success" ]; then
+            echo "coverage shards ${{ needs.coverage.result }}"; exit 1; fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install coverage reporters
+        run: npm install --no-save istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          path: coverage-shards
+      - name: Merge shards and enforce 95%
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
 
   i18n-check:
     name: Check for non-i18n'd strings

@@ -107,10 +107,18 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
     expect(src).not.toMatch(/select-earn-e2e/);
   });
 
-  it('local-e2e has no fast-blocks matrix', () => {
+  it('local-e2e has no fast-blocks matrix and uses 500ms blocks', () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
     expect(src).not.toMatch(/fast blocks/);
     expect(src).not.toMatch(/strategy:/);
     expect(src).toMatch(/name: local-e2e \(chrome\)/);
+    expect(src).toMatch(/MIDEN_NODE_BLOCK_INTERVAL: 500ms/);
+  });
+
+  it('coverage is sharded and gated under the required check name', () => {
+    const src = configSource('.github/workflows/pr.yml');
+    expect(src).toMatch(/shard: \[1, 2, 3\]/);
+    expect(src).toMatch(/name: Coverage Check \(95% minimum\)/);
+    expect(src).toMatch(/merge-jest-coverage\.mjs/);
   });
 });
