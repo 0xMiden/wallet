@@ -357,3 +357,13 @@ describe('ActivityRow', () => {
     });
   });
 });
+
+// The same guard through a real row: this suite renders the real ActivityRow and the real badge,
+// which the history list suites cannot (they stub the components/ui barrel).
+it('renders a status it does not know as the neutral badge, and the row survives', () => {
+  renderRow({ status: 'refunded' as never, testId: 'row' });
+
+  const badge = screen.getByTestId('row-status');
+  expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
+  expect(screen.getByText('Sent MIDEN')).toBeInTheDocument();
+});
