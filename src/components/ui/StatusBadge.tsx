@@ -119,13 +119,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   // so a typo in new code stays a compile error.
   const { labelKey, tone } = STATUS_BADGE[status] ?? STATUS_BADGE.unavailable;
   return (
-    <Pill
-      size={PILL_SIZE[size]}
-      tone={PILL_TONE[tone]}
-      role={live ? 'status' : undefined}
-      className={className}
-      data-testid={dataTestId}
-    >
+    <Pill size={PILL_SIZE[size]} tone={PILL_TONE[tone]} live={live} className={className} data-testid={dataTestId}>
       {t(labelKey)}
     </Pill>
   );
