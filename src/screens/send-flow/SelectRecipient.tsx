@@ -219,10 +219,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         <AnimatePresence initial={false} mode="wait">
           <motion.div
             key={pillSet}
-            // One row that never wraps: on a narrow phone it scrolls sideways, bleeding past the
-            // page's 24px gutter so the cut pill says there is more.
-            // One row that fits: no sideways scroll, and it wraps rather than overflowing if a
-            // translation runs long.
+            // The pills wrap onto a second line rather than scrolling sideways. A sideways
+            // scroller here was the horizontal gesture's handler, so it — not the home carousel —
+            // won the swipe, and the pane could no longer be swiped to the next tab.
             className="flex flex-wrap items-start gap-2"
             {...pillSwap}
           >
