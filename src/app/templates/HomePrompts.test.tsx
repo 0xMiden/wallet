@@ -43,6 +43,7 @@ jest.mock('components/ui', () => ({
   PromptCard: ({
     title,
     body,
+    bodyValue,
     hero,
     onClick,
     actionLabel,
@@ -53,6 +54,7 @@ jest.mock('components/ui', () => ({
   }: {
     title: string;
     body?: string;
+    bodyValue?: string;
     hero?: { icon: string; label: string; tone: string };
     onClick?: () => void;
     actionLabel?: string;
@@ -75,6 +77,7 @@ jest.mock('components/ui', () => ({
         {title}
       </button>
       {body && <p>{body}</p>}
+      {bodyValue && <p data-testid="prompt-card-value">{bodyValue}</p>}
       {actionLabel && (
         <button type="button" onClick={onAction} disabled={actionDisabled}>
           {actionLabel}
@@ -87,6 +90,11 @@ jest.mock('components/ui', () => ({
       )}
     </section>
   )
+}));
+
+const mockHiddenNotes = { ids: new Set<string>(), loaded: true, failed: false };
+jest.mock('app/hooks/useActivityHiddenNotes', () => ({
+  useActivityHiddenNotes: () => ({ ...mockHiddenNotes, hide: jest.fn(), restore: jest.fn() })
 }));
 
 jest.mock('lib/wallet-prompts', () => {
@@ -2540,16 +2548,55 @@ describe('HomePrompts', () => {
       'pendingNotesPromptTitle',
       'verifySeedPhrasePromptTitle'
     ]);
-    expect(screen.getByText('pendingNotesPromptBody:$4.50')).toBeInTheDocument();
+    // The money is its own value on the body line, not a number buried in a translated sentence.
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
     expect(screen.queryByRole('button', { name: 'pendingNotesPromptAction' })).not.toBeInTheDocument();
+    // Nothing waiting to be accepted can be swept away.
+    expect(screen.queryByRole('button', { name: 'dismiss-pendingNotesPromptTitle' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptTitle' }));
-    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/pending-notes');
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending');
   });
 
-  it('dismisses the current pending-note batch by note id', () => {
-    const setPromptStatus = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ setPromptStatus }));
+  it('leaves a declined transfer out of the count and out of the total, until it is restored', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    // `note-1` was declined on the Activity tab. It is still claimable — declining only hides it
+    // — so the raw list still carries it, and the banner used to count it and add its value.
+    mockHiddenNotes.ids = new Set(['note-1']);
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={pendingNotes}
+        fundingNotes={pendingNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    expect(screen.getByTestId('prompt-card-value')).not.toHaveTextContent('$4.50');
+    expect(screen.getByText('pendingNotesPromptBody:1')).toBeInTheDocument();
+
+    // Restore puts it back, and the banner agrees again.
+    mockHiddenNotes.ids = new Set();
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={pendingNotes}
+        fundingNotes={pendingNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
+    expect(screen.getByText('pendingNotesPromptBody:2')).toBeInTheDocument();
+  });
+
+  it('shows nothing at all when every pending transfer has been declined', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.ids = new Set(['note-1', 'note-2']);
 
     render(
       <HomePrompts
@@ -2561,15 +2608,11 @@ describe('HomePrompts', () => {
         tokenPrices={tokenPrices}
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: 'dismiss-pendingNotesPromptTitle' }));
 
-    expect(setPromptStatus).toHaveBeenCalledWith(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed, [
-      'note-1',
-      'note-2'
-    ]);
+    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
   });
 
-  it('keeps a dismissed batch hidden while one of its notes remains', () => {
+  it('ignores a dismissal an older build stored: the card cannot be dismissed any more', () => {
     const setPromptStatus = jest.fn();
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
@@ -2594,7 +2637,8 @@ describe('HomePrompts', () => {
       />
     );
 
-    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+    // A wallet that dismissed the card once must not go silent about every later transfer.
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
     expect(setPromptStatus).not.toHaveBeenCalled();
   });
 
