@@ -109,18 +109,6 @@ describe('Card', () => {
     expect(card.className).not.toContain('select-none');
   });
 
-  it('adds the focus ring only when focusable', () => {
-    render(
-      <Card data-testid="card" focusable>
-        content
-      </Card>
-    );
-
-    const card = screen.getByTestId('card');
-    expect(card).toHaveClass('focus-visible:ring-2', 'focus-visible:ring-accent-primary', 'select-none');
-    expect(card.className).not.toContain('active:bg-fill-pressed');
-  });
-
   it('has no pressed feedback by default', () => {
     render(<Card data-testid="card">content</Card>);
     expect(screen.getByTestId('card').className).not.toContain('active:bg-fill-pressed');
@@ -146,7 +134,13 @@ describe('CardButton', () => {
       'w-full',
       'active:bg-fill-pressed',
       'focus-visible:ring-2',
-      'focus-visible:ring-accent-primary'
+      'focus-visible:ring-accent-primary',
+      // `disabled:` matches `:disabled`, so these are only real on the button. They used to be
+      // claimed by a `Card` variant that renders a `div`, where they could never fire.
+      'disabled:cursor-default',
+      'disabled:opacity-50',
+      'disabled:hover:bg-fill',
+      'disabled:active:bg-fill'
     );
     expect(hasBorderClass(button)).toBe(false);
   });
