@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { NetworkChip } from 'components/NetworkChip';
@@ -21,7 +22,6 @@ import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { cn } from 'lib/ui/util';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
@@ -155,140 +155,122 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const showCrossChain = !isExtension() && isBridgeDepositEnabled();
 
   return (
-    // Last-resort scroll only: the column below is laid out to fit between the top action bar and
+    // The shared home-group pane body (HomeGroupPane): the page margin, the 24px to the title, the
+    // scroll and gesture contract and the clearance over the tab bar, the same as Send, Earn and
+    // Swap. Last-resort scroll only: the column is laid out to fit between the top action bar and
     // the tab bar on every supported height, and scrolls only when even that does not fit.
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
-    <div
-      className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
-      style={{ touchAction: 'pan-y' }}
-      data-testid="receive-page"
-    >
-      <div
-        className={cn(
-          // `pt-6` and a title with no padding of its own: the same construction as a send step's
-          // tab-root header and the swap page, so the three titles land on one line.
-          'mx-auto flex min-h-full w-full max-w-150 flex-col px-4 pt-6',
-          // Clears the tab bar that overlays the page (TabLayout): 57px docked on an iPhone, 64px
-          // floating elsewhere, plus the 16px gutter.
-          isMobile() ? 'pb-18' : 'pb-20'
-        )}
-      >
-        <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-        {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
-        <span data-testid="receive-address-full" className="sr-only">
-          {address}
-        </span>
+    <HomeGroupPaneBody testId="receive-page" title={t('receiveAt')} titleTestId="receive-title">
+      {/* The clipboard fallback's field, never shown. `fieldWrapperBottomMargin` is off because
+          the wrapper is a laid-out box even with the input hidden, and its 8px sat above the
+          title — which is why "Receive at" used to start lower than the other panes' titles. */}
+      <FormField ref={fieldRef} value={address} style={{ display: 'none' }} fieldWrapperBottomMargin={false} />
+      {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
+      <span data-testid="receive-address-full" className="sr-only">
+        {address}
+      </span>
 
-        {/* The page's first line, in the same markup a send step's tab-root header uses, so the
-            title box starts at the identical offset on Send, Receive and Swap. */}
-        <header className="flex shrink-0 items-start justify-between gap-3">
-          <h1 data-testid="receive-title" className="min-w-0 text-title-tab text-ink">
-            {t('receiveAt')}
-          </h1>
-        </header>
-
-        {/* The code, its network and the address: one centred block on the page itself, no card
+      {/* The code, its network and the address: one centred block on the page itself, no card
             around it — the card only added an edge between the code and the actions below. */}
-        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2 pt-2">
-          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
-            {/* The QR is a fixed square (208px), not the leftover height: big enough to scan
+      <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2 pt-2">
+        <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
+          {/* The QR is a fixed square (208px), not the leftover height: big enough to scan
                 across a table, small enough to leave the page room to breathe. */}
-            <div data-testid="receive-qr-slot" className="relative w-full max-w-52">
-              <motion.div
-                data-testid="receive-qr-frame"
-                className="aspect-square w-full"
-                // The dip of the logo press. The card is what moves: the logo is drawn inside the
-                // QR's own SVG, so it cannot be scaled on its own.
-                animate={{ scale: logoPressed && !reduceMotion ? tabBarMotion.pressScale : 1 }}
-                transition={resolveTransition(reduceMotion, tabBarMotion.press)}
-              >
-                <QRCode
-                  ref={qrRef}
-                  address={address}
-                  size={QR_EXPORT_SIZE}
-                  fluid
-                  palette={QR_PALETTE_CYCLE[paletteStep]}
-                  // The page names the network in the chip below; the shared image still carries it.
-                  caption={network ? t('qrNetworkCaption', { network }) : undefined}
-                  showCaption={false}
-                />
-              </motion.div>
-              {/* The Bread logo in the middle of the code, as a target: each tap repaints the
-                  modules in the next colour of the cycle. The logo itself is left alone. */}
-              <button
-                type="button"
-                onClick={cyclePalette}
-                onPointerDown={() => setLogoPressed(true)}
-                onPointerUp={releaseLogo}
-                onPointerCancel={releaseLogo}
-                onPointerLeave={releaseLogo}
-                onBlur={releaseLogo}
-                aria-label={t('receiveQrColorAction')}
-                data-testid="receive-qr-logo"
-                data-qr-palette={QR_PALETTE_CYCLE[paletteStep]}
-                className="absolute left-1/2 top-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+          <div data-testid="receive-qr-slot" className="relative w-full max-w-52">
+            <motion.div
+              data-testid="receive-qr-frame"
+              className="aspect-square w-full"
+              // The dip of the logo press. The card is what moves: the logo is drawn inside the
+              // QR's own SVG, so it cannot be scaled on its own.
+              animate={{ scale: logoPressed && !reduceMotion ? tabBarMotion.pressScale : 1 }}
+              transition={resolveTransition(reduceMotion, tabBarMotion.press)}
+            >
+              <QRCode
+                ref={qrRef}
+                address={address}
+                size={QR_EXPORT_SIZE}
+                fluid
+                palette={QR_PALETTE_CYCLE[paletteStep]}
+                // The page names the network in the chip below; the shared image still carries it.
+                caption={network ? t('qrNetworkCaption', { network }) : undefined}
+                showCaption={false}
               />
-            </div>
-            {network && (
-              <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
-            )}
-            <CopyButton
-              text={address}
-              data-testid="receive-copy-address"
-              label={truncateAddress(address, false, 16, 8)}
-              icon="leading"
-              iconClassName="text-accent-receive"
-              checkClassName="text-positive-ink"
-              className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
-              contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+            </motion.div>
+            {/* The Bread logo in the middle of the code, as a target: each tap repaints the
+                  modules in the next colour of the cycle. The logo itself is left alone. */}
+            <button
+              type="button"
+              onClick={cyclePalette}
+              onPointerDown={() => setLogoPressed(true)}
+              onPointerUp={releaseLogo}
+              onPointerCancel={releaseLogo}
+              onPointerLeave={releaseLogo}
+              onBlur={releaseLogo}
+              aria-label={t('receiveQrColorAction')}
+              data-testid="receive-qr-logo"
+              data-qr-palette={QR_PALETTE_CYCLE[paletteStep]}
+              className="absolute left-1/2 top-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
             />
           </div>
-        </div>
-
-        <div className="mt-2 flex shrink-0 flex-col gap-2">
-          {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
-              hairlines. */}
-          <ListGroup data-testid="receive-actions">
-            <ListRow
-              icon={<Icon name={IconName.Share} size="xs" />}
-              title={t('share')}
-              accent="receive"
-              onClick={() => void handleShare()}
-              data-testid="receive-share"
-            />
-            {/* WalletConnect is not supported on the extension: the Reown relay
-                rejects the extension bundle's auth JWT (WebSocket close 3000), so
-                the AppKit connect flow can never complete there. */}
-            {showCrossChain && (
-              <ListRow
-                icon={<Icon name={IconName.CrossChain} size="xs" />}
-                title={t('crossChain')}
-                // Name the actual source test network, not a bare "Testnet" (#875).
-                subtitle={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-                accent="receive"
-                chevron
-                onClick={handleOpenEvm}
-                data-testid="receive-cross-chain"
-              />
-            )}
-          </ListGroup>
-          {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
-              this qualifies all of it. A caption with the warning glyph, not a tinted block —
-              between the address and the actions it split the page in two. */}
           {network && (
-            <Notice
-              tone="warning"
-              variant="inline"
-              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-              data-testid="receive-test-funds-warning"
-            >
-              {t('receiveTestFundsBody', { network })}
-            </Notice>
+            <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
           )}
+          <CopyButton
+            text={address}
+            data-testid="receive-copy-address"
+            label={truncateAddress(address, false, 16, 8)}
+            icon="leading"
+            iconClassName="text-accent-receive"
+            checkClassName="text-positive-ink"
+            className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+            contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+          />
         </div>
       </div>
+
+      <div className="mt-2 flex shrink-0 flex-col gap-2">
+        {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
+              hairlines. */}
+        <ListGroup data-testid="receive-actions">
+          <ListRow
+            icon={<Icon name={IconName.Share} size="xs" />}
+            title={t('share')}
+            accent="receive"
+            onClick={() => void handleShare()}
+            data-testid="receive-share"
+          />
+          {/* WalletConnect is not supported on the extension: the Reown relay
+                rejects the extension bundle's auth JWT (WebSocket close 3000), so
+                the AppKit connect flow can never complete there. */}
+          {showCrossChain && (
+            <ListRow
+              icon={<Icon name={IconName.CrossChain} size="xs" />}
+              title={t('crossChain')}
+              // Name the actual source test network, not a bare "Testnet" (#875).
+              subtitle={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+              accent="receive"
+              chevron
+              onClick={handleOpenEvm}
+              data-testid="receive-cross-chain"
+            />
+          )}
+        </ListGroup>
+        {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
+              this qualifies all of it. A caption with the warning glyph, not a tinted block —
+              between the address and the actions it split the page in two. */}
+        {network && (
+          <Notice
+            tone="warning"
+            variant="inline"
+            icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+            data-testid="receive-test-funds-warning"
+          >
+            {t('receiveTestFundsBody', { network })}
+          </Notice>
+        )}
+      </div>
       {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
-    </div>
+    </HomeGroupPaneBody>
   );
 };
