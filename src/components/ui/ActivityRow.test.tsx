@@ -201,7 +201,6 @@ describe('ActivityRow', () => {
       renderRow({ amount: { value: '7' } });
       expect(screen.getByText('7').className).toContain('text-ink');
     });
-
   });
 
   // A batch claim reads "+20 A, +10 B" on one line. The line is finite and the
