@@ -97,6 +97,10 @@ E2E: `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` and `window.__TEST_IN
 
 TypeScript is strict. No `any`, no `as` — use explicit domain types, and preserve the configured absolute imports (`app/...`, `lib/...`, `shared/...`). Prettier: 120-column width, two-space indentation, single quotes, semicolons, trailing commas. ESLint enforces formatting and ordered imports. Name React components and files in `PascalCase`, hooks as `useSomething`, and utilities in `camelCase` or established kebab-case modules. `yarn format` to fix.
 
+## UI: Shared Components and Layouts
+
+Pages supply content; the design system supplies the rest. Reuse the shared component before writing styles — a page-local frame, row, field, error line, empty state or icon circle is a defect, and the fix is to extend the shared one (a prop or variant), never to fork it. Take the shared frame too: `SubPageLayout` for pushed pages, `FlowLayout` + `FlowFooter` for flow steps, one shell for the home-group panes, so titles, gutters, section gaps and pinned actions sit in the same place everywhere. Spacing, type and colour come from the named type styles and semantic tokens; a literal padding or hex means a token is missing, so add it. See `skills/miden-wallet-frontend/SKILL.md` and its `references/design-system.md`.
+
 ## Commit & Pull Request Guidelines
 
 - Commit messages: single-line, short, imperative. Never sign commits (no `Co-Authored-By`).
