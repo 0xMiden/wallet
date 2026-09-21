@@ -106,7 +106,7 @@ beforeEach(() => {
 });
 
 describe('GeneralSettings', () => {
-  it('renders the theme selector with the three theme tabs and the system tab active by default', () => {
+  it('renders the theme selector with the three theme options and system selected by default', () => {
     render(<GeneralSettings />);
 
     // Theme label + selector container.
@@ -206,7 +206,7 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('selecting the light theme tab persists it and updates the active tab', () => {
+  it('selecting the light theme persists it and moves the selection', () => {
     render(<GeneralSettings />);
 
     fireEvent.click(screen.getByTestId('theme-light'));
@@ -218,7 +218,7 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('selecting the dark theme tab persists it', () => {
+  it('selecting the dark theme persists it', () => {
     render(<GeneralSettings />);
 
     fireEvent.click(screen.getByTestId('theme-dark'));
@@ -227,7 +227,7 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('re-selecting the system theme tab persists it', () => {
+  it('re-selecting the system theme persists it', () => {
     // Start on a non-system theme so clicking system is a real change.
     mockGetThemeSetting.mockReturnValue('light');
     render(<GeneralSettings />);

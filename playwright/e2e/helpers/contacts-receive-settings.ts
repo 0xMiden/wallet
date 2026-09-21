@@ -776,7 +776,7 @@ export async function isDarkThemeApplied(page: Page): Promise<boolean> {
 }
 
 /**
- * Click a theme tab in the OPEN general-settings drawer and wait for the theme
+ * Click a theme option in the OPEN general-settings drawer and wait for the theme
  * to actually be applied to `<html>`.
  *
  * `setTheme` both persists the choice and calls `applyTheme`, which adds/removes
@@ -786,8 +786,8 @@ export async function isDarkThemeApplied(page: Page): Promise<boolean> {
  * `'system'` has no predictable class outcome (it resolves through
  * `prefers-color-scheme`), so that branch waits on the PERSISTED value instead,
  * which is deterministic. It never returns without a postcondition: a click that
- * missed, a disabled tab, or an off-by-one in `handleThemeTabChange`'s
- * index→theme map all have to surface here, not in whatever runs next.
+ * missed, or one that landed on a different option than the one asked for, has to
+ * surface here, not in whatever runs next.
  */
 export async function selectTheme(
   wallet: ChromeWalletPageApi,
@@ -802,7 +802,7 @@ export async function selectTheme(
       .locator('[data-testid^="theme-"]')
       .evaluateAll(els => els.map(el => el.getAttribute('data-testid') ?? ''));
     throw new Error(
-      `selectTheme("${theme}"): no theme tab within ${timeoutMs}ms. Tabs present: ${JSON.stringify(present)}`
+      `selectTheme("${theme}"): no theme option within ${timeoutMs}ms. Options present: ${JSON.stringify(present)}`
     );
   }
   await tab.click({ timeout: timeoutMs });
@@ -814,9 +814,9 @@ export async function selectTheme(
       });
     } catch {
       throw new Error(
-        `selectTheme("system"): clicked the tab but localStorage["${THEME_SETTING_KEY}"] is ` +
-          `${JSON.stringify(await readLocalStorageItem(wallet.page, THEME_SETTING_KEY))} after ${timeoutMs}ms — ` +
-          `setTheme was never called, so the click never reached the tab.`
+        `selectTheme("system"): clicked the option but localStorage["${THEME_SETTING_KEY}"] is ` +
+          `${JSON.stringify(await readLocalStorageItem(wallet.page, THEME_SETTING_KEY))} after ${timeoutMs}ms - ` +
+          `setTheme was never called, so the click never reached the control.`
       );
     }
     return;
@@ -829,9 +829,9 @@ export async function selectTheme(
     });
   } catch {
     throw new Error(
-      `selectTheme("${theme}"): clicked the tab but <html> still ` +
-        `${wantDark ? 'lacks' : 'carries'} the "dark" class after ${timeoutMs}ms — ` +
-        `the theme was persisted without being applied, or the tab click never landed.`
+      `selectTheme("${theme}"): clicked the option but <html> still ` +
+        `${wantDark ? 'lacks' : 'carries'} the "dark" class after ${timeoutMs}ms - ` +
+        `the theme was persisted without being applied, or the click never landed.`
     );
   }
 }
