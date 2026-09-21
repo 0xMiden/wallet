@@ -1,7 +1,18 @@
 import Dexie from 'dexie';
 
 import { ITransaction, ITransactionStatus } from './db/types';
-import { db, exportDb, importDb, spendingLimits, transactions, Table } from './repo';
+import {
+  createSchemaFor,
+  db,
+  exportDb,
+  importDb,
+  spendingLimits,
+  transactions,
+  Table,
+  TRANSACTIONS_V17_STORE,
+  SPENDING_LIMITS_V17_STORE,
+  SPENDING_LIMITS_V19_STORE
+} from './repo';
 import { isRequeueableTransaction } from './transaction/retry';
 import { NoteTypeEnum } from './types';
 
@@ -631,39 +642,71 @@ describe('spending limits schema', () => {
 // even that the two-version drop-then-recreate shape repo.ts uses is necessary rather than an
 // unnecessary complication. Reproduced on isolated, uniquely-named databases so neither test here
 // can collide with the shared `db` singleton every other test in this file mutates.
+//
+// The migration-proving test below reopens through `createSchemaFor`, `repo.ts`'s own exported
+// schema builder - NOT a hand-typed duplicate of the version chain. That distinction is load-
+// bearing: an earlier version of this test built its own parallel 1.7/1.8/1.9 chain, which meant
+// it kept passing even after `repo.ts`'s real 1.8/1.9 were collapsed back into a single version
+// (the defect this test exists to catch) - the private chain never saw the mutation. Routing the
+// reopen through the real `defineSchema` (via `createSchemaFor`) means a future collapse changes
+// what THIS test replays too, so it fails instead of passing green next to a broken migration.
 describe('spending limits schema migration (1.7 -> 1.9)', () => {
-  const V17_SPENDING_LIMITS_STORE = '[accountId+faucetId],accountId,faucetId,revision';
-  const V19_SPENDING_LIMITS_STORE = 'accountId,revision';
+  const TEN_TRANSACTIONS_V17_INDEXES = [
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    'noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress',
+    'extraInputs.swapOrderTxId',
+    'spendingLimitAuthorizationId'
+  ];
 
   const seedV17 = async (name: string): Promise<void> => {
     const seed = new Dexie(name);
-    seed.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
+    seed.version(1.7).stores({
+      [Table.Transactions]: TRANSACTIONS_V17_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V17_STORE
+    });
     await seed.open();
     // Rows shaped the way a real pre-upgrade installation would have them: two per-asset limits
     // for the same account, which is exactly what the old compound key allowed and the new one does
-    // not.
+    // not; and an ordinary transaction row, so the migration's effect on the SIBLING table - which
+    // 1.8/1.9 never touch - is asserted too, not just assumed.
     await seed.table(Table.SpendingLimits).bulkAdd([
       { accountId: 'account-a', faucetId: 'faucet-1', revision: 'rev-1', limit: '10', createdAt: 1, updatedAt: 1 },
       { accountId: 'account-a', faucetId: 'faucet-2', revision: 'rev-2', limit: '20', createdAt: 1, updatedAt: 1 }
     ]);
+    await seed.table(Table.Transactions).add({
+      id: 'tx-1',
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      accountId: 'account-a',
+      initiatedAt: 1,
+      displayIcon: 'SEND'
+    });
     await expect(seed.table(Table.SpendingLimits).count()).resolves.toBe(2);
+    await expect(seed.table(Table.Transactions).count()).resolves.toBe(1);
     seed.close();
   };
 
   // Documents WHY repo.ts spends two version numbers on this migration instead of one: Dexie
   // itself refuses to change a table's primary key within a single version step, even against an
   // empty table, rather than this being merely untested. Collapsing 1.8/1.9 back into one version
-  // is therefore not a safe simplification.
+  // is therefore not a safe simplification. Deliberately hand-built (not `createSchemaFor`) since
+  // its whole point is to construct the WRONG, collapsed shape.
   it('rejects an in-place primary-key change on a single version, even with no data', async () => {
     const name = `spending-limits-migration-rejected-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const seed = new Dexie(name);
-    seed.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
+    seed.version(1.7).stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V17_STORE });
     await seed.open();
     seed.close();
 
     const invalid = new Dexie(name);
-    invalid.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
-    invalid.version(1.8).stores({ [Table.SpendingLimits]: V19_SPENDING_LIMITS_STORE });
+    invalid.version(1.7).stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V17_STORE });
+    invalid.version(1.8).stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE });
 
     await expect(invalid.open()).rejects.toThrow(/changing primary key/);
     await Dexie.delete(name);
@@ -673,12 +716,10 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
     const name = `spending-limits-migration-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await seedV17(name);
 
-    // Reopen under the same name with the real 1.7 -> 1.8 -> 1.9 chain repo.ts declares: 1.8 drops
-    // the old compound-keyed table, 1.9 recreates it keyed by account alone.
-    const upgraded = new Dexie(name);
-    upgraded.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
-    upgraded.version(1.8).stores({ [Table.SpendingLimits]: null });
-    upgraded.version(1.9).stores({ [Table.SpendingLimits]: V19_SPENDING_LIMITS_STORE });
+    // Reopen under the same name through the REAL chain repo.ts declares (see the describe-level
+    // comment for why this must not be a hand-rolled duplicate): 1.8 drops the old compound-keyed
+    // table, 1.9 recreates it keyed by account alone.
+    const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
     expect(upgraded.verno).toBe(1.9);
@@ -690,6 +731,18 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
       .table(Table.SpendingLimits)
       .put({ accountId: 'account-a', revision: 'rev-3', limit: '30', createdAt: 2, updatedAt: 2 });
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({ limit: '30' });
+
+    // The sibling `transactions` table (and its ten 1.7 indexes) is untouched by a migration that
+    // only names `spendingLimits` - Dexie's per-version diff carries forward every store this
+    // version doesn't mention, but that is a property of the real schema, not of this test's
+    // assumption, so it is asserted here rather than left for a reader to trust.
+    expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toEqual(
+      expect.arrayContaining(TEN_TRANSACTIONS_V17_INDEXES)
+    );
+    await expect(upgraded.table(Table.Transactions).get('tx-1')).resolves.toMatchObject({
+      accountId: 'account-a',
+      status: ITransactionStatus.Completed
+    });
 
     upgraded.close();
     await Dexie.delete(name);
