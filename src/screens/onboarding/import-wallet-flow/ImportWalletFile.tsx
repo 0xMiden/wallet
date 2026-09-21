@@ -387,6 +387,11 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             id="newwallet-password"
             type="password"
             name="password"
+            // This decrypts a wallet FILE with a password the user chose at export time, so it is
+            // the one password field here that wants the manager: `current-password` asks for the
+            // stored one, where the component default (`new-password`, which suppresses the
+            // manager on vault secrets) would offer to generate a password that already exists.
+            autoComplete="current-password"
             placeholder="********"
             errorCaption={errorCaption}
             containerClassName="mb-4"

@@ -620,6 +620,17 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
+  // THREE tabs still render inside the host's padded body: address-book, spending-limits and
+  // export-account-file. Everything else either carries its own layout or is `actionOnly`, which
+  // Settings.tsx:451 filters out of `activeTab` so it can never resolve as a route. The guard for
+  // that wrapper used to be this file's only one, and it was re-pointed at a page that moved onto
+  // the shared layout, which left the wrapper assertable nowhere.
+  it('keeps the display face on a sub-page that still takes the host body', () => {
+    const { container } = render(<Settings tabSlug="address-book" />);
+
+    expect(container.querySelector('.font-heading')).not.toBeNull();
+  });
+
   it('wraps a SubPageLayout page in no blanket display face', () => {
     // The host's old padded body set `font-heading` on everything under it, which
     // is how RevealSecret's secret textareas once inherited the display face.
@@ -673,10 +684,21 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     rerender(<Settings tabSlug="general-settings" />);
 
-    // Keyed on the slug so the header remounts and its focus effect re-runs;
-    // reconciling one header would announce the first page's name only.
+    // Every sub-page tab renders its own Component, so the move changes element type and React
+    // remounts - which is what re-runs the header's focus effect. Reconciling one header would
+    // announce the first page's name only. A slug key used to be credited with this and was
+    // deleted once measured: removing it left this test passing.
     expect(screen.getByTestId('nav-header')).not.toBe(first);
     expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
+
+    // Going BACK to the first page must remount too, not reuse a cached instance. This half was
+    // lost with the key's own test: that test was vacuous about the key, but it was the only one
+    // that revisited a slug, and nothing else in this file does.
+    const second = screen.getByTestId('nav-header');
+    rerender(<Settings tabSlug="language" />);
+
+    expect(screen.getByTestId('nav-header')).not.toBe(second);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('language');
   });
 
   // The root's back-to-home chevron is gone: Settings is a bottom-nav
@@ -705,6 +727,17 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
+  });
+
+  // An action-only row has no sub-page, so its slug must bounce exactly like an
+  // unknown one rather than drawing its title over an empty body. Both rows are
+  // single-segment, which is what makes them reachable by the generic route at all -
+  // the external rows carry an absolute URL and no single path segment can match it.
+  it.each(['support', 'send-feedback'])('replaces the action-only slug %s instead of rendering a blank page', slug => {
+    render(<Settings tabSlug={slug} />);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
   });
 });
 
@@ -812,16 +845,6 @@ describe('Settings page — active tab routing', () => {
 
     fireEvent.click(screen.getByTestId('nav-back'));
     expect(mockGoBack).toHaveBeenCalledTimes(1);
-  });
-
-  it('remounts a SubPageLayout page, header and all, on a sibling move', () => {
-    const { rerender } = render(<Settings tabSlug="keys" />);
-    const first = screen.getByTestId('nav-header');
-
-    rerender(<Settings tabSlug="general-settings" />);
-    rerender(<Settings tabSlug="keys" />);
-
-    expect(screen.getByTestId('nav-header')).not.toBe(first);
   });
 
   it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {

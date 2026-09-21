@@ -8,6 +8,11 @@ import { useConfirm } from 'lib/ui/dialog';
 
 import DAppSettings from './DAppSettings';
 
+// `__mocks__/utils/string.ts` sits adjacent to node_modules and `utils/string` is a bare specifier,
+// so the identity mock applies without an opt-in. The row's whole change is the shortening, so this
+// suite needs the real helper or the assertion below cannot see it.
+jest.unmock('utils/string');
+
 // The wallet-adapter package ships as ESM and is not transformed by jest, so we
 // provide just the `PrivateDataPermission` enum the component reads. Values
 // mirror the real enum (`UPON_REQUEST` / `AUTO`) so the equality check behaves
@@ -159,7 +164,9 @@ describe('DAppSettings', () => {
     expect(screen.getByText('testnet')).toBeInTheDocument();
     expect(screen.getByText('localnet')).toBeInTheDocument();
 
-    // The account row shows the shortened id and copies the full one.
+    // A literal, not `truncateAddress(ACCOUNT_ID, false, 8)`: recomputing the component's own
+    // expression mirrors it, so it could not catch the arguments changing.
+    expect(screen.getAllByText('mtst1acc...ount')).toHaveLength(2);
     expect(screen.getAllByTestId('copy-btn')).toHaveLength(2);
     expect(screen.getAllByTestId('copy-btn')[0]).toHaveAttribute('data-copy-text', ACCOUNT_ID);
 

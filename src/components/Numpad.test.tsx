@@ -18,7 +18,8 @@ jest.mock('app/icons/v2', () => ({
   ),
   IconName: {
     Backspace: 'backspace',
-    FaceId: 'face-id'
+    FaceId: 'face-id',
+    Fingerprint: 'fingerprint'
   }
 }));
 
@@ -169,12 +170,12 @@ describe('Numpad', () => {
     expect(screen.getByTestId('numpad-spacer')).toHaveClass('size-19');
   });
 
-  it('draws a Face ID key in the bottom-left slot when a biometric handler is given', () => {
+  it('draws a Face ID key in the bottom-left slot when the sensor is a face', () => {
     const onBiometric = jest.fn();
-    renderNumpad({ onBiometric, biometricLabel: 'Unlock with Face ID' });
+    renderNumpad({ onBiometric, biometryType: 'face' });
 
     expect(screen.queryByTestId('numpad-spacer')).not.toBeInTheDocument();
-    const key = screen.getByRole('button', { name: 'Unlock with Face ID' });
+    const key = screen.getByRole('button', { name: 'useFaceIdOrBiometric' });
     expect(key).toBe(screen.getByTestId('numpad-biometric'));
     expect(key.querySelector('[data-name="face-id"]')).toBeInTheDocument();
     // Still twelve slots, the biometric key in the tenth.
@@ -185,7 +186,20 @@ describe('Numpad', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to the localized biometric label', () => {
+  // Keyed off the sensor, not the OS: a Touch ID iPhone and a fingerprint Android phone both get a
+  // fingerprint, and drawing Face ID on them asks for a gesture the device does not have.
+  it.each(['fingerprint', 'iris', 'multiple'] as const)(
+    'draws a fingerprint key when the sensor is %s',
+    biometryType => {
+      renderNumpad({ onBiometric: jest.fn(), biometryType });
+
+      const key = screen.getByTestId('numpad-biometric');
+      expect(key.querySelector('[data-name="fingerprint"]')).toBeInTheDocument();
+      expect(key.querySelector('[data-name="face-id"]')).not.toBeInTheDocument();
+    }
+  );
+
+  it('names the biometric key with its localized label', () => {
     renderNumpad({ onBiometric: jest.fn() });
 
     expect(screen.getByRole('button', { name: 'useFaceIdOrBiometric' })).toBeInTheDocument();
@@ -209,5 +223,47 @@ describe('Numpad', () => {
 
   it('exposes the same component as the default and named export', () => {
     expect(Numpad).toBe(NamedNumpad);
+  });
+});
+
+// A press that will be refused must not look accepted: the key carries the native attribute, so it
+// neither animates nor fires the tap haptic. Entry and the biometric key have separate guards,
+// because a passcode lockout refuses digits while the biometric key stays usable through it.
+describe('refused keys', () => {
+  it('disables the entry keys without touching the biometric key', () => {
+    const onDigit = jest.fn();
+    const onDelete = jest.fn();
+    const onBiometric = jest.fn();
+    render(<Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} disabled />);
+
+    for (const digit of DIGITS) {
+      expect(screen.getByTestId(`numpad-${digit}`)).toBeDisabled();
+    }
+    expect(screen.getByTestId('numpad-delete')).toBeDisabled();
+    expect(screen.getByTestId('numpad-biometric')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('numpad-5'));
+    fireEvent.click(screen.getByTestId('numpad-delete'));
+    expect(onDigit).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  it('disables the biometric key alone', () => {
+    const onBiometric = jest.fn();
+    render(<Numpad onDigit={jest.fn()} onDelete={jest.fn()} onBiometric={onBiometric} biometricDisabled />);
+
+    expect(screen.getByTestId('numpad-biometric')).toBeDisabled();
+    expect(screen.getByTestId('numpad-1')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    expect(onBiometric).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  it('carries the design system disabled treatment', () => {
+    render(<Numpad onDigit={jest.fn()} onDelete={jest.fn()} onBiometric={jest.fn()} disabled />);
+
+    expect(screen.getByTestId('numpad-1')).toHaveClass('disabled:cursor-default', 'disabled:opacity-50');
   });
 });

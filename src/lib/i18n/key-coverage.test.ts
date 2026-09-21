@@ -82,7 +82,7 @@ describe('translation keys used by the UI exist in en.json', () => {
   it('finds the keys passed as data, in both syntaxes', () => {
     // One known key per syntax: a count alone could hide a branch that stopped matching.
     expect(dataKeys).toContain('networkNoticeNoValueTitle'); // object field: titleKey: '...'
-    expect(dataKeys).toContain('evmConnectTestWalletTitle'); // JSX prop: titleKey="..."
+    expect(dataKeys).toContain('recoverySeedRequiredTitle'); // JSX prop: titleKey="..."
   });
 
   it('has every one of them in the source of truth', () => {

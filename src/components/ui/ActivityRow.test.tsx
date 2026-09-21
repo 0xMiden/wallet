@@ -11,6 +11,32 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+// The row's projection must never SCALE: a full `layout` distorts the plain
+// rounded avatar and status dot, whose radius is a class Framer cannot read.
+// Surface the prop so a revert to bare `layout` fails here.
+// Spread the real module rather than listing exports: the row reaches
+// `useReducedMotion` indirectly through `useMotion(springs.settle)`, and a
+// hand-listed factory that misses one such export throws on every render.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => false,
+    motion: {
+      div: ReactActual.forwardRef(
+        (
+          { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLDivElement>
+        ) => (
+          <div ref={ref} data-layout={String(layout)} {...rest}>
+            {children}
+          </div>
+        )
+      )
+    }
+  };
+});
+
 // i18n: echo the key plus its interpolated values, so the overflow count can be
 // asserted as data rather than as whatever copy `andMoreAssets` currently holds.
 jest.mock('react-i18next', () => ({
@@ -31,6 +57,15 @@ describe('ActivityRow', () => {
 
   it('exports the same component as default and named', () => {
     expect(ActivityRowDefault).toBe(ActivityRow);
+  });
+
+  it('animates position only, so a size change cannot scale the round avatar into an oval', () => {
+    const { container } = renderRow();
+
+    // Exact value on purpose, both here and on revert: bare `layout` is
+    // `layout={true}` and stringifies to 'true', so a mock reading the wrong
+    // prop would fail a plain not-'position' check either way and prove nothing.
+    expect(container.firstElementChild).toHaveAttribute('data-layout', 'position');
   });
 
   it('renders the icon, title, and default neutral icon background', () => {
@@ -144,14 +179,17 @@ describe('ActivityRow', () => {
       expect(screen.queryByText('MIDEN')).toBeNull();
     });
 
-    it('applies the positive amount color', () => {
+    it('applies the positive amount color, never the raw status fill', () => {
       renderRow({ amount: { value: '+5', direction: 'positive' } });
+      // #90BA89, the old fill, was 2.19:1 on white.
       expect(screen.getByText('+5').className).toContain('text-positive-tint-ink');
+      expect(screen.getByText('+5').className).not.toMatch(/text-status-/);
     });
 
-    it('applies the negative amount color', () => {
+    it('applies the negative amount color, never the raw status fill', () => {
       renderRow({ amount: { value: '-5', direction: 'negative' } });
       expect(screen.getByText('-5').className).toContain('text-negative-tint-ink');
+      expect(screen.getByText('-5').className).not.toMatch(/text-status-/);
     });
 
     it('applies the explicit neutral amount color', () => {
@@ -163,16 +201,6 @@ describe('ActivityRow', () => {
       renderRow({ amount: { value: '7' } });
       expect(screen.getByText('7').className).toContain('text-ink');
     });
-
-    it.each(['positive', 'negative'] as const)(
-      'inks a %s amount with the badge palette ink, never the raw status fill (#90BA89 was 2.19:1)',
-      direction => {
-        renderRow({ amount: { value: '9', direction } });
-        const className = screen.getByText('9').className;
-        expect(className).toContain(`text-${direction}-tint-ink`);
-        expect(className).not.toMatch(/text-status-/);
-      }
-    );
   });
 
   // A batch claim reads "+20 A, +10 B" on one line. The line is finite and the
@@ -321,4 +349,14 @@ describe('ActivityRow', () => {
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
     });
   });
+});
+
+// The same guard through a real row: this suite renders the real ActivityRow and the real badge,
+// which the history list suites cannot (they stub the components/ui barrel).
+it('renders a status it does not know as the neutral badge, and the row survives', () => {
+  renderRow({ status: 'refunded' as never, testId: 'row' });
+
+  const badge = screen.getByTestId('row-status');
+  expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
+  expect(screen.getByText('Sent MIDEN')).toBeInTheDocument();
 });

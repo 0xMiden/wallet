@@ -1097,7 +1097,6 @@
   "networkNoticeResetTitle": "ネットワークはリセットされる可能性があります",
   "activityCheckingTransfer": "確認中…",
   "networkNoticeResetBody": "リセットを行うと、残高と履歴がクリアされます。テスト環境の残高はメインネットには引き継がれません。",
-  "receiveTestFundsTitle": "テスト用トークンのみ",
   "withdrawalCheckingDescription": "出金状況を確認しています。資金の受け取りが確認されるまで、ウォレットを開いたままにしてください。",
   "retryEarnDelivery": "受け取りを再試行",
   "activityTransferDetails": "詳細",

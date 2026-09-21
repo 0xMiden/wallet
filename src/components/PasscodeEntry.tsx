@@ -109,7 +109,8 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
       >
         {hint}
       </p>
-      <Numpad className="mt-6" onDigit={handleDigit} onDelete={handleDelete} />
+      {/* The same guards the handlers use, so a refused press does not animate or buzz. */}
+      <Numpad className="mt-6" onDigit={handleDigit} onDelete={handleDelete} disabled={disabled || isSubmitting} />
     </div>
   );
 };
