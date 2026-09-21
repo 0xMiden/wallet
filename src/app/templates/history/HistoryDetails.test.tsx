@@ -213,9 +213,11 @@ jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onBack, onClose }: { title: string; onBack: () => void; onClose?: () => void }) => (
     <div data-testid="screen-header">
       <span data-testid="header-title">{title}</span>
-      <button data-testid="back-button" onClick={onBack}>
-        back
-      </button>
+      {onBack && (
+        <button data-testid="back-button" onClick={onBack}>
+          back
+        </button>
+      )}
       {onClose && (
         <button data-testid="header-close" onClick={onClose}>
           close
