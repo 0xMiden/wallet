@@ -112,6 +112,31 @@ export class SpendingLimitAuthorizationRequiredError extends Error {
   }
 }
 
+/**
+ * A covered asset whose dollar value cannot be established right now.
+ *
+ * Distinct from `SpendingLimitPolicyUnavailableError`: nothing is corrupt, the wallet simply
+ * cannot prove the cap is respected. Wallet-owned flows offer one exact step-up; dApp paths refuse.
+ */
+export class SpendingLimitPriceUnavailableError extends Error {
+  readonly code = 'SPENDING_LIMIT_PRICE_UNAVAILABLE';
+
+  constructor(readonly symbol: string) {
+    super(`No current price is available for ${symbol}`);
+    this.name = 'SpendingLimitPriceUnavailableError';
+  }
+}
+
+/**
+ * Recognise that refusal from either side of the intercom boundary.
+ *
+ * `instanceof` holds only inside the realm that threw. A frontend flow catching this error caught
+ * it after serialization, where the prototype is gone and only the fields survive - which is why
+ * `spendingLimitAssessmentFromError` beside this reads `code` rather than testing the class.
+ */
+export const isSpendingLimitPriceUnavailable = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && Reflect.get(error, 'code') === 'SPENDING_LIMIT_PRICE_UNAVAILABLE';
+
 const CANONICAL_AMOUNT = /^(0|[1-9]\d*)$/;
 
 const unavailable = (reason: string): SpendingLimitPolicyUnavailableError =>
