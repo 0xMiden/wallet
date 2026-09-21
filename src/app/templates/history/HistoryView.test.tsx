@@ -301,6 +301,27 @@ describe('HistoryView summary (non-full) list', () => {
 });
 
 describe('HistoryView full-history rows (buildRowProps branches)', () => {
+  // The row is a div with role=button and no tabIndex, so it cannot take focus. It gets press
+  // feedback and nothing that claims focus behaviour: a ring that can never render, and
+  // `select-none`, which would stop the activity text being selectable.
+  it('gives a tappable row press feedback without claiming focus behaviour it cannot deliver', () => {
+    render(
+      <HistoryView
+        entries={[makeEntry({ key: 'tappable', txId: 'tx-tappable' })]}
+        initialLoading={false}
+        loadMore={jest.fn()}
+        hasMore={false}
+        fullHistory
+      />
+    );
+
+    const row = screen.getAllByTestId('activity-row')[0]!;
+    expect(row.className).toContain('hover:bg-fill-pressed');
+    expect(row.className).toContain('active:bg-fill-pressed');
+    expect(row.className).not.toContain('focus-visible:ring-2');
+    expect(row.className).not.toContain('select-none');
+  });
+
   it('uses failed styling for a failed bridge row', () => {
     mockBridgeRowDisplay.mockReturnValue({
       inSymbol: 'MIDEN',

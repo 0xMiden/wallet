@@ -94,18 +94,34 @@ describe('Card', () => {
     expect(hasBorderClass(article)).toBe(false);
   });
 
-  it('adds pressed feedback and a focus ring when interactive', () => {
+  it('adds pressed feedback when pressable, and no focus ring with it', () => {
     render(
-      <Card data-testid="card" interactive>
+      <Card data-testid="card" pressable>
         content
       </Card>
     );
 
     const card = screen.getByTestId('card');
-    expect(card).toHaveClass('active:bg-fill-pressed', 'focus-visible:ring-2', 'focus-visible:ring-accent-primary');
+    expect(card).toHaveClass('hover:bg-fill-pressed', 'active:bg-fill-pressed');
+    // The ring is the other half: claiming it on a child that cannot take focus advertises
+    // behaviour the card cannot deliver, and `select-none` would stop the text being selectable.
+    expect(card.className).not.toContain('focus-visible:ring-2');
+    expect(card.className).not.toContain('select-none');
   });
 
-  it('has no pressed feedback when not interactive', () => {
+  it('adds the focus ring only when focusable', () => {
+    render(
+      <Card data-testid="card" focusable>
+        content
+      </Card>
+    );
+
+    const card = screen.getByTestId('card');
+    expect(card).toHaveClass('focus-visible:ring-2', 'focus-visible:ring-accent-primary', 'select-none');
+    expect(card.className).not.toContain('active:bg-fill-pressed');
+  });
+
+  it('has no pressed feedback by default', () => {
     render(<Card data-testid="card">content</Card>);
     expect(screen.getByTestId('card').className).not.toContain('active:bg-fill-pressed');
   });
