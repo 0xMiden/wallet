@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import {
   isSpendingLimitPriceUnavailable,
   spendingLimitAssessmentFromError,
@@ -137,5 +140,26 @@ describe('intercom helpers', () => {
       errors: ['detail-1', 'detail-2'],
       code: 'SOME_CODE'
     });
+  });
+});
+
+describe('helpers.ts stays free of the SDK', () => {
+  // This file is bundled into the extension content script (see the file-level comment in
+  // helpers.ts). A runtime import reaching lib/miden or @miden-sdk drags the WASM SDK into
+  // that bundle and breaks window.midenWallet injection on every page. `import type` is
+  // erased at build and is safe; only a value import is a regression.
+  const source = fs.readFileSync(path.join(__dirname, 'helpers.ts'), 'utf8');
+
+  it('has no runtime import from lib/miden or @miden-sdk', () => {
+    const importRe = /import\s+(type\s+)?[^;]*?from\s+['"]([^'"]+)['"]/g;
+    const offenders: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = importRe.exec(source)) !== null) {
+      const [statement, isTypeOnly, specifier] = match;
+      const reachesSdk = (specifier ?? '').startsWith('lib/miden') || (specifier ?? '').startsWith('@miden-sdk');
+      if (reachesSdk && !isTypeOnly) offenders.push(statement.replace(/\s+/g, ' ').trim());
+    }
+
+    expect(offenders).toEqual([]);
   });
 });

@@ -1,7 +1,13 @@
-import {
-  toSerializedSpendingLimitAssessment,
-  type SerializedSpendingLimitAssessment
-} from 'lib/miden/spending-limits/types';
+import type { SerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
+
+/**
+ * This file is bundled into the extension CONTENT SCRIPT (`src/contentScript.ts` imports it
+ * both directly and via `./client`), which runs on every page the user visits. A `lib/miden`
+ * or `@miden-sdk` RUNTIME import here drags the WASM SDK into that bundle - see the content
+ * script's own vite config for why that's catastrophic: it breaks `window.midenWallet`
+ * injection everywhere, for every dApp, silently. `import type` is erased at build and is
+ * fine; a value import is not. `helpers.test.ts` pins this with a source-level guard.
+ */
 
 export const DEFAULT_ERROR_MESSAGE = 'Unexpected error occured';
 
@@ -18,15 +24,26 @@ interface SerializedIntercomErrorPayload {
 export type SerializedError = string | [string, any[]] | SerializedIntercomErrorPayload;
 
 /**
+ * Turn every `bigint` in an assessment into its canonical decimal string, dependency-free (no
+ * `lib/miden` import - see the file-level comment). This intentionally does NOT validate the
+ * shape the way `toSerializedSpendingLimitAssessment` does: the receiver,
+ * `parseSerializedSpendingLimitAssessment`, already validates every field and fails closed, so
+ * nothing about safety depends on the sender re-validating here.
+ */
+function serializeBigints(value: unknown): any {
+  return JSON.parse(JSON.stringify(value, (_key, v) => (typeof v === 'bigint' ? v.toString() : v)));
+}
+
+/**
  * A JSON-safe carrier for a breach assessment (bigints as canonical decimal strings, via
- * `toSerializedSpendingLimitAssessment`) or an unpriceable asset's symbol. Anything else - a
- * malformed `assessment` field on an unrelated error, say - is silently dropped rather than
- * thrown: a transport helper must never fail to report the error it was building.
+ * `serializeBigints`) or an unpriceable asset's symbol. Anything else - a malformed
+ * `assessment` field on an unrelated error, say - is silently dropped rather than thrown: a
+ * transport helper must never fail to report the error it was building.
  */
 function serializeSpendingLimitPayload(err: any): SpendingLimitWirePayload | undefined {
   if (err?.assessment !== undefined) {
     try {
-      return { assessment: toSerializedSpendingLimitAssessment(err.assessment) };
+      return { assessment: serializeBigints(err.assessment) };
     } catch {
       return undefined;
     }
