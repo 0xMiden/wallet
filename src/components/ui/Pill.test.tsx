@@ -100,18 +100,7 @@ it('puts a status pill on its opaque tint, not a translucent wash of the status 
   expect(screen.getByTestId('pill').className).not.toMatch(/bg-status-negative\//);
 });
 
-it('renders a leading status dot in the tone’s own ink color', () => {
-  const { container } = render(
-    <Pill size="sm" tone="warning" dot>
-      Pending
-    </Pill>
-  );
-
-  const dot = container.querySelector('[aria-hidden="true"]');
-  expect(dot).toHaveClass('bg-current', 'rounded-full');
-});
-
-it('does not render a dot unless asked', () => {
+it('draws the status word alone, with no dot', () => {
   const { container } = render(<Pill tone="positive">Earning</Pill>);
   expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
 });

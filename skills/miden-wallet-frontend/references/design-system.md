@@ -186,7 +186,6 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `sheet` | y 24 + scale 0.96 + opacity, `springs.sheetPresent`, `fade` backdrop | dApp confirm, switcher, peek card, seed warning |
 | `page` | incoming page from the right over `durations.page` (0.34s) on `easings.standard`; the page beneath to `pageSlideParallax` (−24%) under a `pageSlideDim` dim (`FullScreenPage`, `MobilePageLayers`) | four page-transition models |
 | `press` | `whileTap` scale 0.96, `springs.snappy` | `Button` (inline 800/35), `Toggle` (700/30), CSS `active:scale-*` |
-| `indicator` | shared `layoutId`, `springs.pill` | no longer used by a choice row: those are `SegmentedControl`, on the tab-bar motion below |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
 | `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
 

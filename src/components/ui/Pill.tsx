@@ -27,12 +27,10 @@ export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' 
 
 export interface PillProps {
   children: React.ReactNode;
-  /** Leading glyph, sized by the pill. Mutually exclusive with `dot` in practice. */
+  /** Leading glyph, sized by the pill. */
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** A small 6px leading dot in the pill's own ink color (`currentColor`). */
-  dot?: boolean;
   /** Makes the pill a button, with a tap haptic. */
   onClick?: () => void;
   /**
@@ -116,7 +114,6 @@ export const Pill: React.FC<PillProps> = ({
   icon,
   size = 'md',
   tone = 'neutral',
-  dot,
   onClick,
   haptic = 'light',
   selected,
@@ -140,7 +137,6 @@ export const Pill: React.FC<PillProps> = ({
 
   const content = (
     <>
-      {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>
