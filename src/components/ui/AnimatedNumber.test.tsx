@@ -201,12 +201,6 @@ describe('AnimatedNumber', () => {
       expect(screen.getByTestId('n')).toHaveClass('tabular-nums', 'text-ink');
     });
 
-    it('takes an id, so a section can point its label at the figure', () => {
-      render(<AnimatedNumber value={1} format={usd} id="apy-title" data-testid="n" />);
-
-      expect(screen.getByTestId('n')).toHaveAttribute('id', 'apy-title');
-    });
-
     it('opts out of any live region above it, so the count is never announced', () => {
       render(<AnimatedNumber value={1} format={usd} data-testid="n" />);
 

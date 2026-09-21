@@ -25,8 +25,6 @@ export interface AnimatedNumberProps {
   /** What to render while `value` is not a finite number: a dash, a mask, a skeleton, nothing. */
   placeholder?: ReactNode;
   className?: string;
-  /** For a figure another element points at, e.g. a section's `aria-labelledby`. */
-  id?: string;
   'data-testid'?: string;
 }
 
@@ -62,7 +60,6 @@ export const AnimatedNumber: FC<AnimatedNumberProps> = ({
   format,
   placeholder = null,
   className,
-  id,
   'data-testid': dataTestId
 }) => {
   const reduceMotion = useReducedMotion();
@@ -113,7 +110,6 @@ export const AnimatedNumber: FC<AnimatedNumberProps> = ({
   return (
     <span
       ref={ref}
-      id={id}
       data-testid={dataTestId}
       // Intermediate values are not news. `aria-live="off"` on the element that mutates opts it out
       // of any live region an ancestor declares, so assistive tech is never read the count; the
