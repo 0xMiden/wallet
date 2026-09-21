@@ -88,6 +88,27 @@ describe('home-group panes', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('lets every pane flow declare its pushed steps a sub-page, gated on its own path', () => {
+    // A step pushed inside a pane takes over the screen — no action bar over it, no tab bar under
+    // it — the way Earn's ROUTED vault detail does. Earn and Receive get that for free: both push
+    // their sub-pages as routes, outside TabLayout. A flow that pushes `Navigator` cards inside
+    // its pane has to say so (`useHomePaneSubPage`), or its steps go on being squeezed under the
+    // bar, which is how Send's amount step and Earn's vault detail ended up looking like two
+    // different kinds of screen. The gate on the pane's own pathname is not optional: panes stay
+    // mounted, so an ungated flow left mid-step strips the chrome off whatever pane is centered.
+    const flows = PANE_SOURCES.filter(file => /<Navigator\b/.test(fs.readFileSync(file, 'utf8')));
+
+    // Send and Swap. A third pane flow joining them has to opt in as well.
+    expect(flows.map(file => path.basename(file)).sort()).toEqual(['SendManager.tsx', 'SwapManager.tsx']);
+
+    for (const file of flows) {
+      const source = fs.readFileSync(file, 'utf8');
+      const relative = path.relative(SRC, file);
+      expect([relative, /useHomePaneSubPage\(/.test(source)]).toEqual([relative, true]);
+      expect([relative, /pathname === '\/\w+'/.test(source)]).toEqual([relative, true]);
+    }
+  });
+
   it('roots each pane in the shared shell rather than a frame of its own', () => {
     // The four panes used to root themselves four different ways, which is how their titles ended
     // up at three heights and one of them inset from the others.
