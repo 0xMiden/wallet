@@ -392,6 +392,10 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
+    // Button fires the tap buzz itself, and it is not simulated by the mock above,
+    // so any count here is a SECOND one from the handler. The Settings overlay this
+    // page replaced had the same pair and asserted the same thing.
+    expect(mockHapticLight).not.toHaveBeenCalled();
   });
 
   it('routes to the Settings root from the warning when the page was opened cold', async () => {
@@ -424,6 +428,8 @@ describe('RevealSeedPhrase', () => {
     expect(container.textContent).not.toContain('viewThisInPrivatePlace');
     expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
     expect(mockGoBack).not.toHaveBeenCalled();
+    // Same rule as Close above: View must add no buzz of its own.
+    expect(mockHapticLight).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
