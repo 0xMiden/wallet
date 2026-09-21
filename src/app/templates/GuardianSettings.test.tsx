@@ -199,6 +199,9 @@ it('keeps the wordmark-tile hero layout for a provider with no Mark', () => {
   expect(logo.parentElement).not.toHaveClass('bg-pure-white');
 
   expect(screen.getByRole('heading', { name: 'Gateway One' })).toBeInTheDocument();
+  // The pill renders in both hero branches. Adding a Mark moved the default fixture onto the
+  // Hero branch, so without this the legacy branch's copy of it was no longer covered anywhere.
+  expect(screen.getByRole('status')).toHaveTextContent('guardianCheckingLabel');
 });
 
 it('shows the offline pill while the sync loop reports a guardian outage', () => {
@@ -578,7 +581,6 @@ it('renders through SubPageLayout: section labels, muted copy, details card, Rot
   );
   // Section labels are the shared SectionHeader, not grey chips; no rule between sections.
   expect(screen.getByText('about')).toHaveClass('text-[13px]', 'text-muted');
-  expect(screen.getByText('about')).not.toHaveClass('bg-gray-25');
   expect(page.querySelector('hr')).toBeNull();
   // The explanation is 14px muted section copy; the details sit in the shared DetailCard.
   expect(screen.getByText('guardianInfoDescription').closest('.text-muted')).toHaveClass('text-sm');

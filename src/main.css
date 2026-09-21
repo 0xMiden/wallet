@@ -428,13 +428,22 @@ body[data-hide-navbar]::after {
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #ff5500;
-    /* Activity icon-square hues — mirror the Send/Receive/Earn/Swap action-bar
-     * logo colors (the glyph is rendered white on top of these). */
-    --tx-received: #99ac94;
-    --tx-sent: #91acc1;
-    --tx-swap: #beacd2;
+    /* Activity icon-square hues. These started as copies of the Send/Receive/
+     * Swap action-bar artwork colors, but the square renders a WHITE glyph on
+     * top (HistoryView paints `[&_path]:fill-pure-white`), so it owes WCAG
+     * 1.4.11's 3:1 while the artwork, which is a colored icon on the page, does
+     * not. Four of the five sat at 2.10-2.42:1. They are now the same hue and
+     * saturation taken down in lightness until they clear it, so they read as a
+     * deeper shade of the same accent rather than a match for it.
+     * `--tx-earn` already cleared the floor and is unchanged.
+     * `transactionUtils.ts` mirrors sent/received/faucet in JS because
+     * TransactionIcon draws those circles from constants; its test enforces the
+     * sync. */
+    --tx-received: #839a7d;
+    --tx-sent: #7697b2;
+    --tx-swap: #a289bf;
     --tx-earn: #777487;
-    --tx-faucet: #cca4b8;
+    --tx-faucet: #ba839f;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -536,11 +545,11 @@ body[data-hide-navbar]::after {
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
-    --tx-received: #99ac94;
-    --tx-sent: #91acc1;
-    --tx-swap: #beacd2;
+    --tx-received: #839a7d;
+    --tx-sent: #7697b2;
+    --tx-swap: #a289bf;
     --tx-earn: #777487;
-    --tx-faucet: #cca4b8;
+    --tx-faucet: #ba839f;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;

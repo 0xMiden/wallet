@@ -310,30 +310,40 @@ describe('fontColorForType', () => {
 
   it('falls back to the faucet color for any other type', () => {
     expect(fontColorForType('faucet' as any)).toBe(TRANSACTION_COLORS.faucet);
-    expect(fontColorForType('anything-else' as any)).toBe('#CCA4B8');
+    expect(fontColorForType('anything-else' as any)).toBe('#BA839F');
   });
 });
 
 describe('TRANSACTION_COLORS', () => {
   it('exposes the fixed palette', () => {
     expect(TRANSACTION_COLORS).toEqual({
-      send: '#91ACC1',
-      receive: '#99AC94',
-      faucet: '#CCA4B8'
+      send: '#7697B2',
+      receive: '#839A7D',
+      faucet: '#BA839F'
     });
   });
 
   // Regression guard for the mismatched-purple bug: TransactionIcon draws the
-  // faucet circle from this JS constant (not the `--tx-faucet` CSS var), so
-  // the two must stay byte-for-byte in sync or the Activity row and the
-  // detail hero drift apart again.
-  it('matches the --tx-faucet token in main.css', () => {
+  // send, receive and faucet circles from these JS constants (not from the CSS
+  // vars), so each must stay byte-for-byte in sync with main.css or the Activity
+  // row and the detail hero drift apart again. This covered the faucet alone
+  // while send and receive had the same exposure and no guard at all.
+  //
+  // What it does NOT cover: any OTHER file that copies one of these hues. It reads
+  // main.css and this module and nothing else, so a third copy elsewhere stays
+  // invisible here - which is exactly how TransactionSummaryBadge kept painting the
+  // retired send and swap colours. That file carries its own guard.
+  it.each([
+    ['send', '--tx-sent'],
+    ['receive', '--tx-received'],
+    ['faucet', '--tx-faucet']
+  ] as const)('keeps %s in sync with the %s token in main.css', (key, token) => {
     const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
-    const matches = [...css.matchAll(/--tx-faucet:\s*(#[0-9a-fA-F]{6});/g)].map(m => m[1]!.toUpperCase());
-    // Declared once for :root and once for .dark — both must exist and agree.
+    const matches = [...css.matchAll(new RegExp(`${token}:\\s*(#[0-9a-fA-F]{6});`, 'g'))].map(m => m[1]!.toUpperCase());
+    // Declared once for :root and once for .dark: both must exist and agree.
     expect(matches).toHaveLength(2);
-    expect(matches[0]).toBe(TRANSACTION_COLORS.faucet);
-    expect(matches[1]).toBe(TRANSACTION_COLORS.faucet);
+    expect(matches[0]).toBe(TRANSACTION_COLORS[key]);
+    expect(matches[1]).toBe(TRANSACTION_COLORS[key]);
   });
 });
 

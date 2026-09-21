@@ -1,5 +1,25 @@
 export { AccountsDrawer } from './AccountsDrawer';
 export type { AccountsDrawerProps } from './AccountsDrawer';
+export { AlertSheet } from './AlertSheet';
+export type { AlertSheetProps } from './AlertSheet';
+
+export { Button, ButtonVariant } from './Button';
+export type { ButtonProps, ButtonSize } from './Button';
+
+export { DetailCard, DetailRow } from './DetailCard';
+export type { DetailRowProps } from './DetailCard';
+
+export { Hero } from './Hero';
+export type { HeroProps } from './Hero';
+
+export { ListGroup } from './ListGroup';
+export type { ListGroupProps } from './ListGroup';
+
+export { ListRow } from './ListRow';
+export type { ListRowProps } from './ListRow';
+
+export { SectionHeader } from './SectionHeader';
+export type { SectionHeaderProps } from './SectionHeader';
 
 export { Avatar } from './Avatar';
 export type { AvatarProps, AvatarSize } from './Avatar';
@@ -60,3 +80,8 @@ export type { TextFieldProps, TextFieldElement } from './TextField';
 
 export { Card, CardButton } from './Card';
 export type { CardProps, CardButtonProps, CardPadding } from './Card';
+
+// Only the module's own name: the directory-enumerating test requires that and nothing more, and
+// every extra runtime symbol has to be declared in the barrel suite's expected set as well.
+export { SubPageLayout } from './SubPageLayout';
+export type { SubPageLayoutProps } from './SubPageLayout';

@@ -39,9 +39,18 @@ jest.mock('webextension-polyfill', () => ({
 
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
+let mockHistoryPosition = 1;
+
 jest.mock('lib/woozie', () => ({
-  navigate: (p: string) => mockNavigate(p),
-  goBack: () => mockGoBack()
+  // Forwards EVERY argument: useBackWithFallback passes the history action as a second one, and a
+  // single-parameter stub would drop it and make any assertion about it fail on arity.
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  goBack: () => mockGoBack(),
+  // useBackWithFallback reads live history at call time, and useOncePerLocation calls listen() in a
+  // mount effect, so without these the whole suite throws on render.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/developer-settings' }),
+  listen: () => () => undefined,
+  HistoryAction: { Pop: 'popstate', Push: 'pushstate', Replace: 'replacestate' }
 }));
 
 // The destructive reset is gated behind the app's standard confirm dialog
@@ -182,6 +191,7 @@ jest.mock('components/TabPicker', () => ({
 }));
 
 beforeEach(() => {
+  mockHistoryPosition = 1;
   jest.clearAllMocks();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
@@ -409,6 +419,29 @@ describe('DeveloperSettings', () => {
     mockHealthStatus.value = 'error';
     render(<DeveloperSettings />);
     expect(screen.getAllByText('devEndpointNoResponse').length).toBeGreaterThan(0);
+  });
+
+  // Both routes are full-screen pages outside the Settings host, so neither inherits its fallback:
+  // on a cold open goBack() is a no-op and the chevron has to route instead. Both arms are needed -
+  // with only the default one, replacing the ternary with a constant '/' would stay green.
+  it('routes to home when the standalone route is opened cold', () => {
+    mockHistoryPosition = 0;
+    render(<DeveloperSettings />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/', 'replacestate');
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('routes to the settings root when the read-only sub-page is opened cold', () => {
+    mockHistoryPosition = 0;
+    render(<DeveloperSettings readOnly />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replacestate');
+    expect(mockGoBack).not.toHaveBeenCalled();
   });
 
   it('the back affordance calls goBack', () => {
