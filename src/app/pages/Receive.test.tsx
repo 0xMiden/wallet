@@ -9,6 +9,7 @@ import { act } from 'react-dom/test-utils';
 import { PageActiveContext } from 'app/layouts/page-active';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
+import { QR_SOURCE_SIZE } from 'lib/qr/share-card';
 
 import { Receive } from './Receive';
 
@@ -328,12 +329,27 @@ describe('Receive - Address', () => {
     expect(title.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('names the network in a NetworkChip and keeps the caption to the shared QR image', async () => {
+  it('names the network in a NetworkChip and keeps the caption to the shared image', async () => {
     const container = await renderReceive();
 
     expect(container.querySelector('[data-testid="receive-network"]')?.textContent).toBe('qrNetworkCaption:testnet:');
     expect(mockQRCodeProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({ caption: 'qrNetworkCaption:testnet:', showCaption: false, fluid: true, size: 300 })
+      expect.objectContaining({
+        caption: 'qrNetworkCaption:testnet:',
+        showCaption: false,
+        fluid: true,
+        // `fluid`, so this is the resolution the shared card rasterises the code at, not a size
+        // on screen: high enough that the card stays crisp opened full screen.
+        size: QR_SOURCE_SIZE
+      })
+    );
+  });
+
+  it('orders the share card the localised brand and hint, not the page copy', async () => {
+    await renderReceive();
+
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ share: { brand: 'appName', hint: 'qrShareCardHint' } })
     );
   });
 

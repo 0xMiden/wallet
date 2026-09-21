@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -21,6 +21,7 @@ import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
+import { QR_SOURCE_SIZE } from 'lib/qr/share-card';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
@@ -40,9 +41,6 @@ const QR_FILE_NAME = 'miden-address.png';
 // The code rests on the brand orange and cycles from there: the wallet's own colour first, the
 // other account-card colours after it.
 const QR_PALETTE_CYCLE: readonly QRPalette[] = ['orange', 'green', 'slate', 'blue', 'purple'];
-
-/** Resolution of the shared QR image; on screen the QR scales to the room the layout leaves. */
-const QR_EXPORT_SIZE = 300;
 
 /** Reads a Blob as raw base64 (without the `data:*;base64,` prefix) for Capacitor Filesystem. */
 const blobToBase64 = (blob: Blob): Promise<string> =>
@@ -112,6 +110,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   // its context. The QR image carries the same caption (see `caption` below).
   // Mainnet has no test network to name, so it shares the bare address.
   const shareText = network ? t('shareAddressText', { network, address }) : address;
+
+  // The copy the shared card carries around the code; the network comes from `caption`.
+  const shareCopy = useMemo(() => ({ brand: t('appName'), hint: t('qrShareCardHint') }), [t]);
 
   const handleShare = useCallback(async () => {
     let qrBlob: Blob | null = null;
@@ -189,12 +190,15 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               <QRCode
                 ref={qrRef}
                 address={address}
-                size={QR_EXPORT_SIZE}
+                // `fluid`, so this is only the resolution the code is rasterised at for the
+                // shared card — on screen the SVG scales to the room the layout leaves.
+                size={QR_SOURCE_SIZE}
                 fluid
                 palette={QR_PALETTE_CYCLE[paletteStep]}
-                // The page names the network in the chip below; the shared image still carries it.
+                // The page names the network in the chip below; the shared card still carries it.
                 caption={network ? t('qrNetworkCaption', { network }) : undefined}
                 showCaption={false}
+                share={shareCopy}
               />
             </motion.div>
             {/* The Bread logo in the middle of the code, as a target: each tap repaints the
