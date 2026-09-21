@@ -263,6 +263,33 @@ describe('DeveloperSettings', () => {
     expect(within(presetPicker).getByTestId('dev-endpoint-preset-testnet')).toHaveAttribute('aria-checked', 'false');
   });
 
+  // The picker is a radio group, so arrow keys commit every item they pass over. A typed endpoint
+  // must survive the trip away from Custom and back, however many presets it passes through.
+  it('gives back the typed endpoints when Custom is chosen again', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.devnet');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+  });
+
+  it('gives them back after a walk through more than one preset', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    // Not testnet's and not devnet's: what the user typed.
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+  });
+
   it('editing a field value flips the preset picker to custom', () => {
     render(<DeveloperSettings />);
     fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://custom.example' } });

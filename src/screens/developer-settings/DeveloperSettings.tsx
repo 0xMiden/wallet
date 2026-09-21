@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -135,18 +135,33 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     [readOnly]
   );
 
+  // The endpoints the user typed, kept while a preset is selected so choosing Custom again brings
+  // them back. The picker is a radio group, so arrow keys commit every item they pass over: without
+  // this, one keypress away from Custom replaced the fields and coming back kept the preset's URLs.
+  // Captured only when leaving Custom, never on a hop between two presets, or a two-step walk would
+  // restore the preset passed through instead of what was typed.
+  const customFieldsRef = useRef<EndpointOverride | null>(null);
+
   const applyPreset = (id: string) => {
-    // Every known preset loads its endpoints; the trailing "Custom" keeps the fields as they are.
     const network = ENDPOINT_PRESETS.find(preset => preset === id);
     if (network) {
-      setForm(presetToOverride(network));
+      setForm(prev => {
+        if (prev.presetName === CUSTOM_PRESET) customFieldsRef.current = prev;
+        return presetToOverride(network);
+      });
       return;
     }
-    setForm(prev => ({ ...prev, presetName: CUSTOM_PRESET }));
+    // Back to Custom: the typed endpoints if there are any, otherwise the fields as they stand.
+    setForm(prev => ({ ...(customFieldsRef.current ?? prev), presetName: CUSTOM_PRESET }));
   };
 
   const setField = (key: UrlFieldKey, value: string) =>
-    setForm(prev => ({ ...prev, [key]: value, presetName: CUSTOM_PRESET }));
+    setForm(prev => {
+      const next = { ...prev, [key]: value, presetName: CUSTOM_PRESET };
+      // Editing a field IS the custom value from now on.
+      customFieldsRef.current = next;
+      return next;
+    });
 
   const handleSave = async () => {
     setSaving(true);
