@@ -1,10 +1,7 @@
 import React from 'react';
 
-import clsx from 'clsx';
-
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { PageHeader } from 'components/PageHeader';
-
-import { FlowFooter } from './FlowFooter';
 
 export interface FlowLayoutProps {
   /** Page title, e.g. "Choose recipient", "Review details", "Processing". */
@@ -33,6 +30,10 @@ export interface FlowLayoutProps {
  * The frame every page of a flow shares (send steps, review, processing, the receipt), so moving
  * through a flow changes only the content: the header (the shared PageHeader), the start of the
  * content and the CTA sit at the same position on each page.
+ *
+ * The body is `HomeGroupPaneBody`, the same box Receive and Earn are drawn in — a flow that starts
+ * as a home-carousel pane (Send, Swap) keeps one frame from its tab root through its pushed steps
+ * to its receipt, at the one 16px page margin, and never takes the carousel's horizontal swipe.
  */
 export const FlowLayout: React.FC<FlowLayoutProps> = ({
   title,
@@ -45,32 +46,34 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
   footer
 }) => {
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg px-6">
+    <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg">
       {!tabRoot && (
-        <PageHeader
-          title={title}
-          onBack={onBack}
-          onClose={onClose}
-          actions={titleAccessory}
-          focusTitleOnMount={focusTitleOnMount}
-          backTestId="flow-back"
-          closeTestId="flow-close"
-        />
+        // `PageHeader` carries no horizontal padding of its own — it takes the page's — and its
+        // inset rule is a sibling of the row, so both sit in one wrapper at the page margin.
+        <div className="shrink-0 px-4">
+          <PageHeader
+            title={title}
+            onBack={onBack}
+            onClose={onClose}
+            actions={titleAccessory}
+            focusTitleOnMount={focusTitleOnMount}
+            backTestId="flow-back"
+            closeTestId="flow-close"
+          />
+        </div>
       )}
 
       {/* A tab root's title is not a navigation bar: it is the first line of the page, above the
-          field it names, exactly where the swap page puts "You Pay". */}
-      <div className={clsx('no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto', tabRoot ? 'pt-6' : 'pt-2')}>
-        {tabRoot && (
-          <header className="flex shrink-0 items-start justify-between gap-3">
-            <h1 className="min-w-0 text-title-tab text-ink">{title}</h1>
-            {titleAccessory && <div className="flex shrink-0 items-center gap-2">{titleAccessory}</div>}
-          </header>
-        )}
+          field it names, exactly where the swap page puts "You Pay" — so the pane shell draws it,
+          at the one offset every home-group pane's first line sits at. */}
+      <HomeGroupPaneBody
+        title={tabRoot ? title : undefined}
+        titleAccessory={tabRoot ? titleAccessory : undefined}
+        top={tabRoot ? 'root' : 'header'}
+        footer={footer}
+      >
         {children}
-      </div>
-
-      <FlowFooter>{footer}</FlowFooter>
+      </HomeGroupPaneBody>
     </div>
   );
 };
