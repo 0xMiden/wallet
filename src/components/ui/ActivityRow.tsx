@@ -149,7 +149,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // and Framer can only undo that scale for a radius it reads from `style` or a
   // motion value. The avatar and the status dot below are plain elements whose
   // radius is a class, so under a full `layout` both draw as ovals for the whole
-  // spring. Same reason as SegmentedActionBar's inline radius.
+  // spring. Same reason as the inline radius on SegmentedActionBar's pill and segments.
   return (
     <motion.div
       layout="position"
