@@ -1188,6 +1188,7 @@
   "guardianCardMeta": "運営: $operator$ · $location$",
   "receiveQrColorAction": "QRコードの色を変更",
   "receiveAt": "受取先",
+  "earnTitle": "あなたの収益",
   "durationUnitSeconds": "秒",
   "durationUnitMinutes": "分",
   "durationUnitHours": "時間",

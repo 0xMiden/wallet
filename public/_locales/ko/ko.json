@@ -1188,6 +1188,7 @@
   "guardianCardMeta": "운영: $operator$ · $location$",
   "receiveQrColorAction": "QR 코드 색상 변경",
   "receiveAt": "받는 주소",
+  "earnTitle": "내 수익",
   "durationUnitSeconds": "초",
   "durationUnitMinutes": "분",
   "durationUnitHours": "시간",

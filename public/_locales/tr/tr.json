@@ -1188,6 +1188,7 @@
   "guardianCardMeta": "İşleten: $operator$ · $location$",
   "receiveQrColorAction": "QR kodu rengini değiştir",
   "receiveAt": "Şu adrese al",
+  "earnTitle": "Kazançlarınız",
   "durationUnitSeconds": "Sn.",
   "durationUnitMinutes": "Dk.",
   "durationUnitHours": "Saat",

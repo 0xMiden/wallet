@@ -5260,6 +5260,10 @@
     "message": "受取先",
     "englishSource": "Receive at"
   },
+  "earnTitle": {
+    "message": "あなたの収益",
+    "englishSource": "Your Earnings"
+  },
   "durationUnitSeconds": {
     "message": "秒",
     "englishSource": "Sec"

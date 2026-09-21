@@ -1188,6 +1188,7 @@
   "guardianCardMeta": "Оператор: $operator$ · $location$",
   "receiveQrColorAction": "Изменить цвет QR-кода",
   "receiveAt": "Получить на",
+  "earnTitle": "Ваш доход",
   "durationUnitSeconds": "Сек.",
   "durationUnitMinutes": "Мин.",
   "durationUnitHours": "Час",

@@ -1188,6 +1188,7 @@
   "guardianCardMeta": "Operado por $operator$ · $location$",
   "receiveQrColorAction": "Cambiar el color del código QR",
   "receiveAt": "Recibir en",
+  "earnTitle": "Tus ganancias",
   "durationUnitSeconds": "Seg.",
   "durationUnitMinutes": "Min.",
   "durationUnitHours": "Hora",

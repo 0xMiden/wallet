@@ -5260,6 +5260,10 @@
     "message": "Recibir en",
     "englishSource": "Receive at"
   },
+  "earnTitle": {
+    "message": "Tus ganancias",
+    "englishSource": "Your Earnings"
+  },
   "durationUnitSeconds": {
     "message": "Seg.",
     "englishSource": "Sec"

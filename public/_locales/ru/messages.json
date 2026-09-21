@@ -5260,6 +5260,10 @@
     "message": "Получить на",
     "englishSource": "Receive at"
   },
+  "earnTitle": {
+    "message": "Ваш доход",
+    "englishSource": "Your Earnings"
+  },
   "durationUnitSeconds": {
     "message": "Сек.",
     "englishSource": "Sec"

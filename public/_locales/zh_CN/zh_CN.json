@@ -1188,6 +1188,7 @@
   "guardianCardMeta": "运营方：$operator$ · $location$",
   "receiveQrColorAction": "更改二维码颜色",
   "receiveAt": "接收地址",
+  "earnTitle": "您的收益",
   "durationUnitSeconds": "秒",
   "durationUnitMinutes": "分钟",
   "durationUnitHours": "小时",

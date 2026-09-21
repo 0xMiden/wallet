@@ -5260,6 +5260,10 @@
     "message": "接收地址",
     "englishSource": "Receive at"
   },
+  "earnTitle": {
+    "message": "您的收益",
+    "englishSource": "Your Earnings"
+  },
   "durationUnitSeconds": {
     "message": "秒",
     "englishSource": "Sec"

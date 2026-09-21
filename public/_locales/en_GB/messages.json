@@ -5260,6 +5260,10 @@
     "message": "Receive at",
     "englishSource": "Receive at"
   },
+  "earnTitle": {
+    "message": "Your Earnings",
+    "englishSource": "Your Earnings"
+  },
   "durationUnitSeconds": {
     "message": "Sec",
     "englishSource": "Sec"
