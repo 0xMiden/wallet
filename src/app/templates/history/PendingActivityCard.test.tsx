@@ -61,6 +61,52 @@ describe('PendingActivityCard', () => {
       expect(screen.getByText('activityNotYetAccepted')).toBeInTheDocument();
     });
 
+    it('draws the detail section at once, with no transition wrapper around it', () => {
+      // The section used to be an `AnimatePresence` child tweening height 0 → auto and back, which
+      // fought the list's own layout springs around it. It now simply renders: the rows are in the
+      // document on the same tick as the click, and the collapse removes them on the same tick too
+      // — an exit animation would keep the node mounted past the second click.
+      renderCard('pending');
+      const toggle = screen.getByRole('button', { expanded: false });
+      const detailsId = toggle.getAttribute('aria-controls') ?? '';
+
+      fireEvent.click(toggle);
+
+      const details = document.getElementById(detailsId);
+      expect(details).not.toBeNull();
+      expect(details).toContainElement(screen.getByText('amount'));
+      expect(details).toContainElement(screen.getByText('activityNotYetAccepted'));
+      // A height or opacity tween writes those onto the element as inline style; a clip wrapper
+      // carries `overflow-hidden`. Neither is here: the section is a plain box in the card.
+      expect(details).not.toHaveAttribute('style');
+      expect(details?.className ?? '').not.toContain('overflow-hidden');
+      expect(details?.parentElement).toBe(screen.getByRole('article'));
+
+      fireEvent.click(toggle);
+      expect(document.getElementById(detailsId)).toBeNull();
+    });
+
+    it('draws no entry animation on a card rebuilt by a filter change', () => {
+      // Switching the Activity filter renders a different list, so a card can come back as a FRESH
+      // mount. Nothing may be in flight when it does: the disclosure is closed and drawn instantly,
+      // and the chevron sits at its resting transform because `initial={false}` mounts it at its
+      // `animate` value instead of tweening to it.
+      const first = renderCard('pending');
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(screen.getByText('activityNotYetAccepted')).toBeInTheDocument();
+      first.unmount();
+
+      const { container } = renderCard('pending');
+
+      expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+      expect(screen.queryByText('activityNotYetAccepted')).toBeNull();
+      const chevron = screen.getByTestId('icon-chevron-down').parentElement;
+      expect(chevron).toHaveStyle({ transform: 'none' });
+      for (const styled of Array.from(container.querySelectorAll('[style]'))) {
+        expect(styled.getAttribute('style')).not.toMatch(/height|opacity/);
+      }
+    });
+
     it('draws Decline and Accept as the app own pill buttons, with nothing overridden', () => {
       renderCard('pending');
 

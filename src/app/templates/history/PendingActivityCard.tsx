@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
 
 import classNames from 'clsx';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -124,9 +124,14 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
           }}
         >
           {headerRow}
+          {/* The only motion left on the card, and it cannot replay on a remount: `initial={false}`
+              mounts the glyph at its `animate` value instead of tweening to it, and `expanded`
+              starts false anyway, so a card rebuilt by a filter change draws an unrotated chevron
+              with nothing in flight. It turns only in answer to a tap. */}
           <motion.span
             aria-hidden
             className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
+            initial={false}
             animate={{ rotate: expanded ? 180 : 0 }}
             transition={transition}
           >
@@ -134,38 +139,39 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
           </motion.span>
         </button>
 
-        <AnimatePresence initial={false}>
-          {expanded && (
-            <motion.div
-              id={detailsId}
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={transition}
-              className="overflow-hidden"
-            >
-              <dl className="border-t border-hairline divide-y divide-hairline text-sm">
-                {rows.map(row => (
-                  <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
-                    <dt className="text-text-secondary-token">{row.label}</dt>
-                    <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
-                      {row.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+        {/* The disclosure opens and closes INSTANTLY: no height tween, no fade, no
+            `AnimatePresence`. The section used to animate height 0 → auto and back, and that tween
+            fought the list around it. Activity's rows and date groups are `layout` elements
+            (`ActivityRow`, `HistoryView`), so every frame of a growing card re-measured and moved
+            them; and because a filter change renders a different list, a card can be a FRESH mount
+            whose expand machinery initialises while those rows are still settling. Same failure as
+            the Decline/Accept width tween removed from the footer below: `initial={false}` only
+            suppresses the entry animation for what is present when an `AnimatePresence` FIRST
+            mounts. Drawing the section at once leaves one animation for the change in size — the
+            list's own layout spring — instead of two racing each other. */}
+        {expanded && (
+          <div id={detailsId}>
+            <dl className="border-t border-hairline divide-y divide-hairline text-sm">
+              {rows.map(row => (
+                <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
+                  <dt className="text-text-secondary-token">{row.label}</dt>
+                  <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
 
-              <div className={classNames('bg-fill px-4 py-3 text-center text-sm italic', hintTone)}>
-                <p role={status === 'failed' ? 'alert' : 'status'}>{hint}</p>
-                {note.recallableAtMs !== undefined && (
-                  <p className="mt-1 text-xs text-text-secondary-token">
-                    {t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
-                  </p>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            <div className={classNames('bg-fill px-4 py-3 text-center text-sm italic', hintTone)}>
+              <p role={status === 'failed' ? 'alert' : 'status'}>{hint}</p>
+              {note.recallableAtMs !== undefined && (
+                <p className="mt-1 text-xs text-text-secondary-token">
+                  {t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* The actions are ordinary design-system buttons: the app's pill, at the app's size, with
             the card's own padding around them. `className` here sets width only; nothing restyles
