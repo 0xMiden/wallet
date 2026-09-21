@@ -1,3 +1,5 @@
+import Dexie from 'dexie';
+
 import { ITransaction, ITransactionStatus } from './db/types';
 import { db, exportDb, importDb, spendingLimits, transactions, Table } from './repo';
 import { isRequeueableTransaction } from './transaction/retry';
@@ -542,10 +544,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 1.8', () => {
+  it('keys spending limits by account alone on schema version 1.9', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(1.8);
+    expect(db.verno).toBe(1.9);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -621,5 +623,75 @@ describe('spending limits schema', () => {
     });
 
     await expect(transactions.get('tx-usd')).resolves.toMatchObject({ spentUsd: 1_500_000n });
+  });
+});
+
+// Every other test in this file opens `db` already declared through 1.9, so nothing above proves
+// Dexie actually accepts the primary-key change on a database that has real 1.7 rows in it, or
+// even that the two-version drop-then-recreate shape repo.ts uses is necessary rather than an
+// unnecessary complication. Reproduced on isolated, uniquely-named databases so neither test here
+// can collide with the shared `db` singleton every other test in this file mutates.
+describe('spending limits schema migration (1.7 -> 1.9)', () => {
+  const V17_SPENDING_LIMITS_STORE = '[accountId+faucetId],accountId,faucetId,revision';
+  const V19_SPENDING_LIMITS_STORE = 'accountId,revision';
+
+  const seedV17 = async (name: string): Promise<void> => {
+    const seed = new Dexie(name);
+    seed.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
+    await seed.open();
+    // Rows shaped the way a real pre-upgrade installation would have them: two per-asset limits
+    // for the same account, which is exactly what the old compound key allowed and the new one does
+    // not.
+    await seed.table(Table.SpendingLimits).bulkAdd([
+      { accountId: 'account-a', faucetId: 'faucet-1', revision: 'rev-1', limit: '10', createdAt: 1, updatedAt: 1 },
+      { accountId: 'account-a', faucetId: 'faucet-2', revision: 'rev-2', limit: '20', createdAt: 1, updatedAt: 1 }
+    ]);
+    await expect(seed.table(Table.SpendingLimits).count()).resolves.toBe(2);
+    seed.close();
+  };
+
+  // Documents WHY repo.ts spends two version numbers on this migration instead of one: Dexie
+  // itself refuses to change a table's primary key within a single version step, even against an
+  // empty table, rather than this being merely untested. Collapsing 1.8/1.9 back into one version
+  // is therefore not a safe simplification.
+  it('rejects an in-place primary-key change on a single version, even with no data', async () => {
+    const name = `spending-limits-migration-rejected-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const seed = new Dexie(name);
+    seed.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
+    await seed.open();
+    seed.close();
+
+    const invalid = new Dexie(name);
+    invalid.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
+    invalid.version(1.8).stores({ [Table.SpendingLimits]: V19_SPENDING_LIMITS_STORE });
+
+    await expect(invalid.open()).rejects.toThrow(/changing primary key/);
+    await Dexie.delete(name);
+  });
+
+  it('accepts the drop-then-recreate migration on a populated 1.7 database and clears the table', async () => {
+    const name = `spending-limits-migration-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await seedV17(name);
+
+    // Reopen under the same name with the real 1.7 -> 1.8 -> 1.9 chain repo.ts declares: 1.8 drops
+    // the old compound-keyed table, 1.9 recreates it keyed by account alone.
+    const upgraded = new Dexie(name);
+    upgraded.version(1.7).stores({ [Table.SpendingLimits]: V17_SPENDING_LIMITS_STORE });
+    upgraded.version(1.8).stores({ [Table.SpendingLimits]: null });
+    upgraded.version(1.9).stores({ [Table.SpendingLimits]: V19_SPENDING_LIMITS_STORE });
+
+    await expect(upgraded.open()).resolves.toBeDefined();
+    expect(upgraded.verno).toBe(1.9);
+    expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
+    await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
+
+    // Usable afterward, not merely empty: the new shape accepts a write keyed by account alone.
+    await upgraded
+      .table(Table.SpendingLimits)
+      .put({ accountId: 'account-a', revision: 'rev-3', limit: '30', createdAt: 2, updatedAt: 2 });
+    await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({ limit: '30' });
+
+    upgraded.close();
+    await Dexie.delete(name);
   });
 });

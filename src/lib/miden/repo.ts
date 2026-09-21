@@ -151,16 +151,22 @@ db.version(1.7).stores({
   [Table.SpendingLimits]: indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision')
 });
 
-// v1.8 - one USD cap per account replaces the per-asset caps. The table is RECREATED rather than
-// migrated: a native-unit cap cannot be restated in dollars for an asset nobody prices, and the
-// feature is days old, so the records are dropped and the screen asks for one number instead.
-db.version(1.8)
-  .stores({
-    [Table.SpendingLimits]: indexes('accountId', 'revision')
-  })
-  .upgrade(async tx => {
-    await tx.table(Table.SpendingLimits).clear();
-  });
+// v1.8/v1.9 - one USD cap per account replaces the per-asset caps, keyed by account alone instead
+// of `[accountId+faucetId]`. Split across two versions because Dexie has no in-place primary-key
+// change: declaring the new key directly against the existing table throws `UpgradeError: Not yet
+// support for changing primary key`, even when the table is empty (verified in repo.test.ts against
+// a real 1.7 database - nothing here relies on that behaviour going untested again). Dropping the
+// store in one version and recreating it with the new key in the next is the supported shape. A
+// native-unit cap cannot be restated in dollars for an asset nobody prices anyway, and the feature
+// is days old, so there is nothing to carry across - the records are dropped and the screen asks
+// for one number instead.
+db.version(1.8).stores({
+  [Table.SpendingLimits]: null
+});
+
+db.version(1.9).stores({
+  [Table.SpendingLimits]: indexes('accountId', 'revision')
+});
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
