@@ -1,15 +1,15 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 
-import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
-import { TokenLogo } from 'components/TokenLogo';
 import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
@@ -20,13 +20,11 @@ import {
   type SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
-import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { ChartContainer } from 'lib/ui/charts';
-import { navigate, useLocation } from 'lib/woozie';
+import { goBack, navigate, useLocation } from 'lib/woozie';
 
-import { EarnFlowHeader } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnHero, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnVault } from './types';
 import { useEarnPositions } from './useEarnPositions';
@@ -111,8 +109,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     }
   };
 
+  // `Button` fires the tap haptic itself; calling it here too would buzz twice.
   const handleOpenPosition = async () => {
-    hapticLight();
     if (isSubmitting) return;
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
@@ -150,34 +148,44 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   }, [account.publicKey, amountBaseUnits, faucetId, spendingLimitAssessment]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-review-page">
-      <EarnFlowHeader vault={vault} />
-
-      <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
-        <div className={clsx('flex flex-col px-6 pt-6')}>
-          <span className="text-label text-muted">{t('earnDepositAmountTitle')}</span>
-          <div className="mt-3 text-display text-ink">{toAdaptiveFixed(amountValue)}</div>
-          <div className="flex items-center gap-1">
-            <TokenLogo symbol={depositSymbol} size="md" />
-            <span className="text-entry-unit text-ink">{depositSymbol}</span>
-          </div>
-
-          <DepositProjection vault={vault} amount={amountValue} />
-        </div>
-      </div>
-
-      <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
-        {submitError && <div className="mb-2 text-center text-caption text-negative-ink">{submitError}</div>}
-        <Button
-          data-testid="earn-deposit-review-confirm"
-          title={t('earnOpenPosition')}
-          variant={ButtonVariant.Primary}
-          accent="earn"
-          onClick={handleOpenPosition}
-          disabled={isSubmitting || amountValue <= 0 || !vault.id}
-          className="w-full max-w-none"
+    <>
+      {/* The shared pushed-page frame: the earn flow's header, the 16px page margin its two
+          hand-rolled ones diverged from, and the CTA pinned under the body. */}
+      <SubPageLayout
+        data-testid="earn-deposit-review-page"
+        title={earnSubjectTitle(vault)}
+        onBack={goBack}
+        headerActions={<EarnAssetMark asset={vault.asset} network={vault.network} />}
+        footerLayout="stack"
+        footer={
+          <>
+            {submitError && (
+              <Notice tone="negative" role="alert" data-testid="earn-deposit-review-error">
+                {submitError}
+              </Notice>
+            )}
+            <Button
+              data-testid="earn-deposit-review-confirm"
+              title={t('earnOpenPosition')}
+              variant={ButtonVariant.Primary}
+              accent="earn"
+              onClick={handleOpenPosition}
+              disabled={isSubmitting || amountValue <= 0 || !vault.id}
+              className="w-full max-w-none"
+            />
+          </>
+        }
+      >
+        <EarnHero
+          labelId="earn-deposit-review-amount"
+          value={toAdaptiveFixed(amountValue)}
+          unit={<EarnAmountUnit symbol={depositSymbol} />}
+          label={t('earnDepositAmountTitle')}
         />
-      </div>
+
+        <DepositProjection vault={vault} amount={amountValue} />
+      </SubPageLayout>
+
       {spendingLimitAssessment !== undefined && (
         <SpendingLimitChallenge
           assessment={spendingLimitAssessment}
@@ -188,7 +196,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           }}
         />
       )}
-    </div>
+    </>
   );
 };
 
@@ -211,7 +219,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
   ];
 
   return (
-    <div className="mt-8 pb-4">
+    <div className="flex flex-col gap-4">
       <Card padding="tile">
         <div className="h-22">
           <ChartContainer config={{ projected: { color: CHART_POSITIVE } }} className="h-full w-full aspect-auto">
@@ -255,7 +263,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
 
       {/* The shared detail card: one `fill` block of label/value rows, hairlines between them, as
           on every other review in the app. */}
-      <DetailCard className="mt-4">
+      <DetailCard>
         <DetailRow label={t('earnCollateralLabel')}>{t('earnCollateralValue')}</DetailRow>
         <DetailRow label={t('route')}>
           {t('earnDepositRoute', { protocol: vault.protocol, network: vault.network })}

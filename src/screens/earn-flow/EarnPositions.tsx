@@ -4,11 +4,13 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { PageHeader } from 'components/PageHeader';
 import { CardButton } from 'components/ui/Card';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnSummaryPanel, ProviderLogo } from './components';
+import { EarnSummaryPanel } from './components';
+import { ProviderLogo } from './ProviderLogo';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -24,45 +26,38 @@ const EarnPositions: FC = () => {
   const showLoadError = Boolean(error) && positions.length === 0 && !isLoading;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-positions-page">
-      <PageHeader className="shrink-0 px-4" title={t('earnPositionsTitle')} onBack={goBack} />
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col px-4 pb-8">
-          {showLoadError ? (
-            <div
-              className="mt-10 flex flex-col items-center gap-4 text-center"
-              data-testid="earn-positions-load-error"
-              role="alert"
-            >
-              <p className="max-w-xs text-body text-ink">{t('earnPositionsLoadError')}</p>
-              {/* The shared compact secondary button, which brings the tap haptic and the press
-                  motion with it. */}
-              <Button
-                type="button"
-                data-testid="earn-positions-retry"
-                variant={ButtonVariant.Secondary}
-                size="sm"
-                title={t('retry')}
-                // `Button` fires the tap haptic itself; calling it here too would buzz twice.
-                onClick={refetch}
-                className="w-auto"
-              />
-            </div>
-          ) : (
-            <>
-              <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
-
-              <section className="mt-7 flex flex-col gap-5" aria-label={t('earnPositionsRegionLabel')}>
-                {positions.map(position => (
-                  <EarnPositionDetailCard key={position.id} position={position} />
-                ))}
-              </section>
-            </>
-          )}
+    <SubPageLayout data-testid="earn-positions-page" title={t('earnPositionsTitle')} onBack={goBack}>
+      {showLoadError ? (
+        <div className="flex flex-col items-center gap-4">
+          {/* The shared notice, in the negative tone, rather than a page-local alert block. */}
+          <Notice tone="negative" role="alert" data-testid="earn-positions-load-error">
+            {t('earnPositionsLoadError')}
+          </Notice>
+          {/* The shared compact secondary button, which brings the tap haptic and the press
+              motion with it. */}
+          <Button
+            type="button"
+            data-testid="earn-positions-retry"
+            variant={ButtonVariant.Secondary}
+            size="sm"
+            title={t('retry')}
+            // `Button` fires the tap haptic itself; calling it here too would buzz twice.
+            onClick={refetch}
+            className="w-auto"
+          />
         </div>
-      </div>
-    </div>
+      ) : (
+        <>
+          <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
+
+          <section className="flex flex-col gap-5" aria-label={t('earnPositionsRegionLabel')}>
+            {positions.map(position => (
+              <EarnPositionDetailCard key={position.id} position={position} />
+            ))}
+          </section>
+        </>
+      )}
+    </SubPageLayout>
   );
 };
 

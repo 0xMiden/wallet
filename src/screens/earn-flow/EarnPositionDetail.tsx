@@ -4,18 +4,17 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { PageHeader } from 'components/PageHeader';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
-import { Pill } from 'components/ui/Pill';
+import { Notice } from 'components/ui/Notice';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
-import { hapticLight } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnSummaryPanel, MetricCard, PositionLogo } from './components';
+import { EarnAssetMark, EarnSummaryPanel, MetricCard } from './components';
 import { placeholderPosition } from './earn-mapping';
-import { EarnPosition } from './types';
+import { ChartDotProps, EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
 type EarnTimeframe = '1D' | '1W' | '1M' | 'All';
@@ -45,40 +44,56 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-position-detail-page">
-      <PageHeader
-        className="shrink-0 px-4"
-        title={t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
-        onBack={goBack}
-      />
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col px-4 pb-8">
-          <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
-
-          <PositionAreaChart position={position} />
-
-          <SegmentedControl
-            items={TIMEFRAME_ITEMS}
-            value={timeframe}
-            onChange={setTimeframe}
-            size="sm"
-            layout="fill"
-            aria-label={t('chartTimeframe')}
-            className="mt-3"
+    // The shared pushed-page frame, so this page's header, section rhythm and pinned actions are
+    // the vault page's.
+    <SubPageLayout
+      data-testid="earn-position-detail-page"
+      title={t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
+      onBack={goBack}
+      footer={
+        <>
+          <Button
+            data-testid="earn-deposit-more-btn"
+            title={t('earnDepositMore')}
+            variant={ButtonVariant.Secondary}
+            disabled={!position.vaultId}
+            // `Button` fires the tap haptic itself; calling it here too would buzz twice.
+            onClick={() => navigate(`/earn/vaults/${position.vaultId}/deposit`)}
+            className="flex-1 max-w-none"
           />
-
-          <PositionHeading position={position} />
-          <PositionStats position={position} />
-          <ProjectedEarnings position={position} />
-          <PositionDetails position={position} />
-          <PositionActions
-            position={position}
-            onWithdraw={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
+          <Button
+            data-testid="earn-withdraw-btn"
+            title={t('withdraw')}
+            variant={ButtonVariant.Primary}
+            accent="earn"
+            disabled={!position.id || Number(position.withdrawable) <= 0}
+            onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
+            className="flex-1 max-w-none"
           />
-        </div>
+        </>
+      }
+    >
+      <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
+
+      {/* The timeframe belongs to the chart above it, so the two travel as one section. */}
+      <div>
+        <PositionAreaChart position={position} />
+        <SegmentedControl
+          items={TIMEFRAME_ITEMS}
+          value={timeframe}
+          onChange={setTimeframe}
+          size="sm"
+          layout="fill"
+          aria-label={t('chartTimeframe')}
+          className="mt-3"
+        />
       </div>
-    </div>
+
+      <PositionHeading position={position} />
+      <PositionStats position={position} />
+      <ProjectedEarnings position={position} />
+      <PositionDetails position={position} />
+    </SubPageLayout>
   );
 };
 
@@ -90,7 +105,7 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
   const lastIndex = position.chartData.length - 1;
 
   return (
-    <div className="mt-5 h-[140px]">
+    <div className="h-[140px]">
       <ChartContainer config={{ rewards: { color: CHART_POSITIVE } }} className="h-full w-full aspect-auto">
         <AreaChart data={position.chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
           <defs>
@@ -122,7 +137,7 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
             strokeWidth={2.5}
             fill="url(#earn-position-area)"
             activeDot={{ r: 4, stroke: CHART_POSITIVE, fill: CHART_POSITIVE, strokeWidth: 1 }}
-            dot={(props: any) =>
+            dot={(props: ChartDotProps) =>
               props.index === lastIndex ? (
                 <circle
                   cx={props.cx}
@@ -141,43 +156,32 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
   );
 };
 
-const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => {
-  const { t } = useTranslation();
-
-  return (
-    <div className="mt-4 flex items-center gap-2">
-      <PositionLogo asset={position.asset} className="h-6 w-6" />
-      <h2 className="min-w-0 text-hero-name text-ink">
-        {position.protocol} &bull; {position.asset}
-      </h2>
-      <Pill size="sm" className="shrink-0">
-        {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
-      </Pill>
-    </div>
-  );
-};
+/** What the rest of the page is about: the position itself, under the account-wide summary. The
+ *  asset and its network are the shared mark, not a second pill. */
+const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => (
+  <div className="flex items-center gap-2">
+    <EarnAssetMark asset={position.asset} network={position.network} />
+    <h2 className="min-w-0 text-hero-name text-ink">
+      {position.protocol} &bull; {position.asset}
+    </h2>
+  </div>
+);
 
 const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
   const { t } = useTranslation();
 
   return (
-    <div className="mt-4 grid grid-cols-3 gap-2">
-      <MetricCard label={t('earnMetricDeposited')} value={position.depositedAmount} className="px-2" />
-      <MetricCard
-        label={t('earnMetricTotalEarned')}
-        value={position.rewards}
-        valueClassName="text-positive-tint-ink"
-        className="px-2"
-      />
-      <MetricCard label="APY" value={position.apy} valueClassName="text-positive-tint-ink" className="px-2" />
+    <div className="grid grid-cols-3 gap-2">
+      <MetricCard label={t('earnMetricDeposited')} value={position.depositedAmount} />
+      <MetricCard label={t('earnMetricTotalEarned')} value={position.rewards} valueClassName="text-positive-tint-ink" />
+      <MetricCard label="APY" value={position.apy} valueClassName="text-positive-tint-ink" />
       <MetricCard
         label={t('earnMetricDailyAvg')}
         value={position.dailyAverage}
         valueClassName="text-positive-tint-ink"
-        className="px-2"
       />
-      <MetricCard label={t('earnMetricTimeActive')} value={position.age} className="px-2" />
-      <MetricCard label={t('earnMetricStarted')} value={position.started} className="px-2" />
+      <MetricCard label={t('earnMetricTimeActive')} value={position.age} />
+      <MetricCard label={t('earnMetricStarted')} value={position.started} />
     </div>
   );
 };
@@ -185,18 +189,17 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
 const ProjectedEarnings: FC<{ position: EarnPosition }> = ({ position }) => {
   const { t } = useTranslation();
 
+  // The shared notice in its positive tone, rather than a page-local tinted bar: same tint, same
+  // ink, and the glyph slot the component already draws.
   return (
-    // The positive tint with its own ink: white on the raw #90BA89 is 2.2:1. Same pair as every
-    // other positive badge in the app.
-    <div className="mt-2 flex h-12 items-center justify-center rounded-full bg-positive-tint px-4 text-value text-positive-tint-ink">
-      <ProjectedEarningsIcon className="mr-2 h-4 w-5" />
+    <Notice tone="positive" icon={<ProjectedEarningsIcon />} data-testid="earn-projected-earnings">
       {t('earnProjectedEarnings', { estimate: position.yearlyEstimate, apy: position.apy })}
-    </div>
+    </Notice>
   );
 };
 
-const ProjectedEarningsIcon: FC<{ className?: string }> = ({ className }) => (
-  <svg className={className} width="13" height="8" viewBox="0 0 13 8" fill="none" aria-hidden="true">
+const ProjectedEarningsIcon: FC = () => (
+  <svg viewBox="0 0 13 8" fill="none" aria-hidden="true">
     <path
       d="M0.75 6.375L4.5 2.625L7 5.125L11.375 0.75M7.625 0.75H12V5.125"
       stroke="currentColor"
@@ -230,50 +233,13 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
   // One `fill` card of label/value rows with hairlines between them, in place of the 4px rule and
   // five hand-built rows.
   return (
-    <DetailCard className="mt-5">
+    <DetailCard>
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label}>
           {row.value}
         </DetailRow>
       ))}
     </DetailCard>
-  );
-};
-
-const PositionActions: FC<{
-  position: EarnPosition;
-  onWithdraw: () => void;
-}> = ({ position, onWithdraw }) => {
-  const { t } = useTranslation();
-
-  return (
-    <div className="mt-16">
-      <div className="grid grid-cols-2 gap-2.5">
-        <Button
-          data-testid="earn-deposit-more-btn"
-          title={t('earnDepositMore')}
-          variant={ButtonVariant.Secondary}
-          disabled={!position.vaultId}
-          onClick={() => {
-            hapticLight();
-            navigate(`/earn/vaults/${position.vaultId}/deposit`);
-          }}
-          className="max-w-none"
-        />
-        <Button
-          data-testid="earn-withdraw-btn"
-          title={t('withdraw')}
-          variant={ButtonVariant.Primary}
-          accent="earn"
-          disabled={!position.id || Number(position.withdrawable) <= 0}
-          onClick={() => {
-            hapticLight();
-            onWithdraw();
-          }}
-          className="max-w-none"
-        />
-      </div>
-    </div>
   );
 };
 
