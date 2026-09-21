@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { Button, ButtonVariant } from 'components/Button';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
@@ -12,6 +11,7 @@ import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
 import { formatBigInt } from 'lib/i18n/numbers';
+import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
