@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { RETIRED_COLOUR_TOKENS } from './retired-tokens';
+import { escapeForRegExp, RETIRED_COLOUR_TOKENS, RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
 
 /**
  * Deleting a colour token from `tailwind.config.ts` is silent by construction: a class naming a
@@ -86,6 +86,32 @@ function buildPattern(retired: Record<string, string>): RegExp {
  * Deliberately NOT scanning css: there is no `@apply` anywhere under src, so it would add no
  * coverage, and a css file is where the false-positive declarations live.
  */
+/**
+ * Which of `retired`'s names are still declared in `config`. Extracted for the same reason as
+ * `buildPattern`: a predicate that reads the real config off disk can only ever be exercised by
+ * whatever the repo happens to contain, so the escaping below had no way to be proven. With a seam,
+ * a synthetic map and config prove BOTH interpolations - the flat probe and the block probe.
+ */
+function stillDeclared(retired: Record<string, string>, config: string): string[] {
+  return Object.keys(retired).filter(name => {
+    // The flat quoted form is checked for EVERY name, including scale names: this config writes its
+    // non-scale colour keys that way, so `'gray-25': 'var(--x)'` is a real re-add shape and
+    // returning early from the scale branch missed it entirely.
+    if (new RegExp(`['"]${escapeForRegExp(name)}['"]\\s*:`).test(config)) return true;
+
+    const scale = name.match(/-(\d+)$/)?.[1];
+    if (!scale) return false;
+    const bare = name.replace(/-(\d+)$/, '');
+    // A scale entry (gray-25) is normally a numeric key inside its own object. Scan EVERY block of
+    // that name, not just the first: `theme.extend.colors.gray` would create a second one, and an
+    // `exec` that stopped at the first would never reach it.
+    for (const block of config.matchAll(new RegExp(`${escapeForRegExp(bare)}:\\s*\\{([^}]*)\\}`, 'gs'))) {
+      if (new RegExp(`\\b${scale}\\s*:`).test(block[1] ?? '')) return true;
+    }
+    return false;
+  });
+}
+
 const SCAN_ROOTS = [SRC, path.join(ROOT, 'public')];
 const SCAN_EXTENSIONS = /\.(tsx?|jsx?|mjs|html)$/;
 
@@ -104,24 +130,33 @@ describe('retired colour tokens', () => {
   // fails and tells you to drop it from RETIRED rather than leaving a ban on a live token.
   it('every retired name really is absent from tailwind.config.ts', () => {
     const config = fs.readFileSync(path.join(ROOT, 'tailwind.config.ts'), 'utf8');
-    const stillDeclared = Object.keys(RETIRED).filter(name => {
-      // The flat quoted form is checked for EVERY name, including scale names: this config writes
-      // its non-scale colour keys that way, so `'gray-25': 'var(--x)'` is a real re-add shape and
-      // returning early from the scale branch missed it entirely.
-      if (new RegExp(`['"]${name}['"]\\s*:`).test(config)) return true;
+    expect(stillDeclared(RETIRED, config)).toEqual([]);
+  });
 
-      const bare = name.replace(/-(\d+)$/, '');
-      const scale = name.match(/-(\d+)$/)?.[1];
-      if (!scale) return false;
-      // A scale entry (gray-25) is normally a numeric key inside its own object. Scan EVERY block
-      // of that name, not the first: `theme.extend.colors.gray` creates a second one, and an
-      // `exec` that stops at the first would never reach it.
-      for (const block of config.matchAll(new RegExp(`${bare}:\\s*\\{([^}]*)\\}`, 'gs'))) {
-        if (new RegExp(`\\b${scale}\\s*:`).test(block[1] ?? '')) return true;
-      }
-      return false;
+  // The two shared maps must describe the same set of tokens, or a retired token gets a
+  // replacement with no CSS-var check, or vice versa. Derived enumeration, hand-written pairing.
+  it('carries a CSS variable for exactly the tokens it carries a replacement for', () => {
+    expect(Object.keys(RETIRED_TOKEN_CSS_VARS).sort()).toEqual(Object.keys(RETIRED).sort());
+  });
+
+  // One case per interpolation site. The first proof written for this fix exercised only the flat
+  // probe: `grey.400` has no trailing -<digits>, so the predicate returns before the block probe is
+  // ever built, and the block-probe escape would have shipped with no evidence at all.
+  describe('metacharacters in a retired name cannot widen the config probe', () => {
+    it('flat probe: a dotted name does not match a typo of it', () => {
+      expect(stillDeclared({ 'grey.400': 'x' }, "  'greyX400': 'var(--y)',")).toEqual([]);
+      expect(stillDeclared({ 'grey.400': 'x' }, "  'grey.400': 'var(--y)',")).toEqual(['grey.400']);
     });
-    expect(stillDeclared).toEqual([]);
+
+    // The block probe needs a different metacharacter from the flat one, and the reason is worth
+    // recording: a dotted name can never be an UNQUOTED object key, so it cannot reach this branch
+    // at all. `$` can - it is legal in a JS identifier and special in a regex - and unescaped it
+    // asserts end-of-string, so the probe silently MISSES a real declaration. The flat probe's
+    // escaping prevents a false positive; this one prevents a false negative.
+    it('block probe: a $ in the name still matches its real declaration', () => {
+      expect(stillDeclared({ 'a$b-25': 'x' }, "  a$b: { 25: 'var(--z)' },")).toEqual(['a$b-25']);
+      expect(stillDeclared({ 'a$b-25': 'x' }, "  aXb: { 25: 'var(--z)' },")).toEqual([]);
+    });
   });
 
   // The pattern is asserted directly, not just exercised through whatever the repo contains today.

@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
+
 const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
 const config = fs.readFileSync(path.join(__dirname, '../../../tailwind.config.ts'), 'utf8');
 
@@ -106,29 +108,22 @@ describe('retired legacy surfaces', () => {
 
   it.each([':root', '.dark'] as const)('declares none of the retired surface vars in %s', selector => {
     const vars = themeVars(selector);
-    for (const name of [
-      'color-surface-secondary',
-      'color-surface-tertiary',
-      'surface-input',
-      'surface-interactive',
-      'surface-nav-button',
-      'surface-button-secondary',
-      'surface-button-secondary-hover'
-    ]) {
+    // Driven off the shared list, so retiring a ninth token cannot leave its variable unchecked.
+    // The list previously lived here as a literal, which is why the module docstring claiming two
+    // consumers was false: this suite maintained its own parallel copy.
+    for (const name of Object.values(RETIRED_TOKEN_CSS_VARS)) {
       expect(vars[name]).toBeUndefined();
     }
   });
 });
 
 describe('legacy ink', () => {
-  it.each([':root', '.dark'] as const)(
-    'drops the heading-gray var and aliases the legacy black to ink in %s',
-    selector => {
-      const vars = themeVars(selector);
-      expect(vars['color-text-secondary']).toBeUndefined();
-      expect(vars['color-text-primary']).toBe('var(--ds-ink)');
-    }
-  );
+  it.each([':root', '.dark'] as const)('aliases the legacy black to ink in %s', selector => {
+    const vars = themeVars(selector);
+    // `color-text-secondary` moved into the shared iteration above; this case keeps the live
+    // alias fact, which no retired-token list can carry.
+    expect(vars['color-text-primary']).toBe('var(--ds-ink)');
+  });
 
   it('still routes the legacy black through that aliased var', () => {
     expect(config).toMatch(/\bblack: 'var\(--color-text-primary\)'/);
