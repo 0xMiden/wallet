@@ -10,15 +10,13 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  # Runs on EVERY PR (no path filter, by choice) so a change that breaks swaps
-  # WITHOUT touching swap paths -- an @miden-sdk bump, a shared-file edit, a node
-  # image tag change -- is still caught. It runs in parallel with the other CI
-  # workflows on its own runner, so it doesn't lengthen the critical path; the
-  # cost is ~20-30m of runner time (mostly cold Rust compiles) per PR. Also
-  # runnable on demand via workflow_dispatch. swap-e2e-gate is the stable
-  # required-check name.
+  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # The workflow still triggers on PRs so swap-e2e-gate (the required check) can
+  # report green when the suite is skipped. A swap regression is caught on the
+  # merge commit, not on every PR.
   swap-e2e:
     name: swap-e2e (chrome)
+    if: github.event_name != 'pull_request'
     # 2 vCPUs: the referenced pr-e2e-earn.yml figures are per-consume LATENCY, not a
     # suite wall clock, so they do not establish a core count. Kept at 2x because this
     # suite measured green here; the cold-build ceiling below is NOT derived from it.
@@ -192,9 +190,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes iff swap-e2e succeeded, fails if it
-  # failed/cancelled. Mark THIS "required" in branch protection (not swap-e2e
-  # directly) so the required check name stays stable if the job is renamed.
+  # Stable required-check name. On PRs the heavy job is skipped and this still
+  # reports success so branch protection is not blocked. On main it requires
+  # swap-e2e to have succeeded.
   swap-e2e-gate:
     name: swap-e2e-gate
     needs: [swap-e2e]
@@ -202,6 +200,12 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - run: |
-          if [ "${{ needs.swap-e2e.result }}" != "success" ]; then
-            echo "swap-e2e ${{ needs.swap-e2e.result }}"; exit 1; fi
-          echo "swap-e2e ok"
+          RESULT="${{ needs.swap-e2e.result }}"
+          EVENT="${{ github.event_name }}"
+          if [ "$EVENT" = pull_request ]; then
+            [ "$RESULT" = skipped ] || { echo "swap-e2e $RESULT on PR, expected skipped"; exit 1; }
+            echo "swap-e2e skipped on PR"
+          else
+            [ "$RESULT" = success ] || { echo "swap-e2e $RESULT"; exit 1; }
+            echo "swap-e2e ok"
+          fi

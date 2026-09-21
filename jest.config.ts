@@ -94,14 +94,19 @@ export default {
   // 'json-summary' emits coverage/coverage-summary.json, consumed by the
   // coverage-badge workflow to publish the README shields.io badge.
   coverageReporters: ['json-summary', 'text-summary', 'lcov'],
-  coverageThreshold: {
-    global: {
-      branches: 95,
-      functions: 95,
-      lines: 95,
-      statements: 95
-    }
-  },
+  // Sharded CI runs set JEST_COVERAGE_SHARD and check the 95% gate after merge
+  // (scripts/merge-jest-coverage.mjs). A partial map would fail the threshold
+  // even when the union is fine.
+  coverageThreshold: process.env.JEST_COVERAGE_SHARD
+    ? undefined
+    : {
+        global: {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95
+        }
+      },
   moduleNameMapper: {
     // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
     // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the

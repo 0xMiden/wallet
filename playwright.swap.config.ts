@@ -3,8 +3,8 @@ import { defineConfig } from '@playwright/test';
 import base, { isLocalnet } from './playwright.e2e.config';
 
 // Same harness as the blockchain E2E config, but runs ONLY the swap specs
-// (which the base config ignores via testIgnore). Used by the dedicated,
-// path-filtered swap-e2e job so swap coverage doesn't run on every PR.
+// (which the base config ignores via testIgnore). Used by the dedicated
+// swap-e2e job on main and workflow_dispatch, not on pull_request.
 
 /**
  * Per-test budget. The base config's 300s was sized against the local 0.16 node
