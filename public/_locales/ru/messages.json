@@ -3471,6 +3471,14 @@
     "message": "Faucet ИД",
     "englishSource": "Faucet ID"
   },
+  "faucetIdOffered": {
+    "message": "Предлагаемый Faucet ИД",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "Запрашиваемый Faucet ИД",
+    "englishSource": "Requested Faucet ID"
+  },
   "setNewFaucetId": {
     "message": "Установить новый идентификатор «Faucet»",
     "englishSource": "Set new Faucet ID"

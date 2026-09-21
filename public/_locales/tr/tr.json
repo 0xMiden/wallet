@@ -783,6 +783,8 @@
   "accountPublicKey": "Hesap Açık Anahtarı",
   "editMidenFaucetId": "Miden Faucet Kimliğini Düzenle",
   "faucetId": "Faucet Kimlik",
+  "faucetIdOffered": "Sunulan Faucet Kimlik",
+  "faucetIdRequested": "İstenen Faucet Kimlik",
   "setNewFaucetId": "Faucet'ın yeni kimliğini belirle",
   "setNewFaucetIdDescription": "Bir midenin kimlik numarasını girin: faucet",
   "addAccount": "Hesap Ekle",

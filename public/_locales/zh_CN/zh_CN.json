@@ -783,6 +783,8 @@
   "accountPublicKey": "账户公钥",
   "editMidenFaucetId": "编辑 Miden Faucet ID",
   "faucetId": "Faucet ID",
+  "faucetIdOffered": "提供的 Faucet ID",
+  "faucetIdRequested": "请求的 Faucet ID",
   "setNewFaucetId": "设置新的Faucet ID",
   "setNewFaucetIdDescription": "输入“miden”的ID：faucet",
   "addAccount": "添加账户",

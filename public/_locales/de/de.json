@@ -783,6 +783,8 @@
   "accountPublicKey": "Öffentlicher Schlüssel des Kontos",
   "editMidenFaucetId": "Miden-Faucet-ID bearbeiten",
   "faucetId": "Faucet ID",
+  "faucetIdOffered": "Angebotene Faucet ID",
+  "faucetIdRequested": "Angeforderte Faucet ID",
   "setNewFaucetId": "Neue „Faucet“-ID festlegen",
   "setNewFaucetIdDescription": "Geben Sie die ID eines „Miden“ ein: faucet",
   "addAccount": "Konto hinzufügen",

@@ -3471,6 +3471,14 @@
     "message": "Faucet ID",
     "englishSource": "Faucet ID"
   },
+  "faucetIdOffered": {
+    "message": "제공 Faucet ID",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "요청 Faucet ID",
+    "englishSource": "Requested Faucet ID"
+  },
   "setNewFaucetId": {
     "message": "Faucet의 새 ID 설정",
     "englishSource": "Set new Faucet ID"

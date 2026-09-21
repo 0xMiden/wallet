@@ -3471,6 +3471,14 @@
     "message": "Faucet Kimlik",
     "englishSource": "Faucet ID"
   },
+  "faucetIdOffered": {
+    "message": "Sunulan Faucet Kimlik",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "İstenen Faucet Kimlik",
+    "englishSource": "Requested Faucet ID"
+  },
   "setNewFaucetId": {
     "message": "Faucet'ın yeni kimliğini belirle",
     "englishSource": "Set new Faucet ID"

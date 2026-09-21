@@ -3471,6 +3471,14 @@
     "message": "Faucet ID",
     "englishSource": "Faucet ID"
   },
+  "faucetIdOffered": {
+    "message": "提供的 Faucet ID",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "请求的 Faucet ID",
+    "englishSource": "Requested Faucet ID"
+  },
   "setNewFaucetId": {
     "message": "设置新的Faucet ID",
     "englishSource": "Set new Faucet ID"

@@ -783,6 +783,8 @@
   "accountPublicKey": "Открытый ключ учетной записи",
   "editMidenFaucetId": "Редактировать идентификатор Miden Faucet",
   "faucetId": "Faucet ИД",
+  "faucetIdOffered": "Предлагаемый Faucet ИД",
+  "faucetIdRequested": "Запрашиваемый Faucet ИД",
   "setNewFaucetId": "Установить новый идентификатор «Faucet»",
   "setNewFaucetIdDescription": "Введите идентификатор «miden» faucet",
   "addAccount": "Добавить аккаунт",

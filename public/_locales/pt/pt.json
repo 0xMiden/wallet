@@ -783,6 +783,8 @@
   "accountPublicKey": "Chave pública da conta",
   "editMidenFaucetId": "Editar ID de Miden Faucet",
   "faucetId": "Faucet ID",
+  "faucetIdOffered": "Faucet ID oferecido",
+  "faucetIdRequested": "Faucet ID solicitado",
   "setNewFaucetId": "Definir um novo ID de Faucet",
   "setNewFaucetIdDescription": "Insira o ID de um miden faucet",
   "addAccount": "Adicionar conta",

@@ -783,6 +783,8 @@
   "accountPublicKey": "アカウントの公開鍵",
   "editMidenFaucetId": "MidenのFaucet IDを編集",
   "faucetId": "Faucet ID",
+  "faucetIdOffered": "提供する Faucet ID",
+  "faucetIdRequested": "要求する Faucet ID",
   "setNewFaucetId": "FaucetのIDを新規に設定する",
   "setNewFaucetIdDescription": "ミデンのIDを入力してください faucet",
   "addAccount": "アカウントを追加",
