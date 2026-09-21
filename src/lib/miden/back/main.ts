@@ -106,6 +106,12 @@ export async function start() {
       id: string
     ) => {
       await setFeeFaucetIdForTest(id);
+      // The SW and offscreen each have their own client singleton, built with
+      // the fee faucet at create time. Both may already exist (boot discovery,
+      // idle sync) before the harness injects the genesis id.
+      await resetMidenClient();
+      await reloadOffscreenEndpointOverrides();
+      primeNativeAssetId();
     };
   }
 
