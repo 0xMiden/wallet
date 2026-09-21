@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { durations, useMotion } from 'lib/animation';

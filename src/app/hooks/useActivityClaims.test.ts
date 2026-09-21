@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { useActivityClaims } from './useActivityClaims';
 
@@ -248,14 +248,14 @@ it('marks every batch note as claiming at once, queues the native faucet group f
 });
 
 it('projects every live note state and leaves an undated note undated', () => {
+  // A claim in flight is read from the note's own row (`isBeingClaimed`, written the moment the
+  // consume is enqueued), not from a set the retired batch claimer used to keep in memory.
   const live = { ...note, id: 'live', receivedAt: 123, isBeingClaimed: true };
-  const claimed = { ...note, id: 'claimed' };
   const checking = { ...note, id: 'checking' };
   const unavailable = { ...note, id: 'unavailable' };
   const failed = { ...note, id: 'failed' };
   const pending = { ...note, id: 'pending' };
-  mockClaim.safeClaimableNotes = [live, claimed, checking, unavailable, failed, pending];
-  mockClaim.claimingNoteIds.add(claimed.id);
+  mockClaim.safeClaimableNotes = [live, checking, unavailable, failed, pending];
   mockClaim.checkingNoteIds.add(checking.id);
   mockClaim.invalidNoteIds.add(unavailable.id);
   mockClaim.retriableNoteIds.add(failed.id);
@@ -263,7 +263,6 @@ it('projects every live note state and leaves an undated note undated', () => {
   const { result } = renderHook(() => useActivityClaims());
   expect(result.current.items.map(item => [item.note.id, item.status, item.note.receivedAt])).toEqual([
     ['live', 'claiming', 123],
-    ['claimed', 'claiming', undefined],
     ['checking', 'checking', undefined],
     ['unavailable', 'unavailable', undefined],
     ['failed', 'failed', undefined],

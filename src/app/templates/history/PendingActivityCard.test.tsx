@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import {

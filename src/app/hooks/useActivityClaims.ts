@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
@@ -14,6 +13,7 @@ import {
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
+import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { isExtension } from 'lib/platform';
@@ -65,7 +65,7 @@ export function useActivityClaims() {
     for (const note of claim.safeClaimableNotes) {
       let status: PendingActivityStatus = 'pending';
       switch (true) {
-        case note.isBeingClaimed || claim.claimingNoteIds.has(note.id):
+        case note.isBeingClaimed:
           status = 'claiming';
           break;
         // The check holds back a note until its state is known; a cached note cannot be accepted, so it stays listed.
@@ -91,14 +91,7 @@ export function useActivityClaims() {
       result.set(id, { ...attempt, note: current?.note ?? attempt.note });
     }
     return [...result.values()];
-  }, [
-    claim.safeClaimableNotes,
-    claim.claimingNoteIds,
-    claim.checkingNoteIds,
-    claim.invalidNoteIds,
-    claim.retriableNoteIds,
-    attempts
-  ]);
+  }, [claim.safeClaimableNotes, claim.checkingNoteIds, claim.invalidNoteIds, claim.retriableNoteIds, attempts]);
 
   const accept = async (note: NoteWithMetadata) => {
     // A cache-first entry is displayed before any live read has confirmed it, so it
