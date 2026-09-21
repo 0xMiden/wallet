@@ -118,13 +118,6 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-// One copy spy for every render, so a test can see the fallback fire.
-const mockCopy = jest.fn();
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: false })
-}));
-
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
 }));
@@ -154,7 +147,6 @@ describe('Receive - Address', () => {
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
     mockQrError = null;
-    mockCopy.mockClear();
     mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
   });
@@ -331,7 +323,7 @@ describe('Receive - Address', () => {
           await new Promise(resolve => setTimeout(resolve, 0));
         });
         expect(used).toHaveBeenCalledTimes(1);
-        expect(mockCopy).not.toHaveBeenCalled();
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
       }
     );
 
@@ -358,7 +350,7 @@ describe('Receive - Address', () => {
 
       await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
       expect(share).toHaveBeenCalledWith({ text: 'shareAddressText:devnet:test-account-123' });
-      expect(mockCopy).not.toHaveBeenCalled();
+      expect(mockClipboardWrite).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -382,7 +374,7 @@ describe('Receive - Address', () => {
         );
         expect(warn).toHaveBeenCalledWith('[Receive] failed to render QR image for share:', mockQrError);
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
-        expect(mockCopy).not.toHaveBeenCalled();
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
       } finally {
         warn.mockRestore();
       }
@@ -432,7 +424,7 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockCopy).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
         expect(warn.mock.calls).toEqual(warns ? dismissed : []);
       } finally {
         warn.mockRestore();
@@ -451,7 +443,7 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockCopy).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
         expect(warn).toHaveBeenCalledWith('[Receive] share dismissed:', expect.any(Error));
       } finally {
