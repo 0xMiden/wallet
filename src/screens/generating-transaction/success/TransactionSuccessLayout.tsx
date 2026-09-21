@@ -132,11 +132,17 @@ export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }
  * glyph, e.g. the earn up-arrow). Reuses the in-progress screen's
  * `TransactionSummaryBadge`, so it renders `null` when either side is missing.
  */
-export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode; separator?: ReactNode }> = ({
-  lhs,
-  rhs,
-  separator
-}) => <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} className="mt-1" />;
+export const SuccessSummaryPill: FC<{
+  lhs?: ReactNode;
+  rhs?: ReactNode;
+  separator?: ReactNode;
+  fillForArrow?: string;
+}> = ({ lhs, rhs, separator, fillForArrow }) => (
+  // `fillForArrow` is forwarded because dropping it painted a swap's success receipt in the send
+  // hue: the badge falls back to send, and the caller's content object already carries the right
+  // one. That is the same "one transaction in two shades" the in-progress badge was fixed for.
+  <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} fillForArrow={fillForArrow} className="mt-1" />
+);
 
 /** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows. */
 export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {

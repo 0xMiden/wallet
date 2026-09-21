@@ -163,10 +163,13 @@ describe('CardButton', () => {
     );
   });
 
-  // The other half of the pin: the list above is exhaustive only while the constant is this size,
-  // so a line added without a matching assertion fails here rather than shipping unpinned.
+  // The other half of the pin. Count CLASSES, not array entries: the constant groups several
+  // classes per string, so a class appended inside an existing entry leaves the entry count
+  // unchanged and would ship unpinned - which is what the first version of this guard missed.
   it('has no focusable class the assertion above does not name', () => {
-    expect(FOCUSABLE_CLASSES).toHaveLength(3);
+    const classes = FOCUSABLE_CLASSES.flatMap(line => line.split(' ')).filter(Boolean);
+
+    expect(classes).toHaveLength(10);
   });
 
   it('fires the tap haptic and then the handler', () => {

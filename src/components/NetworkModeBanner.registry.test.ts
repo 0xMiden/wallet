@@ -93,7 +93,9 @@ describe('every screen that commits value names the network', () => {
     ({ rendersBannerIn }) => {
       const source = read(rendersBannerIn);
 
-      expect(source).toContain("import { NetworkModeBanner } from 'components/NetworkModeBanner';");
+      // Tolerates other named imports from the same module: the shell also pulls in
+      // `NetworkNamedByShell`, and an exact-line match failed on that rather than on anything real.
+      expect(source).toMatch(/import \{[^}]*\bNetworkModeBanner\b[^}]*\} from 'components\/NetworkModeBanner';/);
       expect(source).toContain('<NetworkModeBanner />');
     }
   );

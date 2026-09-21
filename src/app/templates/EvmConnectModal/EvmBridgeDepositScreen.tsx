@@ -8,7 +8,7 @@ import { useWriteContract } from 'wagmi';
 
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { NetworkModeBanner } from 'components/NetworkModeBanner';
+import { NetworkModeBanner, NetworkNamedByShell } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import {
   AGGLAYER_BRIDGE_ABI,
@@ -741,17 +741,22 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-ink">
-      {/* This flow commits value, so it names the network on every step. The review step is the
-          one exception: it renders through `ReviewLayout`, which carries the banner itself, and
-          two stacked banners is worse than none. BridgeDeposit's own banner covers only the
-          not-yet-connected prompt, which is a different screen entirely. */}
-      {activeRoute?.name !== ReceiveStep.ShowBridgePageReview && <NetworkModeBanner />}
+      {/* This flow commits value, so it names the network once, here, for every step. The review
+          step renders through `ReviewLayout`, which carries a banner of its own; wrapping the
+          steps below tells it to stand down, so the pair cannot both be up.
+          Suppressing it with a step condition instead is what shipped first, and it is wrong:
+          `activeRoute` is live state read outside `AnimatePresence`, so on the way back from
+          review this banner mounted while the exiting card still had ReviewLayout's, and on the
+          way forward neither was up for the length of the transition. */}
+      <NetworkModeBanner />
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
           <PageHeader title={t('midenBridge')} onBack={handleHeaderBack} />
         </div>
       )}
-      <Navigator renderRoute={renderStep} />
+      <NetworkNamedByShell>
+        <Navigator renderRoute={renderStep} />
+      </NetworkNamedByShell>
       <EvmBridgeTokenDrawer
         open={tokenDrawerOpen}
         onOpenChange={setTokenDrawerOpen}
