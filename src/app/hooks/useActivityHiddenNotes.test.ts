@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
-import { useActivityHiddenNotes } from './useActivityHiddenNotes';
+import { resetActivityHiddenNotes, useActivityHiddenNotes } from './useActivityHiddenNotes';
 
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
 const read = jest.mocked(fetchFromStorage);
@@ -10,6 +10,8 @@ const write = jest.mocked(putToStorage);
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The set is a module-level store now, so it outlives a test the way it outlives a mount.
+  resetActivityHiddenNotes();
   read.mockResolvedValue(['old']);
   write.mockResolvedValue(undefined);
 });
@@ -134,4 +136,37 @@ it('ignores saves before the list is read and runs saves made during a write aft
   });
   expect(write.mock.calls.map(call => call[1])).toEqual([['old', 'first'], ['old', 'first', 'second'], []]);
   expect(result.current.ids.size).toBe(0);
+});
+
+it('shows one consumer the set another consumer just wrote', async () => {
+  // The bug this store replaced: the Activity tab declined a transfer, and the home banner —
+  // mounted, never remounted, holding its own copy — went on counting it as waiting.
+  const decliner = renderHook(() => useActivityHiddenNotes('account'));
+  const banner = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(banner.result.current.loaded).toBe(true));
+  expect(read).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    await decliner.result.current.hide('new');
+  });
+  expect([...banner.result.current.ids]).toEqual(['old', 'new']);
+
+  await act(async () => {
+    await banner.result.current.restore();
+  });
+  expect(decliner.result.current.ids.size).toBe(0);
+});
+
+it('keeps one account set out of another', async () => {
+  read.mockImplementation((key: string) => Promise.resolve(key.endsWith(':a') ? ['a-note'] : ['b-note']));
+  const a = renderHook(() => useActivityHiddenNotes('a'));
+  const b = renderHook(() => useActivityHiddenNotes('b'));
+  await waitFor(() => expect(a.result.current.loaded).toBe(true));
+  await waitFor(() => expect(b.result.current.loaded).toBe(true));
+
+  await act(async () => {
+    await a.result.current.hide('new');
+  });
+  expect([...a.result.current.ids]).toEqual(['a-note', 'new']);
+  expect([...b.result.current.ids]).toEqual(['b-note']);
 });
