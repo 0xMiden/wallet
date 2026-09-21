@@ -6,25 +6,29 @@ import {
   SpendingLimitDraft,
   SpendingLimitStrictAuthenticationRequiredError,
   classifySpendingLimitChange,
-  listSpendingLimits,
+  readSpendingLimit,
   saveSpendingLimit
 } from './config';
 import { queueOutgoingTransaction, spendsOf } from './queue';
 import { SpendingLimitConfiguration } from './types';
+import { resolveSpendsUsd } from './valuation';
+
+jest.mock('./valuation', () => ({ resolveSpendsUsd: jest.fn() }));
+
+const mockedResolve = jest.mocked(resolveSpendsUsd);
 
 const NOW = 2_000_000;
+const ACCOUNT = 'account-a';
 
 const draft = (overrides: Partial<SpendingLimitDraft> = {}): SpendingLimitDraft => ({
-  accountId: 'account-a',
-  faucetId: 'faucet-a',
-  dailyLimit: 100n,
-  weeklyLimit: 500n,
-  asset: { symbol: 'MIDEN', decimals: 8 },
+  accountId: ACCOUNT,
+  limit: 100n,
   ...overrides
 });
 
 const existing = (overrides: Partial<SpendingLimitConfiguration> = {}): SpendingLimitConfiguration => ({
-  ...draft(),
+  accountId: ACCOUNT,
+  limit: 100n,
   revision: 'revision-1',
   createdAt: NOW - 100,
   updatedAt: NOW - 50,
@@ -44,40 +48,24 @@ const save = (
     makeRevision: () => revision
   });
 
-describe('spending-limit configuration', () => {
-  it('stores and lists one canonical account identity across composite and bare forms', async () => {
-    await save(draft({ accountId: 'account-a_route' }), undefined, true);
+beforeEach(() => {
+  jest.clearAllMocks();
+  // A 1:1 passthrough: these tests exercise the config/queue interaction, not real dollar
+  // valuation, which policy.test.ts and valuation.test.ts already cover at realistic magnitudes.
+  mockedResolve.mockImplementation(async spends => spends.reduce((total, spend) => total + spend.amount, 0n));
+});
 
-    await expect(listSpendingLimits('account-a')).resolves.toEqual([
-      expect.objectContaining({ accountId: 'account-a', faucetId: 'faucet-a' })
-    ]);
-    await expect(spendingLimits.get(['account-a_route', 'faucet-a'])).resolves.toBeUndefined();
-    await expect(spendingLimits.get(['account-a', 'faucet-a'])).resolves.toBeDefined();
+describe('spending-limit configuration', () => {
+  it('stores and reads one canonical account identity across composite and bare forms', async () => {
+    await save(draft({ accountId: `${ACCOUNT}_route` }), undefined, true);
+
+    await expect(readSpendingLimit(ACCOUNT)).resolves.toMatchObject({ accountId: ACCOUNT, limit: 100n });
+    await expect(spendingLimits.get(`${ACCOUNT}_route`)).resolves.toBeUndefined();
+    await expect(spendingLimits.get(ACCOUNT)).resolves.toBeDefined();
   });
 
-  it('lists validated configurations only for the requested account', async () => {
-    await spendingLimits.bulkPut([
-      {
-        ...draft(),
-        dailyLimit: '100',
-        weeklyLimit: '500',
-        revision: 'revision-a',
-        createdAt: 1,
-        updatedAt: 1
-      },
-      {
-        ...draft({ accountId: 'account-b', faucetId: 'faucet-b' }),
-        dailyLimit: '200',
-        weeklyLimit: '600',
-        revision: 'revision-b',
-        createdAt: 2,
-        updatedAt: 2
-      }
-    ]);
-
-    await expect(listSpendingLimits('account-a')).resolves.toEqual([
-      expect.objectContaining({ accountId: 'account-a', faucetId: 'faucet-a', dailyLimit: 100n })
-    ]);
+  it('reads no configuration for an account with none', async () => {
+    await expect(readSpendingLimit(ACCOUNT)).resolves.toBeUndefined();
   });
 
   it('requires strict authentication to create a limit', async () => {
@@ -90,15 +78,12 @@ describe('spending-limit configuration', () => {
   });
 
   it.each([
-    ['lowering one cap', draft({ dailyLimit: 90n })],
-    ['lowering both caps', draft({ dailyLimit: 90n, weeklyLimit: 400n })],
-    ['refreshing metadata', draft({ asset: { symbol: 'MIDEN', decimals: 8, name: 'Miden' } })],
-    ['keeping limits unchanged', draft()]
+    ['lowering the cap', draft({ limit: 90n })],
+    ['keeping the limit unchanged', draft()]
   ])('allows %s without strict authentication', async (_label, next) => {
     await spendingLimits.put({
-      ...draft(),
-      dailyLimit: '100',
-      weeklyLimit: '500',
+      accountId: ACCOUNT,
+      limit: '100',
       revision: 'revision-1',
       createdAt: NOW - 100,
       updatedAt: NOW - 50
@@ -108,97 +93,78 @@ describe('spending-limit configuration', () => {
   });
 
   it('classifies a no-op draft against no configuration as safe', () => {
-    // Both caps absent with nothing stored asks for nothing, so it needs no step-up. The
-    // classifier's other arm (something absent, something set) is covered below; this one is the
-    // empty-to-empty case a user reaches by opening the row and saving without typing.
-    expect(classifySpendingLimitChange(undefined, draft({ dailyLimit: undefined, weeklyLimit: undefined }))).toBe(
-      'safe'
-    );
+    expect(classifySpendingLimitChange(undefined, draft({ limit: undefined }))).toBe('safe');
   });
 
   it.each([
-    ['adding the first period', undefined, draft({ weeklyLimit: undefined })],
-    ['adding another period', existing({ weeklyLimit: undefined }), draft()],
-    ['raising a cap', existing(), draft({ dailyLimit: 101n })],
-    ['removing a period', existing(), draft({ weeklyLimit: undefined })],
-    ['disabling the record', existing(), draft({ dailyLimit: undefined, weeklyLimit: undefined })],
-    ['mixing a lower and a raise', existing(), draft({ dailyLimit: 90n, weeklyLimit: 501n })]
+    ['adding a limit for the first time', undefined, draft()],
+    ['raising the cap', existing(), draft({ limit: 101n })],
+    ['disabling the record', existing(), draft({ limit: undefined })]
   ])('classifies %s as requiring strict authentication', (_label, current, next) => {
     expect(classifySpendingLimitChange(current, next)).toBe('strict-authentication');
   });
 
   it('does not write a weakening edit until strict authentication succeeds', async () => {
     await spendingLimits.put({
-      ...draft(),
-      dailyLimit: '100',
-      weeklyLimit: '500',
+      accountId: ACCOUNT,
+      limit: '100',
       revision: 'revision-1',
       createdAt: NOW - 100,
       updatedAt: NOW - 50
     });
 
-    await expect(save(draft({ dailyLimit: 101n }), 'revision-1', false)).rejects.toBeInstanceOf(
+    await expect(save(draft({ limit: 101n }), 'revision-1', false)).rejects.toBeInstanceOf(
       SpendingLimitStrictAuthenticationRequiredError
     );
-    await expect(spendingLimits.get(['account-a', 'faucet-a'])).resolves.toMatchObject({
-      dailyLimit: '100',
-      revision: 'revision-1'
-    });
+    await expect(spendingLimits.get(ACCOUNT)).resolves.toMatchObject({ limit: '100', revision: 'revision-1' });
   });
 
-  it('deletes the record when both periods are absent after strict authentication', async () => {
+  it('deletes the record when the limit is absent after strict authentication', async () => {
     await spendingLimits.put({
-      ...draft(),
-      dailyLimit: '100',
-      weeklyLimit: '500',
+      accountId: ACCOUNT,
+      limit: '100',
       revision: 'revision-1',
       createdAt: NOW - 100,
       updatedAt: NOW - 50
     });
 
-    await expect(
-      save(draft({ dailyLimit: undefined, weeklyLimit: undefined }), 'revision-1', true)
-    ).resolves.toBeUndefined();
-    await expect(spendingLimits.get(['account-a', 'faucet-a'])).resolves.toBeUndefined();
+    await expect(save(draft({ limit: undefined }), 'revision-1', true)).resolves.toBeUndefined();
+    await expect(spendingLimits.get(ACCOUNT)).resolves.toBeUndefined();
   });
 
   it('validates a disabled draft before attempting deletion', async () => {
-    await expect(
-      save(draft({ accountId: '', dailyLimit: undefined, weeklyLimit: undefined }), undefined, false)
-    ).rejects.toThrow(/policy is unavailable/i);
+    await expect(save(draft({ accountId: '', limit: undefined }), undefined, false)).rejects.toThrow(
+      /policy is unavailable/i
+    );
   });
 
   it('rejects a stale observed revision and preserves the winner', async () => {
     await spendingLimits.put({
-      ...draft(),
-      dailyLimit: '100',
-      weeklyLimit: '500',
+      accountId: ACCOUNT,
+      limit: '100',
       revision: 'revision-current',
       createdAt: NOW - 100,
       updatedAt: NOW - 50
     });
 
-    await expect(save(draft({ dailyLimit: 90n }), 'revision-old', false)).rejects.toBeInstanceOf(
+    await expect(save(draft({ limit: 90n }), 'revision-old', false)).rejects.toBeInstanceOf(
       SpendingLimitConfigurationConflictError
     );
-    await expect(spendingLimits.get(['account-a', 'faucet-a'])).resolves.toMatchObject({
-      dailyLimit: '100',
-      revision: 'revision-current'
-    });
+    await expect(spendingLimits.get(ACCOUNT)).resolves.toMatchObject({ limit: '100', revision: 'revision-current' });
   });
 
   it('regenerates the revision and preserves createdAt on every accepted edit', async () => {
     await spendingLimits.put({
-      ...draft(),
-      dailyLimit: '100',
-      weeklyLimit: '500',
+      accountId: ACCOUNT,
+      limit: '100',
       revision: 'revision-1',
       createdAt: NOW - 100,
       updatedAt: NOW - 50
     });
 
-    await expect(save(draft({ dailyLimit: 90n }), 'revision-1', false, 'revision-2')).resolves.toEqual({
-      ...draft({ dailyLimit: 90n }),
+    await expect(save(draft({ limit: 90n }), 'revision-1', false, 'revision-2')).resolves.toEqual({
+      accountId: ACCOUNT,
+      limit: 90n,
       revision: 'revision-2',
       createdAt: NOW - 100,
       updatedAt: NOW
@@ -207,65 +173,54 @@ describe('spending-limit configuration', () => {
 
   it('serializes a limit raise against transaction queueing', async () => {
     await spendingLimits.put({
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      dailyLimit: '50',
-      asset: { symbol: 'MIDEN', decimals: 8 },
+      accountId: ACCOUNT,
+      limit: '50',
       revision: 'revision-1',
       createdAt: NOW - 100,
       updatedAt: NOW - 50
     });
-    const transaction = new SendTransaction('account-a', 80n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
+    const transaction = new SendTransaction(ACCOUNT, 80n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
     transaction.id = 'candidate';
     transaction.initiatedAt = NOW;
 
     const [saved, queued] = await Promise.allSettled([
-      save(draft({ dailyLimit: 100n, weeklyLimit: undefined }), 'revision-1', true, 'revision-2'),
+      save(draft({ limit: 100n }), 'revision-1', true, 'revision-2'),
       queueOutgoingTransaction(transaction, spendsOf(transaction), undefined, NOW)
     ]);
 
     expect(saved.status).toBe('fulfilled');
-    await expect(spendingLimits.get(['account-a', 'faucet-a'])).resolves.toMatchObject({
-      dailyLimit: '100',
-      revision: 'revision-2'
-    });
+    await expect(spendingLimits.get(ACCOUNT)).resolves.toMatchObject({ limit: '100', revision: 'revision-2' });
 
-    // Enumerate the states serialization PERMITS, and let anything else fail. The previous
-    // assertions here - `queued.status === 'fulfilled'` equals `inserted !== undefined`, and an
-    // expected amount computed from `inserted` itself - held under either ordering AND under no
-    // ordering at all, so removing the rw transaction from saveSpendingLimit left them green.
-    // A torn interleaving (a row admitted against the old 50 cap, or a rejection that still
-    // inserted) matches neither row below.
+    // Enumerate the states serialization PERMITS, and let anything else fail. A torn interleaving
+    // (a row admitted against the old 50 cap, or a rejection that still inserted) matches neither.
     const inserted = await transactions.get('candidate');
-    const stored = await spendingLimits.get(['account-a', 'faucet-a']);
+    const stored = await spendingLimits.get(ACCOUNT);
     expect([
       // The save committed first, so the queue assessed 80 against the raised cap and admitted it.
-      { queued: 'fulfilled', amount: 80n, dailyLimit: '100' },
+      { queued: 'fulfilled', spentUsd: 80n, limit: '100' },
       // The queue read the old 50 cap first, so 80 breached and nothing was written.
-      { queued: 'rejected', amount: undefined, dailyLimit: '100' }
-    ]).toContainEqual({ queued: queued.status, amount: inserted?.amount, dailyLimit: stored?.dailyLimit });
+      { queued: 'rejected', spentUsd: undefined, limit: '100' }
+    ]).toContainEqual({ queued: queued.status, spentUsd: inserted?.spentUsd, limit: stored?.limit });
   });
 
   it('admits a transaction the raised limit allows once the save has committed', async () => {
     await spendingLimits.put({
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      dailyLimit: '50',
-      asset: { symbol: 'MIDEN', decimals: 8 },
+      accountId: ACCOUNT,
+      limit: '50',
       revision: 'revision-1',
       createdAt: NOW - 100,
       updatedAt: NOW - 50
     });
-    const transaction = new SendTransaction('account-a', 80n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
+    const transaction = new SendTransaction(ACCOUNT, 80n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
     transaction.id = 'candidate';
     transaction.initiatedAt = NOW;
 
     // The deterministic half of the race above: 80 is over the old cap and under the new one, so
     // this can only pass if the queue re-reads the policy rather than caching the pre-save value.
-    await save(draft({ dailyLimit: 100n, weeklyLimit: undefined }), 'revision-1', true, 'revision-2');
+    await save(draft({ limit: 100n }), 'revision-1', true, 'revision-2');
     await queueOutgoingTransaction(transaction, spendsOf(transaction), undefined, NOW);
 
-    await expect(transactions.get('candidate')).resolves.toMatchObject({ amount: 80n });
+    await expect(transactions.get('candidate')).resolves.toMatchObject({ spentUsd: 80n });
   });
 });
 

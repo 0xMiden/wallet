@@ -1,34 +1,18 @@
-export type SpendingLimitPeriod = '24h' | '7d';
+import { canonicalSpendingLimitIdentity } from './identity';
 
-export interface SpendingLimitAssetSnapshot {
-  symbol: string;
-  decimals: number;
-  name?: string;
-}
-
-export interface SpendingLimitPeriods {
-  dailyLimit?: bigint;
-  weeklyLimit?: bigint;
-}
-
-export interface SpendingLimitDraft extends SpendingLimitPeriods {
+export interface SpendingLimitDraft {
   accountId: string;
-  faucetId: string;
-  asset: SpendingLimitAssetSnapshot;
+  limit?: bigint;
 }
 
 export interface SerializedSpendingLimitDraft {
   accountId: string;
-  faucetId: string;
-  dailyLimit?: string;
-  weeklyLimit?: string;
-  asset: SpendingLimitAssetSnapshot;
+  limit?: string;
 }
 
-export interface SpendingLimitConfiguration extends SpendingLimitPeriods {
+export interface SpendingLimitConfiguration {
   accountId: string;
-  faucetId: string;
-  asset: SpendingLimitAssetSnapshot;
+  limit: bigint;
   revision: string;
   createdAt: number;
   updatedAt: number;
@@ -37,17 +21,13 @@ export interface SpendingLimitConfiguration extends SpendingLimitPeriods {
 /** IndexedDB shape. Decimal strings avoid browser-specific bigint serialization. */
 export interface PersistedSpendingLimit {
   accountId: string;
-  faucetId: string;
-  dailyLimit?: string;
-  weeklyLimit?: string;
-  asset: SpendingLimitAssetSnapshot;
+  limit: string;
   revision: string;
   createdAt: number;
   updatedAt: number;
 }
 
 export interface SpendingLimitBreach {
-  period: SpendingLimitPeriod;
   spent: bigint;
   proposedTotal: bigint;
   limit: bigint;
@@ -58,15 +38,13 @@ export interface SpendingLimitBreach {
 
 export interface SpendingLimitAssessment {
   accountId: string;
-  faucetId: string;
-  amount: bigint;
+  usdAmount: bigint;
   revision: string;
   assessedAt: number;
-  breaches: SpendingLimitBreach[];
+  breach?: SpendingLimitBreach;
 }
 
 export interface SerializedSpendingLimitBreach {
-  period: SpendingLimitPeriod;
   spent: string;
   proposedTotal: string;
   limit: string;
@@ -76,22 +54,47 @@ export interface SerializedSpendingLimitBreach {
 
 export interface SerializedSpendingLimitAssessment {
   accountId: string;
-  faucetId: string;
-  amount: string;
+  usdAmount: string;
   revision: string;
   assessedAt: number;
-  breaches: SerializedSpendingLimitBreach[];
+  breach?: SerializedSpendingLimitBreach;
 }
 
-export interface SpendingLimitAuthorization {
-  id: string;
-  accountId: string;
-  faucetId: string;
-  amount: bigint;
-  revision: string;
-  issuedAt: number;
-  expiresAt: number;
-}
+/**
+ * One-time authority for exactly one transaction.
+ *
+ * Two kinds, because there are two reasons a transaction can be stopped. A `usd` authorization
+ * binds to the dollar figure the user was shown. An `unpriced` one covers a transaction whose
+ * value could not be established at all: there is no figure to bind to, so it binds to the exact
+ * assets and amounts instead. Neither is a cryptographic authorization - both exist to stop a
+ * stale, mismatched or reused approval at the trusted wallet boundary.
+ */
+export type SpendingLimitAuthorization =
+  | {
+      kind: 'usd';
+      id: string;
+      accountId: string;
+      usdAmount: bigint;
+      revision: string;
+      issuedAt: number;
+      expiresAt: number;
+    }
+  | {
+      kind: 'unpriced';
+      id: string;
+      accountId: string;
+      spendsDigest: string;
+      revision: string;
+      issuedAt: number;
+      expiresAt: number;
+    };
+
+/** Canonical, order-independent identity of what a transaction sends. */
+export const spendsDigest = (spends: readonly { faucetId: string; amount: bigint }[]): string =>
+  spends
+    .map(spend => `${canonicalSpendingLimitIdentity(spend.faucetId)}:${spend.amount.toString()}`)
+    .sort()
+    .join('|');
 
 /** A fail-closed signal for corrupt configuration, history, or storage reads. */
 export class SpendingLimitPolicyUnavailableError extends Error {
@@ -150,25 +153,9 @@ const requiredString = (value: unknown, field: string): string => {
   return value;
 };
 
-const optionalString = (value: unknown, field: string): string | undefined => {
-  if (value === undefined) return undefined;
-  return requiredString(value, field);
-};
-
 const timestamp = (value: unknown, field: string): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw unavailable(`${field} is invalid`);
   return value;
-};
-
-const assetSnapshot = (value: unknown): SpendingLimitAssetSnapshot => {
-  if (!isRecord(value)) throw unavailable('asset snapshot is invalid');
-  const symbol = requiredString(Reflect.get(value, 'symbol'), 'asset symbol');
-  const decimals = Reflect.get(value, 'decimals');
-  if (typeof decimals !== 'number' || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
-    throw unavailable('asset decimals are invalid');
-  }
-  const name = optionalString(Reflect.get(value, 'name'), 'asset name');
-  return { symbol, decimals, ...(name !== undefined && { name }) };
 };
 
 const domainAmount = (value: unknown, field: string): bigint | undefined => {
@@ -200,8 +187,6 @@ export const parseSerializedSpendingAmount = (value: unknown): bigint =>
 
 interface CommonFields {
   accountId: string;
-  faucetId: string;
-  asset: SpendingLimitAssetSnapshot;
   revision: string;
   createdAt: number;
   updatedAt: number;
@@ -213,75 +198,45 @@ const commonFields = (value: object): CommonFields => {
   if (updatedAt < createdAt) throw unavailable('updatedAt precedes createdAt');
   return {
     accountId: requiredString(Reflect.get(value, 'accountId'), 'accountId'),
-    faucetId: requiredString(Reflect.get(value, 'faucetId'), 'faucetId'),
-    asset: assetSnapshot(Reflect.get(value, 'asset')),
     revision: requiredString(Reflect.get(value, 'revision'), 'revision'),
     createdAt,
     updatedAt
   };
 };
 
-export const toPersistedSpendingLimit = (value: SpendingLimitConfiguration): PersistedSpendingLimit | undefined => {
+export const toPersistedSpendingLimit = (value: SpendingLimitConfiguration): PersistedSpendingLimit => {
   const common = commonFields(value);
-  const dailyLimit = domainAmount(value.dailyLimit, 'dailyLimit');
-  const weeklyLimit = domainAmount(value.weeklyLimit, 'weeklyLimit');
-  if (dailyLimit === undefined && weeklyLimit === undefined) return undefined;
-  return {
-    ...common,
-    ...(dailyLimit !== undefined && { dailyLimit: dailyLimit.toString() }),
-    ...(weeklyLimit !== undefined && { weeklyLimit: weeklyLimit.toString() })
-  };
+  const limit = requiredDomainAmount(value.limit, 'limit');
+  return { ...common, limit: limit.toString() };
 };
 
 export const parsePersistedSpendingLimit = (value: unknown): SpendingLimitConfiguration => {
   if (!isRecord(value)) throw unavailable('record is invalid');
   const common = commonFields(value);
-  const dailyLimit = persistedAmount(Reflect.get(value, 'dailyLimit'), 'dailyLimit');
-  const weeklyLimit = persistedAmount(Reflect.get(value, 'weeklyLimit'), 'weeklyLimit');
-  if (dailyLimit === undefined && weeklyLimit === undefined) throw unavailable('no period is configured');
-  return {
-    ...common,
-    ...(dailyLimit !== undefined && { dailyLimit }),
-    ...(weeklyLimit !== undefined && { weeklyLimit })
-  };
+  const limit = requiredPersistedAmount(Reflect.get(value, 'limit'), 'limit');
+  return { ...common, limit };
 };
 
 export const toSerializedSpendingLimitDraft = (value: SpendingLimitDraft): SerializedSpendingLimitDraft => {
   const accountId = requiredString(value.accountId, 'accountId');
-  const faucetId = requiredString(value.faucetId, 'faucetId');
-  const asset = assetSnapshot(value.asset);
-  const dailyLimit = domainAmount(value.dailyLimit, 'dailyLimit');
-  const weeklyLimit = domainAmount(value.weeklyLimit, 'weeklyLimit');
-  return {
-    accountId,
-    faucetId,
-    asset,
-    ...(dailyLimit !== undefined && { dailyLimit: dailyLimit.toString() }),
-    ...(weeklyLimit !== undefined && { weeklyLimit: weeklyLimit.toString() })
-  };
+  const limit = domainAmount(value.limit, 'limit');
+  return { accountId, ...(limit !== undefined && { limit: limit.toString() }) };
 };
 
 export const parseSerializedSpendingLimitDraft = (value: unknown): SpendingLimitDraft => {
   if (!isRecord(value)) throw unavailable('draft is invalid');
-  const dailyLimit = persistedAmount(Reflect.get(value, 'dailyLimit'), 'dailyLimit');
-  const weeklyLimit = persistedAmount(Reflect.get(value, 'weeklyLimit'), 'weeklyLimit');
+  const limit = persistedAmount(Reflect.get(value, 'limit'), 'limit');
   return {
     accountId: requiredString(Reflect.get(value, 'accountId'), 'accountId'),
-    faucetId: requiredString(Reflect.get(value, 'faucetId'), 'faucetId'),
-    asset: assetSnapshot(Reflect.get(value, 'asset')),
-    ...(dailyLimit !== undefined && { dailyLimit }),
-    ...(weeklyLimit !== undefined && { weeklyLimit })
+    ...(limit !== undefined && { limit })
   };
 };
 
 const parseBreach = (value: unknown, parseAmount: (value: unknown, field: string) => bigint): SpendingLimitBreach => {
   if (!isRecord(value)) throw unavailable('breach is invalid');
-  const period = Reflect.get(value, 'period');
-  if (period !== '24h' && period !== '7d') throw unavailable('breach period is invalid');
   const reset = Reflect.get(value, 'resetAt');
   const resetAt = reset === null ? null : timestamp(reset, 'breach resetAt');
   return {
-    period,
     spent: parseAmount(Reflect.get(value, 'spent'), 'breach spent'),
     proposedTotal: parseAmount(Reflect.get(value, 'proposedTotal'), 'breach proposedTotal'),
     limit: parseAmount(Reflect.get(value, 'limit'), 'breach limit'),
@@ -291,37 +246,29 @@ const parseBreach = (value: unknown, parseAmount: (value: unknown, field: string
 };
 
 const validateAssessment = (assessment: SpendingLimitAssessment): SpendingLimitAssessment => {
-  if (assessment.breaches.length > 2) throw unavailable('too many breach periods');
-  const periods = new Set<SpendingLimitPeriod>();
-  for (const breach of assessment.breaches) {
-    if (
-      periods.has(breach.period) ||
-      breach.proposedTotal !== breach.spent + assessment.amount ||
-      breach.proposedTotal <= breach.limit ||
-      breach.overBy !== breach.proposedTotal - breach.limit ||
-      (breach.resetAt !== null && breach.resetAt <= assessment.assessedAt)
-    ) {
-      throw unavailable('breach values are inconsistent');
-    }
-    periods.add(breach.period);
-  }
-  if (assessment.breaches.length === 2 && assessment.breaches[0]?.period !== '24h') {
-    throw unavailable('breach periods are out of order');
+  const breach = assessment.breach;
+  if (breach === undefined) return assessment;
+  if (
+    breach.proposedTotal !== breach.spent + assessment.usdAmount ||
+    breach.proposedTotal <= breach.limit ||
+    breach.overBy !== breach.proposedTotal - breach.limit ||
+    (breach.resetAt !== null && breach.resetAt <= assessment.assessedAt)
+  ) {
+    throw unavailable('breach values are inconsistent');
   }
   return assessment;
 };
 
 export const parseSpendingLimitAssessment = (value: unknown): SpendingLimitAssessment => {
   if (!isRecord(value)) throw unavailable('assessment is invalid');
-  const breaches = Reflect.get(value, 'breaches');
-  if (!Array.isArray(breaches)) throw unavailable('assessment breaches are invalid');
+  const breachValue = Reflect.get(value, 'breach');
+  const breach = breachValue === undefined ? undefined : parseBreach(breachValue, requiredDomainAmount);
   return validateAssessment({
     accountId: requiredString(Reflect.get(value, 'accountId'), 'accountId'),
-    faucetId: requiredString(Reflect.get(value, 'faucetId'), 'faucetId'),
-    amount: requiredDomainAmount(Reflect.get(value, 'amount'), 'amount'),
+    usdAmount: requiredDomainAmount(Reflect.get(value, 'usdAmount'), 'usdAmount'),
     revision: requiredString(Reflect.get(value, 'revision'), 'revision'),
     assessedAt: timestamp(Reflect.get(value, 'assessedAt'), 'assessedAt'),
-    breaches: breaches.map(breach => parseBreach(breach, requiredDomainAmount))
+    ...(breach !== undefined && { breach })
   });
 };
 
@@ -330,30 +277,32 @@ export const toSerializedSpendingLimitAssessment = (
 ): SerializedSpendingLimitAssessment => {
   const assessment = parseSpendingLimitAssessment(value);
   return {
-    ...assessment,
-    amount: assessment.amount.toString(),
-    breaches: assessment.breaches.map(breach => ({
-      period: breach.period,
-      spent: breach.spent.toString(),
-      proposedTotal: breach.proposedTotal.toString(),
-      limit: breach.limit.toString(),
-      overBy: breach.overBy.toString(),
-      resetAt: breach.resetAt
-    }))
+    accountId: assessment.accountId,
+    usdAmount: assessment.usdAmount.toString(),
+    revision: assessment.revision,
+    assessedAt: assessment.assessedAt,
+    ...(assessment.breach !== undefined && {
+      breach: {
+        spent: assessment.breach.spent.toString(),
+        proposedTotal: assessment.breach.proposedTotal.toString(),
+        limit: assessment.breach.limit.toString(),
+        overBy: assessment.breach.overBy.toString(),
+        resetAt: assessment.breach.resetAt
+      }
+    })
   };
 };
 
 export const parseSerializedSpendingLimitAssessment = (value: unknown): SpendingLimitAssessment => {
   if (!isRecord(value)) throw unavailable('assessment is invalid');
-  const breaches = Reflect.get(value, 'breaches');
-  if (!Array.isArray(breaches)) throw unavailable('assessment breaches are invalid');
+  const breachValue = Reflect.get(value, 'breach');
+  const breach = breachValue === undefined ? undefined : parseBreach(breachValue, requiredPersistedAmount);
   return validateAssessment({
     accountId: requiredString(Reflect.get(value, 'accountId'), 'accountId'),
-    faucetId: requiredString(Reflect.get(value, 'faucetId'), 'faucetId'),
-    amount: requiredPersistedAmount(Reflect.get(value, 'amount'), 'amount'),
+    usdAmount: requiredPersistedAmount(Reflect.get(value, 'usdAmount'), 'usdAmount'),
     revision: requiredString(Reflect.get(value, 'revision'), 'revision'),
     assessedAt: timestamp(Reflect.get(value, 'assessedAt'), 'assessedAt'),
-    breaches: breaches.map(breach => parseBreach(breach, requiredPersistedAmount))
+    ...(breach !== undefined && { breach })
   });
 };
 

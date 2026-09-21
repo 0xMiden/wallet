@@ -2,27 +2,23 @@ import { assessSpendingLimit } from './policy';
 import { SpendingLimitConfiguration, SpendingLimitPolicyUnavailableError } from './types';
 import { ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 
-const DAY = 24 * 60 * 60;
-const WEEK = 7 * DAY;
+const DAY = 86_400;
+const ACCOUNT = 'account-a';
 const NOW = 2_000_000;
 
-const config: SpendingLimitConfiguration = {
-  accountId: 'account-a',
-  faucetId: 'faucet-a',
-  dailyLimit: 100n,
-  weeklyLimit: 250n,
-  asset: { symbol: 'MIDEN', decimals: 8 },
+const config = (limit: bigint): SpendingLimitConfiguration => ({
+  accountId: ACCOUNT,
+  limit,
   revision: 'revision-1',
   createdAt: 1,
   updatedAt: 1
-};
+});
 
 const row = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'transaction-1',
   type: 'send',
-  accountId: config.accountId,
-  faucetId: config.faucetId,
-  amount: 10n,
+  accountId: ACCOUNT,
+  spentUsd: 10_000_000n,
   status: ITransactionStatus.Completed,
   initiatedAt: NOW - 1,
   displayIcon: 'SEND',
@@ -35,263 +31,210 @@ const malformedRow = (field: string, value: unknown): ITransaction => {
   return transaction;
 };
 
+const malformedProposal = <T extends object>(base: T, field: string, value: unknown): T => {
+  const proposal = { ...base };
+  Reflect.set(proposal, field, value);
+  return proposal;
+};
+
 describe('assessSpendingLimit', () => {
-  it('counts equivalent stored account identities in the same rolling allowance', () => {
-    const assessment = assessSpendingLimit(config, [row({ accountId: 'account-a_route', amount: 90n })], {
-      accountId: 'account-a',
-      faucetId: config.faucetId,
-      amount: 11n,
+  it('sums stamped dollar values inside the window', () => {
+    const rows = [
+      row({ initiatedAt: 1_000, spentUsd: 30_000_000n }),
+      row({ initiatedAt: 1_500, spentUsd: 20_000_000n })
+    ];
+
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 60_000_000n,
+      now: 2_000
+    });
+
+    expect(assessment.breach).toMatchObject({ spent: 50_000_000n, proposedTotal: 110_000_000n, overBy: 10_000_000n });
+  });
+
+  it('ignores a row that carries no stamped value', () => {
+    const rows = [row({ initiatedAt: 1_000, spentUsd: undefined, amount: 999n, faucetId: 'eth' })];
+
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 1n,
+      now: 2_000
+    });
+
+    expect(assessment.breach).toBeUndefined();
+  });
+
+  it('expires a row at the exact 24-hour boundary', () => {
+    const rows = [row({ initiatedAt: 1_000, spentUsd: 100_000_000n })];
+
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 1n,
+      now: 1_000 + DAY
+    });
+
+    expect(assessment.breach).toBeUndefined();
+  });
+
+  it('reports when the window frees enough room', () => {
+    const rows = [
+      row({ id: 'oldest', initiatedAt: NOW - DAY + 100, spentUsd: 20_000_000n }),
+      row({ id: 'newest', initiatedAt: NOW - 20, spentUsd: 70_000_000n })
+    ];
+
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 30_000_000n,
       now: NOW
     });
 
-    expect(assessment.breaches).toEqual([
-      { period: '24h', spent: 90n, proposedTotal: 101n, limit: 100n, overBy: 1n, resetAt: NOW - 1 + DAY }
-    ]);
+    // spent = 90M, proposedTotal = 120M, overBy = 20M. Only the oldest row (20M) needs to expire
+    // to free enough room, so resetAt is that row's own initiatedAt + 86400.
+    expect(assessment.breach).toMatchObject({
+      spent: 90_000_000n,
+      proposedTotal: 120_000_000n,
+      overBy: 20_000_000n,
+      resetAt: NOW - DAY + 100 + DAY
+    });
   });
+
+  it('reports no automatic reset when the proposal alone exceeds the cap', () => {
+    const rows = [row({ initiatedAt: NOW - 20, spentUsd: 10_000_000n })];
+
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 150_000_000n,
+      now: NOW
+    });
+
+    expect(assessment.breach?.resetAt).toBeNull();
+  });
+
+  it('excludes rows restored from backup', () => {
+    const rows = [row({ initiatedAt: NOW - 20, spentUsd: 100_000_000n, restoredFromBackup: true })];
+
+    const assessment = assessSpendingLimit(config(50_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 10_000_000n,
+      now: NOW
+    });
+
+    expect(assessment.breach).toBeUndefined();
+  });
+
+  it.each<ITransactionType>(['consume', 'earn-withdraw', 'switch-guardian'])(
+    'excludes incoming and structural type %s',
+    type => {
+      const rows = [row({ type, initiatedAt: NOW - 20, spentUsd: 100_000_000n })];
+
+      const assessment = assessSpendingLimit(config(50_000_000n), rows, {
+        accountId: ACCOUNT,
+        usdAmount: 10_000_000n,
+        now: NOW
+      });
+
+      expect(assessment.breach).toBeUndefined();
+    }
+  );
 
   it.each([
     ITransactionStatus.Queued,
     ITransactionStatus.GeneratingTransaction,
     ITransactionStatus.Completed,
     ITransactionStatus.Failed
-  ])('reserves matching outgoing rows in status %s', status => {
-    const assessment = assessSpendingLimit(config, [row({ status, amount: 90n })], {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 11n,
+  ])('includes a matching row in status %s', status => {
+    const rows = [row({ status, initiatedAt: NOW - 20, spentUsd: 90_000_000n })];
+
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 20_000_000n,
       now: NOW
     });
 
-    expect(assessment.breaches).toEqual([
-      { period: '24h', spent: 90n, proposedTotal: 101n, limit: 100n, overBy: 1n, resetAt: NOW - 1 + DAY }
-    ]);
+    expect(assessment.breach).toMatchObject({ spent: 90_000_000n, proposedTotal: 110_000_000n });
   });
 
-  it.each<ITransactionType>(['send', 'swap', 'bridged-send', 'earn-deposit'])('counts %s as outgoing spend', type => {
-    const assessment = assessSpendingLimit(config, [row({ type, amount: 90n })], {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 11n,
+  it('charges a future-dated row at now', () => {
+    const rows = [row({ initiatedAt: NOW + DAY, spentUsd: 90_000_000n })];
+
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 20_000_000n,
       now: NOW
     });
 
-    expect(assessment.breaches.map(breach => breach.period)).toEqual(['24h']);
+    // Counted, so it still breaches the cap - a clock correction must not buy allowance. `resetAt`
+    // is the assertion that can actually fail: charging the row at NOW retires it one day from NOW,
+    // whereas leaving the future stamp alone would hold it in the window until NOW + 2 days.
+    expect(assessment.breach).toMatchObject({ spent: 90_000_000n, proposedTotal: 110_000_000n, resetAt: NOW + DAY });
   });
 
-  it('isolates account and faucet and excludes non-spend, restored, and expired rows', () => {
-    const rows = [
-      row({ id: 'other-account', accountId: 'account-b', amount: 100n }),
-      row({ id: 'other-faucet', faucetId: 'faucet-b', amount: 100n }),
-      row({ id: 'consume', type: 'consume', amount: 100n }),
-      row({ id: 'receive', type: 'bridged-receive', amount: 100n }),
-      row({ id: 'withdraw', type: 'earn-withdraw', amount: 100n }),
-      row({ id: 'structural', type: 'replace-hot-key', amount: 100n }),
-      row({ id: 'restored', restoredFromBackup: true, amount: 100n }),
-      row({ id: 'daily-boundary', initiatedAt: NOW - DAY, amount: 100n }),
-      row({ id: 'weekly-boundary', initiatedAt: NOW - WEEK, amount: 100n })
-    ];
+  it('throws on a row inside the window whose stamped value is not a bigint', () => {
+    const bad = malformedRow('spentUsd', '90000000');
+    bad.initiatedAt = NOW - 20;
 
-    const assessment = assessSpendingLimit(config, rows, {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 100n,
-      now: NOW
-    });
-
-    expect(assessment.breaches).toEqual([]);
-  });
-
-  it('reports daily and weekly breaches in deterministic order with the earliest sufficient reset', () => {
-    const bothPeriods = { ...config, weeklyLimit: 200n };
-    const rows = [
-      row({ id: 'old-week', initiatedAt: NOW - 6 * DAY, amount: 80n }),
-      row({ id: 'old-day', initiatedAt: NOW - DAY + 10, amount: 30n }),
-      row({ id: 'new-day', initiatedAt: NOW - 20, amount: 60n })
-    ];
-
-    const assessment = assessSpendingLimit(bothPeriods, rows, {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 50n,
-      now: NOW
-    });
-
-    expect(assessment).toEqual({
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 50n,
-      revision: config.revision,
-      assessedAt: NOW,
-      breaches: [
-        { period: '24h', spent: 90n, proposedTotal: 140n, limit: 100n, overBy: 40n, resetAt: NOW - 20 + DAY },
-        {
-          period: '7d',
-          spent: 170n,
-          proposedTotal: 220n,
-          limit: 200n,
-          overBy: 20n,
-          resetAt: NOW - 6 * DAY + WEEK
-        }
-      ]
-    });
-  });
-
-  it('finds the weekly reset after enough oldest rows expire', () => {
-    const weeklyOnly = { ...config, dailyLimit: undefined, weeklyLimit: 100n };
-    const assessment = assessSpendingLimit(
-      weeklyOnly,
-      [
-        row({ id: 'oldest', initiatedAt: NOW - 6 * DAY, amount: 20n }),
-        row({ id: 'middle', initiatedAt: NOW - 5 * DAY, amount: 30n }),
-        row({ id: 'newest', initiatedAt: NOW - DAY, amount: 40n })
-      ],
-      { accountId: config.accountId, faucetId: config.faucetId, amount: 50n, now: NOW }
-    );
-
-    expect(assessment.breaches).toEqual([
-      {
-        period: '7d',
-        spent: 90n,
-        proposedTotal: 140n,
-        limit: 100n,
-        overBy: 40n,
-        resetAt: NOW - 5 * DAY + WEEK
-      }
-    ]);
-  });
-
-  it('uses a null reset when the proposed amount alone exceeds the cap', () => {
-    const assessment = assessSpendingLimit(config, [row({ amount: 20n })], {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 101n,
-      now: NOW
-    });
-
-    expect(assessment.breaches[0]?.resetAt).toBeNull();
-  });
-
-  it.each([
-    ['negative proposed amount', [row()], { amount: -1n, now: NOW }],
-    ['non-bigint proposed amount', [row()], { amount: 1 as unknown as bigint, now: NOW }],
-    ['negative assessment time', [row()], { amount: 1n, now: -1 }],
-    ['fractional assessment time', [row()], { amount: 1n, now: 1.5 }],
-    ['negative row amount', [row({ amount: -1n })], { amount: 1n, now: NOW }],
-    // Stays fatal, unlike a row naming a DIFFERENT faucet, which is merely skipped: this row is
-    // about the configured asset, so an unusable amount could be hiding spend.
-    ['missing row amount', [row({ amount: undefined })], { amount: 1n, now: NOW }],
-    ['unknown row status', [malformedRow('status', 99)], { amount: 1n, now: NOW }],
-    ['non-integer row timestamp', [row({ initiatedAt: 1.5 })], { amount: 1n, now: NOW }]
-  ])('fails closed for a %s', (_label, rows, proposal) => {
     expect(() =>
-      assessSpendingLimit(config, rows, {
-        accountId: config.accountId,
-        faucetId: config.faucetId,
-        ...proposal
-      })
+      assessSpendingLimit(config(100_000_000n), [bad], { accountId: ACCOUNT, usdAmount: 1n, now: NOW })
     ).toThrow(SpendingLimitPolicyUnavailableError);
   });
 
-  // Both cases below were previously fatal. Failing closed is for data that could HIDE spend; a
-  // row that cannot affect the outcome, and a row already charged against the user, are neither.
-  it('charges a future-dated row at the assessment time instead of refusing to assess', () => {
-    const assessment = assessSpendingLimit(config, [row({ initiatedAt: NOW + DAY, amount: 90n })], {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 20n,
-      now: NOW
-    });
-
-    // Counted, so it still breaches the 100 daily cap - a clock correction must not buy allowance.
-    // `resetAt` is the assertion that can actually fail: charging the row at NOW retires it one
-    // day from NOW, whereas leaving the future stamp alone would hold it in the rolling window
-    // until NOW + 2 days. Asserting only the breach passes with or without the clamp.
-    expect(assessment.breaches).toMatchObject([{ period: '24h', spent: 90n, proposedTotal: 110n, resetAt: NOW + DAY }]);
-  });
-
-  it('ignores a malformed row that is older than the widest window', () => {
+  it('skips a malformed row older than the window', () => {
     const stale = malformedRow('status', 99);
-    stale.initiatedAt = NOW - WEEK - 1;
+    stale.initiatedAt = NOW - DAY - 1;
 
-    const assessment = assessSpendingLimit(config, [stale], {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 20n,
+    const assessment = assessSpendingLimit(config(100_000_000n), [stale], {
+      accountId: ACCOUNT,
+      usdAmount: 1n,
       now: NOW
     });
 
     // One corrupt historical row must not make the account permanently unspendable.
-    expect(assessment.breaches).toEqual([]);
+    expect(assessment.breach).toBeUndefined();
   });
 
-  it('counts a dApp custom row through its recorded per-faucet totals', () => {
-    const custom = row({ type: 'execute', faucetId: undefined, amount: undefined });
-    custom.spentAssetTotals = [
-      { faucetId: 'faucet-other', amount: 5n },
-      { faucetId: config.faucetId, amount: 90n }
-    ];
+  it('counts equivalent stored account identities in the same rolling allowance', () => {
+    const rows = [row({ accountId: `${ACCOUNT}_route`, initiatedAt: NOW - 20, spentUsd: 90_000_000n })];
 
-    const assessment = assessSpendingLimit(config, [custom], {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 20n,
+    const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+      accountId: ACCOUNT,
+      usdAmount: 20_000_000n,
       now: NOW
     });
 
-    // Without these totals an execute row has no faucet or amount at all, so the policy could not
-    // see it as a spend - which is what made a custom request a way around a configured cap.
-    expect(assessment.breaches).toMatchObject([{ period: '24h', spent: 90n, proposedTotal: 110n }]);
+    expect(assessment.breach).toMatchObject({ spent: 90_000_000n, proposedTotal: 110_000_000n });
   });
 
-  it('fails closed when a custom row states a non-bigint amount for the configured faucet', () => {
-    // `spentAssetTotals` crosses the intercom boundary and is persisted, so the amount is only as
-    // trustworthy as the row. A matching entry that is not a bigint could be hiding spend.
-    const custom = row({ type: 'execute', faucetId: undefined, amount: undefined });
-    custom.spentAssetTotals = [{ faucetId: config.faucetId, amount: '90' as unknown as bigint }];
-
+  it('fails closed when the proposal account does not match the configuration', () => {
     expect(() =>
-      assessSpendingLimit(config, [custom], {
-        accountId: config.accountId,
-        faucetId: config.faucetId,
-        amount: 20n,
-        now: NOW
-      })
+      assessSpendingLimit(config(100_000_000n), [], { accountId: 'account-b', usdAmount: 1n, now: NOW })
     ).toThrow(SpendingLimitPolicyUnavailableError);
   });
 
-  it('ignores a custom row whose totals name only other faucets', () => {
-    const custom = row({ type: 'execute', faucetId: undefined, amount: undefined });
-    custom.spentAssetTotals = [{ faucetId: 'faucet-other', amount: 900n }];
+  it('fails closed for a non-bigint proposed amount', () => {
+    const proposal = malformedProposal({ accountId: ACCOUNT, usdAmount: 1n, now: NOW }, 'usdAmount', '1');
 
-    const assessment = assessSpendingLimit(config, [custom], {
-      accountId: config.accountId,
-      faucetId: config.faucetId,
-      amount: 20n,
-      now: NOW
-    });
-
-    expect(assessment.breaches).toEqual([]);
+    expect(() => assessSpendingLimit(config(100_000_000n), [row()], proposal)).toThrow(
+      SpendingLimitPolicyUnavailableError
+    );
   });
 
-  it('fails closed when the proposal does not match the configuration identity', () => {
-    expect(() =>
-      assessSpendingLimit(config, [], {
-        accountId: 'account-b',
-        faucetId: config.faucetId,
-        amount: 1n,
-        now: NOW
-      })
-    ).toThrow(SpendingLimitPolicyUnavailableError);
+  it.each<[string, ITransaction[], { usdAmount: bigint; now: number }]>([
+    ['negative proposed amount', [row()], { usdAmount: -1n, now: NOW }],
+    ['negative assessment time', [row()], { usdAmount: 1n, now: -1 }],
+    ['fractional assessment time', [row()], { usdAmount: 1n, now: 1.5 }],
+    ['negative row spentUsd', [row({ spentUsd: -1n })], { usdAmount: 1n, now: NOW }],
+    ['unknown row status', [malformedRow('status', 99)], { usdAmount: 1n, now: NOW }],
+    ['non-integer row timestamp', [row({ initiatedAt: 1.5 })], { usdAmount: 1n, now: NOW }]
+  ])('fails closed for a %s', (_label, rows, proposal) => {
+    expect(() => assessSpendingLimit(config(100_000_000n), rows, { accountId: ACCOUNT, ...proposal })).toThrow(
+      SpendingLimitPolicyUnavailableError
+    );
   });
 
-  it('fails closed when no rolling period is configured', () => {
-    expect(() =>
-      assessSpendingLimit({ ...config, dailyLimit: undefined, weeklyLimit: undefined }, [], {
-        accountId: config.accountId,
-        faucetId: config.faucetId,
-        amount: 1n,
-        now: NOW
-      })
-    ).toThrow(SpendingLimitPolicyUnavailableError);
+  it('fails closed when the configured limit is negative', () => {
+    expect(() => assessSpendingLimit(config(-1n), [], { accountId: ACCOUNT, usdAmount: 1n, now: NOW })).toThrow(
+      SpendingLimitPolicyUnavailableError
+    );
   });
 });

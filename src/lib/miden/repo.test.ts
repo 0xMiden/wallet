@@ -542,49 +542,53 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account and faucet on schema version 1.7', () => {
+  it('keys spending limits by account alone on schema version 1.8', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(1.7);
-    expect(schema.primKey.keyPath).toEqual(['accountId', 'faucetId']);
-    expect(schema.indexes.map(index => index.name)).toEqual(
-      expect.arrayContaining(['accountId', 'faucetId', 'revision'])
-    );
+    expect(db.verno).toBe(1.8);
+    expect(schema.primKey.keyPath).toBe('accountId');
+    expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
 
-  it('keeps one spending-limit record per account and faucet pair', async () => {
+  it('keeps one spending-limit record per account', async () => {
     await spendingLimits.put({
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      dailyLimit: '10',
-      asset: { symbol: 'MIDEN', decimals: 8 },
+      limit: '10',
       revision: 'revision-1',
       createdAt: 1,
       updatedAt: 1
     });
     await spendingLimits.put({
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      dailyLimit: '20',
-      asset: { symbol: 'MIDEN', decimals: 8 },
+      limit: '20',
       revision: 'revision-2',
       createdAt: 1,
       updatedAt: 2
     });
     await spendingLimits.put({
       accountId: 'account-b',
-      faucetId: 'faucet-a',
-      weeklyLimit: '30',
-      asset: { symbol: 'MIDEN', decimals: 8 },
+      limit: '30',
       revision: 'revision-3',
       createdAt: 3,
       updatedAt: 3
     });
 
     expect(await spendingLimits.count()).toBe(2);
-    expect(await spendingLimits.get(['account-a', 'faucet-a'])).toEqual(
-      expect.objectContaining({ dailyLimit: '20', revision: 'revision-2' })
+    expect(await spendingLimits.get('account-a')).toEqual(
+      expect.objectContaining({ limit: '20', revision: 'revision-2' })
     );
+  });
+
+  it('keys spending limits by account alone', async () => {
+    await spendingLimits.put({
+      accountId: 'acct-1',
+      limit: '50000000',
+      revision: 'rev-1',
+      createdAt: 1,
+      updatedAt: 1
+    });
+
+    await expect(spendingLimits.get('acct-1')).resolves.toMatchObject({ limit: '50000000' });
   });
 
   it('indexes the exact spending-limit authorization attached to a transaction', async () => {
