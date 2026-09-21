@@ -20,9 +20,9 @@ describe('lib/animation/presets', () => {
     mockReduce = false;
   });
 
-  it('exports the nine presets the design system names', () => {
+  it('exports the ten presets the design system names', () => {
     expect([...presetNames].sort()).toEqual(
-      ['fade', 'indicator', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
+      ['count', 'fade', 'indicator', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
     );
     expect(Object.keys(presets).sort()).toEqual([...presetNames].sort());
   });
@@ -84,6 +84,17 @@ describe('lib/animation/presets', () => {
       expect(presets.indicator.transition).toBe(springs.pill);
       expect(presets.indicator.initial).toBeUndefined();
       expect(presets.indicator.animate).toBeUndefined();
+    });
+
+    it('count: a 0.6s tween on the standard curve, with no targets of its own', () => {
+      expect(presets.count.transition).toEqual({
+        type: 'tween',
+        duration: durations.count,
+        ease: easings.standard
+      });
+      expect(durations.count).toBe(0.6);
+      expect(presets.count.initial).toBeUndefined();
+      expect(presets.count.animate).toBeUndefined();
     });
 
     it('shimmer: a 1.2s linear loop across the element', () => {

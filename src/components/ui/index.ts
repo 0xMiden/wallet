@@ -1,3 +1,6 @@
+export { AnimatedNumber } from './AnimatedNumber';
+export type { AnimatedNumberProps } from './AnimatedNumber';
+
 export { AccountsDrawer } from './AccountsDrawer';
 export type { AccountsDrawerProps } from './AccountsDrawer';
 

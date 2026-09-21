@@ -6,7 +6,12 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { getAdaptiveDecimalPlaces } from './adaptive-precision';
 import { getCurrentLocale, getNumberSymbols } from './core';
 
-export { getAdaptiveDecimalPlaces, toAdaptiveFixed, MAX_DISPLAY_DECIMAL_PLACES } from './adaptive-precision';
+export {
+  getAdaptiveDecimalPlaces,
+  toAdaptiveFixed,
+  adaptiveFormatterFor,
+  MAX_DISPLAY_DECIMAL_PLACES
+} from './adaptive-precision';
 
 /**
  * Tiny single-argument memoizer — was `micro-memoize` until we removed

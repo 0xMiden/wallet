@@ -11,6 +11,7 @@ import {
   toFixedRoundedDown,
   getAdaptiveDecimalPlaces,
   toAdaptiveFixed,
+  adaptiveFormatterFor,
   formatUsd,
   MAX_DISPLAY_DECIMAL_PLACES
 } from './numbers';
@@ -146,6 +147,26 @@ describe('adaptive amount formatting', () => {
     // 18 decimals is the deepest real token, so the clamp never truncates one.
     expect(getAdaptiveDecimalPlaces('0.000000000000000001')).toBe(19);
     expect(toAdaptiveFixed('0.000000000000000001')).toBe('0.0000000000000000010');
+  });
+});
+
+describe('adaptiveFormatterFor', () => {
+  it('formats the target exactly as toAdaptiveFixed does', () => {
+    expect(adaptiveFormatterFor(12.345)(12.345)).toBe(toAdaptiveFixed(12.345));
+    expect(adaptiveFormatterFor('0.001234')('0.001234')).toBe(toAdaptiveFixed('0.001234'));
+  });
+
+  it('holds the target precision for every value on the way to it', () => {
+    // Straight through toAdaptiveFixed, a frame near zero expands to four decimals on the way to a
+    // two-decimal destination, and the text changes width mid-count.
+    expect(toAdaptiveFixed(0.005)).toBe('0.0050');
+    expect(adaptiveFormatterFor(1)(0.005)).toBe('0.01');
+    expect(adaptiveFormatterFor(1)(0)).toBe('0.00');
+  });
+
+  it('takes the minimum places and rounding mode through to every value', () => {
+    expect(adaptiveFormatterFor(1, 4)(0.5)).toBe('0.5000');
+    expect(adaptiveFormatterFor(1, 2, BigNumber.ROUND_DOWN)(0.999)).toBe('0.99');
   });
 });
 

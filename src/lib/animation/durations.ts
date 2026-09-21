@@ -14,6 +14,12 @@ export const durations = {
   page: 0.34,
   /** A step swap inside one page: the `Navigator` flows and onboarding (`pageStepTransition`) */
   pageStep: 0.15,
+  /**
+   * A displayed number travelling from its old value to its new one (`presets.count`). Longer than
+   * `normal` on purpose: the whole point of the count is that the reader sees which way the number
+   * moved, and much under half a second reads as a flash rather than a climb.
+   */
+  count: 0.6,
   /** One pass of a looping shimmer (`presets.shimmer`) */
   shimmer: 1.2
 } as const;
