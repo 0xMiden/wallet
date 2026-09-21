@@ -290,6 +290,42 @@ describe('DeveloperSettings', () => {
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
   });
 
+  // A control that flips the form to Custom without touching a URL - the Network ID picker, the
+  // no-guardian checkbox - leaves a PRESET's URLs in the fields. Those must never become "what the
+  // user typed", or the next preset hop stores them and the typed endpoints are gone.
+  it('keeps the typed endpoints when the Network ID is changed between two presets', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(within(networkPicker).getByTestId('dev-endpoint-network-localnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+    // Only the URL fields come back: the network id is the one the last preset set, not the
+    // localnet that a whole-form capture would have carried into the restore.
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-devnet')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('keeps the typed endpoints when the no-guardian toggle is used between two presets', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(screen.getByTestId('dev-allow-no-guardian'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+    // Likewise: the toggle reads what the last preset set, not the `true` a whole-form capture
+    // would have restored alongside the URLs.
+    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+  });
+
   it('editing a field value flips the preset picker to custom', () => {
     render(<DeveloperSettings />);
     fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://custom.example' } });

@@ -138,30 +138,28 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   // The endpoints the user typed, kept while a preset is selected so choosing Custom again brings
   // them back. The picker is a radio group, so arrow keys commit every item they pass over: without
   // this, one keypress away from Custom replaced the fields and coming back kept the preset's URLs.
-  // Captured only when leaving Custom, never on a hop between two presets, or a two-step walk would
-  // restore the preset passed through instead of what was typed.
-  const customFieldsRef = useRef<EndpointOverride | null>(null);
+  // ONLY a keystroke defines them. Two other controls flip the form to Custom without touching a
+  // URL - the Network ID picker and the no-guardian checkbox - and while a preset's URLs are in the
+  // fields, so capturing the whole form whenever it reads Custom would store a PRESET's URLs as
+  // what the user typed and lose them on the next hop.
+  const customUrlsRef = useRef<Partial<Record<UrlFieldKey, string>> | null>(null);
 
   const applyPreset = (id: string) => {
     const network = ENDPOINT_PRESETS.find(preset => preset === id);
     if (network) {
-      setForm(prev => {
-        if (prev.presetName === CUSTOM_PRESET) customFieldsRef.current = prev;
-        return presetToOverride(network);
-      });
+      setForm(presetToOverride(network));
       return;
     }
-    // Back to Custom: the typed endpoints if there are any, otherwise the fields as they stand.
-    setForm(prev => ({ ...(customFieldsRef.current ?? prev), presetName: CUSTOM_PRESET }));
+    // Back to Custom: the typed endpoints over whatever the other controls have set since, so the
+    // network id and the no-guardian choice survive the round trip.
+    setForm(prev => ({ ...prev, ...(customUrlsRef.current ?? {}), presetName: CUSTOM_PRESET }));
   };
 
-  const setField = (key: UrlFieldKey, value: string) =>
-    setForm(prev => {
-      const next = { ...prev, [key]: value, presetName: CUSTOM_PRESET };
-      // Editing a field IS the custom value from now on.
-      customFieldsRef.current = next;
-      return next;
-    });
+  const setField = (key: UrlFieldKey, value: string) => {
+    // Outside the updater, which must stay pure: this needs no previous form.
+    customUrlsRef.current = { ...customUrlsRef.current, [key]: value };
+    setForm(prev => ({ ...prev, [key]: value, presetName: CUSTOM_PRESET }));
+  };
 
   const handleSave = async () => {
     setSaving(true);
