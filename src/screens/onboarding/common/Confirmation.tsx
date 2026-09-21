@@ -75,18 +75,11 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
       footer={
         showPasswordFallback ? (
           <>
-            <Button
-              tabIndex={0}
-              title={t('continueWithPassword')}
-              className="max-w-none"
-              onClick={onSwitchToPassword}
-              disabled={isLoading}
-            />
+            <Button tabIndex={0} title={t('continueWithPassword')} onClick={onSwitchToPassword} disabled={isLoading} />
             <Button
               tabIndex={0}
               title={t('tryBiometricAgain')}
               variant={ButtonVariant.Secondary}
-              className="max-w-none"
               onClick={onSubmit}
               isLoading={isLoading}
               disabled={isLoading}
@@ -96,7 +89,6 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
           <Button
             tabIndex={0}
             title={primaryButtonTitle}
-            className="max-w-none"
             onClick={onSubmit}
             isLoading={isLoading}
             disabled={isLoading}

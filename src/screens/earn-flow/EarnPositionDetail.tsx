@@ -60,7 +60,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
             disabled={!position.vaultId}
             // `Button` fires the tap haptic itself; calling it here too would buzz twice.
             onClick={() => navigate(`/earn/vaults/${position.vaultId}/deposit`)}
-            className="flex-1 max-w-none"
+            className="flex-1"
           />
           <Button
             data-testid="earn-withdraw-btn"
@@ -69,7 +69,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
             accent="earn"
             disabled={!position.id || Number(position.withdrawable) <= 0}
             onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
-            className="flex-1 max-w-none"
+            className="flex-1"
           />
         </>
       }

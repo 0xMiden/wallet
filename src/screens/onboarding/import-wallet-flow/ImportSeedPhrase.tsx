@@ -110,7 +110,6 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
           title={t('continue')}
           onClick={handleSubmit}
           disabled={!isValid || submitting}
-          className="max-w-none"
         />
       }
     >

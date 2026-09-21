@@ -139,7 +139,7 @@ export const NewContactPage: React.FC = () => {
             disabled={!canSave}
             isLoading={saving}
             data-testid="address-book-add-contact"
-            className="flex-1 max-w-none"
+            className="flex-1"
           />
         }
       >

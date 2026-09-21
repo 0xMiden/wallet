@@ -79,7 +79,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
           isLoading={primary.loading}
           disabled={primary.disabled || primary.loading}
           data-testid={primary['data-testid']}
-          className="w-full max-w-none"
+          className="w-full"
         />
         {secondary && (
           <Button
@@ -88,7 +88,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
             variant={ButtonVariant.Secondary}
             onClick={secondary.onPress}
             disabled={secondary.disabled}
-            className="w-full max-w-none"
+            className="w-full"
           />
         )}
       </div>

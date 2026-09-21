@@ -119,7 +119,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       {entry.cancel && (
         <Button
           variant={ButtonVariant.Ghost}
-          className="h-auto w-auto max-w-none p-1 border-0 rounded-md shrink-0"
+          className="h-auto w-auto mx-0 p-1 border-0 rounded-md shrink-0"
           onClick={handleCancelClick}
           data-testid={ExploreSelectors.CancelTransaction}
         >

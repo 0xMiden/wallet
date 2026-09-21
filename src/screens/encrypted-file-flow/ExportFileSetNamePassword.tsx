@@ -110,7 +110,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           variant={ButtonVariant.Primary}
           onClick={onGoNext}
           title={t('continue')}
-          className="flex-1 max-w-none"
+          className="flex-1"
           data-testid="export-file-submit"
           disabled={!passwordValue || !verifyPassword || !fileName || !isValidPassword}
         />

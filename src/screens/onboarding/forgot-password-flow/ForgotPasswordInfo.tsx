@@ -24,9 +24,7 @@ const ForgotPasswordInfoScreen: FC<ForgotPasswordInfoScreenProps> = ({ onClose, 
       <SubPageLayout
         title={t('forgotPassword')}
         onClose={onClose}
-        footer={
-          <Button className="max-w-none" data-testid="sign-out-button" title={t('signOut')} onClick={onSignOut} />
-        }
+        footer={<Button data-testid="sign-out-button" title={t('signOut')} onClick={onSignOut} />}
       >
         <div className="my-auto flex flex-col items-center gap-3 py-6 text-center">
           <Hero

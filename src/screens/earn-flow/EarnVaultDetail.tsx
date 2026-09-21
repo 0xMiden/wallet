@@ -58,7 +58,6 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           accent="earn"
           disabled={!vault.id}
           onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
-          className="max-w-none"
         />
       }
     >

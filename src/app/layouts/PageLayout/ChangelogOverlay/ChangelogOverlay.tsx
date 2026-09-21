@@ -82,6 +82,8 @@ export const ChangelogOverlay: FC = () => {
               <Button
                 variant={ButtonVariant.Primary}
                 className={classNames(
+                  // `max-w-none` stays: this is not the design system's CTA but a banner button
+                  // with a width of its own below, and the wide one (384px) is past the CTA cap.
                   'h-9 w-auto max-w-none mt-6 mx-auto rounded',
                   'bg-[#9f7aea] hover:bg-[#9f7aea]',
                   'text-pure-white font-inter text-[13px] font-semibold uppercase'

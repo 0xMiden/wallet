@@ -41,7 +41,6 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
         <>
           <Button
             tabIndex={0}
-            className="max-w-none"
             data-testid="onboarding-get-started"
             title={t('getStarted')}
             onClick={() => onSubmit?.('select-wallet-type')}
@@ -49,7 +48,6 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           {/* The second way in, as the secondary action under the primary one (Button brings the haptic). */}
           <Button
             id="import-link"
-            className="max-w-none"
             variant={ButtonVariant.Secondary}
             data-testid="onboarding-recover-account"
             title={t('recoverYourAccount')}

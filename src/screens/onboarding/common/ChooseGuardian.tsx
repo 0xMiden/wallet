@@ -276,7 +276,6 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         </Notice>
       )}
       <Button
-        className="max-w-none"
         data-testid="choose-guardian-continue"
         title={submitLabel ?? t('continue')}
         onClick={handleContinue}

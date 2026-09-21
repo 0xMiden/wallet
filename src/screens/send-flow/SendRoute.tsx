@@ -27,7 +27,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({ onBack, onConfirm, ...opti
           accent="send"
           onClick={onConfirm}
           data-testid="bridge-route-confirm"
-          className="w-full max-w-none"
+          className="w-full"
         />
       }
     >

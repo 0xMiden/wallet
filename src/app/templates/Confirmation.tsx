@@ -75,6 +75,8 @@ const Confirmation: FC<ConfirmationProps> = ({ delegated, testId }) => {
               <Button
                 variant={ButtonVariant.Ghost}
                 className={classNames(
+                  // `max-w-none` stays: this button's width is its `max-w-sm` wrapper's, not the
+                  // CTA cap's, and it is not the design system's pill (own height, radius, padding).
                   'h-auto w-full max-w-none px-8 border-0',
                   'rounded-lg',
                   'bg-chip-bg',

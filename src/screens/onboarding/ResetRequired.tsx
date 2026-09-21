@@ -22,7 +22,7 @@ const ResetRequiredScreen: FC<ResetRequiredScreenProps> = ({ onConfirm }) => {
     <div className="mx-auto flex h-full w-full max-w-[600px] flex-col bg-app-bg" data-testid="reset-required">
       <SubPageLayout
         title={t('resetRequired')}
-        footer={<Button className="max-w-none" data-testid="reset-button" title={t('reset')} onClick={onConfirm} />}
+        footer={<Button data-testid="reset-button" title={t('reset')} onClick={onConfirm} />}
       >
         <div className="my-auto flex flex-col items-center gap-3 py-6 text-center">
           <Hero

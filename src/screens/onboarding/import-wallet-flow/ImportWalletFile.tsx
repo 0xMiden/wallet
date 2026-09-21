@@ -327,7 +327,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
           <Button
             type="submit"
             isLoading={isSubmitting || isRestoring}
-            className="max-w-none"
             disabled={isSubmitting || isRestoring || (pendingRestore == null && (!isValid || !walletFile))}
           >
             {pendingRestore != null ? t('continueImport') : t('import')}

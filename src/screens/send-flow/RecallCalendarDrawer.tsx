@@ -217,7 +217,6 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
                 title={t('confirm')}
                 accent="send"
                 disabled={selectionInPast}
-                className="max-w-none"
                 onClick={() => applyDateTimeSelection(recallDate, recallTime)}
               />
             )}
@@ -226,7 +225,6 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
             <Button
               title={t('never')}
               variant={ButtonVariant.Secondary}
-              className="max-w-none"
               onClick={() => {
                 onRecallNever();
                 onOpenChange(false);

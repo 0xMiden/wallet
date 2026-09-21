@@ -296,7 +296,6 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       description={t('chooseRecoveryMethodDescription')}
       footer={
         <Button
-          className="max-w-none"
           data-testid="recovery-method-continue"
           title={t('continue')}
           onClick={handleContinue}

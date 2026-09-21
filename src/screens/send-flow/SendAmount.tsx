@@ -92,7 +92,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="send-amount-confirm"
-          className="w-full max-w-none"
+          className="w-full"
         />
       }
     >

@@ -113,7 +113,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="swap-review-submit"
-          className="w-full max-w-none"
+          className="w-full"
         >
           {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
         </Button>

@@ -287,7 +287,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           // the CTA rather than rendering a live-but-dead button.
           disabled={!canProceed || !onConfirm}
           data-testid="send-amount-confirm"
-          className="w-full max-w-none"
+          className="w-full"
         />
       </div>
     </div>

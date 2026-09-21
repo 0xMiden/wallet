@@ -215,7 +215,7 @@ const Toolbar: FC<ToolbarProps> = ({
         {navigationStyle === 'back' && isBackButtonAvailable && (
           <Button
             variant={ButtonVariant.Ghost}
-            className="h-12 w-12 max-w-none shrink-0 rounded-xl border-0 bg-fill p-3 text-primary-500 hover:bg-fill"
+            className="h-12 w-12 mx-0 shrink-0 rounded-xl border-0 bg-fill p-3 text-primary-500 hover:bg-fill"
             onClick={step ? onStepBack : onBack}
             data-testid={PageLayoutSelectors.BackButton}
           >
@@ -241,7 +241,7 @@ const Toolbar: FC<ToolbarProps> = ({
             <Button
               variant={ButtonVariant.Ghost}
               className={classNames(
-                'h-auto w-auto max-w-none p-2 border-0',
+                'h-auto w-auto mx-0 p-2 border-0',
                 'text-ink font-bold text-shadow-black',
                 'opacity-90 hover:opacity-100'
               )}
@@ -261,7 +261,7 @@ const Toolbar: FC<ToolbarProps> = ({
           <Button
             variant={ButtonVariant.Ghost}
             className={classNames(
-              'h-auto w-auto max-w-none px-4 py-2 border-0',
+              'h-auto w-auto mx-0 px-4 py-2 border-0',
               'rounded',
               'font-sans text-ink text-shadow-black',
               'text-sm font-semibold leading-none',

@@ -220,12 +220,7 @@ const GuardianSettings: FC = () => {
       // cold key (seed removed, hot-key-only import) gets a seed phrase prompt
       // for the one transaction instead of losing the action.
       footer={
-        <Button
-          className="flex-1 max-w-none"
-          data-testid="rotateGuardian"
-          title={t('rotateGuardian')}
-          onClick={handleRotate}
-        />
+        <Button className="flex-1" data-testid="rotateGuardian" title={t('rotateGuardian')} onClick={handleRotate} />
       }
     >
       {/* The provider's logo on the same brand tile the guardian picker's cards draw, at hero size,

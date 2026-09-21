@@ -118,7 +118,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
         disabled={!trimmedName || saving}
         isLoading={saving}
         data-testid="address-book-add-contact"
-        className="w-full max-w-none"
+        className="w-full"
       />
     </form>
   );

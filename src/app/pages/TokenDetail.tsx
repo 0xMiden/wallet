@@ -126,7 +126,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               accent="send"
               onClick={() => navigate({ pathname: '/send', search: `?tokenId=${tokenId}` })}
               data-testid="token-detail-send"
-              className="min-w-0 flex-1 max-w-none"
+              className="min-w-0 flex-1"
             >
               <SendIcon aria-hidden="true" className="h-4 w-4 shrink-0 [&_path]:fill-current" />
               <span className="truncate">{t('send')}</span>
@@ -136,7 +136,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               accent="receive"
               onClick={() => navigate('/receive')}
               data-testid="token-detail-receive"
-              className="min-w-0 flex-1 max-w-none"
+              className="min-w-0 flex-1"
             >
               <ReceiveIcon aria-hidden="true" className="h-4 w-4 shrink-0 [&_path]:fill-current" />
               <span className="truncate">{t('receive')}</span>

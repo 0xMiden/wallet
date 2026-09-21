@@ -69,7 +69,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
             </div>
           </div>
           <DrawerFooter className="shrink-0">
-            <Button onClick={handleConnect} className="max-w-none" data-testid="evm-connect-open-wallet">
+            <Button onClick={handleConnect} data-testid="evm-connect-open-wallet">
               {t('openWallet')}
             </Button>
           </DrawerFooter>

@@ -180,7 +180,7 @@ const FooterAction: FC<{ action: SuccessAction; accent: FlowAccent }> = ({ actio
     accent={accent}
     title={action.label}
     onClick={action.onClick}
-    className="w-full max-w-none"
+    className="w-full"
   />
 );
 

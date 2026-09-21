@@ -65,9 +65,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
           <span>{t('seedPhraseRecoveryCaption')}</span>
         </span>
       }
-      footer={
-        <Button className="max-w-none" data-testid="backup-seed-continue" title={t('continue')} onClick={onSubmit} />
-      }
+      footer={<Button data-testid="backup-seed-continue" title={t('continue')} onClick={onSubmit} />}
     >
       <div className="flex flex-col gap-3">
         <article className="grid grid-cols-3 gap-2">

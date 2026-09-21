@@ -314,7 +314,6 @@ const RotateGuardianReview: FC = () => {
           footer={
             isMobile() ? undefined : (
               <Button
-                className="max-w-none"
                 data-testid="rotate-guardian-auth-submit"
                 title={t('continue')}
                 onClick={() => handlePasswordSubmit()}
@@ -377,7 +376,6 @@ const RotateGuardianReview: FC = () => {
               </Notice>
             )}
             <Button
-              className="max-w-none"
               data-testid="rotate-guardian-confirm"
               title={t('continue')}
               onClick={handleContinue}

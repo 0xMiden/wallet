@@ -94,7 +94,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             accent="earn"
             onClick={handleWithdraw}
             disabled={isSubmitting || amountValue <= 0 || !position.id}
-            className="w-full max-w-none"
+            className="w-full"
           />
         </>
       }

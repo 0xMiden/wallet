@@ -241,7 +241,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
       footer={
         usePasscodeEntry ? undefined : (
           <Button
-            className="flex-1 max-w-none"
+            className="flex-1"
             variant={ButtonVariant.Primary}
             title={t('saveAccountFile')}
             disabled={!canSubmit}

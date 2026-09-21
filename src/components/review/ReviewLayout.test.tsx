@@ -71,11 +71,14 @@ describe('ReviewLayout', () => {
       expect(btn).toHaveAttribute('data-variant', 'primary');
     });
 
-    it('carries only layout classes (w-full, max-w-none), no restyling override', () => {
+    it('carries only the layout class (w-full): no restyling, and no override of the CTA cap', () => {
       render(<ReviewLayout {...makeProps()} />);
       const btn = screen.getByRole('button', { name: 'Confirm' });
-      expect(btn).toHaveClass('w-full', 'max-w-none');
+      expect(btn).toHaveClass('w-full');
       expect(btn.className).not.toMatch(/rounded-full|text-base|font-semibold/);
+      // The width the CTA is drawn at is `Button`'s own (`max-w-cta mx-auto`). A review page does
+      // not unpin it — unpinning it is what sent Confirm edge to edge with no margin either side.
+      expect(btn.className).not.toMatch(/max-w-none/);
     });
 
     it("defaults the primary button type to 'button' when not provided", () => {

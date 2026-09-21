@@ -504,12 +504,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             </Notice>
           )}
           {showClaimRoute && (
-            <Button
-              variant={ButtonVariant.Primary}
-              title={t('swapOpenPendingNotes')}
-              onClick={onOpenPendingNotes}
-              className="max-w-none"
-            />
+            <Button variant={ButtonVariant.Primary} title={t('swapOpenPendingNotes')} onClick={onOpenPendingNotes} />
           )}
           {offerCancelOrder && (
             <Button
@@ -519,7 +514,6 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               isLoading={isCancellingOrder}
               disabled={isCancellingOrder}
               onClick={onCancelOrder}
-              className="max-w-none"
             />
           )}
         </div>

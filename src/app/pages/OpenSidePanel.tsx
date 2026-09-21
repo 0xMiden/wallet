@@ -72,11 +72,7 @@ const OpenSidePanel: FC = () => {
           <p className="text-body text-muted">{t('creatingYourWallet')}</p>
         </div>
       ) : (
-        <SubPageLayout
-          footer={
-            <Button tabIndex={0} title={t('openWallet')} className="max-w-none" onClick={onOpen} isLoading={opening} />
-          }
-        >
+        <SubPageLayout footer={<Button tabIndex={0} title={t('openWallet')} onClick={onOpen} isLoading={opening} />}>
           <Hero
             nameAs="h1"
             className="my-auto py-6"

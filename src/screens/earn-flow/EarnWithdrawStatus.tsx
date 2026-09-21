@@ -103,13 +103,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
       title={t('transactionProcessingHeader')}
       onClose={onDone}
       footer={
-        <Button
-          type="button"
-          variant={ButtonVariant.Primary}
-          accent="earn"
-          onClick={onDone}
-          className="w-full max-w-none"
-        >
+        <Button type="button" variant={ButtonVariant.Primary} accent="earn" onClick={onDone} className="w-full">
           {failed ? t('done') : t('hide')}
         </Button>
       }

@@ -38,7 +38,6 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
       description={t('networkNoticeBody')}
       footer={
         <Button
-          className="max-w-none"
           title={t('iUnderstand')}
           data-testid="onboarding-network-notice-acknowledge"
           disabled={!allChecked}

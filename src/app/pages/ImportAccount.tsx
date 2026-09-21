@@ -61,7 +61,7 @@ const ImportAccount: FC = () => {
           type="submit"
           form={FORM_ID}
           data-testid="import-account-submit"
-          className="flex-1 max-w-none"
+          className="flex-1"
           isLoading={isSubmitting}
           disabled={isSubmitting}
         >

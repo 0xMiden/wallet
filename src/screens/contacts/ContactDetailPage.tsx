@@ -125,7 +125,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
             disabled={!trimmedName || !changed || saving}
             isLoading={saving}
             data-testid="contact-save"
-            className="flex-1 max-w-none"
+            className="flex-1"
           />
         }
       >
@@ -145,7 +145,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
           variant={ButtonVariant.Destructive}
           onClick={() => void remove()}
           data-testid="contact-delete"
-          className="w-full max-w-none"
+          className="w-full"
         />
       </SubPageLayout>
     );
@@ -167,7 +167,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
           variant={ButtonVariant.Primary}
           onClick={() => navigate(sendToContactPath(contact))}
           data-testid="contact-send"
-          className="flex-1 max-w-none"
+          className="flex-1"
         />
       }
     >

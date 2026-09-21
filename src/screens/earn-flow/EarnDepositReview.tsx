@@ -171,7 +171,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               accent="earn"
               onClick={handleOpenPosition}
               disabled={isSubmitting || amountValue <= 0 || !vault.id}
-              className="w-full max-w-none"
+              className="w-full"
             />
           </>
         }

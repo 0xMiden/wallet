@@ -409,7 +409,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 isLoading={isRetrying}
                 disabled={isRetrying}
                 onClick={onRetry}
-                className="w-full max-w-none"
+                className="w-full"
               >
                 {t('retry')}
               </Button>
@@ -419,7 +419,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
               accent={accent}
               onClick={onDoneClick}
-              className="w-full max-w-none"
+              className="w-full"
             >
               {actionTitle}
             </Button>
@@ -435,7 +435,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 onClick={() =>
                   navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
                 }
-                className="w-full max-w-none"
+                className="w-full"
               >
                 {t('viewInActivities')}
               </Button>
@@ -456,7 +456,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 isLoading={isRetrying}
                 disabled={isRetrying}
                 onClick={onRetryAnyway}
-                className="w-full max-w-none"
+                className="w-full"
               >
                 {t('retryAnyway')}
               </Button>

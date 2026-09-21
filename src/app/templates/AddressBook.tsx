@@ -62,7 +62,7 @@ const AddressBook: React.FC = () => {
           variant={ButtonVariant.Secondary}
           onClick={() => navigate(NEW_CONTACT_PATH)}
           data-testid="address-book-new-contact"
-          className="flex-1 max-w-none"
+          className="flex-1"
         />
       }
     >

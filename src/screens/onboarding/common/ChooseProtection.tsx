@@ -23,13 +23,8 @@ export const ChooseProtectionScreen: React.FC<ChooseProtectionScreenProps> = ({
       title={t('chooseHowToProtect')}
       footer={
         <>
-          <Button className="max-w-none" title={t('useFaceIdOrBiometric')} onClick={onSelectBiometric} />
-          <Button
-            className="max-w-none"
-            title={t('setUpYourPasscode')}
-            variant={ButtonVariant.Secondary}
-            onClick={onSelectPasscode}
-          />
+          <Button title={t('useFaceIdOrBiometric')} onClick={onSelectBiometric} />
+          <Button title={t('setUpYourPasscode')} variant={ButtonVariant.Secondary} onClick={onSelectPasscode} />
         </>
       }
     >

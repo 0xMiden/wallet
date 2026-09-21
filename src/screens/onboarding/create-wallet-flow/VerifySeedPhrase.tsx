@@ -145,9 +145,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
     </>
   );
 
-  const continueButton = (
-    <Button className="max-w-none" disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} />
-  );
+  const continueButton = <Button disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} />;
 
   // Embedded (the Settings re-verify flow draws its own page): the quiz and its button, no frame.
   if (!showIntro) {

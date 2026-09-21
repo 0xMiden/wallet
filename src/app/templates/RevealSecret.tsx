@@ -391,7 +391,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         showButton &&
         !usePasscodeEntry && (
           <Button
-            className="flex-1 max-w-none"
+            className="flex-1"
             variant={ButtonVariant.Primary}
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}
             disabled={

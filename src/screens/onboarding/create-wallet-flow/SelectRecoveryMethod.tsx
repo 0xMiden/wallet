@@ -67,7 +67,7 @@ export const SelectRecoveryMethodScreen = ({
       data-testid={dataTestId}
       title={t('chooseRecoveryMethod')}
       description={t('chooseRecoveryMethodDescription')}
-      footer={<Button className="max-w-none" title={t('continue')} onClick={handleContinue} />}
+      footer={<Button title={t('continue')} onClick={handleContinue} />}
     >
       <ChoiceCardGroup items={items} value={selected} onChange={setSelected} aria-label={t('chooseRecoveryMethod')} />
     </OnboardingStepLayout>

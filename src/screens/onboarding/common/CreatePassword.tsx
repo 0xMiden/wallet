@@ -178,7 +178,6 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ onSu
             .
           </p>
           <Button
-            className="max-w-none"
             data-testid="create-password-submit"
             title={t('continue')}
             disabled={!isValidPassword}

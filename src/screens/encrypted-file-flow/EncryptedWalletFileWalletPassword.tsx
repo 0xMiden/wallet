@@ -148,7 +148,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
       footer={
         usePasscodeEntry ? undefined : (
           <Button
-            className="flex-1 max-w-none"
+            className="flex-1"
             variant={ButtonVariant.Primary}
             data-testid="encrypted-file-wallet-password-submit"
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}

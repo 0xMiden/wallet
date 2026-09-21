@@ -194,8 +194,9 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(copy).toHaveAttribute('data-size', 'sm');
       expect(show.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
       expect(copy.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
-      // Continue keeps the plain lg CTA anatomy, only spanning the pinned footer.
-      expect(screen.getByTestId('btn-continue').getAttribute('data-classname')).toBe('max-w-none');
+      // Continue keeps the plain lg CTA anatomy and passes no class at all: its width in the
+      // pinned footer is `Button`'s own, capped and centred, not something this page decides.
+      expect(screen.getByTestId('btn-continue').getAttribute('data-classname')).toBeNull();
     });
 
     it("gives the show/copy row buttons equal flex-1 shares instead of a fixed w-1/2 (so a longer ru/uk label doesn't overflow at 320px), 10px apart", () => {

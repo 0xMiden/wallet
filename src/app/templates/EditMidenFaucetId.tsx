@@ -66,7 +66,7 @@ const EditMidenFaucetId: FC = () => {
       onSubmit={handleSubmit(onSubmit)}
       footer={
         // Outside the form (it is pinned under the body), so it names the form it submits.
-        <Button type="submit" form={FORM_ID} className="flex-1 max-w-none" isLoading={isSubmitting}>
+        <Button type="submit" form={FORM_ID} className="flex-1" isLoading={isSubmitting}>
           {t('setNewFaucetId')}
         </Button>
       }

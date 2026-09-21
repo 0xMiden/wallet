@@ -177,7 +177,7 @@ const RevealSeedPhrase: FC = () => {
         title={t('recoveryPhrase')}
         onBack={leave}
         data-testid="reveal-seed-state"
-        footer={<Button className="flex-1 max-w-none" title={t('close')} onClick={leave} />}
+        footer={<Button className="flex-1" title={t('close')} onClick={leave} />}
       >
         {/* Three distinct states, not two: a removal still to finish, one that
             finished, and a wallet imported from a key that never had a phrase
@@ -196,14 +196,9 @@ const RevealSeedPhrase: FC = () => {
         data-testid="reveal-seed-warning"
         footer={
           <>
+            <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
             <Button
-              className="flex-1 max-w-none"
-              variant={ButtonVariant.Secondary}
-              title={t('close')}
-              onClick={leave}
-            />
-            <Button
-              className="flex-1 max-w-none"
+              className="flex-1"
               variant={ButtonVariant.Primary}
               title={t('view')}
               onClick={handleView}
@@ -235,7 +230,7 @@ const RevealSeedPhrase: FC = () => {
         data-testid="reveal-seed-review"
         footer={
           <Button
-            className="flex-1 max-w-none"
+            className="flex-1"
             variant={ButtonVariant.Primary}
             title={t('hideRecoveryPhrase')}
             onClick={handleHide}

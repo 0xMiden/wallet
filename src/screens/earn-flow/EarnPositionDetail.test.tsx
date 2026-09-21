@@ -285,10 +285,14 @@ describe('EarnPositionDetail', () => {
     // classes, not a caller override, so they're expected and not asserted against here).
     const depositMore = screen.getByTestId('earn-deposit-more-btn');
     const withdraw = screen.getByTestId('earn-withdraw-btn');
-    expect(depositMore).toHaveClass('max-w-none');
+    // The grid-placement class is `flex-1` — the pair's own even split of the row. Neither
+    // unpins the CTA cap: a pair inside the page margin never reaches it anyway.
+    expect(depositMore).toHaveClass('flex-1');
     expect(depositMore.className).not.toMatch(/bg-white|h-14|border-rule-strong|\btext-base\b|\bfont-bold\b/);
-    expect(withdraw).toHaveClass('max-w-none');
+    expect(depositMore.className).not.toMatch(/max-w-none/);
+    expect(withdraw).toHaveClass('flex-1');
     expect(withdraw.className).not.toMatch(/h-14|\btext-base\b|\bfont-bold\b/);
+    expect(withdraw.className).not.toMatch(/max-w-none/);
 
     // The spec's 10px gap between the two side-by-side 52px CTAs.
     expect(depositMore.parentElement).toBe(withdraw.parentElement);

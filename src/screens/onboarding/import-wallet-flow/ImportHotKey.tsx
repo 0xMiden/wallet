@@ -109,7 +109,6 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
       description={t('importHotKeyDescription')}
       footer={
         <Button
-          className="max-w-none"
           data-testid="import-hot-key-submit"
           title={t('continue')}
           disabled={!isGuardReady || !pair || busy || submitting}
@@ -129,7 +128,6 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
           {!manual && (
             <>
               <Button
-                className="max-w-none"
                 variant={ButtonVariant.Secondary}
                 title={t('scanQrTitle')}
                 onClick={scan}
@@ -141,7 +139,6 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
             </>
           )}
           <Button
-            className="max-w-none"
             title={t('uploadQrImage')}
             variant={ButtonVariant.Secondary}
             onClick={() => fileRef.current?.click()}

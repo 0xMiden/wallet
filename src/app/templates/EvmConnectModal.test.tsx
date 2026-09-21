@@ -99,10 +99,14 @@ describe('EvmConnectModal (#875)', () => {
     expect(screen.getByTestId('drawer-content')).toHaveClass('overflow-hidden');
   });
 
-  it('stretches "Open wallet" across the footer instead of the 370px CTA cap', () => {
+  it('draws "Open wallet" at the shared CTA width rather than unpinning the cap', () => {
     render(<EvmConnectModal open onOpenChange={jest.fn()} />);
 
-    expect(screen.getByTestId('evm-connect-open-wallet')).toHaveClass('max-w-none');
+    // A drawer footer is a page row like any other: `Button` fills it up to `max-w-cta` and
+    // centres there, keeping the page margin either side instead of running to both edges. The
+    // drawer says nothing about width — `Button` is mocked here, so what is checked is that this
+    // caller passes no width class of its own, not the class the real one resolves to.
+    expect(screen.getByTestId('evm-connect-open-wallet').className).toBe('');
   });
 
   it('hands a dismiss (header X, swipe, overlay tap) to its onOpenChange prop', () => {

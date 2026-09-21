@@ -1073,7 +1073,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               isLoading={actions.isCancelling}
               disabled={actions.isCancelling}
               onClick={actions.onCancel}
-              className="max-w-none"
             />
           </div>
         )}
@@ -1106,7 +1105,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               isLoading={actions.isRetrying}
               disabled={actions.isRetrying}
               onClick={() => actions.onRetry(false)}
-              className="max-w-none"
             />
             {/* Only after the refusal above has been shown, so the warning is
                 always read first. */}
@@ -1118,7 +1116,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 isLoading={actions.isRetrying}
                 disabled={actions.isRetrying}
                 onClick={() => actions.onRetry(true)}
-                className="mt-2 max-w-none"
+                className="mt-2"
               />
             )}
           </div>

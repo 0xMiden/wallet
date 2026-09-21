@@ -206,7 +206,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     }
   }, [fileName, t]);
 
-  const actionButton = 'flex-1 max-w-none';
+  const actionButton = 'flex-1';
 
   if (exportState === 'pending') {
     return (

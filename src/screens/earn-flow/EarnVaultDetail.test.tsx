@@ -214,10 +214,11 @@ describe('EarnVaultDetail', () => {
 
     // Was `h-14 max-w-none rounded-full text-lg font-bold` (`rounded-full` and
     // `font-extrabold` below are the canonical Button's own base classes, not a
-    // caller override, so they're expected and not asserted against here).
+    // caller override, so they're expected and not asserted against here). The page now passes
+    // no class at all: the CTA's width is the shared one, capped and centred.
     const depositBtn = screen.getByTestId('earn-vault-deposit-btn');
-    expect(depositBtn).toHaveClass('max-w-none');
-    expect(depositBtn.className).not.toMatch(/h-14|\btext-lg\b|\bfont-bold\b/);
+    expect(depositBtn).toHaveClass('max-w-cta', 'mx-auto');
+    expect(depositBtn.className).not.toMatch(/h-14|\btext-lg\b|\bfont-bold\b|max-w-none/);
   });
 
   it('renders the audited vault: header, APY block, stats, about and chart', () => {

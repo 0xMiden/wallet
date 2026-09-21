@@ -175,7 +175,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     }
   };
 
-  const actionButton = 'flex-1 max-w-none';
+  const actionButton = 'flex-1';
 
   if (seedStatus && seedStatus !== 'stored') {
     return (
