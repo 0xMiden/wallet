@@ -55,6 +55,12 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockWalletStoreState) => unknown) => selector(mockWalletStoreState)
 }));
 
+// Set by a test that needs the mock challenge to hand back an authorization for a DIFFERENT
+// account than the one the challenge itself was opened for - a stale/forged credential, which the
+// real `SpendingLimitChallenge` never produces (its authorization always carries the challenge's
+// own `source.accountId`) but which `runOpenPosition` must independently refuse.
+let mockAuthorizationAccountOverride: string | undefined;
+
 jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => {
     const source = props.assessment ?? props.unpriced;
@@ -68,7 +74,7 @@ jest.mock('components/SpendingLimitChallenge', () => ({
             props.onResult({
               kind: props.assessment !== undefined ? 'usd' : 'unpriced',
               id: 'authorization-1',
-              accountId: source.accountId,
+              accountId: mockAuthorizationAccountOverride ?? source.accountId,
               revision: source.revision,
               issuedAt: 100,
               expiresAt: 220
@@ -187,6 +193,7 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 describe('EarnDepositReview', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthorizationAccountOverride = undefined;
     mockLocation.search = '';
     mockAccount.evmAddress = '0xdeadbeef';
     mockAccount.type = undefined;
@@ -322,6 +329,21 @@ describe('EarnDepositReview', () => {
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
+    it('discards a forged authorization for a different account instead of depositing against it', async () => {
+      // `SpendingLimitChallenge` always mints an authorization bound to the account its own
+      // assessment named; this plants a forged/stale one directly to prove `runOpenPosition`
+      // refuses it on its own, independently of the staleness guard above.
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockAuthorizationAccountOverride = 'mm1someotheraccount';
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+      fireEvent.click(await screen.findByRole('button', { name: 'authorize-limit' }));
+
+      await waitFor(() => expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument());
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
     it('opens the unvalued challenge when the pre-check cannot price the deposit', async () => {
       mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
         code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
@@ -337,6 +359,51 @@ describe('EarnDepositReview', () => {
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
+    it('falls back to the generic error when the pre-check itself cannot open the unpriced challenge', async () => {
+      // Distinct from the success case above: `readSpendingLimit` fails outright (a storage
+      // fault), reached from `handleOpenPosition`'s own catch before `runOpenPosition` is entered.
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'USDC'
+      });
+      mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      // The outer catch's `error` is still the original price-unavailable object (not an Error),
+      // so this is the fallback copy, not the inner storage failure's own message.
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('shows a real Error rejection from the pre-check by its own message', async () => {
+      // Not price-unavailable and not an authorization-required breach - a genuine pre-check
+      // failure, which must surface as itself rather than the generic fallback copy.
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('assessment backend down')).toBeInTheDocument();
+    });
+
+    it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'USDC'
+      });
+      mockWalletStoreState.readSpendingLimit.mockResolvedValue(undefined);
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
     it('opens the unvalued challenge when the actual deposit cannot be priced', async () => {
       mockOpenEarnPosition.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'USDC' });
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
@@ -345,6 +412,26 @@ describe('EarnDepositReview', () => {
 
       expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
       expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+    });
+
+    it('re-enables the CTA when the drawer authorize path cannot open the unpriced challenge', async () => {
+      // `runOpenPosition`'s own `openUnpricedChallenge` attempt throws here, not the pre-check's -
+      // reached only once a breach already opened the challenge and the user re-authorizes into an
+      // actual deposit that itself cannot be priced.
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockOpenEarnPosition.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'USDC' });
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+      expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+
+      // Same reasoning as the pre-check case above: the outer catch's `error` is the original
+      // price-unavailable object, so this is the fallback copy, not the storage failure's message.
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     });
 
     it('cancels the Earn challenge before quote or intent work and preserves the amount', async () => {
