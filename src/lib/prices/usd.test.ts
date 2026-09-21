@@ -1,5 +1,6 @@
-import { fetchTokenPrices } from './binance';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+
+import { fetchTokenPrices } from './binance';
 import { getPriceMicro, isCoveredSymbol, toPriceMicro, writeUsdPriceCache, __resetUsdPriceCacheForTests } from './usd';
 
 jest.mock('./binance', () => ({ fetchTokenPrices: jest.fn() }));
@@ -96,6 +97,12 @@ describe('getPriceMicro', () => {
 
   it('ignores a malformed cache entry rather than trusting it', async () => {
     mockedRead.mockResolvedValue({ ETH: { priceMicro: '4000.5', fetchedAt: 1_000 } });
+
+    await expect(getPriceMicro('ETH', 1_050)).resolves.toBeUndefined();
+  });
+
+  it('ignores a null cache entry rather than crashing', async () => {
+    mockedRead.mockResolvedValue({ ETH: null });
 
     await expect(getPriceMicro('ETH', 1_050)).resolves.toBeUndefined();
   });

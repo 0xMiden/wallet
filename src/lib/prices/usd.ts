@@ -72,7 +72,7 @@ export const writeUsdPriceCache = async (
 
 const cachedPriceMicro = (cache: UsdPriceCache, symbol: string, now: number): bigint | undefined => {
   const entry = cache[symbol];
-  if (entry === undefined) return undefined;
+  if (entry === undefined || entry === null || typeof entry !== 'object') return undefined;
   if (typeof entry.priceMicro !== 'string' || !CANONICAL_PRICE.test(entry.priceMicro)) return undefined;
   if (!Number.isSafeInteger(entry.fetchedAt) || entry.fetchedAt < 0) return undefined;
   // A future-dated entry is a skewed clock, not evidence of freshness.
