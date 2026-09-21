@@ -77,8 +77,8 @@ export enum WalletMessageType {
   ImportMnemonicAccountResponse = 'IMPORT_MNEMONIC_ACCOUNT_RESPONSE',
   UpdateSettingsRequest = 'UPDATE_SETTINGS_REQUEST',
   UpdateSettingsResponse = 'UPDATE_SETTINGS_RESPONSE',
-  GetSpendingLimitsRequest = 'GET_SPENDING_LIMITS_REQUEST',
-  GetSpendingLimitsResponse = 'GET_SPENDING_LIMITS_RESPONSE',
+  GetSpendingLimitRequest = 'GET_SPENDING_LIMIT_REQUEST',
+  GetSpendingLimitResponse = 'GET_SPENDING_LIMIT_RESPONSE',
   SaveSpendingLimitRequest = 'SAVE_SPENDING_LIMIT_REQUEST',
   SaveSpendingLimitResponse = 'SAVE_SPENDING_LIMIT_RESPONSE',
   AssessSpendingLimitRequest = 'ASSESS_SPENDING_LIMIT_REQUEST',
@@ -800,14 +800,14 @@ export interface UpdateSettingsResponse extends WalletMessageBase {
   type: WalletMessageType.UpdateSettingsResponse;
 }
 
-export interface GetSpendingLimitsRequest extends WalletMessageBase {
-  type: WalletMessageType.GetSpendingLimitsRequest;
+export interface GetSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitRequest;
   accountId: string;
 }
 
-export interface GetSpendingLimitsResponse extends WalletMessageBase {
-  type: WalletMessageType.GetSpendingLimitsResponse;
-  configurations: PersistedSpendingLimit[];
+export interface GetSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitResponse;
+  configuration?: PersistedSpendingLimit;
 }
 
 export interface SaveSpendingLimitRequest extends WalletMessageBase {
@@ -822,11 +822,15 @@ export interface SaveSpendingLimitResponse extends WalletMessageBase {
   configuration?: PersistedSpendingLimit;
 }
 
+export interface SerializedSpend {
+  faucetId: string;
+  amount: string;
+}
+
 export interface AssessSpendingLimitRequest extends WalletMessageBase {
   type: WalletMessageType.AssessSpendingLimitRequest;
   accountId: string;
-  faucetId: string;
-  amount: string;
+  spends: SerializedSpend[];
 }
 
 export interface AssessSpendingLimitResponse extends WalletMessageBase {
@@ -1220,7 +1224,7 @@ export type WalletRequest =
   | ImportMnemonicAccountRequest
   | ConfirmationRequest
   | UpdateSettingsRequest
-  | GetSpendingLimitsRequest
+  | GetSpendingLimitRequest
   | SaveSpendingLimitRequest
   | AssessSpendingLimitRequest
   | GetStrictAuthenticationProtectorsRequest
@@ -1295,7 +1299,7 @@ export type WalletResponse =
   | ImportMnemonicAccountResponse
   | ConfirmationResponse
   | UpdateSettingsResponse
-  | GetSpendingLimitsResponse
+  | GetSpendingLimitResponse
   | SaveSpendingLimitResponse
   | AssessSpendingLimitResponse
   | GetStrictAuthenticationProtectorsResponse

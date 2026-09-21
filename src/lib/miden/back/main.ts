@@ -565,11 +565,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.UpdateSettingsResponse
       };
-    case WalletMessageType.GetSpendingLimitsRequest:
+    case WalletMessageType.GetSpendingLimitRequest: {
+      const configuration = await Actions.getSpendingLimit(req.accountId);
       return {
-        type: WalletMessageType.GetSpendingLimitsResponse,
-        configurations: await Actions.listSpendingLimits(req.accountId)
+        type: WalletMessageType.GetSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
       };
+    }
     case WalletMessageType.SaveSpendingLimitRequest: {
       const configuration = await Actions.saveSpendingLimit(req.draft, req.observedRevision, req.strictlyAuthenticated);
       return {
@@ -578,7 +580,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       };
     }
     case WalletMessageType.AssessSpendingLimitRequest: {
-      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.faucetId, req.amount);
+      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.spends);
       return {
         type: WalletMessageType.AssessSpendingLimitResponse,
         ...(assessment !== undefined && { assessment })

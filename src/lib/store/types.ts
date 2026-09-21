@@ -2,6 +2,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wall
 
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
+import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import type {
@@ -179,7 +180,7 @@ export interface WalletActions {
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
-  listSpendingLimits: (accountId: string) => Promise<SpendingLimitConfiguration[]>;
+  readSpendingLimit: (accountId: string) => Promise<SpendingLimitConfiguration | undefined>;
   saveSpendingLimit: (
     draft: SpendingLimitDraft,
     observedRevision: string | undefined,
@@ -187,8 +188,7 @@ export interface WalletActions {
   ) => Promise<SpendingLimitConfiguration | undefined>;
   assessSpendingLimit: (
     accountId: string,
-    faucetId: string,
-    amount: bigint
+    spends: readonly IConsumedAssetTotal[]
   ) => Promise<SpendingLimitAssessment | undefined>;
   getStrictAuthenticationProtectors: () => Promise<StrictAuthenticationProtectors>;
   verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
