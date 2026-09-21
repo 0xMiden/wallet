@@ -7,6 +7,7 @@ import * as yup from 'yup';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { useHomePaneSubPage } from 'app/layouts/home-pane-subpage';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -15,7 +16,6 @@ import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } 
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
@@ -122,14 +122,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Retain a choice made before the address determines whether the send is Miden or EVM.
   const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
-  // Hide the floating BottomNav once the user moves past recipient selection,
-  // so the step CTAs can sit at the actual bottom of the screen. Gated on the
-  // pathname because SendManager stays mounted inside HomeSwipeContainer even
+  // A step pushed over the recipient takes over the screen — no action bar above it, no tab bar
+  // under it — the way Earn's routed vault detail does; its CTA then sits at the actual bottom.
+  // Gated on the pathname because SendManager stays mounted inside HomeSwipeContainer even
   // when another home-group page is centered — without the gate, a send flow
-  // left mid-step would hide the navbar on Overview too.
+  // left mid-step would strip the chrome off Overview too.
   const currentStep = cardStack[cardStack.length - 1]?.name;
   const pastRecipientStep = pathname === '/send' && currentStep !== SendFlowStep.SelectRecipient;
-  useHideNavbarWhileOpen(pastRecipientStep);
+  useHomePaneSubPage(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {
     const walletContacts: Contact[] = allAccounts

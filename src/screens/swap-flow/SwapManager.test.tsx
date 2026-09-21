@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { useHomePaneSubPageOpen } from 'app/layouts/home-pane-subpage';
+
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
 
@@ -54,6 +56,9 @@ const mockRequestSWProcessing = jest.fn();
 const mockIsExtension = jest.fn(() => true);
 const mockIsDelegateProof = jest.fn(() => false);
 const mockNavigate = jest.fn();
+// The swap pane's own route. A pane stays mounted while another is centered, so the sub-page
+// chrome rule is gated on it.
+const mockPathname = { value: '/swap' };
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -235,6 +240,8 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
+  // The pane reads its own path to decide whether a pushed step is on screen (home-pane-subpage).
+  useLocation: () => ({ pathname: mockPathname.value }),
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
@@ -243,6 +250,7 @@ const renderFlow = () => render(<SwapFlow />);
 beforeEach(() => {
   jest.clearAllMocks();
 
+  mockPathname.value = '/swap';
   mockBaseFee = 0;
   mockNativeFaucetId = 'MIDEN-ID';
   mockRenderedRoutes = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
@@ -933,5 +941,42 @@ describe('SwapFlow / SwapManager', () => {
       expect(handled).toBe(true);
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Screen takeover: the review step is a pushed sub-page and owns the whole screen, the way
+// Earn's routed vault detail does. The real `useHomePaneSubPage` runs here, so this reads the
+// store TabLayout reads.
+// ---------------------------------------------------------------------------
+describe('pushed steps take the screen over', () => {
+  const SubPageProbe: React.FC = () => <span data-testid="sub-page">{String(useHomePaneSubPageOpen())}</span>;
+  const renderWithProbe = () =>
+    render(
+      <>
+        <SwapFlow />
+        <SubPageProbe />
+      </>
+    );
+  const takenOver = () => screen.getByTestId('sub-page').textContent;
+
+  it('leaves the amounts step — the pane root — its chrome', () => {
+    mockNav.cardStack = [{ name: 'SwapAmounts' }];
+    renderWithProbe();
+    expect(takenOver()).toBe('false');
+  });
+
+  it('takes it over on the review step', () => {
+    mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+    renderWithProbe();
+    expect(takenOver()).toBe('true');
+  });
+
+  it('claims nothing while another pane is centered', () => {
+    // The swap pane stays mounted behind whichever pane is centered.
+    mockPathname.value = '/';
+    mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+    renderWithProbe();
+    expect(takenOver()).toBe('false');
   });
 });

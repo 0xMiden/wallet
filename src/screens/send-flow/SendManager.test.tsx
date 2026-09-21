@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { useHomePaneSubPageOpen } from 'app/layouts/home-pane-subpage';
+
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
@@ -303,14 +305,14 @@ describe('SendManager rendering', () => {
     renderFlow();
     expect(screen.getByTestId('select-recipient')).toBeInTheDocument();
     expect(screen.getByTestId('send-flow')).toBeInTheDocument();
-    // currentStep === SelectRecipient on /send -> pastRecipientStep false.
+    // The recipient step is the pane ROOT: it keeps the action bar and the tab bar.
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(false);
     // Drawers start closed.
     expect(screen.getByTestId('td-open')).toHaveTextContent('false');
     expect(screen.getByTestId('ad-open')).toHaveTextContent('false');
   });
 
-  it('renders the amount step and hides the navbar past the recipient step', () => {
+  it('renders the amount step and takes the screen over past the recipient step', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
@@ -439,6 +441,69 @@ describe('on-screen step back button', () => {
 
     expect(goBackMock).not.toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Screen takeover: a pushed step owns the whole screen, the way Earn's routed vault detail does.
+// `useHomePaneSubPage` is the real hook here, so these read the store TabLayout reads.
+// ---------------------------------------------------------------------------
+describe('pushed steps take the screen over', () => {
+  const SubPageProbe: React.FC = () => <span data-testid="sub-page">{String(useHomePaneSubPageOpen())}</span>;
+  const renderWithProbe = () =>
+    render(
+      <>
+        <SendFlow isLoading={false} />
+        <SubPageProbe />
+      </>
+    );
+  const takenOver = () => screen.getByTestId('sub-page').textContent;
+
+  it('leaves the recipient step — the pane root — its chrome', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    renderWithProbe();
+    expect(takenOver()).toBe('false');
+  });
+
+  it('takes it over on the amount step', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    renderWithProbe();
+    expect(takenOver()).toBe('true');
+  });
+
+  it('gives the chrome back when back pops the amount step', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    const { rerender } = renderWithProbe();
+    expect(takenOver()).toBe('true');
+
+    // Hardware back pops the step...
+    let result: boolean | undefined;
+    act(() => {
+      result = capturedBackHandler!();
+    });
+    expect(result).toBe(true);
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+
+    // ...and the recipient step underneath comes back with both bars.
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    act(() => {
+      rerender(
+        <>
+          <SendFlow isLoading={false} />
+          <SubPageProbe />
+        </>
+      );
+    });
+    expect(takenOver()).toBe('false');
+  });
+
+  it('claims nothing while another pane is centered, though the flow is parked mid-step', () => {
+    // Panes stay mounted: without the pathname gate a send flow left on its amount step would
+    // strip the action bar off Overview (#481, for the tab bar).
+    mockPathname = '/';
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    renderWithProbe();
+    expect(takenOver()).toBe('false');
   });
 });
 

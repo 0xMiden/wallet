@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { useHomePaneSubPage } from 'app/layouts/home-pane-subpage';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
@@ -23,7 +24,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { HistoryAction, navigate } from 'lib/woozie';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 import { isValidExpirySeconds } from './expiry';
 import { ReviewSwap } from './ReviewSwap';
@@ -43,6 +44,7 @@ const ROUTES: Route[] = [
 const SwapManager: React.FC = () => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack } = useNavigator();
+  const { pathname } = useLocation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -65,6 +67,12 @@ const SwapManager: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
+
+  // The review step is a pushed sub-page: it takes over the screen, action bar and tab bar both,
+  // like Earn's routed vault detail (see home-pane-subpage.ts). Gated on the pathname because the
+  // swap pane stays mounted inside HomeSwipeContainer while another pane is centered.
+  const currentStep = cardStack[cardStack.length - 1]?.name;
+  useHomePaneSubPage(pathname === '/swap' && currentStep !== SwapFlowStep.SwapAmounts);
 
   const onClose = useCallback(() => navigate('/'), []);
 
