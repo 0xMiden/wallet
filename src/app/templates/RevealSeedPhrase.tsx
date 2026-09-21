@@ -121,54 +121,49 @@ const RevealSeedPhrase: FC = () => {
     }
   }, []);
 
-  // One runner for both entry points. The token is defence in depth, not the active
-  // guard: what actually stops two probes overlapping today is the Retry being
-  // `disabled` while `probing` (and View likewise until the first settles), so the
-  // out-of-order case is unreachable through the UI and has no test. It stays because
-  // the invariant should not depend on a button's disabled prop - drop that and a
-  // stale rejection would set the banner back over an already-enabled View. The
-  // reveal path guards its own settles the same way with `secretGeneration`.
-  //
-  // The error is cleared when a probe SETTLES, never when one starts. Clearing at the
-  // start unmounted the very block the Retry button lives in, so the affordance
-  // deleted itself on click - and if the read hangs rather than rejects, nothing
-  // would bring it back.
-  // Stores the message KEY, not the message: `t` is a fresh identity on every render
-  // under the app's i18n provider, so depending on it here churns this callback and
-  // the effect below re-runs forever. Translated at the render site instead.
-  // The deadline SURFACES a retryable banner; it does not abandon the read. Truncating
-  // would be worse than the hang it guards: these reads are a Capacitor bridge round
-  // trip on mobile, delivered into a WebView the OS suspends while backgrounded - and
-  // this page's whole message is "view this somewhere private", which invites the user
-  // to walk off and come back. An answer that arrives late is still the answer, so a
-  // settle that is still current adopts it and clears the banner. The token is what
-  // makes that safe; it is also why a stray timer firing after unmount is a no-op.
+  // One runner for both entry points, with a monotonic token guarding every write.
+  // The token is NOT redundant: the deadline below releases the button without settling
+  // the read, so a user can start a second probe while the first is still outstanding -
+  // an overlap that could not happen before that change. The token is what makes the
+  // first probe's late settle a no-op instead of a write from a superseded run.
   const runProbe = useCallback(() => {
     const generation = (probeGeneration.current += 1);
-    setProbing(true);
-    clearTimeout(probeTimer.current);
-    probeTimer.current = setTimeout(() => {
-      if (generation !== probeGeneration.current) return;
+    const isCurrent = () => generation === probeGeneration.current;
+    // Every write of the banner goes through here, so the log covers all three causes -
+    // the hardware read failing, the complement failing, and the deadline. The deadline
+    // is the one with no other evidence: a read that never settles leaves no rejection,
+    // no stack and no network error, so its only trace is this line.
+    const failProbe = (reason: unknown) => {
+      if (!isCurrent()) return;
+      console.warn('[RevealSeedPhrase] protector probe failed:', reason);
       setProbeError('couldNotCheckUnlockMethod');
       setProbing(false);
-    }, PROBE_TIMEOUT_MS);
+    };
+
+    setProbing(true);
+    clearTimeout(probeTimer.current);
+    // Held in a LOCAL as well as the ref, and the local is what `.finally` clears. The
+    // ref alone was wrong: a superseded probe settles late by design here, and its
+    // `.finally` would then clear whatever handle the ref holds - which after a Retry is
+    // the LIVE probe's deadline. That left the second probe unbounded and put the page
+    // back in the dead end this whole mechanism exists to prevent. The ref stays for the
+    // unmount cleanup and the pre-arm clear, both of which do want the newest handle.
+    const timer = setTimeout(
+      () => failProbe(new Error(`protector probe timed out after ${PROBE_TIMEOUT_MS}ms`)),
+      PROBE_TIMEOUT_MS
+    );
+    probeTimer.current = timer;
+
     probe()
       .then(hasHw => {
-        if (generation !== probeGeneration.current) return;
+        if (!isCurrent()) return;
         setProbeError(null);
         setHasHardwareProtector(hasHw);
       })
-      .catch(err => {
-        if (generation !== probeGeneration.current) return;
-        // Logged, not swallowed: three causes reach this banner - the hardware read
-        // failing, the complement failing, and the deadline - and the user-facing
-        // recovery is identical, so only a log can tell them apart in a report.
-        console.warn('[RevealSeedPhrase] protector probe failed:', err);
-        setProbeError('couldNotCheckUnlockMethod');
-      })
+      .catch(failProbe)
       .finally(() => {
-        clearTimeout(probeTimer.current);
-        if (generation === probeGeneration.current) setProbing(false);
+        clearTimeout(timer);
+        if (isCurrent()) setProbing(false);
       });
   }, [probe]);
 

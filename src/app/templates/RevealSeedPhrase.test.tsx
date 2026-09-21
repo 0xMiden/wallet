@@ -516,6 +516,87 @@ describe('RevealSeedPhrase', () => {
     }
   });
 
+  // The deadline is the one failure with no other evidence - no rejection, no stack, no
+  // network error - so the log is its only trace. It used to be the one cause that did
+  // not emit one, while the comment claimed it did.
+  it('logs when the probe deadline is what raised the banner', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
+      renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+
+      expect(warn).toHaveBeenCalledWith(
+        '[RevealSeedPhrase] protector probe failed:',
+        expect.objectContaining({ message: expect.stringContaining('timed out') })
+      );
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  // The deadline releases the button WITHOUT settling the read, so a second probe can be
+  // started while the first is outstanding. The first one's late settle must not disarm
+  // the second one's deadline - that would leave the live probe unbounded and put the
+  // page back in the dead end the bound exists to remove.
+  it('keeps the live deadline when a superseded probe settles late', async () => {
+    jest.useFakeTimers();
+    try {
+      let settleFirst!: (v: boolean) => void;
+      mockHasHardwareProtector.mockReturnValueOnce(
+        new Promise<boolean>(res => {
+          settleFirst = res;
+        })
+      );
+      const container = renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
+
+      // Second probe, also hanging.
+      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
+      await act(async () => {
+        buttonWithText(container, 'retry')!.click();
+      });
+      expect(jest.getTimerCount()).toBe(1);
+
+      // The FIRST read finally lands, long after it was superseded.
+      await act(async () => {
+        settleFirst(true);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Its settle must not have disarmed the live probe's deadline.
+      expect(jest.getTimerCount()).toBe(1);
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   // The deadline must DEGRADE, not truncate. A slow read is the common case on mobile,
   // where this is a native bridge call into a WebView the OS suspends when backgrounded -
   // and this page invites the user to walk somewhere private and come back. Discarding
@@ -575,11 +656,20 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      // Just inside the bound: no banner yet. This is the half a final-state assertion
-      // cannot see - because a late answer is now ADOPTED, the end state is the same
-      // whatever the bound is, so only the interim distinguishes them.
+      // Strictly INSIDE the bound and strictly BEFORE the read settles. Advancing to the
+      // read's own settle time instead would run both timers in one go and every
+      // assertion would land post-adoption, which passes for any bound including zero -
+      // that is what the previous version of this test did.
       await act(async () => {
-        jest.advanceTimersByTime(4000);
+        jest.advanceTimersByTime(3999);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+
+      await act(async () => {
+        jest.advanceTimersByTime(1);
       });
       await act(async () => {
         await Promise.resolve();
