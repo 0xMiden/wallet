@@ -49,7 +49,8 @@ const DEEPL_CONTEXT =
   'tokens owed to you, never a legal claim or assertion; "Bridge" means moving assets ' +
   'between blockchains, never a physical bridge ("bridge in progress" = a transfer is ' +
   'underway, not construction); "Withdraw" means taking funds out, never cancel; "Vault" ' +
-  'is a secure asset store; "pending notes" are payment notes awaiting collection.';
+  'is a secure asset store; "Accept"/"Decline" are what a user does with an incoming ' +
+  'transfer of money, and a "pending transfer" is money waiting to be accepted.';
 
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)
