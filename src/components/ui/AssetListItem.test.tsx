@@ -88,19 +88,19 @@ describe('AssetListItem', () => {
     it('applies the positive color for an explicit positive direction', () => {
       renderItem({ delta: { value: '+2.5%', direction: 'positive' } });
 
-      expect(screen.getByText('+2.5%').className).toContain('text-status-positive');
+      expect(screen.getByText('+2.5%').className).toContain('text-positive-tint-ink');
     });
 
     it('defaults to the positive color when direction is undefined', () => {
       renderItem({ delta: { value: '+1.0%' } });
 
-      expect(screen.getByText('+1.0%').className).toContain('text-status-positive');
+      expect(screen.getByText('+1.0%').className).toContain('text-positive-tint-ink');
     });
 
     it('applies the negative color for a negative direction', () => {
       renderItem({ delta: { value: '-3.1%', direction: 'negative' } });
 
-      expect(screen.getByText('-3.1%').className).toContain('text-status-negative');
+      expect(screen.getByText('-3.1%').className).toContain('text-negative-tint-ink');
     });
 
     it('applies the tertiary color for a neutral direction', () => {

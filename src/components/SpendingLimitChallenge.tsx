@@ -61,20 +61,20 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
           <dl className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-4">
               <dt className="text-text-secondary-token">{t('amount')}</dt>
-              <dd className="font-medium text-heading-gray">{amount(assessment.amount)}</dd>
+              <dd className="font-medium text-ink">{amount(assessment.amount)}</dd>
             </div>
             {assessment.breaches.map(breach => (
               <div key={breach.period} className="rounded-xl bg-surface-secondary-token p-3">
-                <h3 className="mb-2 font-medium text-heading-gray">
+                <h3 className="mb-2 font-medium text-ink">
                   {t(breach.period === '24h' ? 'spendingLimitPeriod24h' : 'spendingLimitPeriod7d')}
                 </h3>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
                   <dt className="text-text-secondary-token">{t('spendingLimitCap')}</dt>
-                  <dd className="text-right text-heading-gray">{amount(breach.limit)}</dd>
+                  <dd className="text-right text-ink">{amount(breach.limit)}</dd>
                   <dt className="text-text-secondary-token">{t('spendingLimitOverBy')}</dt>
                   <dd className="text-right text-status-negative">{amount(breach.overBy)}</dd>
                   <dt className="text-text-secondary-token">{t('spendingLimitResets')}</dt>
-                  <dd className="text-right text-heading-gray">
+                  <dd className="text-right text-ink">
                     {breach.resetAt === null
                       ? t('spendingLimitNoAutomaticReset')
                       : resetTimeFormatter.format(new Date(breach.resetAt * 1000))}

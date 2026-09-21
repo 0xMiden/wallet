@@ -4835,10 +4835,6 @@
     "message": "A reset clears balances and history. Test balances never carry over to Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "Test tokens only",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "Checking your withdrawal. Keep the wallet open while delivery is confirmed.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

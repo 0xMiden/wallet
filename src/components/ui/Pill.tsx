@@ -2,7 +2,7 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
 /**
@@ -17,7 +17,7 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
  * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
  * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink.
- * - `inactive` — a status that is neither good nor bad (cancelled, reclaimed, checking):
+ * - `inactive`: a status that is neither good nor bad (cancelled, reclaimed, unavailable),
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  * - `inverse` — on a colored surface (the balance card): a darker well of that surface with its
@@ -36,35 +36,47 @@ export type PillTone =
   | 'plain'
   | 'inverse';
 
-export interface PillProps {
+/**
+ * A pill is either static, and may announce itself as a polite live region, or tappable, and then
+ * it is a `<button>`. Never both: only the static branch renders the live region, and a
+ * `role="status"` on the button would replace its button role. Both arms keep `onClick` optional,
+ * so a wrapper forwarding its own `onClick?: () => void` (NetworkChip) still type-checks.
+ */
+type PillBehaviourProps =
+  | {
+      onClick?: never;
+      /**
+       * The pill's content changes while it is on screen (a live status), so it becomes a polite
+       * live region: `role="status"` plus an explicit `aria-live`, for readers that ignore the
+       * implicit one.
+       */
+      live?: boolean;
+    }
+  | {
+      /** Makes the pill a button, with a tap haptic. */
+      onClick?: () => void;
+      live?: never;
+    };
+
+export type PillProps = PillBehaviourProps & {
   children: React.ReactNode;
-  /** Leading glyph, sized by the pill. Mutually exclusive with `dot` in practice. */
+  /** Leading glyph, sized by the pill. */
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** A small 6px leading dot in the pill's own ink color (`currentColor`). */
-  dot?: boolean;
-  /** Makes the pill a button, with a tap haptic. */
-  onClick?: () => void;
   /**
-   * Which haptic the tap fires: `'light'` (default) for an ordinary action, `'selection'` for a
-   * segmented choice — fired only when the tap actually changes the selection (skipped while
-   * `selected` is already true, so re-tapping the active choice in a group is silent) — or
-   * `false` to fire none and let the caller manage it.
+   * Which haptic the tap fires: `'light'` (default) for an ordinary action, or `false` to fire
+   * none and let the caller manage it. A single choice in a row is a `SegmentedControl`, which
+   * fires the selection haptic itself.
    */
-  haptic?: 'light' | 'selection' | false;
+  haptic?: 'light' | false;
   /** Reflected as `aria-pressed` on a tappable pill. */
   selected?: boolean;
   disabled?: boolean;
   className?: string;
-  /**
-   * `'status'` for a static pill whose content changes while it is on screen (a live status). The
-   * pill then also says `aria-live="polite"` outright, for screen readers that ignore the implicit one.
-   */
-  role?: 'status';
   'aria-label'?: string;
   'data-testid'?: string;
-}
+};
 
 // Literal class strings, so Tailwind generates them.
 const pillVariants = cva(
@@ -128,13 +140,12 @@ export const Pill: React.FC<PillProps> = ({
   icon,
   size = 'md',
   tone = 'neutral',
-  dot,
   onClick,
   haptic = 'light',
   selected,
   disabled,
   className,
-  role,
+  live,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
@@ -152,7 +163,6 @@ export const Pill: React.FC<PillProps> = ({
 
   const content = (
     <>
-      {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>
@@ -162,8 +172,8 @@ export const Pill: React.FC<PillProps> = ({
     return (
       <span
         className={classes}
-        role={role}
-        aria-live={role === 'status' ? 'polite' : undefined}
+        role={live ? 'status' : undefined}
+        aria-live={live ? 'polite' : undefined}
         aria-label={ariaLabel}
         data-testid={dataTestId}
       >
@@ -178,8 +188,6 @@ export const Pill: React.FC<PillProps> = ({
       onClick={() => {
         if (haptic === 'light') {
           hapticLight();
-        } else if (haptic === 'selection' && !selected) {
-          hapticSelection();
         }
         onClick();
       }}

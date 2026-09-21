@@ -11,6 +11,16 @@ import { EvmBridgeDepositReview, EvmBridgeDepositReviewProps } from './EvmBridge
  * shared `ReviewLayout` provides.
  */
 
+// This screen renders through ReviewLayout, which hides the tab bar - and the network ribbon
+// lives in the tab bar's footer, so it showed no network at all. The banner is ReviewLayout's.
+// Its sheet and the endpoint lookup are tested in their own suites; stubbing only those keeps the
+// banner itself real, so the assertion below is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { value?: string }) => (opts && opts.value !== undefined ? `${key}|${opts.value}` : key)
@@ -143,5 +153,15 @@ describe('EvmBridgeDepositReview', () => {
       render(<EvmBridgeDepositReview {...baseProps({ confirmLabel: 'retry' })} />);
       expect(screen.getByTestId('bridge-deposit-review-confirm')).toHaveTextContent('retry');
     });
+  });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - which is the distinction a source match could
+  // not make, and how a banner once shipped behind an early return.
+  // The banner comes from the shared ReviewLayout, not from this component.
+  it('names the network it will commit on', () => {
+    render(<EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC' })} />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });

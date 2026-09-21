@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -43,7 +43,13 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
     setActiveCode(prev => prev.slice(0, -1));
   }, [setActiveCode, mismatch]);
 
+  // The completion effect below depends on `onSubmit`, so a parent re-rendering with a new function
+  // re-runs it with the same full, matching code. Record what was submitted so that submits once -
+  // the same guard PasscodeEntry carries.
+  const submittedCodeRef = useRef<string | null>(null);
+
   useEffect(() => {
+    if (confirmCode.length < PASSCODE_LENGTH) submittedCodeRef.current = null;
     if (phase === 'enter' && enteredCode.length === PASSCODE_LENGTH) {
       const timer = setTimeout(() => {
         setPhase('confirm');
@@ -61,7 +67,9 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
         }, 150);
         return () => clearTimeout(timer);
       }
+      if (submittedCodeRef.current === confirmCode) return undefined;
       const timer = setTimeout(() => {
+        submittedCodeRef.current = confirmCode;
         onSubmit?.(confirmCode);
       }, 150);
       return () => clearTimeout(timer);

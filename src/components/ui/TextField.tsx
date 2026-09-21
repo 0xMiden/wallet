@@ -75,6 +75,14 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       className,
       id,
       rows,
+      type,
+      // Mirrors `FormField`, which has defaulted this since it was written. A vault secret must
+      // not be offered to the browser password manager, and `off` is overridden by browsers on
+      // password-TYPE inputs, so a password field needs `new-password` specifically. Callers here
+      // toggle visibility by flipping `type` between 'password' and 'text', and that is exactly
+      // why the condition reads the type rather than a "is this secret" flag: revealed, the field
+      // is type=text, where plain `off` IS honoured. A caller that wants autofill still overrides.
+      autoComplete = type === 'password' ? 'new-password' : 'off',
       'data-testid': dataTestId,
       ...rest
     },
@@ -129,12 +137,14 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               aria-describedby={describedBy}
               data-testid={dataTestId}
               className={fieldClassName}
+              autoComplete={autoComplete}
               {...rest}
             />
           ) : (
             <input
               ref={setRef}
               id={fieldId}
+              type={type}
               value={value}
               defaultValue={defaultValue}
               onChange={onChange}
@@ -142,6 +152,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               aria-describedby={describedBy}
               data-testid={dataTestId}
               className={fieldClassName}
+              autoComplete={autoComplete}
               {...rest}
             />
           )}
