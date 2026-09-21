@@ -105,6 +105,19 @@ describe('resolveSpendsUsd', () => {
     );
   });
 
+  it('fails closed when metadata resolves to the unidentified placeholder instead of rejecting', async () => {
+    // `fetchTokenMetadata` does not always throw on a faucet it cannot identify - three of its
+    // paths RESOLVE the `Unknown` placeholder instead (and cache it on two of them). Identification
+    // must run before coverage, or 'Unknown' reads as an ordinary uncovered symbol and is silently
+    // counted as zero forever.
+    mockedMetadata.mockResolvedValue(base('Unknown', 6, true));
+
+    await expect(resolveSpendsUsd([{ faucetId: 'f1', amount: 1n }], 10)).rejects.toBeInstanceOf(
+      SpendingLimitPriceUnavailableError
+    );
+    expect(mockedPrice).not.toHaveBeenCalled();
+  });
+
   it('values an empty spend list as nothing', async () => {
     await expect(resolveSpendsUsd([], 10)).resolves.toBe(0n);
     expect(mockedMetadata).not.toHaveBeenCalled();

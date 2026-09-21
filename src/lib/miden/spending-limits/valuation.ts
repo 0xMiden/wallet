@@ -23,10 +23,18 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
 /**
  * What this transaction is worth, in micro-dollars.
  *
- * An asset the feed does not cover contributes nothing, which is the product decision: only priced
- * assets are capped. An asset it DOES cover must be valued or the transaction cannot be judged, so
- * a missing price, untrustworthy decimals, or an unidentifiable faucet all raise rather than
- * quietly counting as nothing - otherwise "make the price lookup fail" is the way past the cap.
+ * Order matters: identify the asset FIRST, then ask whether the feed covers it. An asset the
+ * wallet cannot identify at all - `fetchTokenMetadata` returned the `Unknown` placeholder, which
+ * it caches indefinitely once seen - raises rather than falling through to the coverage check,
+ * where the placeholder's own symbol ('Unknown') would read as an ordinary uncovered asset and be
+ * counted as zero. Accepted consequence: a token the wallet can never identify is always
+ * challenged (step-up is available) on a limited account, rather than silently uncapped.
+ *
+ * Once identified, an asset the feed does not cover contributes nothing, which is the product
+ * decision: only priced assets are capped. An asset it DOES cover must be valued or the
+ * transaction cannot be judged, so a missing price or untrustworthy decimals still raise rather
+ * than quietly counting as nothing - otherwise "make the price lookup fail" is the way past the
+ * cap.
  */
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
   let total = 0n;
@@ -42,8 +50,8 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     } catch {
       throw new SpendingLimitPriceUnavailableError(spend.faucetId);
     }
-    if (!isCoveredSymbol(symbol)) continue;
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
+    if (!isCoveredSymbol(symbol)) continue;
     const priceMicro = await getPriceMicro(symbol, now);
     if (priceMicro === undefined) throw new SpendingLimitPriceUnavailableError(symbol);
     total += usdMicroFromAmount(spend.amount, decimals, priceMicro);
