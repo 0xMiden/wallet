@@ -179,29 +179,42 @@ jest.mock('components/Input', () => ({
 }));
 
 jest.mock('components/Numpad', () => ({
+  // Both refusal props are forwarded onto the keys, as the real component does: a stub that dropped
+  // them would make every assertion about a refused press a statement about the stub. The two are
+  // separate because a lockout refuses entry while the biometric key stays usable.
   Numpad: ({
     onDigit,
     onDelete,
     onBiometric,
-    biometryType
+    biometryType,
+    disabled,
+    biometricDisabled
   }: {
     onDigit: (d: string) => void;
     onDelete: () => void;
     onBiometric?: () => void;
     biometryType?: string;
+    disabled?: boolean;
+    biometricDisabled?: boolean;
   }) => (
     <div data-testid="numpad">
       {onBiometric && (
-        <button type="button" data-testid="numpad-biometric" data-biometry={biometryType} onClick={onBiometric}>
+        <button
+          type="button"
+          data-testid="numpad-biometric"
+          data-biometry={biometryType}
+          disabled={biometricDisabled}
+          onClick={onBiometric}
+        >
           bio
         </button>
       )}
       {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
-        <button key={d} type="button" data-testid={`digit-${d}`} onClick={() => onDigit(d)}>
+        <button key={d} type="button" data-testid={`digit-${d}`} disabled={disabled} onClick={() => onDigit(d)}>
           {d}
         </button>
       ))}
-      <button type="button" data-testid="numpad-delete" onClick={onDelete}>
+      <button type="button" data-testid="numpad-delete" disabled={disabled} onClick={onDelete}>
         del
       </button>
     </div>
@@ -323,6 +336,24 @@ describe('Unlock — extension password form', () => {
     // Typing again clears the error subtitle (onPasswordChange isError branch).
     fireEvent.change(input, { target: { value: 'wrong2' } });
     expect(screen.queryByText('incorrectPassword')).not.toBeInTheDocument();
+  });
+
+  // The same clear reaches this arm: the password form's error line derives from the same isError
+  // the passcode screen's does, and the lockout interval is shared.
+  it('empties the error line once a lockout ends', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('bad'));
+    const { container } = await renderUnlock();
+
+    const input = container.querySelector('#unlock-password') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'wrong' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(500);
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay');
+
+    await advance(61_000);
+
+    expect(screen.getByTestId('unlock-error')).toBeEmptyDOMElement();
   });
 
   it('toggles password visibility via the eye button', async () => {
@@ -511,7 +542,8 @@ describe('Unlock — mobile passcode numpad', () => {
     mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
     const { container } = await renderUnlock();
 
-    // Announced once, with the lockout's full length; shown separately as a ticking countdown.
+    // Announced once, with the time left (all of it, as the lockout starts here); shown separately as
+    // a ticking countdown.
     const status = screen.getByRole('status');
     const visible = screen.getByTestId('passcode-message');
     expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
@@ -530,6 +562,63 @@ describe('Unlock — mobile passcode numpad', () => {
     // re-announced once a second for the whole lockout.
     expect(visible).not.toHaveTextContent('10:00');
     expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+  });
+
+  it('announces the time LEFT on a screen opened mid-lockout, and still never ticks', async () => {
+    // A 10-minute lockout that started 9 minutes ago: one minute left, not ten.
+    mockLsStore = { PasswordAttempts: 30, TimeLock: BASE - 9 * 60_000 };
+    await renderUnlock();
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+
+    await advance(1100);
+    expect(screen.getByTestId('passcode-message')).not.toHaveTextContent('01:00');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+  });
+
+  // A lockout that ends is not the moment to repeat the failure that started it: the line and the
+  // live region both read the instruction again.
+  it('drops the failure that started a lockout once the lockout ends', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+
+    await advance(61_000);
+    expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
+    expect(screen.getByRole('status')).not.toHaveClass('text-negative-ink');
+  });
+
+  // THE TRAP: the interval's "lockout is over" branch is true every second when nothing is locked,
+  // so a clear hung off it would wipe this error a second after it appears.
+  it('keeps an error from a failure that started no lockout', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    await advance(2000);
+
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+  });
+
+  // The same trap with a stale stamp: a lockout that expired while this screen was unmounted, or a
+  // biometric unlock taken during one, leaves TimeLock set with no lockout on screen.
+  it('keeps that error when a stale expired lockout stamp is still stored', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: BASE - 10 * 60_000 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    await advance(2000);
+
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
   });
 
   it('draws the shared passcode screen with the keypad docked at the bottom', async () => {
@@ -653,6 +742,33 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(mockUnlock).toHaveBeenCalledTimes(2);
     expect(mockLsStore.PasswordAttempts).toBe(1);
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  // The only unlock control on this screen: it must show its attempt, like the password form's own
+  // button does, instead of looking idle for the whole OS prompt while a second tap is dropped.
+  it('disables the retry button while its attempt is in flight', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(false);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    let rejectRetry: (error: Error) => void = () => undefined;
+    const { container } = await renderUnlock();
+
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectRetry = reject;
+        })
+    );
+    const retry = container.querySelector('#retry-biometric') as HTMLButtonElement;
+    fireEvent.click(retry);
+    await flushMicro();
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAttribute('data-loading', 'true');
+
+    await act(async () => rejectRetry(new Error('cancelled again')));
+    await flushMicro();
+    expect(container.querySelector('#retry-biometric')).not.toBeDisabled();
   });
 
   it('logs and stays on the biometric UI when the retry fails', async () => {
@@ -817,6 +933,255 @@ describe('the biometric key and the passcode never unlock concurrently', () => {
 
     expect(mockUnlock).toHaveBeenCalledTimes(3);
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+});
+
+// The attempt in flight is visible to every input, not just to the guard: a keypad, auto-submit or
+// password form that started behind it would be refused by the guard without a word. And the most
+// recent failure, from either path, is what the screen shows.
+describe('an unlock attempt in flight holds every input, and the latest failure shows', () => {
+  const type = (container: HTMLElement, digits: string) => {
+    for (const d of digits) {
+      fireEvent.click(container.querySelector(`[data-testid="digit-${d}"]`) as HTMLButtonElement);
+    }
+  };
+  const filledDots = () =>
+    screen.getAllByTestId('passcode-dot').filter(dot => dot.getAttribute('data-filled') === 'true').length;
+
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+  });
+
+  it('refuses the biometric key while the mount-time attempt is still in flight', async () => {
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the mount attempt never settles
+    await renderUnlock();
+    await flushMicro();
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('once the mount-time attempt was cancelled', () => {
+    beforeEach(() => {
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    });
+
+    it('holds the keypad while a biometric retry is in flight, then takes the passcode', async () => {
+      const { container } = await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      type(container, '123456');
+      await advance(200);
+      expect(filledDots()).toBe(0);
+      expect(mockUnlock).toHaveBeenCalledTimes(2); // mount, then the retry - nothing for the code
+
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+      type(container, '123456');
+      await advance(200);
+      expect(mockUnlock).toHaveBeenLastCalledWith('123456');
+    });
+
+    it('holds delete too while a biometric retry is in flight', async () => {
+      const { container } = await renderUnlock();
+      type(container, '12');
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      fireEvent.click(screen.getByTestId('numpad-delete'));
+
+      expect(filledDots()).toBe(2);
+    });
+
+    it('shows a failed biometric attempt after a wrong passcode, not the stale passcode error', async () => {
+      const { container } = await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('wrong passcode'));
+      type(container, '111111');
+      await advance(600);
+      expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+
+    it('refuses the entry keys during a lockout while the biometric key still works', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      const { container } = await renderUnlock();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).toBeDisabled();
+      expect(container.querySelector('[data-testid="numpad-delete"]')).toBeDisabled();
+      // The biometric key is a separate factor the OS rate-limits, and it stays usable.
+      const bio = screen.getByTestId('numpad-biometric');
+      expect(bio).not.toBeDisabled();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(bio);
+      await flushMicro();
+      expect(mockUnlock).toHaveBeenCalledTimes(2); // the mount attempt, then this one
+    });
+
+    it('refuses every key while an attempt is in flight, and releases them when it fails', async () => {
+      const { container } = await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).toBeDisabled();
+      expect(screen.getByTestId('numpad-biometric')).toBeDisabled();
+
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).not.toBeDisabled();
+      expect(screen.getByTestId('numpad-biometric')).not.toBeDisabled();
+    });
+
+    it('announces the lockout WITH a biometric failure, never instead of it', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('biometricFailed');
+      // The countdown is aria-hidden, so a region naming only the failure would leave a screen
+      // reader with no way to learn the wallet is locked or for how long.
+      expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+    });
+
+    it('clears a partly typed code when a biometric retry fails, as a rejected passcode does', async () => {
+      const { container } = await renderUnlock();
+      type(container, '12');
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      // The dots are empty when they shake: PasscodeDots replays the row from rest on a new errorKey.
+      expect(filledDots()).toBe(0);
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+    });
+
+    it('during a lockout, shakes the dots and announces a failed biometric while the countdown stays', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      await renderUnlock();
+      // The mount-time attempt was cancelled: not an error, so nothing shook.
+      expect(screen.getByTestId('passcode-dots')).not.toHaveAttribute('data-shake');
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+      expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    });
+
+    // The announcement is captured, so every time it is re-derived it must capture again: otherwise
+    // the tap after a failed attempt announces the time the screen was opened with.
+    it('recaptures the time left when the announcement returns after a failed biometric', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE }; // a 10-minute lockout, from now
+      await renderUnlock();
+      await advance(5 * 60_000);
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the next attempt stays pending
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay 05:00');
+    });
+
+    it('drops a biometric failure from during a lockout once the lockout ends', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE }; // a 60-second lockout
+      await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+
+      await advance(61_000);
+
+      expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
+    });
+
+    it('still reports a retry that fails after the lockout lifted under it', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE };
+      await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      await advance(61_000); // the lockout lifts while the retry is still in flight
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+  });
+});
+
+describe('the desktop password form waits for the mount-time Touch ID attempt', () => {
+  it('disables Unlock while the attempt is in flight, then takes the password', async () => {
+    mockIsDesktop = true;
+    mockDesktopHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    let rejectMount: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectMount = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+    await flushMicro();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, {
+      target: { value: 'hunter2' }
+    });
+    const submit = container.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submit).toBeDisabled();
+
+    await act(async () => rejectMount(new Error('cancelled')));
+    await flushMicro();
+    expect(submit).not.toBeDisabled();
+
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await flushMicro();
+    expect(mockUnlock).toHaveBeenLastCalledWith('hunter2');
   });
 });
 

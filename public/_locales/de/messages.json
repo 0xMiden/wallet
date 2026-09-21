@@ -4772,10 +4772,6 @@
     "message": "Ein Reset löscht Guthaben und den Verlauf. Testguthaben werden niemals ins Mainnet übertragen.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "Nur Test-Token",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "Ihre Auszahlung wird überprüft. Lassen Sie die Wallet geöffnet, bis die Zustellung bestätigt ist.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

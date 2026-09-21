@@ -12,8 +12,8 @@ export interface PasscodeDotsProps {
   /** How many dots to draw. */
   length: number;
   /**
-   * Bump it on every rejected code (a wrong passcode, a mismatched confirmation): each new value
-   * shakes the row once. 0 never shakes.
+   * Bump it on every failed attempt (a wrong passcode, a mismatched confirmation, a failed biometric
+   * retry): each new value shakes the row once. 0 never shakes.
    */
   errorKey?: number;
   /** Layout only (margins). */
@@ -22,7 +22,7 @@ export interface PasscodeDotsProps {
 
 /**
  * The passcode's progress: one dot per digit, `hairline` while empty and `ink` once entered, each
- * popping in as it fills. A rejected code shakes the whole row (the `shake` preset) with the error
+ * popping in as it fills. A failed attempt shakes the whole row (the `shake` preset) with the error
  * haptic; under reduced motion the dots fill in place and nothing shakes, but the haptic still
  * fires.
  */
@@ -30,7 +30,7 @@ export const PasscodeDots: React.FC<PasscodeDotsProps> = ({ filled, length, erro
   const pop = usePreset('pop');
   const shake = usePreset('shake');
   // Keying the row on the error count remounts it, which replays the shake from rest. The dots
-  // are empty by then anyway: every caller clears the code when it rejects it.
+  // are empty by then anyway: every caller clears the code when an attempt fails.
   const shaking = errorKey > 0 && shake.animate !== undefined;
 
   useEffect(() => {
