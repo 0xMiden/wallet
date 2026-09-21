@@ -173,11 +173,16 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
       assessment: {
         accountId: 'mlcl1sender',
-        faucetId: 'mlcl1faucet',
-        amount: 250n,
+        usdAmount: 250_000_000n,
         revision: 'revision-2',
         assessedAt: 220,
-        breaches: [{ period: '24h', spent: 90n, proposedTotal: 340n, limit: 100n, overBy: 240n, resetAt: 300 }]
+        breach: {
+          spent: 90_000_000n,
+          proposedTotal: 340_000_000n,
+          limit: 100_000_000n,
+          overBy: 240_000_000n,
+          resetAt: 300
+        }
       }
     };
     mockInitiateBridgedSendTransaction.mockRejectedValueOnce(error);
