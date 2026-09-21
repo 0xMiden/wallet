@@ -4,7 +4,6 @@ import classNames from 'clsx';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 
 export interface ReviewAction {
   label: string;
@@ -43,6 +42,13 @@ export interface ReviewLayoutProps {
  * is reached via the secondary CTA (or native mobile back). Flow-specific content
  * (hero, rows) and callbacks are passed in, so each flow keeps its own confirm
  * logic while sharing one consistent layout. `pb-24` clears the floating BottomNav.
+ *
+ * The screen it is drawn on decides whether the app's bars are up, not this layout: a routed
+ * review (the EVM bridge deposit) is a `FullScreenPage`, and a review pushed inside a home pane
+ * (the swap) is declared a sub-page by the flow that pushed it, gated on that pane's own path
+ * (`useHomePaneSubPage`). Raising the navbar flag from here instead was ungated, and the swap pane
+ * stays mounted: a swap left on its review went on hiding the tab bar — and locking the carousel's
+ * horizontal swipe with it (#481) — while the user was looking at another pane entirely.
  */
 export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   hero,
@@ -54,10 +60,6 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   secondary,
   error
 }) => {
-  // Hide the bottom tab navbar while this review screen is mounted (no-op on
-  // full-screen routes that render outside TabLayout).
-  useHideNavbarWhileOpen();
-
   return (
     <div className="flex flex-col h-full min-h-0 bg-app-bg px-4 pt-6 pb-4">
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">

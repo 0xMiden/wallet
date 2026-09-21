@@ -52,9 +52,12 @@ describe('ReviewLayout', () => {
     jest.clearAllMocks();
   });
 
-  it('hides the bottom navbar while mounted', () => {
+  it('leaves the app bars to the screen it is drawn on', () => {
+    // Raising the navbar flag from here was ungated: the swap pane stays mounted, so a swap left
+    // on its review kept the tab bar hidden and the carousel's swipe locked on every other pane.
+    // A routed review is a FullScreenPage; a pushed one is declared by its flow (useHomePaneSubPage).
     render(<ReviewLayout {...makeProps()} />);
-    expect(useHideNavbarWhileOpenMock).toHaveBeenCalledTimes(1);
+    expect(useHideNavbarWhileOpenMock).not.toHaveBeenCalled();
   });
 
   it('renders the hero and children content', () => {

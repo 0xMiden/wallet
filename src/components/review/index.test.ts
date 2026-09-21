@@ -81,9 +81,11 @@ describe('ReviewLayout (via barrel)', () => {
     jest.clearAllMocks();
   });
 
-  it('hides the bottom navbar while mounted', () => {
+  it('leaves the app bars to the screen it is drawn on', () => {
+    // See ReviewLayout.test.tsx: the raise used to be here and was ungated, so a swap parked on
+    // its review hid the tab bar and locked the carousel swipe from every other pane.
     render(h(ReviewLayout, makeLayoutProps()));
-    expect(mockUseHideNavbar).toHaveBeenCalledTimes(1);
+    expect(mockUseHideNavbar).not.toHaveBeenCalled();
   });
 
   it('renders the hero and children content', () => {
