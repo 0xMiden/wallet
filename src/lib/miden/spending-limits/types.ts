@@ -308,9 +308,17 @@ export const parseSerializedSpendingLimitAssessment = (value: unknown): Spending
 
 export const spendingLimitAssessmentFromError = (error: unknown): SpendingLimitAssessment | undefined => {
   if (!isRecord(error) || Reflect.get(error, 'code') !== 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED') return undefined;
+  const assessment = Reflect.get(error, 'assessment');
   try {
-    return parseSpendingLimitAssessment(Reflect.get(error, 'assessment'));
+    return parseSpendingLimitAssessment(assessment);
   } catch {
-    return undefined;
+    // A domain assessment carries bigints; one that crossed the intercom port has been through
+    // `toSerializedSpendingLimitAssessment` and carries decimal strings instead - the same shape
+    // `parseSerializedSpendingLimitAssessment` already reads for a persisted record.
+    try {
+      return parseSerializedSpendingLimitAssessment(assessment);
+    } catch {
+      return undefined;
+    }
   }
 };

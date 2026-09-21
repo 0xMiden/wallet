@@ -1,3 +1,11 @@
+import {
+  isSpendingLimitPriceUnavailable,
+  spendingLimitAssessmentFromError,
+  SpendingLimitAuthorizationRequiredError,
+  SpendingLimitPriceUnavailableError,
+  type SpendingLimitAssessment
+} from 'lib/miden/spending-limits/types';
+
 import { DEFAULT_ERROR_MESSAGE, deserializeError, IntercomError, serializeError } from './helpers';
 
 describe('intercom helpers', () => {
@@ -14,6 +22,48 @@ describe('intercom helpers', () => {
 
     const err2 = deserializeError(['oops', ['y']]);
     expect(err2.errors).toEqual(['y']);
+  });
+
+  it('leaves the two old wire shapes decoding exactly as before', () => {
+    // A bare string and a `[message, errors]` array are the only two shapes a pre-fix backend
+    // ever sent. Neither carries `code` or a spending-limit payload - the new object shape below
+    // is additive, so these two must keep decoding with nothing extra attached.
+    const fromString = deserializeError('plain failure');
+    expect(fromString.message).toBe('plain failure');
+    expect(fromString.code).toBeUndefined();
+    expect(fromString.assessment).toBeUndefined();
+    expect(fromString.symbol).toBeUndefined();
+
+    const fromArray = deserializeError(['plain failure', ['detail']]);
+    expect(fromArray.message).toBe('plain failure');
+    expect(fromArray.errors).toEqual(['detail']);
+    expect(fromArray.code).toBeUndefined();
+  });
+
+  it('round-trips a breach assessment across the port, keeping code and the assessment readable', () => {
+    const assessment: SpendingLimitAssessment = {
+      accountId: 'account-a',
+      usdAmount: 20n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
+    };
+    const error = new SpendingLimitAuthorizationRequiredError(assessment);
+
+    const restored = deserializeError(serializeError(error));
+
+    expect(restored).toBeInstanceOf(IntercomError);
+    expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
+    expect(spendingLimitAssessmentFromError(restored)).toEqual(assessment);
+  });
+
+  it('round-trips a price-unavailable refusal across the port, keeping code and the symbol readable', () => {
+    const error = new SpendingLimitPriceUnavailableError('USDC');
+
+    const restored = deserializeError(serializeError(error));
+
+    expect(restored.code).toBe('SPENDING_LIMIT_PRICE_UNAVAILABLE');
+    expect(isSpendingLimitPriceUnavailable(restored)).toBe(true);
   });
 
   it('produces a REAL Error, so callers can read the reason off it', () => {

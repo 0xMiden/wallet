@@ -105,6 +105,12 @@ describe('spending-limit persistence types', () => {
     expect(spendingLimitAssessmentFromError({ code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED', assessment })).toEqual(
       assessment
     );
+    // The domain form (bigints) is what an in-process rethrow (mobile/desktop) carries; the
+    // serialized form (decimal strings) is what survives an intercom port crossing on the
+    // extension. Both must resolve to the same assessment.
+    expect(
+      spendingLimitAssessmentFromError({ code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED', assessment: serialized })
+    ).toEqual(assessment);
   });
 
   it('round-trips an assessment with no breach at all', () => {

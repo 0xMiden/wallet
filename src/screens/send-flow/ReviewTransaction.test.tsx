@@ -6,6 +6,7 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
+import { deserializeError, serializeError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -653,6 +654,44 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
     expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+  });
+
+  it('opens the unvalued challenge from a rejection that actually crossed the intercom port', async () => {
+    // Unlike the raw-object rejections above (the in-process shape mobile/desktop reject with),
+    // this is what the extension's popup <-> SW port actually delivers: the real `serializeError`
+    // followed by the real `deserializeError`, round-tripping a price-unavailable refusal through
+    // the intercom wire format rather than assuming it survives untouched.
+    setValidRoute();
+    initiateMock.mockRejectedValue(
+      deserializeError(
+        serializeError({
+          message: 'No current price is available for MDN',
+          code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+          symbol: 'MDN'
+        })
+      )
+    );
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+  });
+
+  it('re-enables the submit button and shows an error when opening the unvalued challenge itself fails', async () => {
+    setValidRoute();
+    initiateMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
   });
 
   it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
