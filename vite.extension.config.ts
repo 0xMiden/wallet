@@ -35,7 +35,9 @@ function transformManifestKeys(manifest: any, vendor: string): any {
         const vendors = match[1].split('|');
         if (vendors.includes(vendor)) acc[match[2]] = value;
       } else if (key === 'version') {
-        acc[key] = pkg.version;
+        // Chrome requires dotted integers. Keep the prerelease as version_name.
+        acc[key] = String(pkg.version).split('-')[0];
+        if (String(pkg.version).includes('-')) acc.version_name = pkg.version;
       } else {
         acc[key] = transformManifestKeys(value, vendor);
       }
