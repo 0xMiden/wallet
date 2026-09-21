@@ -532,10 +532,10 @@ describe('RevealSeedPhrase', () => {
         jest.advanceTimersByTime(6000);
       });
 
-      expect(warn).toHaveBeenCalledWith(
-        '[RevealSeedPhrase] protector probe failed:',
-        expect.objectContaining({ message: expect.stringContaining('timed out') })
-      );
+      // "waiting", not "failed": the read may still answer, and calling it a failure is
+      // what made the common slow-mobile case report an error that never happened.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('still waiting'));
+      expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       warn.mockRestore();
       jest.useRealTimers();
@@ -548,6 +548,7 @@ describe('RevealSeedPhrase', () => {
   // page back in the dead end the bound exists to remove.
   it('keeps the live deadline when a superseded probe settles late', async () => {
     jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       let settleFirst!: (v: boolean) => void;
       mockHasHardwareProtector.mockReturnValueOnce(
@@ -590,9 +591,53 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+      // NOT the banner: it has been up since the first deadline and nothing here clears
+      // it, so asserting it cannot fail and would read as proof of something it never
+      // tested. A second log line is the only thing the SECOND deadline can produce.
+      expect(warn).toHaveBeenCalledTimes(2);
       expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
     } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  // One run can raise the banner twice - the deadline fires, then the read rejects - and
+  // two lines for one banner would over-count probes in a report. The stale-settle test
+  // cannot see this: it drives two runs whose reads never settle, so each logs once
+  // whether or not the guard exists.
+  it('logs once when a probe both times out and then fails', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      let rejectRead!: (e: Error) => void;
+      mockHasHardwareProtector.mockReturnValue(
+        new Promise<boolean>((_res, rej) => {
+          rejectRead = rej;
+        })
+      );
+      mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
+      renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      // The same run's read now rejects, well after its deadline already spoke.
+      await act(async () => {
+        rejectRead(new Error('storage'));
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
       jest.useRealTimers();
     }
   });

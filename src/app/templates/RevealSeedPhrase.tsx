@@ -116,8 +116,14 @@ const RevealSeedPhrase: FC = () => {
   const probe = useCallback(async () => {
     try {
       return await Vault.hasHardwareProtector();
-    } catch {
-      return !(await Vault.hasPasswordProtector());
+    } catch (hardwareError) {
+      try {
+        return !(await Vault.hasPasswordProtector());
+      } catch (passwordError) {
+        // Carry both. The log is the only evidence for this state, and a bare rethrow
+        // could only ever name the complement's failure.
+        throw new Error('both protector reads failed', { cause: { hardwareError, passwordError } });
+      }
     }
   }, []);
 
@@ -129,13 +135,16 @@ const RevealSeedPhrase: FC = () => {
   const runProbe = useCallback(() => {
     const generation = (probeGeneration.current += 1);
     const isCurrent = () => generation === probeGeneration.current;
-    // Every write of the banner goes through here, so the log covers all three causes -
-    // the hardware read failing, the complement failing, and the deadline. The deadline
-    // is the one with no other evidence: a read that never settles leaves no rejection,
-    // no stack and no network error, so its only trace is this line.
-    const failProbe = (reason: unknown) => {
+    // At most one line per run. The deadline and a rejection can both land for the same
+    // run - a read that outlives the bound and then fails - and two lines for one banner
+    // would over-count probes in a report.
+    let logged = false;
+    const raiseBanner = (message: string) => {
       if (!isCurrent()) return;
-      console.warn('[RevealSeedPhrase] protector probe failed:', reason);
+      if (!logged) {
+        logged = true;
+        console.warn(`[RevealSeedPhrase] ${message}`);
+      }
       setProbeError('couldNotCheckUnlockMethod');
       setProbing(false);
     };
@@ -148,8 +157,11 @@ const RevealSeedPhrase: FC = () => {
     // the LIVE probe's deadline. That left the second probe unbounded and put the page
     // back in the dead end this whole mechanism exists to prevent. The ref stays for the
     // unmount cleanup and the pre-arm clear, both of which do want the newest handle.
+    // A WAIT, not a failure. This fires on any read slower than the bound, and such a
+    // read is adopted below - so calling it a failure made the common mobile case, a slow
+    // bridge read that succeeds, report an error that never happened.
     const timer = setTimeout(
-      () => failProbe(new Error(`protector probe timed out after ${PROBE_TIMEOUT_MS}ms`)),
+      () => raiseBanner(`protector probe still waiting after ${PROBE_TIMEOUT_MS}ms`),
       PROBE_TIMEOUT_MS
     );
     probeTimer.current = timer;
@@ -157,10 +169,12 @@ const RevealSeedPhrase: FC = () => {
     probe()
       .then(hasHw => {
         if (!isCurrent()) return;
+        // Withdraw the wait, so "slow then answered" is separable from "never answered".
+        if (logged) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
         setProbeError(null);
         setHasHardwareProtector(hasHw);
       })
-      .catch(failProbe)
+      .catch(err => raiseBanner(`protector probe failed: ${err instanceof Error ? err.message : String(err)}`))
       .finally(() => {
         clearTimeout(timer);
         if (isCurrent()) setProbing(false);
