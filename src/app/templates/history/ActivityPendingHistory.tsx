@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useRef } from 'react';
 
-import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -8,9 +7,14 @@ import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { durations, useMotion } from 'lib/animation';
+import { getAdaptiveDecimalPlaces } from 'lib/i18n/adaptive-precision';
+import { formatUsd } from 'lib/i18n/numbers';
 import { markActivityRead } from 'lib/settings/activity-read';
+import { useWalletStore } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
+import { getPendingNotesUsdTotal } from 'lib/wallet-prompts';
 
 import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
@@ -40,6 +44,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
     repeat: reducedMotion ? 0 : Infinity
   });
   const hidden = useActivityHiddenNotes(account.publicKey);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const confirm = useConfirm();
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentItems = useRef(items);
@@ -79,6 +84,36 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
   const showAcceptAll = filter === 'pending' && (claimableNotes.length > 0 || acceptingAll);
   // Restore is offered only while a declined transfer could still be accepted.
   const showRestore = filter === 'pending' && hiddenCount > 0;
+  // What the row's left side says. The money is the whole point of the row — it is what Accept
+  // All is about to accept — so it is read off the SAME list the cards below come from, which is
+  // `isShown`'s, and a declined transfer is not on it. `HomePrompts` reads the same set through
+  // the same store, which is what makes the banner and this row agree.
+  const waitingTotalUsd = useMemo(
+    () =>
+      getPendingNotesUsdTotal(
+        listItems.map(item => item.note),
+        tokenPrices
+      ),
+    [listItems, tokenPrices]
+  );
+  // Pinned to the total's own precision, so a figure travelling towards a dust total does not
+  // change width on the way (`AnimatedNumber`, `adaptiveFormatterFor`).
+  const formatWaitingTotal = useMemo(() => {
+    const decimalPlaces = getAdaptiveDecimalPlaces(waitingTotalUsd);
+    return (value: number) => formatUsd(value, decimalPlaces);
+  }, [waitingTotalUsd]);
+  // One line, one lockup, the same one the home banner uses for this money: the count in the
+  // caption style, the total as a value on `ink`. When transfers are also hidden that fact joins
+  // the SAME sentence as a clause rather than becoming a second line — and it is the clause the
+  // truncation eats first, so the figure survives a 360px row. With nothing waiting at all there
+  // is no money to report and the hidden count takes the slot on its own.
+  const waitingCount = listItems.length;
+  const summary =
+    waitingCount === 0
+      ? t('activityHiddenTransfers', { count: hiddenCount })
+      : hiddenCount > 0
+        ? t('activityPendingWaitingHidden', { count: waitingCount, hidden: hiddenCount })
+        : t('activityPendingWaiting', { count: waitingCount });
 
   const reject = async (note: NoteWithMetadata) => {
     const accepted = await confirm({
@@ -143,28 +178,38 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
           </p>
         )}
         {(showRestore || showAcceptAll) && (
-          // One actions row above the list, carrying whichever of the two actions applies. With
-          // no declined transfers it holds Accept All alone, pushed to the same right edge
-          // Restore would have sat on, so the row does not change shape when Restore appears.
-          <div className="flex items-center gap-2 px-4 pt-3 text-xs text-text-secondary-token">
-            {showRestore && (
-              <>
-                {/* The count gives up its width first, so two buttons beside it cannot wrap the
-                    row on a 360px phone; the labels themselves never break. */}
-                <span className="min-w-0 flex-1 truncate">{t('activityHiddenTransfers', { count: hiddenCount })}</span>
-                <Button
-                  variant={ButtonVariant.Secondary}
-                  size="sm"
-                  className="w-auto shrink-0"
-                  title={t('activityRestoreTransfers')}
-                  onClick={() => hidden.restore()}
+          // One actions row above the list: what is waiting on the left, the actions on the
+          // right. The left side is never empty — Accept All only appears while something is
+          // listed — so the button is never an orphan floating against a band of empty space.
+          <div className="flex items-center gap-2 px-4 pt-3">
+            {/* The summary gives up its width first, so two buttons beside it cannot wrap the
+                row on a 360px phone; the figure and the labels themselves never break. */}
+            <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="min-w-0 truncate text-caption text-muted">{summary}</span>
+              {waitingCount > 0 && (
+                <AnimatedNumber
+                  data-testid="pending-row-total"
+                  className="shrink-0 text-value text-ink"
+                  // No price for any of these assets is not a total of zero: say nothing rather
+                  // than put a false $0.00 next to the button that accepts them.
+                  value={waitingTotalUsd > 0 ? waitingTotalUsd : null}
+                  format={formatWaitingTotal}
                 />
-              </>
+              )}
+            </div>
+            {showRestore && (
+              <Button
+                variant={ButtonVariant.Secondary}
+                size="sm"
+                className="w-auto shrink-0"
+                title={t('activityRestoreTransfers')}
+                onClick={() => hidden.restore()}
+              />
             )}
             {showAcceptAll && (
               <Button
                 size="sm"
-                className={classNames('w-auto shrink-0', !showRestore && 'ml-auto')}
+                className="w-auto shrink-0"
                 data-testid="pending-row-accept-all"
                 title={acceptingAll ? t('claiming') : t('acceptAll')}
                 disabled={claimableNotes.length === 0 && !acceptingAll}

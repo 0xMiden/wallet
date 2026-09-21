@@ -82,8 +82,15 @@ export function getPluralKey(keyPrefix: string, amount: number) {
   return `${keyPrefix}_${rules.select(amount)}`;
 }
 
-export function formatUsd(value: number): string {
-  const decimalPlaces = getAdaptiveDecimalPlaces(value);
+/**
+ * A USD figure at the precision its own magnitude earns.
+ *
+ * `decimalPlaces` pins that precision, which is what a figure being ANIMATED towards this one
+ * needs (`components/ui/AnimatedNumber`, `adaptiveFormatterFor`): every frame on the way to a
+ * total is a smaller number, and the adaptive rule would expand the frames near zero to four
+ * decimals and change the text's width on its way to a two-decimal destination.
+ */
+export function formatUsd(value: number, decimalPlaces: number = getAdaptiveDecimalPlaces(value)): string {
   return `$${value.toLocaleString('en-US', {
     minimumFractionDigits: decimalPlaces,
     maximumFractionDigits: decimalPlaces

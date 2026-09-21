@@ -15,8 +15,7 @@ export const formatFiat = (v: any) => String(v);
 export const formatPercentage = (v: any) => String(v);
 
 // Mirrors the real formatUsd so USD strings keep their exact shape in tests.
-export const formatUsd = (v: number) => {
-  const decimalPlaces = getAdaptiveDecimalPlaces(v);
+export const formatUsd = (v: number, decimalPlaces: number = getAdaptiveDecimalPlaces(v)) => {
   return `$${v.toLocaleString('en-US', {
     minimumFractionDigits: decimalPlaces,
     maximumFractionDigits: decimalPlaces

@@ -1127,6 +1127,8 @@
   "activityRejectTransfer": "Rechazar",
   "bridgeTestFundsBody": "Este puente traslada tokens de prueba de Ethereum Sepolia a Miden. Nunca realices un puente desde la red principal de Ethereum ni desde ninguna otra red real.",
   "activityHiddenTransfers": "Transferencias ocultas: $count$",
+  "activityPendingWaiting": "$count$ en espera",
+  "activityPendingWaitingHidden": "$count$ en espera · $hidden$ ocultas",
   "receiveTestFundsBody": "Envía a esta dirección únicamente tokens de Miden $network$. Los fondos reales enviados a esta dirección no se pueden recuperar.",
   "faucetPromptAction": "Aporta ahora",
   "fundWalletLoadingTitle": "Recargar tu monedero",

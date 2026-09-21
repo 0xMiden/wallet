@@ -1127,6 +1127,8 @@
   "activityRejectTransfer": "Odrzuć",
   "bridgeTestFundsBody": "Ten most przenosi testowe tokeny Ethereum Sepolia do sieci Miden. Nigdy nie należy tworzyć mostu z sieci głównej Ethereum ani żadnej innej rzeczywistej sieci.",
   "activityHiddenTransfers": "Ukryte transfery: $count$",
+  "activityPendingWaiting": "$count$ oczekuje",
+  "activityPendingWaitingHidden": "$count$ oczekuje · $hidden$ ukryte",
   "receiveTestFundsBody": "Na ten adres należy wysyłać wyłącznie tokeny Miden $network$. Prawdziwe środki wysłane na ten adres nie podlegają zwrotowi.",
   "faucetPromptAction": "Wpłać teraz",
   "fundWalletLoadingTitle": "Wpłata środków na konto",

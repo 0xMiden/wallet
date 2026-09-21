@@ -4983,6 +4983,27 @@
       }
     }
   },
+  "activityPendingWaiting": {
+    "message": "$count$ en attente",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ en attente · $hidden$ masqués",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
+  },
   "receiveTestFundsBody": {
     "message": "N’envoyez à cette adresse que des jetons Miden $network$. Les fonds réels envoyés à cette adresse ne pourront pas être récupérés.",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",

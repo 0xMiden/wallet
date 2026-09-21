@@ -4983,6 +4983,27 @@
       }
     }
   },
+  "activityPendingWaiting": {
+    "message": "$count$건 대기 중",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$건 대기 중 · $hidden$건 숨김",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
+  },
   "receiveTestFundsBody": {
     "message": "이 주소로는 Miden $network$ 토큰만 보내주십시오. 이 주소로 실제 자금을 보내면 복구할 수 없습니다.",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",

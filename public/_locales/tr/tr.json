@@ -1127,6 +1127,8 @@
   "activityRejectTransfer": "Reddet",
   "bridgeTestFundsBody": "Bu köprü, Ethereum Sepolia test tokenlerini Miden’e aktarır. Asla Ethereum ana ağı veya başka herhangi bir gerçek ağdan köprü kurmayın.",
   "activityHiddenTransfers": "Gizli transferler: $count$",
+  "activityPendingWaiting": "$count$ bekliyor",
+  "activityPendingWaitingHidden": "$count$ bekliyor · $hidden$ gizli",
   "receiveTestFundsBody": "Buraya yalnızca Miden $network$ tokenleri gönderin. Bu adrese gönderilen gerçek fonlar geri alınamaz.",
   "faucetPromptAction": "Şimdi para yatırın",
   "fundWalletLoadingTitle": "Cüzdanınıza para yatırma",

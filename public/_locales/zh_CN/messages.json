@@ -4983,6 +4983,27 @@
       }
     }
   },
+  "activityPendingWaiting": {
+    "message": "$count$ 笔等待中",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ 笔等待中 · $hidden$ 笔隐藏",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
+  },
   "receiveTestFundsBody": {
     "message": "请仅向此地址发送 Miden $network$ 代币。发送到该地址的真实资金将无法追回。",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",

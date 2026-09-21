@@ -1127,6 +1127,8 @@
   "activityRejectTransfer": "拒否",
   "bridgeTestFundsBody": "このブリッジは、イーサリアム・セポリアのテストトークンをMidenへ移動させるものです。イーサリアムのメインネットやその他の実稼働ネットワークからブリッジを行わないでください。",
   "activityHiddenTransfers": "隠された送金：$count$",
+  "activityPendingWaiting": "$count$ 件待機中",
+  "activityPendingWaitingHidden": "$count$ 件待機中 · $hidden$ 件非表示",
   "receiveTestFundsBody": "このアドレスには、Miden $network$のトークンのみを送付してください。このアドレスに実資金を送金した場合、その資金は回収できません。",
   "faucetPromptAction": "今すぐ資金を拠出する",
   "fundWalletLoadingTitle": "ウォレットへの入金",

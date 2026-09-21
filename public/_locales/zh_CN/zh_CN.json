@@ -1127,6 +1127,8 @@
   "activityRejectTransfer": "拒绝",
   "bridgeTestFundsBody": "此桥接将以太坊 Sepolia 测试代币转移至 Miden。切勿从以太坊主网或任何其他真实网络进行桥接。",
   "activityHiddenTransfers": "隐蔽转账：$count$",
+  "activityPendingWaiting": "$count$ 笔等待中",
+  "activityPendingWaitingHidden": "$count$ 笔等待中 · $hidden$ 笔隐藏",
   "receiveTestFundsBody": "请仅向此地址发送 Miden $network$ 代币。发送到该地址的真实资金将无法追回。",
   "faucetPromptAction": "立即捐款",
   "fundWalletLoadingTitle": "向钱包充值",

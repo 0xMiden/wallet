@@ -1127,6 +1127,8 @@
   "activityRejectTransfer": "Відхилити",
   "bridgeTestFundsBody": "Цей міст переміщує тестові токени Ethereum Sepolia до Miden. Ніколи не здійснюйте міст з основної мережі Ethereum або будь-якої іншої реальної мережі.",
   "activityHiddenTransfers": "Приховані перекази: $count$",
+  "activityPendingWaiting": "$count$ очікує",
+  "activityPendingWaitingHidden": "$count$ очікує · $hidden$ приховано",
   "receiveTestFundsBody": "Надсилайте на цю адресу лише токени Miden $network$. Реальні кошти, надіслані на цю адресу, не підлягають поверненню.",
   "faucetPromptAction": "Зробити внесок зараз",
   "fundWalletLoadingTitle": "Поповнення гаманця",

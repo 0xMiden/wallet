@@ -1127,6 +1127,8 @@
   "activityRejectTransfer": "Decline",
   "bridgeTestFundsBody": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network.",
   "activityHiddenTransfers": "Hidden transfers: $count$",
+  "activityPendingWaiting": "$count$ waiting",
+  "activityPendingWaitingHidden": "$count$ waiting · $hidden$ hidden",
   "receiveTestFundsBody": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
   "faucetPromptAction": "Fund now",
   "fundWalletLoadingTitle": "Funding your wallet",

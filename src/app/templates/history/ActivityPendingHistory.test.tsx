@@ -29,7 +29,12 @@ const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: 
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('react-i18next', () => ({
+  // Interpolations are appended to the key, so a test can read the count a line was given.
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${Object.values(params).join(':')}` : key)
+  })
+}));
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
     items: mockState.items,
@@ -43,6 +48,7 @@ jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 jest.mock('lib/animation', () => ({
   springs: { standard: {}, settle: {} },
   durations: { extraSlow: 0 },
+  presets: { count: { transition: { duration: 0 } } },
   useMotion: () => ({ duration: 0 }),
   // The pending card takes its disclosure motion from the `reveal` preset, and falls back to the
   // instant transition whenever the open or close did not come from a tap.
@@ -60,7 +66,17 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: (open: boolean) => mockHideNavbar(open)
 }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
-jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
+jest.mock('lib/i18n/numbers', () => ({
+  formatBigInt: () => '1',
+  getAdaptiveDecimalPlaces: () => 2,
+  formatUsd: (value: number, decimalPlaces = 2) => `$${value.toFixed(decimalPlaces)}`
+}));
+// Every fixture note is 1 TOK (1000000 at 6 decimals) and TOK is priced at $2, so the row's
+// total is $2 per LISTED transfer — the arithmetic the assertions below count on.
+const mockTokenPrices = { TOK: { price: 2, priceChange24h: 0 } };
+jest.mock('lib/store', () => ({
+  useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
+}));
 const mockHistoryRenders: Array<{ pendingItems: PendingActivityItem[]; renderPendingItem: unknown }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -194,13 +210,40 @@ it('stands Accept All beside Restore when declined transfers exist, and alone wh
   mockHidden.ids = new Set(['third']);
   const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
-  expect(screen.getByTestId('pending-row-accept-all')).not.toHaveClass('ml-auto');
 
   mockHidden.ids = new Set();
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
-  // Alone in the row, it keeps the right edge Restore would have sat on.
-  expect(screen.getByTestId('pending-row-accept-all')).toHaveClass('ml-auto');
+  // Alone, it is still at the right edge — the summary on the left fills the row, so it never
+  // floats against a band of empty space.
+  expect(screen.getByTestId('pending-row-accept-all')).toHaveClass('shrink-0');
+});
+
+it('leads the row with what Accept All is about to accept, in both states', () => {
+  // No declined transfers: three listed at $2 each, the count and the money and nothing else.
+  const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$6.00');
+
+  // One declined: it leaves the count AND the total, and joins the same line as a clause rather
+  // than becoming a second sentence under it.
+  mockHidden.ids = new Set(['third']);
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaitingHidden:2:1')).toBeInTheDocument();
+  expect(screen.queryByText('activityPendingWaiting:3')).not.toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$4.00');
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-accept-all')).toBeInTheDocument();
+});
+
+it('reports only the hidden count, and no money, once every transfer is declined', () => {
+  mockHidden.ids = new Set(['first', 'second', 'third']);
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  // Nothing is waiting, so there is no total to report and the hidden count takes the slot.
+  expect(screen.getByText('activityHiddenTransfers:3')).toBeInTheDocument();
+  expect(screen.queryByTestId('pending-row-total')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
 });
 
 it('offers no Accept All when a Pending search lists no transfer', () => {
@@ -283,7 +326,7 @@ it('offers Restore under the Pending filter while declined transfers can still b
 
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).toBeNull();
-  expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
+  expect(screen.getByText(/^activityPendingWaitingHidden:/)).toBeInTheDocument();
   const restoreButton = screen.getByRole('button', { name: 'activityRestoreTransfers' });
   // The canonical `sm` size replaces the old manual px-3/py-2/text-xs override.
   expect(restoreButton).toHaveAttribute('data-size', 'sm');
