@@ -14,8 +14,7 @@ export default defineConfig({
   // Guardian specs need a locally-spawned guardian backend that only the
   // dedicated guardian job stands up, so exclude them from the general
   // blockchain runs (they're run via playwright.guardian.config.ts). Swap
-  // specs are gated on swap-related path changes, so exclude them too
-  // (they're run via playwright.swap.config.ts by the dedicated swap job).
+  // specs run via playwright.swap.config.ts on main, not on pull_request.
   // Bridge specs drive real cross-chain bridging against the hosted Epoch
   // allocator (testnet-only), so they run via playwright.bridge.config.ts on a
   // dedicated job, not the general blockchain/localhost runs. Earn specs need

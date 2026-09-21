@@ -64,9 +64,12 @@ jobs:
   # wired into pr-e2e-local.yml), switch/recovery scenarios need a SECOND,
   # distinct-keypair guardian ("B", :3001) to switch/recover TO — brought up
   # via the `guardian-switch` compose profile (docker-compose.local.yml).
-  # The specs are live (18 guardian-*.spec.ts files: 14 under tests/ and 4 under
-  # tests/resilience/), picked up via playwright.guardian.config.ts's recursive
-  # `**/guardian-*.spec.ts` testMatch.
+  # The specs are live guardian-*.spec.ts files (tests/ plus tests/resilience/),
+  # picked up via playwright.guardian.config.ts's recursive
+  # `**/guardian-*.spec.ts` testMatch. Pull requests set GUARDIAN_E2E_SUITE=pr
+  # so stress specs and guardian-fault.smoke stay off the merge path; main and
+  # workflow_dispatch run the full suite. The policy unit tests live in Jest
+  # (playwright/e2e/harness/guardian-fault.test.ts), not this job.
   # guardian-lifecycle-e2e-gate is the stable required-check name.
   # #615: guardian-recovery.spec.ts:65 flaked ~10% of executions (~11 failures /
   # ~110 real runs, 2026-08-04 -> 2026-08-12) since the spec landed — there was
@@ -108,6 +111,9 @@ jobs:
       # src/lib/miden-chain/constants.ts (GUARDIAN_OPTIONS), matching the
       # fixed :3001 publish in docker-compose.local.yml.
       GUARDIAN_URL: http://localhost:3000
+      # pr = happy-path only (see playwright.guardian.config.ts). Full suite on
+      # main and workflow_dispatch, including the known-flaky stress specs.
+      GUARDIAN_E2E_SUITE: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -265,10 +271,7 @@ jobs:
         # No --retries override: retries:0 (playwright.e2e.config.ts, inherited
         # by playwright.guardian.config.ts) is deliberate for this suite -- a
         # flake here is a bug to fix, not to paper over (design doc §11).
-        # testMatch is `**/guardian-*.spec.ts`, so this also runs the existing
-        # Tier-2 guardian-send-consume/guardian-fault specs until the
-        # guardian-switch*/guardian-recovery*.spec.ts files land (later phases
-        # of this project) -- expected, not a bug in this workflow.
+        # GUARDIAN_E2E_SUITE (job env) selects PR happy-path vs the full suite.
         run: xvfb-run -a yarn playwright test --config playwright.guardian.config.ts
       - name: Capture OS memory / OOM diagnostics on failure
         if: failure()

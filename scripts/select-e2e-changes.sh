@@ -4,6 +4,9 @@ set -euo pipefail
 
 suite=${1:-}
 
+# Earn is still a valid suite name because the unit tests pin that arm. The Earn
+# workflow no longer consults this script on pull_request (the suite runs on
+# main and workflow_dispatch only).
 case "$suite" in
   earn | guardian) ;;
   *)

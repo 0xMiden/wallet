@@ -41,9 +41,10 @@ jobs:
 
   e2e-selector:
     name: E2E selector
-    # The selector decides whether the Earn and Guardian suites run at all, and a wrong
+    # The selector decides whether the Guardian suite runs at all, and a wrong
     # answer is invisible: the suite is skipped and its required gate still reports success.
-    # Its test is pure bash over a path list, so it needs no checkout of node_modules.
+    # Earn no longer consults it on PRs (main/dispatch only). The test still covers
+    # both arms. Pure bash over a path list, so no node_modules.
     runs-on: ubuntu-slim
     steps:
       - name: Check Out Code
@@ -148,8 +149,8 @@ jobs:
           git push
           echo "committed=true" >> $GITHUB_OUTPUT
 
-  ci:
-    name: Test
+  unit:
+    name: Unit tests
     needs: translations
     runs-on: ubuntu-latest
     steps:
@@ -166,15 +167,10 @@ jobs:
           node-version: 22
 
       # comment=false (default): translations is the designated
-      # comment-poster — see its `Inject` step for rationale. Other
+      # comment-poster - see its `Inject` step for rationale. Other
       # jobs just need the package.json mutation, not the comment.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
-        with:
-          # This job runs playwright/tests/mock-web-client.spec.ts, which imports the SDK under
-          # node and so needs the napi binary the published package supplies through its platform
-          # optionalDependencies; a `file:` source build has none.
-          build-node-module: 'true'
       - name: Inject linked guardian PR
         uses: ./.github/actions/inject-linked-guardian-pr
 
@@ -204,6 +200,35 @@ jobs:
         with:
           cmd: check:update-manifest
 
+  mock-e2e:
+    name: mock-e2e
+    needs: translations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Code
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.head_ref }}
+
+      - name: Use Node 22
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          # playwright/tests/mock-web-client.spec.ts imports the SDK under node
+          # and needs the napi binary the published package supplies through its
+          # platform optionalDependencies; a `file:` source build has none.
+          build-node-module: 'true'
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
+
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 
@@ -225,6 +250,22 @@ jobs:
 
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
+
+  # Required-check name `Test`. Lint/unit and mock Playwright used to run in this
+  # one job (~42m sequential). They now run in parallel; this gate keeps the
+  # required name and fails if either side failed or was skipped.
+  ci:
+    name: Test
+    needs: [unit, mock-e2e]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
+    steps:
+      - run: |
+          if [ "${{ needs.unit.result }}" != "success" ]; then
+            echo "unit ${{ needs.unit.result }}"; exit 1; fi
+          if [ "${{ needs.mock-e2e.result }}" != "success" ]; then
+            echo "mock-e2e ${{ needs.mock-e2e.result }}"; exit 1; fi
+          echo "unit and mock-e2e ok"
 
   coverage:
     name: Coverage Check (95% minimum)
