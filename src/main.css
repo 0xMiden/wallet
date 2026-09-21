@@ -650,6 +650,9 @@ body[data-hide-navbar]::after {
     --tx-swap: var(--action-swap);
     --tx-earn: var(--action-earn);
     --tx-faucet: #cca4b8;
+    /* A mark with no category of its own (the Activity groups' "Other"): the same neutral a
+     * cancelled row's mark already wears. */
+    --tx-other: #737373;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -777,6 +780,7 @@ body[data-hide-navbar]::after {
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
     --tx-faucet: #cca4b8;
+    --tx-other: #737373;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;

@@ -10,7 +10,8 @@ const DEFAULT_TINT = '#94A3B8';
 /** `sm` is the 24px avatar a page header's title can carry; `md` a row's; `xl` a hero's. */
 export type ContactAvatarSize = 'sm' | 'md' | 'xl';
 
-const AVATAR_SIZES: Record<ContactAvatarSize, AvatarSize> = { sm: 24, md: 40, xl: 88 };
+/** The `Avatar` size each name stands for, exported so any leading mark in a row can match. */
+export const AVATAR_SIZES: Record<ContactAvatarSize, AvatarSize> = { sm: 24, md: 40, xl: 88 };
 
 /** Stable per address, so the same contact keeps its color on every screen. */
 export function tintForAddress(address: string): string {

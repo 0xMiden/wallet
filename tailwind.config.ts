@@ -186,6 +186,7 @@ export default {
         'tx-swap': 'var(--tx-swap)',
         'tx-earn': 'var(--tx-earn)',
         'tx-faucet': 'var(--tx-faucet)',
+        'tx-other': 'var(--tx-other)',
         'rule-default': 'var(--rule-default)',
         'rule-strong': 'var(--rule-strong)',
         // Design system, direction B. See skills/miden-wallet-frontend/references/design-system.md.

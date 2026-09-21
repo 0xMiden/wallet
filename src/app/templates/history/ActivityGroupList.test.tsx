@@ -130,6 +130,57 @@ describe('ActivityGroupList', () => {
     expect(screen.getByText('activityGroupOther')).toBeTruthy();
   });
 
+  it('gives every kind of group the same 40px round mark, tinted by kind', () => {
+    renderList([
+      entry({ timestamp: 900, secondaryAddress: 'mtst1aliceaddress0000' }),
+      entry({ timestamp: 800, txType: 'swap' }),
+      entry({ timestamp: 700, txType: 'switch-guardian' }),
+      entry({
+        timestamp: 600,
+        txType: 'consume',
+        transactionIcon: 'RECEIVE',
+        faucetId: FAUCET,
+        secondaryAddress: FAUCET
+      }),
+      entry({ timestamp: 500, txType: 'execute' })
+    ]);
+
+    // The contact keeps its initials avatar; the four category groups each get the circle they
+    // were missing, so the title column starts at the same x on every row.
+    expect(screen.getAllByTestId('contact-avatar')).toHaveLength(1);
+    const marks = screen.getAllByTestId('activity-group-avatar');
+    expect(marks.map(mark => mark.getAttribute('data-group-kind'))).toEqual(['swap', 'guardian', 'faucet', 'other']);
+    for (const mark of [...marks, ...screen.getAllByTestId('contact-avatar')]) {
+      const circle = mark.firstElementChild;
+      expect(circle).toHaveClass('rounded-full', 'h-10', 'w-10');
+    }
+  });
+
+  it('paints each category mark in the colour the flat feed gives that kind of row', () => {
+    renderList([
+      entry({ timestamp: 900, txType: 'swap' }),
+      entry({ timestamp: 800, txType: 'switch-guardian' }),
+      entry({
+        timestamp: 700,
+        txType: 'consume',
+        transactionIcon: 'RECEIVE',
+        faucetId: FAUCET,
+        secondaryAddress: FAUCET
+      }),
+      entry({ timestamp: 600, txType: 'execute' })
+    ]);
+
+    const colorOf = (kind: string) => {
+      const mark = screen.getAllByTestId('activity-group-avatar').find(m => m.dataset.groupKind === kind);
+      return mark?.firstElementChild?.getAttribute('style');
+    };
+    expect(colorOf('swap')).toContain('var(--tx-swap)');
+    expect(colorOf('faucet')).toContain('var(--tx-faucet)');
+    // The slate `HistoryView` already paints a guardian row with (jsdom prints it as rgb).
+    expect(colorOf('guardian')).toContain('rgb(119, 116, 135)');
+    expect(colorOf('other')).toContain('var(--tx-other)');
+  });
+
   it("reads the latest event and how long ago it was as the row's subtitle", () => {
     renderList([
       entry({ timestamp: 900, message: 'Sent', amount: '1', token: 'MIDEN', secondaryAddress: 'mtst1alice' }),

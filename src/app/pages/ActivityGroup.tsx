@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ACTIVITY_PATH } from 'app/pages/activity-paths';
+import { ActivityGroupAvatar } from 'app/templates/history/ActivityGroupAvatar';
 import { activityGroupMatcher, isActivityGroupKind } from 'app/templates/history/activityGroups';
 import History from 'app/templates/history/History';
 import { shortAddr } from 'app/templates/history/HistoryView';
-import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -56,15 +56,16 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   if (!isActivityGroupKind(kind) || !predicate) return <Redirect to={ACTIVITY_PATH} />;
   if (kind === 'address' && !address) return <Redirect to={ACTIVITY_PATH} />;
 
-  const title =
-    kind === 'address' && address ? (
-      <span className="flex min-w-0 items-center gap-2">
-        <ContactAvatar address={address} name={contactName} size="sm" />
-        <span className="min-w-0 truncate">{contactName ?? shortAddr(address)}</span>
+  // The title wears the same mark as the row that opened it — a contact's avatar, or the
+  // category's glyph on its own colour (`ActivityGroupAvatar`).
+  const title = (
+    <span className="flex min-w-0 items-center gap-2">
+      <ActivityGroupAvatar kind={kind} id={address ?? kind} name={contactName} size="sm" />
+      <span className="min-w-0 truncate">
+        {kind === 'address' && address ? (contactName ?? shortAddr(address)) : t(KIND_LABELS[kind] ?? 'activity')}
       </span>
-    ) : (
-      t(KIND_LABELS[kind] ?? 'activity')
-    );
+    </span>
+  );
 
   return (
     <SubPageLayout title={title} onBack={back} focusTitleOnMount bodyRef={bodyRef} data-testid="activity-group-page">
