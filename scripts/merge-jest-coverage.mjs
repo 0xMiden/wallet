@@ -8,13 +8,18 @@
  */
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const { createCoverageMap } = require('istanbul-lib-coverage');
-const libReport = require('istanbul-lib-report');
-const reports = require('istanbul-reports');
+// CI installs istanbul under $NODE_PATH (outside this repo) because npm
+// install in the wallet tree hits `link:./packages/dapp-browser`.
+const requireIstanbul = process.env.NODE_PATH
+  ? createRequire(join(process.env.NODE_PATH, '..', 'package.json'))
+  : require;
+const { createCoverageMap } = requireIstanbul('istanbul-lib-coverage');
+const libReport = requireIstanbul('istanbul-lib-report');
+const reports = requireIstanbul('istanbul-reports');
 
 const THRESHOLD = { branches: 95, functions: 95, lines: 95, statements: 95 };
 

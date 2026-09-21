@@ -322,13 +322,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # Install outside the repo: `npm install` in the wallet tree reads
+      # package.json `link:./packages/dapp-browser`, which npm rejects.
       - name: Install coverage reporters
-        run: npm install --no-save istanbul-lib-coverage istanbul-lib-report istanbul-reports
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-shard-*
           path: coverage-shards
       - name: Merge shards and enforce 95%
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
         run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
 
   i18n-check:
