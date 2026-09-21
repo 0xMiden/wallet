@@ -136,13 +136,18 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   const visibleExtra = extra.slice(0, EXTRA_ASSET_PREVIEW_COUNT);
   const extraOverflowCount = extra.length - visibleExtra.length;
   // The row is a Framer element so a list can animate it as a plain list item:
-  // `layout` slides the rows that stay into place when a filter or a search
-  // removes a neighbour. Nothing fades: a removed row leaves at once and a new
-  // one appears in place, the way a native list behaves. The tap state is
+  // `layout="position"` slides the rows that stay into place when a filter or a
+  // search removes a neighbour. Nothing fades: a removed row leaves at once and
+  // a new one appears in place, the way a native list behaves. The tap state is
   // Framer's, so it shares the channel a layout move may hold.
+  // Position-only is load-bearing, not a preference: a full `layout` also scales,
+  // and Framer can only undo that scale for a radius it reads from `style` or a
+  // motion value. The avatar and the status dot below are plain elements whose
+  // radius is a class, so under a full `layout` both draw as ovals for the whole
+  // spring. Same reason as SegmentedActionBar's inline radius.
   return (
     <motion.div
-      layout
+      layout="position"
       whileTap={onClick ? { opacity: 0.9 } : undefined}
       transition={transition}
       data-testid={testId}
