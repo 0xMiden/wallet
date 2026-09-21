@@ -83,6 +83,12 @@ jest.mock('./NetworkChip', () => ({
   NetworkChip: ({ label }: any) => <span data-testid="network-chip">{label}</span>
 }));
 
+// Set by a test that needs the mock challenge to hand back an authorization for a DIFFERENT
+// account than the one the challenge itself was opened for - a stale/forged credential, which the
+// real `SpendingLimitChallenge` never produces (its authorization always carries the challenge's
+// own `source.accountId`) but which `runSameChainSend`/`runBridgeSend` must independently refuse.
+let mockAuthorizationAccountOverride: string | undefined;
+
 jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => {
     const source = props.assessment ?? props.unpriced;
@@ -96,7 +102,7 @@ jest.mock('components/SpendingLimitChallenge', () => ({
             props.onResult({
               kind: props.assessment !== undefined ? 'usd' : 'unpriced',
               id: 'authorization-1',
-              accountId: source.accountId,
+              accountId: mockAuthorizationAccountOverride ?? source.accountId,
               revision: source.revision,
               issuedAt: 120,
               expiresAt: 240
@@ -312,6 +318,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockAuthorizationAccountOverride = undefined;
 
   // Base implementations (resetAllMocks wipes impls).
   confirmMock.mockResolvedValue(true);
@@ -626,6 +633,24 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(confirmMock).not.toHaveBeenCalled();
   });
 
+  it('discards an authorization for a different account instead of sending against it', async () => {
+    // `SpendingLimitChallenge` always mints an authorization bound to the account its own
+    // assessment named; this plants a forged/stale one directly to prove `runSameChainSend`
+    // refuses it on its own, the same way the dApp custom-transaction gate refuses forged fields.
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    mockAuthorizationAccountOverride = 'pubkey-someone-else';
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
+
   it('opens the unvalued challenge when the pre-check cannot price the transaction', async () => {
     setValidRoute();
     mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
@@ -642,6 +667,26 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
     expect(confirmMock).not.toHaveBeenCalled();
     expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the generic error when the pre-check itself cannot open the unpriced challenge', async () => {
+    // Distinct from the "no configured limit" fallback above: here `readSpendingLimit` fails
+    // outright (a storage fault), reached from `onSubmit`'s OWN catch rather than
+    // `runSameChainSend`'s - the pre-check throws before either send path is ever entered.
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      symbol: 'MDN'
+    });
+    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
   });
 
   it('opens the unvalued challenge when the actual send cannot be priced', async () => {
@@ -764,6 +809,84 @@ describe('ReviewTransaction — onSubmit', () => {
         spendingLimitAuthorization: expect.objectContaining({ id: 'authorization-1', revision: 'revision-1' })
       })
     );
+  });
+
+  it('discards a bridge authorization for a different account instead of bridging against it', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    mockAuthorizationAccountOverride = 'pubkey-someone-else';
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
+
+  it('re-enables the bridge submit button when the drawer authorize path cannot open the unpriced challenge', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    initiateB2AggBridgeMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
+  });
+
+  it('stringifies a non-Error bridge rejection instead of showing an empty message', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockRejectedValue('bridge relay unreachable');
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('bridge relay unreachable');
+  });
+
+  it('shows a real Error bridge rejection by its own message', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockRejectedValue(new Error('bridge relay timed out'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('bridge relay timed out');
+  });
+
+  it('opens the unvalued challenge when the actual bridge send cannot be priced', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
   });
 
   it('keeps the ordinary confirmation and sends no authorization for a below-limit bridge', async () => {
@@ -978,6 +1101,21 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(confirmMock).toHaveBeenCalledTimes(1);
     expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes an open spending-limit challenge when the active account changes underneath it', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    const view = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+    mockPublicKey = 'pubkey-2';
+    await act(async () => view.rerender(<ReviewTransaction />));
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
   });
 });
 
