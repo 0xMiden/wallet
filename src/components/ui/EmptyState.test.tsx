@@ -130,20 +130,16 @@ describe('EmptyState', () => {
     expect(action).toHaveTextContent('Add a contact');
     fireEvent.click(action);
     expect(onClick).toHaveBeenCalledTimes(1);
-  });
 
-  it('uses the canonical `sm` size for the secondary action instead of a manual height override', () => {
-    render(
-      <EmptyState
-        icon={IconName.Home}
-        title="Title"
-        secondaryAction={{ label: 'Add a contact', onClick: jest.fn(), 'data-testid': 'empty-state-action' }}
-      />
-    );
-
-    const action = screen.getByTestId('empty-state-action');
+    // Also covers what a separate 'uses the canonical sm size' case asserted: the cluster merge
+    // brought both through because both passed. The negative regex here is unanchored and so
+    // strictly broader than the deleted one, which makes it the stronger assertion.
+    // The compact size comes from Button's own `sm` variant, not from utility classes here. The
+    // hand-rolled copy had already drifted from it (text-sm is 14px where the variant is 15px) and
+    // left the lg default's leading and max-width un-neutralised. Assert the PROP, not Button's
+    // rendered classes: Button is mocked in this suite, so asserting its internals would pass on
+    // the mock rather than on the component.
     expect(action).toHaveAttribute('data-size', 'sm');
-    // Layout only: no stray height/text-size override fighting the sm anatomy.
-    expect(action.getAttribute('data-classname')).not.toMatch(/\bh-9\b|\btext-sm\b/);
+    expect(action.getAttribute('data-classname')).not.toMatch(/h-9|text-sm/);
   });
 });

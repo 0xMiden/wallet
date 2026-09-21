@@ -183,6 +183,8 @@ describe('ChooseGuardianScreen', () => {
     // Light + dark wordmark variants, toggled by `dark:` rather than recolored.
     expect(ozSvgs.length).toBeGreaterThanOrEqual(2);
     ozSvgs.forEach(svg => expect(svg).not.toHaveClass('[&_path]:fill-ink'));
+    // Both roots carry the size class, so the constraint survives the theme toggle.
+    ozSvgs.forEach(svg => expect(svg).toHaveClass('h-auto'));
 
     // The brand-kit tile behind it: pure white in light mode, a dark neutral
     // in dark mode.
@@ -192,6 +194,9 @@ describe('ChooseGuardianScreen', () => {
     // Every other provider is untouched: still recolored to ink, no brand tile.
     const gatewaySvg = gatewayBtn!.querySelector('svg');
     expect(gatewaySvg).toHaveClass('[&_path]:fill-ink');
+    // The size class is SHARED, not OpenZeppelin-only: a fix applied on the OpenZeppelin path
+    // alone would leave the assertion above green and only fail here.
+    expect(gatewaySvg).toHaveClass('h-auto');
     expect(gatewaySvg!.parentElement).not.toHaveClass('bg-pure-white');
   });
 

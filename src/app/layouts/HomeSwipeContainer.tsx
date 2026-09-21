@@ -351,6 +351,10 @@ const HomeSwipeContainer: FC = () => {
    * is up, so a focused field with the keyboard open is untouched by this (#481).
    */
   const handlePointerDownCapture = (event: React.PointerEvent) => {
+    // A second finger landing mid-gesture is not a new gesture: without this the swipe in flight is
+    // downgraded to a tap and never commits. `=== false` rather than `!isPrimary`, because a
+    // synthesized pointerdown carries no `isPrimary` at all and must keep behaving as it does today.
+    if (event.isPrimary === false) return;
     draggedRef.current = false;
     const interruptingRelease = isReleaseRunning();
     endRelease(true);

@@ -23,17 +23,27 @@ const cardVariants = cva('rounded-2xl bg-fill text-left', {
       row: 'px-4 py-3',
       tile: 'p-4'
     },
-    interactive: {
+    // Split, because the two halves need different things of the child. Press feedback works on
+    // anything tappable; the focus ring and the disabled states only mean something on an element
+    // that can take focus, and claiming them on one that cannot advertises behaviour the card
+    // cannot deliver.
+    pressable: {
       true: [
-        'cursor-pointer select-none outline-none transition-colors duration-150 ease-hover',
-        'hover:bg-fill-pressed active:bg-fill-pressed',
+        'cursor-pointer transition-colors duration-150 ease-hover',
+        'hover:bg-fill-pressed active:bg-fill-pressed'
+      ],
+      false: ''
+    },
+    focusable: {
+      true: [
+        'select-none outline-none',
         'focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-page',
         'disabled:cursor-default disabled:opacity-50 disabled:hover:bg-fill disabled:active:bg-fill'
       ],
       false: ''
     }
   },
-  defaultVariants: { padding: 'tile', interactive: false }
+  defaultVariants: { padding: 'tile', pressable: false, focusable: false }
 });
 
 export interface CardProps {
@@ -45,10 +55,15 @@ export interface CardProps {
    */
   asChild?: boolean;
   /**
-   * Pressed feedback and a focus ring, for an `asChild` child that owns its own tap. A card that
-   * is itself the tap target is a `CardButton`.
+   * Pressed feedback, for an `asChild` child that owns its own tap. A card that is itself the tap
+   * target is a `CardButton`.
    */
-  interactive?: boolean;
+  pressable?: boolean;
+  /**
+   * A focus ring and disabled states. Only for a child that can actually take focus: on one that
+   * cannot, these classes are inert and advertise behaviour the card cannot deliver.
+   */
+  focusable?: boolean;
   /** Layout only (margins, width, flex). */
   className?: string;
   'aria-label'?: string;
@@ -64,7 +79,8 @@ export const Card: React.FC<CardProps> = ({
   children,
   padding,
   asChild = false,
-  interactive = false,
+  pressable = false,
+  focusable = false,
   className,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
@@ -72,7 +88,7 @@ export const Card: React.FC<CardProps> = ({
   const Comp = asChild ? Slot : 'div';
   return (
     <Comp
-      className={cn(cardVariants({ padding, interactive }), className)}
+      className={cn(cardVariants({ padding, pressable, focusable }), className)}
       aria-label={ariaLabel}
       data-testid={dataTestId}
     >
@@ -112,7 +128,7 @@ export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(f
       disabled={disabled}
       whileTap={disabled ? undefined : press.whileTap}
       transition={press.transition}
-      className={cn(cardVariants({ padding, interactive: true }), className)}
+      className={cn(cardVariants({ padding, pressable: true, focusable: true }), className)}
       {...props}
       onClick={e => {
         hapticLight();
