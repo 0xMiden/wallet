@@ -785,6 +785,7 @@
   "faucetId": "Faucet ID",
   "faucetIdOffered": "Oferowany Faucet ID",
   "faucetIdRequested": "Żądany Faucet ID",
+  "faucetIds": "Faucet IDs",
   "setNewFaucetId": "Ustaw nowy identyfikator Faucet",
   "setNewFaucetIdDescription": "Wprowadź identyfikator urządzenia Midenfaucet",
   "addAccount": "Dodaj konto",

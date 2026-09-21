@@ -785,6 +785,7 @@
   "faucetId": "Faucet ID",
   "faucetIdOffered": "제공 Faucet ID",
   "faucetIdRequested": "요청 Faucet ID",
+  "faucetIds": "Faucet IDs",
   "setNewFaucetId": "Faucet의 새 ID 설정",
   "setNewFaucetIdDescription": "미덴의 ID를 입력하세요 faucet",
   "addAccount": "계정 추가",

@@ -371,6 +371,11 @@ const rowByLabel = (label: string) =>
     el => el.getAttribute('data-label') === label
   );
 
+const sectionByTitle = (title: string) =>
+  Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+    el => el.getAttribute('data-title') === title
+  );
+
 beforeEach(() => {
   jest.clearAllMocks();
   // Keep IndexedDB/Dexie's scheduling primitives real so the global database
@@ -1115,6 +1120,102 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(rowByLabel('faucetId')).toBeUndefined();
+      // Neither shape: no single row, and no per-asset card either.
+      expect(sectionByTitle('faucetIds')).toBeUndefined();
+    });
+
+    // Accept All consumes every waiting transfer in ONE `consume`, and those
+    // notes can come from different faucets. `tx.faucetId` is only the FIRST of
+    // them, so the single row above named one faucet and said nothing about the
+    // rest - the batch's other assets were attributed to it silently.
+    describe('multi-faucet breakdown', () => {
+      const batchClaim = (overrides: Tx = {}): Tx => ({
+        ...baseSendTx,
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        outputNoteIds: undefined,
+        noteId: 'note-1',
+        noteIds: ['note-1', 'note-2', 'note-3'],
+        amount: 20n,
+        faucetId: 'faucet-1',
+        assetTotals: [
+          { faucetId: 'faucet-1', amount: 20n },
+          { faucetId: 'faucet-2', amount: 10n },
+          { faucetId: 'faucet-3', amount: 5n }
+        ],
+        ...overrides
+      });
+
+      const seedThreeFaucets = () =>
+        act(() =>
+          mockWalletStore.setState({
+            assetsMetadata: {
+              'faucet-1': { name: 'Alpha', symbol: 'ALPHA', decimals: 6 },
+              'faucet-2': { name: 'Beta', symbol: 'BETA', decimals: 6 },
+              'faucet-3': { name: 'Gamma', symbol: 'GAMMA', decimals: 6 }
+            }
+          })
+        );
+
+      it('names every faucet a batch accept swept up, each beside its own asset', async () => {
+        seedThreeFaucets();
+        setMockRow(batchClaim());
+        await renderAndLoad();
+
+        const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
+        // Which faucet gave the reader what: the asset and quantity it
+        // contributed, not three bare ids under a hero that names one of them.
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', '10 BETA', '5 GAMMA']);
+        expect(rows.map(row => row.querySelector('[data-testid="hash-chip"]')?.textContent)).toEqual([
+          'faucet-1',
+          'faucet-2',
+          'faucet-3'
+        ]);
+        // Three DISTINCT account-explorer links, built from the same
+        // override-aware helper the From/To and single-faucet rows use.
+        expect(rows.map(row => row.querySelector('a[data-testid="external-link"]')?.getAttribute('href'))).toEqual([
+          'https://custom-explorer.test/account/faucet-1',
+          'https://custom-explorer.test/account/faucet-2',
+          'https://custom-explorer.test/account/faucet-3'
+        ]);
+        // The row that named `tx.faucetId` alone is gone - it IS the bug here.
+        expect(rowByLabel('faucetId')).toBeUndefined();
+      });
+
+      it('keeps the single row for a claim whose notes all share one faucet', async () => {
+        seedThreeFaucets();
+        setMockRow(batchClaim({ assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] }));
+        await renderAndLoad();
+
+        expect(sectionByTitle('faucetIds')).toBeUndefined();
+        expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-1');
+        expect(rowByLabel('faucetId')?.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+          'href',
+          'https://custom-explorer.test/account/faucet-1'
+        );
+      });
+
+      // An unresolved faucet has no trustworthy scale, so the same rule the
+      // badge and the receipt follow applies: name the asset, withhold the
+      // quantity, rather than render an 18-decimal token at the placeholder's 6.
+      it('names an unresolved faucet without inventing its quantity', async () => {
+        act(() =>
+          mockWalletStore.setState({ assetsMetadata: { 'faucet-1': { name: 'Alpha', symbol: 'ALPHA', decimals: 6 } } })
+        );
+        setMockRow(
+          batchClaim({
+            assetTotals: [
+              { faucetId: 'faucet-1', amount: 20n },
+              { faucetId: 'faucet-2', amount: 10n }
+            ]
+          })
+        );
+        await renderAndLoad();
+
+        const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', 'Unknown']);
+      });
     });
   });
 

@@ -785,6 +785,7 @@
   "faucetId": "Faucet ID",
   "faucetIdOffered": "Offered Faucet ID",
   "faucetIdRequested": "Requested Faucet ID",
+  "faucetIds": "Faucet IDs",
   "setNewFaucetId": "Set new Faucet ID",
   "setNewFaucetIdDescription": "Enter the ID of a miden faucet",
   "addAccount": "Add Account",

@@ -3479,6 +3479,10 @@
     "message": "請求的 Faucet ID",
     "englishSource": "Requested Faucet ID"
   },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
+  },
   "setNewFaucetId": {
     "message": "設定新的Faucet識別碼",
     "englishSource": "Set new Faucet ID"

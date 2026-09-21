@@ -785,6 +785,7 @@
   "faucetId": "Faucet ID",
   "faucetIdOffered": "Angebotene Faucet ID",
   "faucetIdRequested": "Angeforderte Faucet ID",
+  "faucetIds": "Faucet IDs",
   "setNewFaucetId": "Neue „Faucet“-ID festlegen",
   "setNewFaucetIdDescription": "Geben Sie die ID eines „Miden“ ein: faucet",
   "addAccount": "Konto hinzufügen",

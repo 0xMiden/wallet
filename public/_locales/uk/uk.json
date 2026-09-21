@@ -785,6 +785,7 @@
   "faucetId": "Faucet Ідентифікатор",
   "faucetIdOffered": "Запропонований Faucet Ідентифікатор",
   "faucetIdRequested": "Запитуваний Faucet Ідентифікатор",
+  "faucetIds": "Faucet IDs",
   "setNewFaucetId": "Встановити новий ідентифікатор «Faucet»",
   "setNewFaucetIdDescription": "Введіть ідентифікатор «miden» faucet",
   "addAccount": "Додати обліковий запис",

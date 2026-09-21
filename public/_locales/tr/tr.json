@@ -785,6 +785,7 @@
   "faucetId": "Faucet Kimlik",
   "faucetIdOffered": "Sunulan Faucet Kimlik",
   "faucetIdRequested": "İstenen Faucet Kimlik",
+  "faucetIds": "Faucet IDs",
   "setNewFaucetId": "Faucet'ın yeni kimliğini belirle",
   "setNewFaucetIdDescription": "Bir midenin kimlik numarasını girin: faucet",
   "addAccount": "Hesap Ekle",

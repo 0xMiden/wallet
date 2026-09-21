@@ -170,14 +170,24 @@ export const resolveSwapAsset = (
 /** USDC fallback decimals for an earn deposit when the faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
 const EARN_USDC_DECIMALS = 6;
 
+/** One faucet of a claim, with the asset and quantity that faucet contributed. */
+export interface ConsumeAssetPart {
+  /** The faucet that minted this asset — an account id, linkable on the explorer. */
+  faucetId: string;
+  /** `"20 A"`, or the symbol alone when the faucet has no trustworthy scale. */
+  label: string;
+}
+
 /**
- * Format a claim's assets as `["20 A", "10 B"]`, one entry per faucet swept up.
+ * A claim's assets, one entry per faucet swept up, each carrying the faucet that
+ * minted it and its formatted `"20 A"` label.
  *
- * Shared by the in-progress badge and the success receipt because they render
- * the SAME claim seconds apart on the SAME screen: the receipt replaces the
- * badge once the row completes. Deriving them separately is what let the receipt
- * silently drop every secondary asset and label an unresolved faucet MIDEN while
- * the badge called it Unknown.
+ * Shared by the in-progress badge, the success receipt and the transaction
+ * detail page because all three render the SAME claim: the receipt replaces the
+ * badge once the row completes, and the detail page is where the user opens it
+ * afterwards. Deriving them separately is what let the receipt silently drop
+ * every secondary asset and label an unresolved faucet MIDEN while the badge
+ * called it Unknown.
  *
  * A batch claim sums per faucet (`assetTotals`); legacy rows without it fall
  * back to the first faucet's `amount`/`faucetId`. Empty when the row carries no
@@ -191,11 +201,11 @@ const EARN_USDC_DECIMALS = 6;
  * which re-renders when the id arrives. `null` means "not yet known", so the
  * native branch simply does not match until it is.
  */
-export const formatConsumeAssetParts = (
+export const consumeAssetBreakdown = (
   transaction: ITransaction,
   assetsMetadata: Record<string, AssetMetadata> | undefined,
   nativeFaucetId: string | null
-): string[] => {
+): ConsumeAssetPart[] => {
   const totals =
     transaction.assetTotals && transaction.assetTotals.length > 0
       ? transaction.assetTotals
@@ -219,11 +229,19 @@ export const formatConsumeAssetParts = (
     // withhold the quantity until real metadata resolves. Checked on the
     // resolved record rather than the placeholder's identity because the
     // placeholder is cached, and a stored copy is never `===` the constant.
-    return hasKnownScale(resolved)
+    const label = hasKnownScale(resolved)
       ? `${formatAmount(total.amount, resolved.decimals)} ${resolved.symbol}`
       : resolved.symbol;
+    return { faucetId: total.faucetId, label };
   });
 };
+
+/** The same claim as `["20 A", "10 B"]`, for the one-line badge and receipt summaries. */
+export const formatConsumeAssetParts = (
+  transaction: ITransaction,
+  assetsMetadata: Record<string, AssetMetadata> | undefined,
+  nativeFaucetId: string | null
+): string[] => consumeAssetBreakdown(transaction, assetsMetadata, nativeFaucetId).map(part => part.label);
 
 /**
  * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
