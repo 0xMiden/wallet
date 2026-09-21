@@ -39,14 +39,16 @@ const PANE_GUTTER = 'px-4';
  * Where the body's content starts.
  *
  * `root` is a pane's own first line, 24px down — Receive's "Receive at", Earn's "Your Earnings",
- * Send's "Send to", Swap's "You Pay". `header` is a pushed step, whose 52px `PageHeader` is
- * already above it.
+ * Send's "Send to", Swap's "You Pay". `header` is a pushed step: `PageHeader` already ends in its
+ * own `mb-2` rule spacing, and that is the whole gap (`PushedPageGap.test.tsx` pins it against
+ * `SubPageLayout`) — the body adds nothing on top of it, or a pushed flow step opens with 16px
+ * instead of the 8px every other pushed page opens with.
  */
 export type HomeGroupPaneTop = 'root' | 'header';
 
 const PANE_TOP: Record<HomeGroupPaneTop, string> = {
   root: 'pt-6',
-  header: 'pt-2'
+  header: ''
 };
 
 export interface HomeGroupPaneRootProps {
