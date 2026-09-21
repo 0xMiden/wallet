@@ -18,6 +18,26 @@ const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
 
 /**
+ * The spending-limit challenge sheet (`components/SpendingLimitChallenge.tsx`).
+ *
+ * Addressed by its own testid, never by `[data-slot="drawer-content"]`: every sheet in the app
+ * carries that slot, so a challenge assertion written against it reads whichever drawer is still
+ * mounted - on iOS that was the send flow's token picker, which failed the run twice before
+ * passing on `--retries=2`.
+ */
+export const SPENDING_LIMIT_CHALLENGE = '[data-testid="spending-limit-challenge"]';
+
+/**
+ * Clear the challenge on any page that raises it - the wallet's own send review, or the dApp
+ * approval popup, which is a separate window and so out of reach of the wallet POM.
+ */
+export async function authenticateSpendingLimitChallenge(page: Page, password = PASSWORD): Promise<void> {
+  const challenge = page.locator(SPENDING_LIMIT_CHALLENGE);
+  await challenge.locator('#strict-action-password').fill(password);
+  await challenge.getByRole('button', { name: 'Continue', exact: true }).click();
+}
+
+/**
  * Floor for any claim-drain budget when running against the LOCAL stack (#718).
  *
  * Every `claimAllNotes` / `claimNotesByGroup` budget in the specs was tuned
@@ -180,6 +200,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
     faucetId: string;
     amountBaseUnits: string;
   }): Promise<{ fulfilledCount: number; rejectedCount: number; insertedCount: number; rejectionCodes: string[] }>;
+  buildCustomTransactionRequestForTest(params: {
+    recipientAddress: string;
+    faucetId: string;
+    amountBaseUnits: string;
+  }): Promise<string>;
   prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void>;
   submitSendReview(): Promise<void>;
   waitForSendSubmissionAccepted(timeoutMs?: number): Promise<void>;
@@ -2741,6 +2766,27 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
+   * Base64 `TransactionRequest` bytes for a P2ID note moving `amountBaseUnits` out of the current
+   * account - what a dApp passes to `requestTransaction` as a custom/execute payload. Built in the
+   * wallet realm because that is where the SDK and the sender's vault are.
+   */
+  async buildCustomTransactionRequestForTest(params: {
+    recipientAddress: string;
+    faucetId: string;
+    amountBaseUnits: string;
+  }): Promise<string> {
+    return this.page.evaluate(async input => {
+      const hook = (
+        globalThis as unknown as {
+          __TEST_BUILD_CUSTOM_TRANSACTION_REQUEST__?: (value: typeof input) => Promise<string>;
+        }
+      ).__TEST_BUILD_CUSTOM_TRANSACTION_REQUEST__;
+      if (hook === undefined) throw new Error('buildCustomTransactionRequestForTest requires an E2E build');
+      return hook(input);
+    }, params);
+  }
+
+  /**
    * Drive the send flow through ReviewTransaction without submitting it.
    */
   /**
@@ -2893,15 +2939,13 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   async authenticateSpendingLimitForTest(password = PASSWORD): Promise<void> {
-    const drawer = this.page.locator('[data-slot="drawer-content"]');
-    await drawer.locator('#strict-action-password').fill(password);
-    await drawer.getByRole('button', { name: 'Continue', exact: true }).click();
+    await authenticateSpendingLimitChallenge(this.page, password);
   }
 
   async cancelSpendingLimitChallenge(): Promise<void> {
-    const drawer = this.page.locator('[data-slot="drawer-content"]');
-    await drawer.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await drawer.waitFor({ state: 'detached' });
+    const challenge = this.page.locator(SPENDING_LIMIT_CHALLENGE);
+    await challenge.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await challenge.waitFor({ state: 'detached' });
   }
 
   /**

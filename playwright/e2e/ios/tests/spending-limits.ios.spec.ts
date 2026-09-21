@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/two-simulators';
+import { SPENDING_LIMIT_CHALLENGE } from '../../helpers/wallet-page';
 
 const TOKEN = 'TST';
 const TOKEN_DECIMALS = 8;
@@ -42,13 +43,13 @@ test.describe('Spending limits', () => {
         isPrivate: false
       });
       await walletA.click('[data-testid="send-review-submit"]');
-      await walletA.waitFor('[data-slot="drawer-content"]', { timeoutMs: 30_000 });
-      const challenge = await walletA.locatorText('[data-slot="drawer-content"]');
+      await walletA.waitFor(SPENDING_LIMIT_CHALLENGE, { timeoutMs: 30_000 });
+      const challenge = await walletA.locatorText(SPENDING_LIMIT_CHALLENGE);
       expect(challenge).toContain('Spending limit exceeded');
       expect(challenge).toContain('To raise the limit, go to Settings > Spending limits.');
       await walletA.screenshot({ path: testInfo.outputPath('spending-limit-challenge-ios.png') });
       const cancelled = await walletA.evalJs<boolean>(
-        `var button = Array.from(document.querySelectorAll('[data-slot="drawer-content"] button'))` +
+        `var button = Array.from(document.querySelectorAll('${SPENDING_LIMIT_CHALLENGE} button'))` +
           `.find(function (candidate) { return (candidate.textContent || '').trim() === 'Cancel'; }); ` +
           `if (!button) return false; button.click(); return true;`
       );
