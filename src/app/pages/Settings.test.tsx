@@ -620,6 +620,17 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
+  // THREE tabs still render inside the host's padded body: address-book, spending-limits and
+  // export-account-file. Everything else either carries its own layout or is `actionOnly`, which
+  // Settings.tsx:451 filters out of `activeTab` so it can never resolve as a route. The guard for
+  // that wrapper used to be this file's only one, and it was re-pointed at a page that moved onto
+  // the shared layout, which left the wrapper assertable nowhere.
+  it('keeps the display face on a sub-page that still takes the host body', () => {
+    const { container } = render(<Settings tabSlug="address-book" />);
+
+    expect(container.querySelector('.font-heading')).not.toBeNull();
+  });
+
   it('wraps a SubPageLayout page in no blanket display face', () => {
     // The host's old padded body set `font-heading` on everything under it, which
     // is how RevealSecret's secret textareas once inherited the display face.
