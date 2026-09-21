@@ -2,6 +2,7 @@ import React from 'react';
 
 import { Numpad } from 'components/Numpad';
 import { PasscodeDots } from 'components/PasscodeDots';
+import type { BiometricAvailability } from 'lib/biometric';
 import { cn } from 'lib/ui/util';
 
 export interface PasscodeScreenProps {
@@ -18,6 +19,8 @@ export interface PasscodeScreenProps {
   onDelete: () => void;
   /** Biometric key in the keypad's bottom-left slot, where a biometric unlock is available. */
   onBiometric?: () => void;
+  /** The device's biometric sensor, which picks the key's glyph. */
+  biometryType?: BiometricAvailability['biometryType'];
   /** A text action centred under the keypad (unlock's "Forgot passcode?"). */
   action?: React.ReactNode;
   'data-testid'?: string;
@@ -41,6 +44,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
   onDigit,
   onDelete,
   onBiometric,
+  biometryType,
   action,
   'data-testid': dataTestId
 }) => (
@@ -68,7 +72,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
         <PasscodeDots className="mt-7" filled={filled} length={length} errorKey={errorKey} />
       </div>
       <div className="w-full shrink-0 pt-12 [@media(max-height:720px)]:pt-8" data-testid="passcode-keypad-dock">
-        <Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} />
+        <Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} biometryType={biometryType} />
         {action && (
           <div className="mt-2 flex justify-center" data-testid="passcode-screen-action">
             {action}

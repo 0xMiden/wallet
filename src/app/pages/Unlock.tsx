@@ -10,6 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { PasscodeScreen } from 'components/PasscodeScreen';
 import { useFormAnalytics } from 'lib/analytics';
+import type { BiometricAvailability } from 'lib/biometric';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -64,9 +65,29 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // Mobile: a biometric-bound hardware key exists, so the keypad offers a Face ID / Touch ID key
   // that retries the same hardware unlock the mount effect tried first.
   const [hasBiometricKey, setHasBiometricKey] = useState(false);
+  // Which sensor the key stands for, so it draws Face ID or a fingerprint rather than Face ID on
+  // every device.
+  const [biometryType, setBiometryType] = useState<BiometricAvailability['biometryType']>('none');
 
   // Use ref to prevent double unlock attempts (React 18 Strict Mode runs effects twice)
   const unlockInProgressRef = useRef(false);
+
+  // One unlock() at a time across every path on this screen: the mount-time hardware attempt, the
+  // keypad's biometric key and the passcode. Taken at the ENTRY of a path, never at the call:
+  // submitPasscode can sleep 1-3s for the post-lockout throttle before reaching unlock(), and a
+  // guard taken there leaves that window open to a biometric tap. Distinct from the ref above,
+  // which is a one-shot latch against Strict Mode double-running the mount effect and is never
+  // released - reusing it here would make every later attempt a no-op.
+  const unlockInFlightRef = useRef(false);
+  const beginUnlock = useCallback(() => {
+    if (unlockInFlightRef.current) return false;
+    unlockInFlightRef.current = true;
+    return true;
+  }, []);
+  const endUnlock = useCallback(() => {
+    unlockInFlightRef.current = false;
+  }, []);
+  const [biometricError, setBiometricError] = useState(false);
 
   // On mobile/desktop, try hardware unlock automatically on mount
   useEffect(() => {
@@ -83,6 +104,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       unlockInProgressRef.current = true;
 
       setHardwareUnlockAttempted(true);
+      beginUnlock();
 
       try {
         if (isDesktop()) {
@@ -98,10 +120,19 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             return;
           }
         } else if (isMobile()) {
-          const { hasHardwareKey } = await import('lib/biometric');
+          const { hasHardwareKey, checkBiometricAvailability } = await import('lib/biometric');
           const hasKey = await hasHardwareKey();
           console.log('[Unlock] Mobile hardware key available:', hasKey);
           setHasBiometricKey(hasKey);
+          if (hasKey) {
+            // Only the glyph depends on this, so a failure to read the sensor must not stop the
+            // unlock below: it keeps the default, and the key still works.
+            try {
+              setBiometryType((await checkBiometricAvailability()).biometryType);
+            } catch (sensorErr) {
+              console.log('[Unlock] Could not read the biometric sensor type:', sensorErr);
+            }
+          }
 
           if (hasKey) {
             console.log('[Unlock] Attempting mobile hardware unlock (biometric)...');
@@ -123,13 +154,15 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         } catch (checkErr) {
           console.log('[Unlock] Failed to check password protector:', checkErr);
         }
+      } finally {
+        endUnlock();
       }
 
       setHardwareUnlockChecked(true);
     };
 
     tryHardwareUnlock();
-  }, [hardwareUnlockAttempted, unlock, setAttempt]);
+  }, [hardwareUnlockAttempted, unlock, setAttempt, beginUnlock, endUnlock]);
 
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
@@ -146,9 +179,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const submitPasscode = useCallback(
     async (passcode: string) => {
-      if (isSubmitting) return;
+      if (isSubmitting || !beginUnlock()) return;
       setIsSubmitting(true);
       setIsError(false);
+      setBiometricError(false);
       formAnalytics.trackSubmit();
 
       try {
@@ -178,9 +212,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         setErrorCount(count => count + 1);
         setCode('');
         setIsSubmitting(false);
+      } finally {
+        endUnlock();
       }
     },
-    [isSubmitting, unlock, formAnalytics, attempt, setAttempt, setTimeLock]
+    [isSubmitting, unlock, formAnalytics, attempt, setAttempt, setTimeLock, beginUnlock, endUnlock]
   );
 
   useEffect(() => {
@@ -197,16 +233,18 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     (digit: string) => {
       if (isDisabled || isSubmitting) return;
       if (isError) setIsError(false);
+      if (biometricError) setBiometricError(false);
       setCode(prev => (prev.length >= PASSCODE_LENGTH ? prev : prev + digit));
     },
-    [isDisabled, isSubmitting, isError]
+    [isDisabled, isSubmitting, isError, biometricError]
   );
 
   const handleDelete = useCallback(() => {
     if (isDisabled || isSubmitting) return;
     if (isError) setIsError(false);
+    if (biometricError) setBiometricError(false);
     setCode(prev => prev.slice(0, -1));
-  }, [isDisabled, isSubmitting, isError]);
+  }, [isDisabled, isSubmitting, isError, biometricError]);
 
   const onForgotPasswordClick = useCallback(() => {
     if (openForgotPasswordInFullPage) {
@@ -238,14 +276,21 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   );
 
   const onRetryHardwareUnlock = useCallback(async () => {
+    if (!beginUnlock()) return;
+    setBiometricError(false);
     try {
       await unlock();
       setAttempt(1);
       navigate('/');
     } catch (err) {
       console.log('[Unlock] Hardware unlock retry failed:', err);
+      // A cancelled prompt lands here too. Say so on screen: the key is tappable on every unlock
+      // now, and a retry that fails silently reads as a key that does nothing.
+      setBiometricError(true);
+    } finally {
+      endUnlock();
     }
-  }, [unlock, setAttempt]);
+  }, [unlock, setAttempt, beginUnlock, endUnlock]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -277,6 +322,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           <div className="text-center mb-6">
             <h2 className="text-xl font-semibold mb-2">{t('biometricUnlockRequired')}</h2>
             <p className="text-text-muted text-sm">{t('biometricUnlockRequiredDescription')}</p>
+            {biometricError && (
+              <p role="alert" className="mt-2 text-sm text-negative-ink">
+                {t('biometricFailed')}
+              </p>
+            )}
           </div>
           <Button
             id="retry-biometric"
@@ -365,20 +415,23 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
     : isError
       ? t('incorrectPasscode')
-      : t('enterYour6DigitCode');
+      : biometricError
+        ? t('biometricFailed')
+        : t('enterYour6DigitCode');
 
   return (
     <PasscodeScreen
       data-testid="unlock-passcode"
       title={t('enterYourPasscode')}
       message={subtitle}
-      isError={isDisabled || isError}
+      isError={isDisabled || isError || biometricError}
       filled={code.length}
       length={PASSCODE_LENGTH}
       errorKey={errorCount}
       onDigit={handleDigit}
       onDelete={handleDelete}
       onBiometric={hasBiometricKey ? onRetryHardwareUnlock : undefined}
+      biometryType={biometryType}
       action={
         // Centred under the keypad, where the iOS lock screen keeps its secondary action: in reach,
         // but past the last key row, so it is not hit while a code is typed.

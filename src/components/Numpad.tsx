@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { colorTransitionClass, usePreset } from 'lib/animation';
+import type { BiometricAvailability } from 'lib/biometric';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
@@ -16,6 +17,12 @@ export interface NumpadProps {
    * biometric unlock is available and enabled; without it the slot stays empty.
    */
   onBiometric?: () => void;
+  /**
+   * The device's biometric sensor, so the key shows the glyph the user will actually be asked for.
+   * Keyed off the SENSOR, not the OS: an iPhone can be Touch ID and an Android phone can be face
+   * unlock, so `isIOS()` would draw the wrong glyph on both.
+   */
+  biometryType?: BiometricAvailability['biometryType'];
   /** Layout only (margins). */
   className?: string;
 }
@@ -86,7 +93,7 @@ const Key: React.FC<KeyProps> = ({ label, testId, className, onPress, children }
  * sheets. Twelve slots in a 3 × 4 grid: 1–9, then the biometric key (or an empty slot), 0 and
  * backspace. Every key fires the light tap haptic.
  */
-export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, onBiometric, className }) => {
+export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, onBiometric, biometryType, className }) => {
   const { t } = useTranslation();
 
   return (
@@ -98,7 +105,7 @@ export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, onBiometric, 
       ))}
       {onBiometric ? (
         <Key label={t('useFaceIdOrBiometric')} testId="numpad-biometric" className={bareKeyClass} onPress={onBiometric}>
-          <Icon name={IconName.FaceId} size="lg" />
+          <Icon name={biometryType === 'face' ? IconName.FaceId : IconName.Fingerprint} size="lg" />
         </Key>
       ) : (
         <div aria-hidden="true" className={NUMPAD_KEY_SIZE} data-testid="numpad-spacer" />
