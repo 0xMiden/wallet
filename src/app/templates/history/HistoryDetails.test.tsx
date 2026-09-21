@@ -1046,6 +1046,78 @@ describe('HistoryDetails', () => {
     });
   });
 
+  // The faucet behind the asset a row moved: documented in the FAQ, shown
+  // nowhere in the app until now (Ivan had to pull the FAQ entry because of it).
+  describe('faucet id row', () => {
+    it("shows a send's faucet as a copyable chip over the account explorer", async () => {
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+
+      const row = rowByLabel('faucetId')!;
+      expect(row.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-1');
+      // A faucet IS an account, so the link is the account explorer, built from
+      // the same override-aware helper the From/To rows use.
+      expect(row.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+        'href',
+        'https://custom-explorer.test/account/faucet-1'
+      );
+    });
+
+    it("shows the claimed asset's faucet on a receive", async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        faucetId: 'faucet-claimed',
+        noteId: 'note-1',
+        noteIds: ['note-1'],
+        outputNoteIds: undefined
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-claimed');
+    });
+
+    it('shows the faucet an outbound bridge moved', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'bridged-send',
+        faucetId: 'faucet-bridged',
+        extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', destinationNetwork: 'sepolia' }
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-bridged');
+    });
+
+    it('shows the faucet a lending deposit moved', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'earn-deposit',
+        faucetId: 'faucet-deposited',
+        displayMessage: 'Deposited to lending',
+        extraInputs: {
+          evmRecipient: '0x2222222222222222222222222222222222222222',
+          marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
+          sourceFaucetId: 'faucet-deposited'
+        }
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-deposited');
+    });
+
+    // A guardian switch, a key rotation and a dApp `execute` move no asset and
+    // carry no `faucetId`, so they get no row rather than an empty one.
+    it('renders no row for a transaction with no faucet', async () => {
+      setMockRow({ ...baseSendTx, type: 'execute', faucetId: undefined, amount: undefined });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')).toBeUndefined();
+    });
+  });
+
   // A batch claim consumes INPUT notes, so its Notes card lists what it claimed
   // rather than counting outputs it never created (#732).
   describe('batch-claim notes card', () => {

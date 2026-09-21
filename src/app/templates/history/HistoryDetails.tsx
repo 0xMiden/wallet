@@ -798,6 +798,28 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       />
                     </DetailRow>
                   )}
+
+                  {/*
+                    The faucet that minted the asset this row moved - the token's
+                    on-chain identity, which the FAQ documents and nothing in the app
+                    showed. A faucet IS an account, so it gets the same treatment as
+                    From/To: a trimmed, copyable chip over the account explorer.
+
+                    Rows with no asset (a guardian switch, a key rotation, a dApp
+                    `execute`) carry no `faucetId` and render no row rather than an
+                    empty one. A batch claim shows the faucet of the asset in its
+                    headline amount, which is the one `entry.amount`/`entry.token`
+                    above already describe. Swaps never reach here: they take the
+                    `SwapDetail` branch, which labels both of their faucets.
+                  */}
+                  {entry.faucetId && (
+                    <DetailRow label={t('faucetId')} data-testid="history-detail-faucet-id">
+                      <ExternalLinkValue
+                        displayValue={<HashChip hash={entry.faucetId} trimHash className="ml-2" />}
+                        href={getExplorerAccountUrl(entry.faucetId)}
+                      />
+                    </DetailRow>
+                  )}
                 </DetailSection>
               </div>
             </div>
