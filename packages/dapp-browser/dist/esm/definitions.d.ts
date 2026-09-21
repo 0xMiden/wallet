@@ -789,8 +789,8 @@ export interface InAppBrowserPlugin {
     closeAll(): Promise<void>;
     /**
      * Miden patch: slide the native wallet navbar pill off-screen on a
-     * spring animation. Used when a bottom-sheet drawer takes over the
-     * same real estate the navbar occupies.
+     * spring animation, for a caller presenting a bottom-sheet drawer
+     * that takes over the same real estate the navbar occupies.
      */
     morphNavbarOut(): Promise<void>;
     /**
@@ -808,9 +808,8 @@ export interface InAppBrowserPlugin {
      * so it looks like one unified pill growing, not two separate
      * pills snapping together.
      *
-     * Used by the wallet's Home tab to show Send / Receive quick
-     * actions that mirror the active-state styling of the main nav
-     * row pills.
+     * Lets a caller show quick actions that mirror the active-state
+     * styling of the main nav row pills.
      */
     setNavbarSecondaryRow(options: {
         items: Array<{

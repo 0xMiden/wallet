@@ -8,6 +8,7 @@ _g.__resetTest = {
 const mockDbDelete = jest.fn();
 const mockDbOpen = jest.fn();
 const mockTransactionsClear = jest.fn();
+const mockSpendingLimitsClear = jest.fn();
 jest.mock('lib/miden/repo', () => ({
   db: {
     delete: () => mockDbDelete(),
@@ -15,6 +16,9 @@ jest.mock('lib/miden/repo', () => ({
   },
   transactions: {
     clear: () => mockTransactionsClear()
+  },
+  spendingLimits: {
+    clear: () => mockSpendingLimitsClear()
   }
 }));
 
@@ -76,6 +80,10 @@ describe('clearStorage', () => {
   it('clears the transactions table by default and never deletes the DB', async () => {
     await clearStorage();
     expect(mockTransactionsClear).toHaveBeenCalled();
+    // The caps and the history they are computed from go together. Recovery from the same
+    // mnemonic reproduces the same account ids, so a configuration left behind here would keep
+    // enforcing a cap over a spend total that was just zeroed.
+    expect(mockSpendingLimitsClear).toHaveBeenCalled();
     // db.delete() would force every other open handle closed and leave the
     // page Dexie connection unrecoverable — see commit message.
     expect(mockDbDelete).not.toHaveBeenCalled();
@@ -85,6 +93,7 @@ describe('clearStorage', () => {
   it('skips the table clear when clearDb=false', async () => {
     await clearStorage(false);
     expect(mockTransactionsClear).not.toHaveBeenCalled();
+    expect(mockSpendingLimitsClear).not.toHaveBeenCalled();
     expect(mockDbDelete).not.toHaveBeenCalled();
   });
 

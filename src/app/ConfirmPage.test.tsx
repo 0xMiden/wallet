@@ -103,6 +103,21 @@ jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
 
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => (
+    <div data-testid="spending-limit-challenge">
+      <span>{props.assessment.revision}</span>
+      <span>{props.asset.symbol}</span>
+      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+        authenticate-limit
+      </button>
+      <button type="button" onClick={() => props.onResult(undefined)}>
+        cancel-limit
+      </button>
+    </div>
+  )
+}));
+
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
   Button: ({ children, onClick, isLoading, variant }: any) => (
@@ -131,32 +146,38 @@ jest.mock('./confirm/TransactionAssetView', () => ({
 // Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
 // below assert on its actual mapping); only the custom-tx decode entry points
 // are stubbed so these UI tests don't touch the WASM SDK.
-jest.mock('./confirm/decode', () => ({
-  ...jest.requireActual('./confirm/decode'),
-  declaredRequestToView: jest.fn(() => ({
+jest.mock('./confirm/decode', () => {
+  const view = (account: string, incoming: { faucetId: string; amount: bigint }[] = []) => ({
+    account,
     outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [],
-    inputNotesConsumed: 0,
+    incoming,
+    inputNotesConsumed: incoming.length,
     outputNotesCreated: 1,
     storageChanged: false
-  })),
-  summaryBytesToView: jest.fn(() => ({
-    account: 'mtst1acct',
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [{ faucetId: 'fB', amount: 3n }],
-    inputNotesConsumed: 1,
-    outputNotesCreated: 1,
-    storageChanged: false
-  })),
-  executedBytesToView: jest.fn(() => ({
-    account: 'mtst1executed',
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [],
-    inputNotesConsumed: 0,
-    outputNotesCreated: 1,
-    storageChanged: false
-  }))
-}));
+  });
+  const summaryBytesToView = jest.fn(() => view('mtst1acct', [{ faucetId: 'fB', amount: 3n }]));
+  const executedBytesToView = jest.fn(() => view('mtst1executed'));
+  return {
+    ...jest.requireActual('./confirm/decode'),
+    declaredRequestToView: jest.fn(() => ({
+      outgoing: [{ faucetId: 'fA', amount: 10n }],
+      incoming: [],
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false
+    })),
+    summaryBytesToView,
+    executedBytesToView,
+    // Dispatches to the two stubs above. The real selector calls its builders module-internally,
+    // where a jest.mock override cannot reach them, so without this the page would decode these
+    // fixture strings for real.
+    simulatedBytesToView: jest.fn((result: { summaryBytes?: string; executedBytes?: string }) => {
+      if (result.summaryBytes) return summaryBytesToView();
+      if (result.executedBytes) return executedBytesToView();
+      return undefined;
+    })
+  };
+});
 
 jest.mock('./atoms/Alert', () => ({
   __esModule: true,
@@ -571,6 +592,63 @@ describe('transaction payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true));
+  });
+
+  it('does not confirm an over-limit transaction until strict authentication succeeds', async () => {
+    mockIsDelegateProofEnabled.mockReturnValue(true);
+    ctx.confirmDAppTransaction.mockResolvedValue(undefined);
+    setPayload({
+      ...txPayload(),
+      spendingLimitAssessment: {
+        accountId: ACCOUNT.publicKey,
+        faucetId: 'mtst1faucet',
+        amount: '5',
+        revision: 'revision-1',
+        assessedAt: 100,
+        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
+      },
+      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+    });
+    render(<ConfirmPage />);
+
+    fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('MIDEN');
+    expect(ctx.confirmDAppTransaction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));
+    });
+
+    // The deep-equality call above already pins all four arguments, so the UI-minted id cannot be
+    // among them. (The previous `not.toContain` line here could not fail either way: the id would
+    // have travelled as an object property, which toContain's element match never inspects.)
+    await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true, true));
+  });
+
+  it('denies an over-limit transaction when strict authentication is cancelled', async () => {
+    ctx.confirmDAppTransaction.mockResolvedValue(undefined);
+    setPayload({
+      ...txPayload(),
+      spendingLimitAssessment: {
+        accountId: ACCOUNT.publicKey,
+        faucetId: 'mtst1faucet',
+        amount: '5',
+        revision: 'revision-1',
+        assessedAt: 100,
+        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
+      },
+      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+    });
+    render(<ConfirmPage />);
+
+    fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+    });
+
+    await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', false, false));
   });
 
   it('renders the payloadError instead of the derived content when present', () => {

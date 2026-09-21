@@ -1,5 +1,6 @@
-import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
 import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
@@ -9,7 +10,6 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -17,9 +17,8 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension, isMobile } from 'lib/platform';
+import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
-import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { navigate, useLocation } from 'lib/woozie';
@@ -33,15 +32,14 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { SendNetworkId } from './bridge-networks';
-import { Route as RouteStep } from './Route';
+import { BridgeNetworkId, SendNetworkId } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
-import { SelectAmount } from './SelectAmount';
-import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
-import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
+import { SendAmount } from './SendAmount';
+import { SendRoute } from './SendRoute';
 import {
   BridgeRoute,
   Contact,
@@ -102,7 +100,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const delegateEnabled = isDelegateProofEnabled();
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
@@ -111,7 +108,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Contact picker is likewise a bottom sheet over the recipient step.
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
-  const [showNetworkDrawer, setShowNetworkDrawer] = useState(false);
   // Saving an unknown-but-valid recipient to the address book, also a bottom sheet.
   const [showAddContactDrawer, setShowAddContactDrawer] = useState(false);
   // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
@@ -156,15 +152,24 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     navigate('/');
   }, []);
 
+  // Receive, offered on the amount step when the account has no MIDEN for the fee.
+  const onReceive = useCallback(() => navigate('/receive'), []);
+
+  // On-screen back for the steps after the recipient. Same rule as the hardware
+  // back below: pop a step, or close the flow if a step somehow is the root.
+  const onStepBack = useCallback(() => {
+    if (cardStack.length > 1) {
+      goBack();
+      return;
+    }
+    onClose();
+  }, [cardStack.length, goBack, onClose]);
+
   // Handle mobile back button/gesture. Open bottom sheets close first;
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
     if (showAddContactDrawer) {
       setShowAddContactDrawer(false);
-      return true;
-    }
-    if (showNetworkDrawer) {
-      setShowNetworkDrawer(false);
       return true;
     }
     if (showContactsDrawer) {
@@ -182,7 +187,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showAddContactDrawer, showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [showAddContactDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on send-flow entry.
   //
@@ -208,10 +213,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   }, [pathname]);
 
   // Entering the send form begins the `send` flow. It deliberately outlives
-  // this component: the unmount that hands off to /send/review leaves a draft
-  // behind (same signal the speculation cleanup above uses), and the review page
-  // makes the terminal call. Any other unmount is the user leaving the flow, so
-  // it is recorded as cancelled rather than left as an unmatched `started`.
+  // this component: navigating to /send/review is a handoff (a draft is left
+  // behind for back-restore), and the review page makes the terminal call. Any
+  // other unmount is the user leaving the flow, so it is recorded as cancelled
+  // rather than left as an unmatched `started`.
   // Gated on the route, NOT on mount. TabLayout renders this screen inside a
   // five-page carousel that mounts every page at once and keeps them mounted, so
   // a mount-triggered flow fired on every single app open — reporting a send the
@@ -222,11 +227,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Dwelled on rather than merely current, because a swipe from Overview to Swap
   // commits /send on the way past — see `useRouteDwell`.
   const onSendRoute = useRouteDwell(pathname === '/send' || pathname.startsWith('/send/'));
+  // Set when this screen navigates to review. That unmount is the handoff, not
+  // the user leaving, so the review page still owns the terminal call.
+  const reviewHandoffRef = useRef(false);
   useEffect(() => {
     if (!onSendRoute) return;
     enterSendFlow();
     return () => {
-      if (hasSendDraft()) return;
+      if (reviewHandoffRef.current) return;
       settleSendFlow(flow => flow.cancel());
     };
   }, [onSendRoute]);
@@ -330,10 +338,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (hasRecipientAddress && !isBridge && recipientNetwork !== 'miden') {
       setRecipientNetwork('miden');
     }
-    if (hasRecipientAddress && !isBridge && showNetworkDrawer) {
-      setShowNetworkDrawer(false);
-    }
-  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue, showNetworkDrawer]);
+  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -385,118 +390,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (!isFinite(input) || !isFinite(output)) return undefined;
     return Math.max(0, input - output);
   }, [token, amount, epochQuote.amount]);
-
-  // Speculative pre-prove: kick off execute + offscreen prove in the SW
-  // as soon as the SendDetails form is valid, so the proof can finish
-  // (~5-10s) while the user is still on details/review. Without an early
-  // trigger, the user reaches review with the proof not yet started; their
-  // typical 2-3s on review isn't enough to absorb the 10s prove cost.
-  //
-  // Cache lives in SW memory keyed by params hash; consumed by
-  // MidenClientInterface.proveLocallyViaOffscreen on actual submit. If
-  // the user clicks Confirm BEFORE the speculation finishes,
-  // proveLocallyViaOffscreen calls SpeculationManager.awaitMatching to
-  // wait on the in-flight prove instead of starting a duplicate one
-  // (Fix B).
-  //
-  // Discarded-CPU bound: the SpeculationManager already serializes (one
-  // active + one pending slot). Rapid form changes replace `pending`
-  // before it ever runs, and the in-flight `active` is marked stale and
-  // its result discarded. Worst case: ONE extra prove's worth of CPU per
-  // session of form edits, regardless of how many keystrokes. The 500ms
-  // React-level debounce below further trims churn during typing.
-  //
-  // Gates:
-  //   - feature flag MIDEN_USE_SPECULATIVE_PROVING
-  //   - extension context only (intercom doesn't exist on mobile/desktop)
-  //   - global setting must be local proving (delegate path is just an RPC)
-  //   - form must be valid (recipient is a Miden address, amount > 0
-  //     and <= balance)
-  //
-  // Known gap: the review page always seeds a 7-day recallBlocks, while this
-  // speculation proves a no-recall tx. The interface layer skips the cache entirely
-  // when a reclaim height is set, so the cached prove goes unused — at most one full
-  // prove's worth of CPU per editing session, per the discarded-CPU bound above (a
-  // superseded speculation is marked stale and `abortSpeculativeProve()` closes the
-  // offscreen document to stop it, unless a real op is in flight), not one per
-  // debounced edit. The flag defaults ON (vite.extension.config.ts /
-  // vite.background.config.ts); carrying the seeded recallBlocks into the speculate
-  // request is the fix.
-  //
-  // Second gap, since issue #260: flag-on `MIDEN_USE_OFFSCREEN_CLIENT` (the service
-  // worker's default) the SW handler this request reaches is INERT —
-  // `initSpeculationManager` returns null there because the send that would claim the
-  // result runs in the offscreen realm, which never consults the cache. See its
-  // TRADEOFF block. Left firing rather than gated off here because this bundle cannot
-  // evaluate that gate at all: half of it is `isOffscreenAvailable()`, and
-  // `chrome.offscreen` is exposed only to the service worker.
-  //
-  // The cost of leaving it firing is one debounced SpeculateSendRequest per 500 ms
-  // quiet period while the amount / recipient / token are being edited HERE (this
-  // effect's deps), plus ONE SpeculateInvalidate per exit from the flow — the two
-  // unmount invalidates are alternatives, not a pair, because this component's is
-  // skipped while a draft is pending (see it below) and the review handoff is exactly
-  // when a draft is pending. A straight-through send (edit -> review -> Confirm) sends
-  // only ReviewTransaction's; abandoning the form without ever reaching review sends
-  // only this one. (Backing out of review and then abandoning the form is two separate
-  // exits, so it sends one each.) Every one of them is answered by a handler that does
-  // nothing.
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    if (delegateEnabled) return; // delegated proving — no point speculating
-    if (!publicKey || !recipientAddress || !token || !amount) return;
-    try {
-      isValidMidenAddress(recipientAddress);
-    } catch {
-      return;
-    }
-    const amountFloat = parseFloat(amount);
-    if (!(amountFloat > 0)) return;
-    if (amountFloat > token.balance) return;
-    let amountBig: bigint;
-    try {
-      amountBig = stringToBigInt(amount, token.decimals);
-    } catch {
-      return;
-    }
-    const timer = setTimeout(() => {
-      requestSpeculateSend({
-        accountId: publicKey,
-        recipientAccountId: recipientAddress,
-        faucetId: token.id,
-        // Sends are private unless E2E flips the toggle — and that only
-        // happens on the review page, where a cache miss just falls back to
-        // a normal prove.
-        noteType: 'private',
-        amount: amountBig
-      });
-    }, 500);
-    return () => {
-      // Clear the debounced trigger if deps change before it fires.
-      // We do NOT call requestSpeculateInvalidate here — whenever there IS an in-SW
-      // SpeculationManager it already replaces pending on each new speculate() and
-      // discards stale active results. Invalidating on every keystroke would defeat
-      // the cache. (Flag-on there is no manager at all — see the note above.)
-      clearTimeout(timer);
-    };
-  }, [delegateEnabled, publicKey, recipientAddress, token, amount]);
-
-  // One-time invalidation when the SendManager unmounts entirely (user
-  // backs out of the send flow, or the tab closes). Drops any cached
-  // completed entry and marks any active as stale so we don't carry
-  // speculative state into a future send. Skipped when a draft is pending —
-  // that unmount is the handoff to /send/review, which consumes the cache on
-  // submit and owns invalidation from there.
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    return () => {
-      if (!hasSendDraft()) {
-        requestSpeculateInvalidate();
-      }
-    };
-  }, []);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -615,6 +508,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
     if (!token || !amount || !recipientAddress) return;
+    reviewHandoffRef.current = true;
     setSendDraft({
       amount,
       recipientAddress,
@@ -733,6 +627,24 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
 
   const openScanDrawer = useCallback(() => setShowScanDrawer(true), []);
 
+  // Paste goes through the scanned-address path so a pasted address gets the same validation and
+  // wrong-network messaging as a scan. Mobile only, gated like the scanner below: the native
+  // clipboard is the one read that works. A WebView's own readText() raises the platform's paste
+  // callout rather than returning text, and in the extension it never settles at all, because the
+  // manifest holds clipboardWrite and not clipboardRead — so a pill there would do nothing, with
+  // no way to report it. Off mobile the field is a textarea and the platform's own paste works.
+  // Only text is used: an image on the pasteboard comes back as a base64 data URL in `value`.
+  const onPaste = useCallback(async () => {
+    try {
+      const { value, type } = await Clipboard.read();
+      const text = type?.startsWith('text') ? value.trim() : '';
+      if (text) applyScannedAddress(text);
+    } catch {
+      // An empty clipboard or a refused system prompt leaves the field as it is; both are the
+      // user's own doing, so neither needs a message.
+    }
+  }, [applyScannedAddress]);
+
   const onScan = isMobile() ? runNativeScan : openScanDrawer;
 
   const onSelectContact = useCallback(
@@ -745,6 +657,15 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       applyRecipientValidation(contact.id);
     },
     [onAction, applyRecipientValidation]
+  );
+
+  // A 0x recipient's destination network, picked from the chips on the recipient step.
+  const onSelectNetwork = useCallback(
+    (network: BridgeNetworkId) => {
+      setRecipientNetwork(network);
+      onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: network } });
+    },
+    [onAction]
   );
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
@@ -831,30 +752,37 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onAddressBook={() => setShowContactsDrawer(true)}
               onAddContact={() => setShowAddContactDrawer(true)}
               onSelectRecent={onSelectRecent}
-              onSelectNetwork={() => setShowNetworkDrawer(true)}
+              onSelectNetwork={onSelectNetwork}
               onScan={isScanAvailable() ? onScan : undefined}
+              onPaste={isMobile() ? onPaste : undefined}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );
         case SendFlowStep.SelectAmount:
           return (
-            <SelectAmount
+            <SendAmount
               token={spendableToken}
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
+              recipientAddress={recipientAddress || ''}
+              recipientName={selectedContact?.name}
+              network={displayedNetwork}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
+              onReceive={onReceive}
+              onBack={onStepBack}
               onConfirm={onConfirmAmount}
             />
           );
         case SendFlowStep.Route:
           return (
-            <RouteStep
+            <SendRoute
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
+              onBack={onStepBack}
               onConfirm={goToReview}
             />
           );
@@ -872,6 +800,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       recents,
       canAddContact,
       onSelectRecent,
+      onPaste,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
@@ -880,6 +809,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       onAmountChange,
       goToStep,
       onConfirmAmount,
+      onStepBack,
+      onSelectNetwork,
+      onReceive,
       chain,
       displayedNetwork,
       selectedContact?.name,
@@ -931,19 +863,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         address={recipientAddress ?? ''}
       />
 
-      <SelectNetworkDrawer
-        open={showNetworkDrawer}
-        selectedNetwork={displayedNetwork}
-        onOpenChange={setShowNetworkDrawer}
-        onSelect={selectedNetwork => {
-          setRecipientNetwork(selectedNetwork);
-          onAction({
-            id: SendFlowActionId.SetFormValues,
-            payload: { bridgeNetwork: selectedNetwork === 'miden' ? undefined : selectedNetwork }
-          });
-        }}
-      />
-
       <ScanQrDrawer
         open={showScanDrawer}
         onOpenChange={setShowScanDrawer}
@@ -961,13 +880,18 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   // through the preselect effect via its id.
   const [draft] = useState(consumeSendDraft);
   const preselectedTokenId = draft?.tokenId ?? new URLSearchParams(search).get('tokenId');
-  // Otherwise always start at recipient selection; a preselected token just
-  // pre-fills the token for the Amount step (see the preselect effect in
-  // SendManager).
-  const initialRoute = draft ? SendFlowStep.SelectAmount : SendFlowStep.SelectRecipient;
+  // Otherwise start at recipient selection; a preselected token just pre-fills
+  // the token for the Amount step (see the preselect effect in SendManager).
+  // A restored draft reopens on Amount with Recipient beneath it, so back returns
+  // to the (prefilled) address instead of closing the flow. Starting the stack at
+  // Amount alone left no way back to the address: back closed the flow, and the
+  // still-mounted Send pane reopened on Amount.
+  const initialRoutes = draft
+    ? [SendFlowStep.SelectRecipient, SendFlowStep.SelectAmount]
+    : [SendFlowStep.SelectRecipient];
 
   return (
-    <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
+    <NavigatorProvider routes={ROUTES} initialRouteNames={initialRoutes}>
       <SendManager {...props} preselectedTokenId={preselectedTokenId} draft={draft} />
     </NavigatorProvider>
   );

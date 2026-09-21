@@ -373,7 +373,7 @@ describe('TransactionSuccess', () => {
     act(() => doneButton.click());
     expect(onDoneClick).toHaveBeenCalledTimes(1);
 
-    const closeButton = container.querySelector('button[aria-label="header-close"]') as HTMLButtonElement;
+    const closeButton = container.querySelector('[data-testid="flow-close"]') as HTMLButtonElement;
     act(() => closeButton.click());
     expect(onDoneClick).toHaveBeenCalledTimes(2);
 

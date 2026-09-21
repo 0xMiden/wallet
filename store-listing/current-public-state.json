@@ -1,0 +1,209 @@
+{
+  "observedAt": "2026-09-15",
+  "locale": "en-US",
+  "normalization": "Visible copy is transcribed with ASCII hyphens in place of typographic dashes.",
+  "appStore": {
+    "url": "https://apps.apple.com/us/app/bread-wallet-by-miden/id6789341854",
+    "sourceUrl": "https://itunes.apple.com/lookup?id=6789341854&country=us",
+    "name": "Bread Wallet by Miden",
+    "version": "1.16.0",
+    "releaseDate": "2026-09-09",
+    "leadCopy": "Bread is a private, self-custodial wallet for the Miden network - built for people who want control, privacy, and flexibility without compromise.",
+    "visibleClaims": [
+      "Private self-custody",
+      "Keys stay on the device",
+      "Face ID or passcode protection",
+      "Public and private transfers",
+      "Built-in dApp browser",
+      "Guardian recovery",
+      "Recallable sends"
+    ],
+    "screenshots": [
+      {
+        "order": 1,
+        "scene": "welcome",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/8f/d9/d9/8fd9d9fd-03b3-fa1e-ffe7-1d4afc9ffc63/6-onboarding.png/320x480bb.jpg"
+      },
+      {
+        "order": 2,
+        "scene": "protect-wallet",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/ae/d8/9f/aed89f49-706d-4dfc-421a-fbf9a1534571/8-onboarding-protect.png/320x480bb.jpg"
+      },
+      {
+        "order": 3,
+        "scene": "guardian",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/fa/11/96/fa119659-dc2b-fcc4-40e5-a83edf4166e2/5-guardian.png/320x480bb.jpg"
+      },
+      {
+        "order": 4,
+        "scene": "home",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/11/3a/bb/113abbf6-7269-561c-cceb-20a97438a8b0/1-home.png/320x480bb.jpg"
+      },
+      {
+        "order": 5,
+        "scene": "receive",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/91/16/38/91163871-2e7b-cfa9-af92-eccdf2dcdfbe/3-receive.png/320x480bb.jpg"
+      },
+      {
+        "order": 6,
+        "scene": "dapp-browser",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/cb/4b/de/cb4bdefc-2c78-a929-54ed-e1a062fcc4ca/4-dapp-browser.png/320x480bb.jpg"
+      },
+      {
+        "order": 7,
+        "scene": "dapp-faucet",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/db/20/e7/db20e70d-4b6d-4c70-1e7e-40714a3e9ef5/9-dapp-faucet.png/320x480bb.jpg"
+      },
+      {
+        "order": 8,
+        "scene": "send-amount",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource221/v4/4d/f1/82/4df182fb-ce93-95c3-bfba-b9106e7be13b/2-send.png/320x480bb.jpg"
+      },
+      {
+        "order": 9,
+        "scene": "send-review",
+        "url": "https://is1-ssl.mzstatic.com/image/thumb/PurpleSource211/v4/ea/55/88/ea55883f-c30a-565e-42ca-ed47484312b1/7-send-review.png/320x480bb.jpg"
+      }
+    ],
+    "discrepancies": [
+      "Raw screenshots do not use the shared orange frame.",
+      "The shared scenes are not first or in the approved order.",
+      "The listing uses a different copy structure from Google Play and Chrome."
+    ]
+  },
+  "playStore": {
+    "url": "https://play.google.com/store/apps/details?hl=en-US&id=com.miden.wallet",
+    "name": "Bread Wallet by Miden",
+    "updated": "2026-09-09",
+    "shortDescription": "Secure wallet for the Miden blockchain. Send, receive, and manage your assets.",
+    "leadCopy": "Bread Wallet is the official non-custodial wallet for the Miden blockchain. Your keys, your assets, your privacy - fully under your control on your own device.",
+    "visibleClaims": [
+      "Official non-custodial wallet",
+      "Device-held keys",
+      "Send and receive assets",
+      "Guardian recovery",
+      "Built-in dApp browsing"
+    ],
+    "screenshots": [
+      {
+        "order": 1,
+        "scene": "welcome",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/LAKQTveeiclkc4MsZwUa3aJGTvWB362Qyr3_SW54oCm6Q_B_dJX9yIHFgVlhb0xks3rl9XMq4jpmU-6tRoBkEg=s0"
+      },
+      {
+        "order": 2,
+        "scene": "home",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/oF-rgu9wZGakEiyJq3zElPCwzhyg5oI1f3_3QluI5m0p5_HHnayKefTAF6WcsPAgNdYVb1yHtx72SnHG96lq5w=s0"
+      },
+      {
+        "order": 3,
+        "scene": "guardian",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/9W4jyPRN4h41E-pbBIhtSLew7QfY__wKwfCsScgJWxUKENnMCyB1gLbHmyHcHC3Mp08GCsEzVqPwGFRVoWqg_Q=s0"
+      },
+      {
+        "order": 4,
+        "scene": "protect-wallet",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/O0aKZxKQTlhWlGM6y5Y0J1arpOkvQYrr8TjSd6HrmNqm5Nz-lKDmXIY5TBUctvlwiT8qVpVsurGqSqSQ8L0e=s0"
+      },
+      {
+        "order": 5,
+        "scene": "send-amount",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/tQUmbSkipa2f1ZE6ZWX2Q2FhjT4RwL22PrgtvpOdIQ7ue1ZiFITTmOPt51kPm_FVs3QkjIQoWXWyBF7IU4_w1w=s0"
+      },
+      {
+        "order": 6,
+        "scene": "send-review",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/iIlfDQYs4hsuHTxFTYJ7XmGFvM4mDaUg6ISTrI3jCmSdx92ZDCMOaexWthgCa6cTNJ3zEFTtI93nEMRo2kUePzU=s0"
+      },
+      {
+        "order": 7,
+        "scene": "receive",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/NKM4BQ5fb64vGRJzuUD_m5s-TSRDaIe4FbmncMqF3p_nYA-0oxaUMi3uMNUZKj21qUiKtwHCoGqC_JIhZHNsrQ=s0"
+      },
+      {
+        "order": 8,
+        "scene": "dapp-browser",
+        "width": 1320,
+        "height": 2868,
+        "url": "https://play-lh.googleusercontent.com/a9yvemQ3-7IUlpGlw_LbbDhluRnXoFvrnU80pfIPicdx7tTWv37txFIbsulD6AovoHsbRmZPWnaunfa66lv4gg=s0"
+      }
+    ],
+    "discrepancies": [
+      "The framed phone surfaces use iPhone chrome and Dynamic Island rather than Android surfaces.",
+      "The protection scene names Face ID rather than Android authentication.",
+      "The shared scenes are not in the approved order.",
+      "The listing uses a different copy structure from the App Store and Chrome."
+    ]
+  },
+  "chromeWebStore": {
+    "url": "https://chromewebstore.google.com/detail/bread-wallet-by-miden/coajhopfooegmaifelglfboehacldcbo",
+    "name": "Bread Wallet by Miden",
+    "version": "1.15.21",
+    "updated": "2026-08-19",
+    "shortDescription": "A browser wallet for the Miden blockchain",
+    "leadCopy": "Bread Wallet is a leading open-source wallet for the Miden blockchain, a cutting-edge zkRollup designed to bring privacy and performance to the next generation of decentralized finance.",
+    "visibleClaims": [
+      "Leading wallet",
+      "Highest privacy and performance",
+      "State-of-the-art security",
+      "All transaction types"
+    ],
+    "screenshots": [
+      {
+        "order": 1,
+        "scene": "guardian",
+        "observedDerivativeWidth": 512,
+        "observedDerivativeHeight": 320,
+        "url": "https://lh3.googleusercontent.com/AUSmEyxUDB8jU89QHa8puqyc1kptDYFDBndoE7UMztNzAJT-y9v-VyzXT8Voq-9JFqrf5Y7hPC5IUrzc5l5AXQD5J9Y"
+      },
+      {
+        "order": 2,
+        "scene": "home",
+        "observedDerivativeWidth": 512,
+        "observedDerivativeHeight": 320,
+        "url": "https://lh3.googleusercontent.com/v4bCFwyh0weKp4zsDqFeApydFoK4G_6-_8aBUQ1RZks9OTNS527UglBb5p7wAjHrBZLaf7q6fcQmmD7P62aoiG_l"
+      },
+      {
+        "order": 3,
+        "scene": "send-amount",
+        "observedDerivativeWidth": 512,
+        "observedDerivativeHeight": 320,
+        "url": "https://lh3.googleusercontent.com/FZkn0kdD17QqfrhZ-IngPF0Vk7QTLrV3kWH97m8s6ugkAsRRPKD_zDFfBvRdYPnDzfM9Pdlv16EX68rV8igRYTOLyw"
+      },
+      {
+        "order": 4,
+        "scene": "receive",
+        "observedDerivativeWidth": 512,
+        "observedDerivativeHeight": 320,
+        "url": "https://lh3.googleusercontent.com/aTFUzhg7fJwaoptp_JX_oS8BIVDQSxCNPbbFfoKCCkndW1NkkUydcRXPdNn_K4jQrOtsm0d5tBU6jlNemVhDUMMwVg"
+      },
+      {
+        "order": 5,
+        "scene": "dapp-browser",
+        "observedDerivativeWidth": 512,
+        "observedDerivativeHeight": 320,
+        "url": "https://lh3.googleusercontent.com/tWW0u4rb9dXSmyDrla6Uh98iPUHbGfJ5wZT0F1lS81fbx7tvohiGHLRPoFML3PtxjD8n1aMSWdr2zg_o4i-qXazqgg"
+      }
+    ],
+    "discrepancies": [
+      "The description uses unsupported superlatives and calls Miden a zkRollup.",
+      "The screenshots frame mobile surfaces rather than extension or side-panel surfaces.",
+      "The shared scenes are not in the approved order.",
+      "The listing does not explain site connection, request confirmation, side-panel access, or its password model."
+    ]
+  }
+}

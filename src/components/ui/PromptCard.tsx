@@ -1,7 +1,8 @@
-import React, { FC } from 'react';
+import React, { FC, useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -28,6 +29,11 @@ export interface PromptCardProps {
   variant?: PromptCardVariant;
   icon?: IconName;
   hero?: PromptCardHero;
+  /**
+   * The card action. Keyboard focus stays in the card when this swaps in a hero only
+   * if the hero is scheduled before the handler's first await: the render it causes
+   * is committed synchronously, and a later one no longer knows the tap moved focus.
+   */
   onClick?: () => void;
   actionLabel?: string;
   onAction?: () => void;
@@ -46,7 +52,7 @@ export interface PromptCardProps {
 }
 
 const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> = ({ className, children }) => (
-  <button type="button" className={className}>
+  <button type="button" data-card-action className={className}>
     {children}
   </button>
 );
@@ -68,10 +74,25 @@ export const PromptCard: FC<PromptCardProps> = ({
 }) => {
   const { t } = useTranslation();
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Whether the container itself (not a child) holds focus. It stays focusable while it
+  // does: Chromium blurs a focused element the moment its tabindex is removed, which would
+  // drop focus to the page before the hero-end hand-back below could move it on.
+  const [holdsFocus, setHoldsFocus] = useState(false);
+
   const handleClick = () => {
     if (!onClick) return;
+    // Only focus the user actually had in the card: a pointer tap that focused nothing
+    // (Safari does not focus buttons on click) is not moved anywhere.
+    const hadFocus = !!containerRef.current?.contains(document.activeElement);
     hapticLight();
-    onClick();
+    // Rendered and committed before this returns, so the check below sees what the tap did.
+    flushSync(onClick);
+    // A hero replaced the lockup and unmounted the button just pressed: keep focus in the
+    // card instead of letting it fall to the page (#923).
+    if (hadFocus && (!document.activeElement || document.activeElement === document.body)) {
+      containerRef.current?.focus({ preventScroll: true });
+    }
   };
 
   const handleDismiss = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -105,6 +126,16 @@ export const PromptCard: FC<PromptCardProps> = ({
     : status === 'failure'
       ? [t('failed'), body].filter(Boolean).join('. ')
       : '';
+
+  const heroShown = hero !== undefined;
+  // When a hero ends with focus still on the card, hand it to the card's own action
+  // before paint; the blur that follows lets the container stop being focusable.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!heroShown && container && document.activeElement === container) {
+      container.querySelector<HTMLElement>('[data-card-action]')?.focus({ preventScroll: true });
+    }
+  }, [heroShown]);
 
   const reduceMotion = useReducedMotion();
   // A looping flip is exactly what reduced motion asks us not to run.
@@ -148,7 +179,19 @@ export const PromptCard: FC<PromptCardProps> = ({
 
   return (
     <div
+      ref={containerRef}
       data-testid={testId}
+      // Focusable while a hero holds the card, as the place focus stays, and until focus leaves.
+      tabIndex={heroShown || holdsFocus ? -1 : undefined}
+      onFocus={event => {
+        if (event.target === event.currentTarget) setHoldsFocus(true);
+      }}
+      onBlur={event => {
+        // A page, tab or side-panel blur fires this too while focus stays on the card.
+        if (event.target === event.currentTarget && document.activeElement !== event.currentTarget) {
+          setHoldsFocus(false);
+        }
+      }}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
         'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-10',

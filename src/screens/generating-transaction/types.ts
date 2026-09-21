@@ -1,3 +1,4 @@
+import type { FlowAccent } from 'components/flow/accent';
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
 import type { TransactionStepDef } from './constants';
@@ -56,10 +57,13 @@ export type TransactionHeroState = 'processing' | 'success' | 'failed';
 
 export interface TransactionHeroIconProps {
   state: TransactionHeroState;
+  /** The flow's highlight color, used while processing. Defaults to brand. */
+  accent?: FlowAccent;
 }
 
 export interface StatusIndicatorProps {
   state: TransactionStepState;
+  accent?: FlowAccent;
 }
 
 export interface TransactionStepRowProps {
@@ -69,4 +73,5 @@ export interface TransactionStepRowProps {
   label?: string;
   /** Right-aligned muted text, e.g. the step's duration ("2 sec"). */
   meta?: string;
+  accent?: FlowAccent;
 }

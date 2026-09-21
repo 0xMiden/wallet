@@ -18,11 +18,32 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn().mockResolvedValue(undefined),
   updateCurrentAccount: jest.fn().mockResolvedValue(undefined),
   revealMnemonic: jest.fn().mockResolvedValue('test mnemonic'),
+  exportWalletBackupMaterial: jest.fn().mockResolvedValue({
+    seedPhrase: 'seed',
+    accounts: [],
+    midenClientDbContent: 'db',
+    importedAccounts: []
+  }),
   revealPrivateKey: jest.fn().mockResolvedValue('deadbeef'),
   removeAccount: jest.fn().mockResolvedValue(undefined),
   editAccount: jest.fn().mockResolvedValue(undefined),
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
+  listSpendingLimits: jest.fn().mockResolvedValue([
+    {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '100',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 1
+    }
+  ]),
+  saveSpendingLimit: jest.fn().mockResolvedValue(undefined),
+  assessOutgoingSpendingLimit: jest.fn().mockResolvedValue({ revision: 'revision-1', breaches: [{}] }),
+  getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: false, password: true }),
+  verifyStrictActionAuthentication: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   signWord: jest.fn().mockResolvedValue('word-signature'),
   revealHotKey: jest.fn().mockResolvedValue('hot-private-key'),
@@ -154,15 +175,39 @@ describe('DesktopIntercomAdapter', () => {
     });
 
     it('handles ImportFromClientRequest', async () => {
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
       const response = await adapter.request({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'test123',
         mnemonic: 'word1 word2 word3',
-        walletAccounts: []
+        walletAccounts: [],
+        formatVersion: 2,
+        importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', []);
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
+        'test123',
+        'word1 word2 word3',
+        [],
+        2,
+        importedAccounts
+      );
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
+    });
+
+    it('handles ExportWalletBackupMaterialRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password: 'test123'
+      } as any);
+
+      expect(Actions.exportWalletBackupMaterial).toHaveBeenCalledWith('test123');
+      expect(response).toEqual({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material: { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] }
+      });
     });
 
     it('handles UnlockRequest', async () => {
@@ -309,6 +354,59 @@ describe('DesktopIntercomAdapter', () => {
       expect(response).toEqual({ type: WalletMessageType.UpdateSettingsResponse });
     });
 
+    it('handles spending-limit list and disable requests', async () => {
+      const draft = {
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        asset: { symbol: 'MIDEN', decimals: 8 }
+      };
+
+      const listed = await adapter.request({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId: 'account-a'
+      });
+      const saved = await adapter.request({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft,
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: true
+      });
+
+      expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+      expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', true);
+      expect(listed).toMatchObject({ type: WalletMessageType.GetSpendingLimitsResponse, configurations: [{}] });
+      expect(saved).toEqual({ type: WalletMessageType.SaveSpendingLimitResponse });
+    });
+
+    it('handles strict authentication protector and verification requests', async () => {
+      const protectors = await adapter.request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      const verified = await adapter.request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest
+      });
+
+      expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
+      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith(undefined);
+      expect(protectors).toEqual({
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: { hardware: false, password: true }
+      });
+      expect(verified).toEqual({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
+    });
+
+    it('returns the current preflight assessment', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: '20'
+      });
+
+      expect(response).toEqual({
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        assessment: { revision: 'revision-1', breaches: [{}] }
+      });
+    });
+
     it('handles SignTransactionRequest', async () => {
       const response = await adapter.request({
         type: WalletMessageType.SignTransactionRequest,
@@ -437,7 +535,7 @@ describe('DesktopIntercomAdapter', () => {
           accountPublicKey: 'acc',
           password: 'pw'
         } as any)
-      ).toEqual({ type: WalletMessageType.RevealHotKeyResponse, hotPrivateKey: 'hot-private-key' });
+      ).toEqual({ type: WalletMessageType.RevealHotKeyResponse, keyPairPayload: 'hot-private-key' });
 
       expect(
         await adapter.request({

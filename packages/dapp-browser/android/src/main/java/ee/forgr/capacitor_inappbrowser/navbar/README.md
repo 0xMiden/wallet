@@ -1,6 +1,6 @@
 # Android Navbar Overlay
 
-Android port of `packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift:MidenNavbarOverlayWindow`. Renders the wallet's bottom navigation as a native floating pill that sits above both the Capacitor WebView and every `WebViewDialog` (foreground dApp).
+Android port of `packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift:MidenNavbarOverlayWindow`. This retained plugin API can render a native floating pill above both the Capacitor WebView and every `WebViewDialog` (foreground dApp). The wallet frontend currently uses the React `BottomNav` rendered by `TabLayout` and does not call this API.
 
 ## Why a two-instance architecture
 
@@ -51,7 +51,7 @@ The architecture that actually works reliably: **two View instances sharing a si
 └──────────────────────────────────────────────────────┘
 ```
 
-Taps flow the other direction: `NavbarButton.onClickListener` → `manager.dispatchItemTap(id)` → `TapCallback.onItemTap(id)` → `InAppBrowserPlugin.notifyListeners("nativeNavbarTap", {id})` → JS listeners in `DappBrowserProvider.tsx`.
+Taps flow the other direction: `NavbarButton.onClickListener` → `manager.dispatchItemTap(id)` → `TapCallback.onItemTap(id)` → `InAppBrowserPlugin.notifyListeners("nativeNavbarTap", {id})`. No wallet frontend caller or listener is currently registered.
 
 ## Gotchas
 

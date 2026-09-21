@@ -9,6 +9,7 @@ import {
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
@@ -74,6 +75,7 @@ export interface CreateBridgeP2IDENoteArgs {
    * own progress UI (e.g. the EvmConnectModal).
    */
   onRowCreated?: (txId: string) => void;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
 }
 
 /**
@@ -109,7 +111,8 @@ export async function createBridgeP2IDENote(
     destinationAddress,
     destinationNetwork,
     deps,
-    onRowCreated
+    onRowCreated,
+    spendingLimitAuthorization
   } = args;
   try {
     console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
@@ -136,7 +139,8 @@ export async function createBridgeP2IDENote(
         recipientId: ifHextoBech32(allocatorId),
         noteType: NoteTypeEnum.Public,
         recallBlocks
-      }
+      },
+      spendingLimitAuthorization
     );
 
     // Row exists now (Queued) — let the caller navigate to the progress screen
@@ -164,6 +168,7 @@ export async function createBridgeP2IDENote(
     console.log('[epoch] bridge note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
+    if (spendingLimitAssessmentFromError(err) !== undefined) throw err;
     console.error('[epoch] createBridgeP2IDENote threw', err);
     return { success: false };
   }

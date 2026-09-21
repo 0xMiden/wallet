@@ -1,3 +1,4 @@
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 
 /**
@@ -26,6 +27,11 @@ export enum WalletType {
   OnChain = 'on-chain'
 }
 
+export enum ImportType {
+  SeedPhrase = 'seed-phrase',
+  WalletFile = 'wallet-file'
+}
+
 export enum OnboardingStep {
   Welcome = 'welcome',
   NetworkNotice = 'network-notice',
@@ -36,8 +42,11 @@ export enum OnboardingStep {
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   ImportFromSeed = 'import-from-seed',
+  ImportFromKey = 'import-from-key',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
+  SelectImportType = 'select-import-type',
+  ImportFromFile = 'import-from-file',
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
   ChooseGuardian = 'choose-guardian',
@@ -87,6 +96,26 @@ export type NetworkNoticeAcknowledgeAction = {
 
 export type ImportFromSeedAction = {
   id: 'import-from-seed';
+};
+
+export type ImportFromFileAction = {
+  id: 'import-from-file';
+};
+
+/** Switch the import flow from seed-phrase entry to hot-key paste. */
+export type ImportWithKeyAction = {
+  id: 'import-with-key';
+};
+
+/** Submit the pasted hot key (normalized hex) from the key-paste screen. */
+export type ImportHotKeySubmitAction = {
+  id: 'import-hot-key-submit';
+  payload: string;
+};
+
+export type ImportWalletFileSubmitAction = {
+  id: 'import-wallet-file-submit';
+  payload: DecryptedWalletFile;
 };
 
 export type BackupSeedPhraseAction = {
@@ -178,6 +207,10 @@ export type OnboardingAction =
   | ImportSeedPhraseSubmitAction
   | BackAction
   | ImportFromSeedAction
+  | ImportFromFileAction
+  | ImportWalletFileSubmitAction
+  | ImportWithKeyAction
+  | ImportHotKeySubmitAction
   | RetryGuardianProbeAction
   | SwitchToPasswordAction;
 

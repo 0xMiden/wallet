@@ -3,7 +3,7 @@ import { createStore, createEvent } from 'effector';
 import { PublicError } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { NETWORKS } from 'lib/miden/networks';
-import { WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
+import { SeedPhraseStatus, WalletAccount, WalletSettings, WalletState, WalletStatus } from 'lib/shared/types';
 
 export interface StoreState extends WalletState {
   inited: boolean;
@@ -20,7 +20,8 @@ export function toFront({
   networks,
   settings,
   currentAccount,
-  ownMnemonic
+  ownMnemonic,
+  seedPhraseStatus
 }: StoreState): WalletState {
   return {
     status,
@@ -28,7 +29,8 @@ export function toFront({
     networks,
     settings,
     currentAccount,
-    ownMnemonic
+    ownMnemonic,
+    seedPhraseStatus
   };
 }
 
@@ -44,6 +46,7 @@ export const unlocked = createEvent<{
   settings: WalletSettings;
   currentAccount: WalletAccount;
   ownMnemonic: boolean;
+  seedPhraseStatus?: SeedPhraseStatus;
 }>('Unlocked');
 
 export const accountsUpdated = createEvent<{ accounts: WalletAccount[]; currentAccount?: WalletAccount }>(
@@ -51,6 +54,8 @@ export const accountsUpdated = createEvent<{ accounts: WalletAccount[]; currentA
 );
 
 export const currentAccountUpdated = createEvent<WalletAccount>('Current Account Updated');
+
+export const seedPhraseStatusUpdated = createEvent<SeedPhraseStatus>('Seed phrase status updated');
 
 export const settingsUpdated = createEvent<WalletSettings>('Settings updated');
 
@@ -87,16 +92,18 @@ export const store = createStore<StoreState>({
     networks: NETWORKS,
     settings: null,
     currentAccount: null,
-    ownMnemonic: null
+    ownMnemonic: null,
+    seedPhraseStatus: undefined
   }))
-  .on(unlocked, (state, { vault, accounts, settings, currentAccount, ownMnemonic }) => ({
+  .on(unlocked, (state, { vault, accounts, settings, currentAccount, ownMnemonic, seedPhraseStatus }) => ({
     ...state,
     vault,
     status: WalletStatus.Ready,
     accounts,
     settings,
     currentAccount,
-    ownMnemonic
+    ownMnemonic,
+    seedPhraseStatus
   }))
   .on(accountsUpdated, (state, { accounts, currentAccount }) => ({
     ...state,
@@ -107,6 +114,7 @@ export const store = createStore<StoreState>({
     ...state,
     currentAccount
   }))
+  .on(seedPhraseStatusUpdated, (state, seedPhraseStatus) => ({ ...state, seedPhraseStatus }))
   .on(settingsUpdated, (state, settings) => ({
     ...state,
     settings

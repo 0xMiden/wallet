@@ -14,6 +14,7 @@ import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
+import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProvider';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
@@ -84,19 +85,21 @@ const App: FC<AppProps> = ({ env }) => {
                   ) : checkIsMobile() ? (
                     // The DappBrowserProvider owns the embedded dApp webview lifecycle
                     // and the bubble host. It must live ABOVE PageRouter so it survives
-                    // tab navigation — a parked dApp's bubble stays interactive even
+                    // tab navigation - a parked dApp's bubble stays interactive even
                     // when the user moves to a different tab.
                     <DappBrowserProvider>
-                      <HotKeyRotationGate />
-                      <GuardianRecoveryProvider />
-                      <PageRouter />
+                      <UpdateNotificationProvider>
+                        <HotKeyRotationGate />
+                        <GuardianRecoveryProvider />
+                        <PageRouter />
+                      </UpdateNotificationProvider>
                     </DappBrowserProvider>
                   ) : (
-                    <>
+                    <UpdateNotificationProvider>
                       <HotKeyRotationGate />
                       <GuardianRecoveryProvider />
                       <PageRouter />
-                    </>
+                    </UpdateNotificationProvider>
                   )}
                 </div>
               </BootAnimation>

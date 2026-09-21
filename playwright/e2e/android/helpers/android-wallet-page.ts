@@ -2,7 +2,8 @@ import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
+import { buildBalanceTotalScript } from '../../helpers/balance-script';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -221,26 +222,10 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Balance ───────────────────────────────────────────────────────────────
 
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
-    return this.cdp.eval<number>(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return 0; ` +
-        `var st = s.getState(); ` +
-        `var total = 0; ` +
-        `var balances = st.balances || {}; ` +
-        `for (var k in balances) { ` +
-        `  var list = balances[k]; ` +
-        `  if (!Array.isArray(list)) continue; ` +
-        `  for (var i = 0; i < list.length; i++) { ` +
-        `    var t = list[i]; ` +
-        `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-        `    if (amt > 0) total += amt; ` +
-        `  } ` +
-        `} ` +
-        `return total;`
-    );
+    return this.cdp.eval<number>(buildBalanceTotalScript(tokenSymbol));
   }
 
   async triggerSync(): Promise<void> {
@@ -356,19 +341,12 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async sendTokens(params: SendTokensParams): Promise<void> {
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await this.pollForSelector('[data-testid="send-network-selector"]', 15_000);
-      await this.click('[data-testid="send-network-selector"]');
       await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
       await this.click('[data-testid="send-network-sepolia"]');
     }

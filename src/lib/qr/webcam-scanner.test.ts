@@ -21,6 +21,16 @@ const detectorReturning = (barcodes: Array<{ rawValue: string }>): BarcodeDetect
 });
 
 describe('qr/webcam-scanner', () => {
+  it('passes raw payloads unchanged only when requested', async () => {
+    const payload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+    const detector = detectorReturning([{ rawValue: payload }]);
+    const video = document.createElement('video');
+    await expect(detectAddressFromFrame(detector, video, true)).resolves.toEqual({ success: true, address: payload });
+    await expect(detectAddressFromFrame(detector, video)).resolves.toEqual({
+      success: false,
+      errorKey: 'invalidMidenAddress'
+    });
+  });
   afterEach(() => {
     delete (window as unknown as WindowWithDetector).BarcodeDetector;
   });

@@ -13,8 +13,12 @@ export default {
   // fails the gate — drift can no longer hide, and coveragePathIgnorePatterns
   // below is the single, reviewable record of intentional exclusions.
   collectCoverageFrom: [
-    'src/**/*.{ts,tsx}',
+    // `.mjs` is in the list because a module keeps the same gate whatever its
+    // extension: the update-catalog validator ships as ESM so a plain `node` CI
+    // step can share it with the app bundle.
+    'src/**/*.{ts,tsx,mjs}',
     '!src/**/*.d.ts',
+    '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
     '!src/**/*.spec.ts',
     '!src/**/__mocks__/**',
@@ -94,14 +98,19 @@ export default {
   // 'json-summary' emits coverage/coverage-summary.json, consumed by the
   // coverage-badge workflow to publish the README shields.io badge.
   coverageReporters: ['json-summary', 'text-summary', 'lcov'],
-  coverageThreshold: {
-    global: {
-      branches: 95,
-      functions: 95,
-      lines: 95,
-      statements: 95
-    }
-  },
+  // Sharded CI runs set JEST_COVERAGE_SHARD and check the 95% gate after merge
+  // (scripts/merge-jest-coverage.mjs). A partial map would fail the threshold
+  // even when the union is fine.
+  coverageThreshold: process.env.JEST_COVERAGE_SHARD
+    ? undefined
+    : {
+        global: {
+          branches: 95,
+          functions: 95,
+          lines: 95,
+          statements: 95
+        }
+      },
   moduleNameMapper: {
     // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
     // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the

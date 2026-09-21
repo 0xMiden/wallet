@@ -4,6 +4,15 @@ import type { EnvironmentConfig } from '../harness/types';
  * Environment configurations for E2E tests.
  * Endpoints sourced from src/lib/miden-chain/constants.ts.
  */
+/**
+ * True only on the hermetic local stack, whose block cadence and genesis this
+ * process controls. The single owner: playwright.e2e.config.ts,
+ * helpers/recall.ts and helpers/wallet-page.ts all read it from here rather than
+ * re-deriving it, so "is this a local chain" cannot mean two different things in
+ * one run.
+ */
+export const IS_LOCALNET = process.env.E2E_NETWORK === 'localhost';
+
 const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
   testnet: {
     name: 'testnet',

@@ -22,6 +22,7 @@ import {
   EarnWithdrawTransaction,
   IBridgedSendNoteParams,
   IBridgeProvider,
+  IConsumedAssetTotal,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -34,6 +35,8 @@ import {
 import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
+import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 
 export const requestCustomTransaction = async (
@@ -42,11 +45,27 @@ export const requestCustomTransaction = async (
   inputNoteIds?: string[],
   importNotes?: string[],
   delegateTransaction?: boolean,
-  recipientAccountId?: string
+  recipientAccountId?: string,
+  /** Per-faucet value leaving the account, from the approval-time dry run. */
+  spentAssetTotals?: IConsumedAssetTotal[],
+  spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
-  const transaction = new Transaction(accountId, byteArray, inputNoteIds, delegateTransaction, recipientAccountId);
-  await Repo.transactions.add(transaction);
+  const transaction = new Transaction(
+    accountId,
+    byteArray,
+    inputNoteIds,
+    delegateTransaction,
+    recipientAccountId,
+    spentAssetTotals
+  );
+  // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
+  // does goes through the same chokepoint as every other outgoing transaction.
+  if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
+    await queueOutgoingTransaction({ ...transaction, spentAssetTotals }, spentAssetTotals, spendingLimitAuthorization);
+  } else {
+    await Repo.transactions.add(transaction);
+  }
 
   if (importNotes) {
     for (const noteBytes of importNotes) {
@@ -382,7 +401,8 @@ export const initiateSwapTransaction = async (
   requestedAmount: bigint,
   delegateTransaction?: boolean,
   expirySeconds: number = 120,
-  autoConsume: boolean = true
+  autoConsume: boolean = true,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
   const dbTransaction = new SwapTransaction(
     accountId,
@@ -394,7 +414,7 @@ export const initiateSwapTransaction = async (
     expirySeconds,
     autoConsume
   );
-  await Repo.transactions.add(dbTransaction);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
 };
@@ -424,7 +444,8 @@ export const initiateSendTransaction = async (
   noteType: NoteTypeString,
   amount: bigint,
   recallBlocks?: number,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
@@ -451,7 +472,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
-  await Repo.transactions.add(dbTransaction);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
 };
@@ -475,7 +496,8 @@ export const initiateBridgedSendTransaction = async (
   provider: IBridgeProvider,
   requestBytes?: Uint8Array,
   delegateTransaction?: boolean,
-  sendParams?: IBridgedSendNoteParams
+  sendParams?: IBridgedSendNoteParams,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -488,7 +510,7 @@ export const initiateBridgedSendTransaction = async (
     delegateTransaction,
     sendParams
   );
-  await Repo.transactions.add(dbTransaction);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
 };
@@ -507,7 +529,8 @@ export const initiateEarnDepositTransaction = async (
   faucetId: string,
   sendParams: IBridgedSendNoteParams,
   delegateTransaction?: boolean,
-  requestBytes?: Uint8Array
+  requestBytes?: Uint8Array,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
   const dbTransaction = new EarnDepositTransaction(
     accountId,
@@ -519,7 +542,7 @@ export const initiateEarnDepositTransaction = async (
     delegateTransaction,
     requestBytes
   );
-  await Repo.transactions.add(dbTransaction);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
   return dbTransaction.id;
 };
 
@@ -687,8 +710,7 @@ export const initiateReplaceHotKeyTransaction = async (
     throw new Error('Replace hot key is only supported for Guardian accounts');
   }
   const dbTransaction = new ReplaceHotKeyTransaction(accountId, delegateTransaction);
-  await Repo.transactions.add(dbTransaction);
-  return dbTransaction.id;
+  return queueRecoveryChange(dbTransaction);
 };
 
 // The on-chain hardening a freshly-created 3-key Guardian account gets (see
@@ -770,6 +792,24 @@ export const initiateUpdateProcedureThresholdTransaction = async (
     throw new Error('update-procedure-threshold is only supported for Guardian accounts');
   }
   const dbTransaction = new UpdateProcedureThresholdTransaction(accountId, procedure, threshold, delegateTransaction);
-  await Repo.transactions.add(dbTransaction);
-  return dbTransaction.id;
+  return queueRecoveryChange(dbTransaction);
 };
+
+async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
+  return Repo.db.transaction('rw', Repo.transactions, async () => {
+    const existing = await Repo.transactions
+      .filter(
+        row =>
+          !row.restoredFromBackup &&
+          row.type === transaction.type &&
+          compareAccountIds(row.accountId, transaction.accountId) &&
+          (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction) &&
+          row.extraInputs?.procedure === transaction.extraInputs?.procedure &&
+          row.extraInputs?.threshold === transaction.extraInputs?.threshold
+      )
+      .first();
+    if (existing) return existing.id;
+    await Repo.transactions.add(transaction);
+    return transaction.id;
+  });
+}

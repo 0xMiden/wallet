@@ -63,6 +63,34 @@ describe('makeSimulateHandler', () => {
     });
   });
 
+  // A MATCHED PAIR, and they must stay one: each pins the case the other's fix would otherwise
+  // make vacuous. The first says a usable dry run is reused so the request is simulated once; the
+  // second says a FAILED one is not, so the sheet can still get a verified view once the lock
+  // frees. Asserting only the first would pass with the reuse deleted; only the second, with the
+  // reuse made unconditional.
+  it('reuses a dry run the caller already performed, rather than simulating twice', async () => {
+    (simulateCustomTransaction as jest.Mock).mockClear();
+    const handler = makeSimulateHandler('confirm-id', customTx as any, { summaryBytes: 'cachedB64' });
+
+    const out = await handler({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'confirm-id' } as any);
+
+    expect(simulateCustomTransaction).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ summaryBytes: 'cachedB64' });
+  });
+
+  it("re-runs when the caller's dry run failed, instead of caching the failure", async () => {
+    // A timeout or a WASM-lock eviction resolves as `{ error }`. Serving that for the lifetime of
+    // the confirm id would leave the verified asset view - an anti-phishing control - permanently
+    // unavailable even after the contention cleared.
+    (simulateCustomTransaction as jest.Mock).mockClear();
+    const handler = makeSimulateHandler('confirm-id', customTx as any, { error: 'Simulation timed out' });
+
+    const out = await handler({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'confirm-id' } as any);
+
+    expect(simulateCustomTransaction).toHaveBeenCalled();
+    expect(out).toMatchObject({ summaryBytes: 'sumB64' });
+  });
+
   it('ignores a simulate request for a different id', async () => {
     const handler = makeSimulateHandler('confirm-id', customTx as any);
     const out = await handler({ type: MidenMessageType.DAppSimulateTransactionRequest, id: 'other' } as any);

@@ -24,6 +24,15 @@ jest.mock('lib/miden/repo', () => ({
     return { add: mockAdd };
   }
 }));
+jest.mock('../spending-limits/queue', () => ({
+  spendsOf: (transaction: { faucetId: string; amount: bigint }) => [
+    { faucetId: transaction.faucetId, amount: transaction.amount }
+  ],
+  queueOutgoingTransaction: jest.fn(async transaction => {
+    const repo = jest.requireMock('lib/miden/repo');
+    await repo.transactions.add(transaction);
+  })
+}));
 
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
 jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));

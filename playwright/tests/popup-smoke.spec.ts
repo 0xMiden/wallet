@@ -154,6 +154,10 @@ test.describe('Fullpage UI', () => {
 
     // Acknowledge the network notice before entering the seed phrase.
     await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15000 });
+    // Import now asks WHICH credential first: a seed phrase or an encrypted
+    // wallet file. This flow is the seed-phrase one.
+    await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+    await page.getByTestId('import-type-seed-phrase').click();
     await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
@@ -215,6 +219,9 @@ test.describe('Fullpage UI', () => {
     await page.locator('#import-link').click();
 
     await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15000 });
+    // Import now asks WHICH credential first; this flow is the seed-phrase one.
+    await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+    await page.getByTestId('import-type-seed-phrase').click();
     const seedForm = page.getByTestId('import-seed-phrase');
     await seedForm.waitFor({ timeout: 15000 });
 

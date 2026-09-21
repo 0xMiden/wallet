@@ -30,6 +30,18 @@ def (vMajor, vMinor, vPatch) = versionParts[0..2].collect { it.toInteger() }
 // SAME version can be re-uploaded (e.g. after a rejected upload) by bumping it
 // via `-PandroidBuildNumber=N`.
 def androidBuildNumber = (project.findProperty("androidBuildNumber") ?: "1").toString().toInteger()
+// Every slot is checked where it is packed: a carry out of one field is
+// indistinguishable afterwards, so the wallet's decoder (src/lib/update/android.ts)
+// would read the result as a different, higher release than the one installed.
+if (vMinor > 99) {
+    throw new GradleException("version minor must be below 100 for the Android version code, got ${vMinor}")
+}
+if (vPatch > 99) {
+    throw new GradleException("version patch must be below 100 for the Android version code, got ${vPatch}")
+}
+if (androidBuildNumber < 1 || androidBuildNumber > 999) {
+    throw new GradleException("androidBuildNumber must be between 1 and 999, got ${androidBuildNumber}")
+}
 def appVersionCode = vMajor * 10000000 + vMinor * 100000 + vPatch * 1000 + androidBuildNumber
 
 android {
@@ -109,6 +121,7 @@ dependencies {
     implementation 'com.reown:appkit'
     // Biometric authentication for hardware security
     implementation 'androidx.biometric:biometric:1.1.0'
+    implementation 'com.google.android.play:app-update:2.1.0'
     // secp256k1 ECDSA + Keccak-256 for the Guardian hot-key signing path
     // (HotKeyPlugin). Keystore wraps the 32-byte k256 secret with RSA-OAEP;
     // BouncyCastle handles everything outside the Keystore boundary.

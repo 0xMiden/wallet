@@ -1,5 +1,6 @@
 import { DEFAULT_NETWORK, MIDEN_FAUCET_API_ENDPOINTS } from './constants';
 import {
+  FaucetOutcomeUnknownError,
   faucetFetch,
   getFaucetApiUrl,
   getPowChallenge,
@@ -244,19 +245,178 @@ describe('faucet-api', () => {
         42,
         controller.signal
       );
-      controller.abort(new Error('Faucet request timed out'));
+      const reason = new Error('Faucet request timed out');
+      controller.abort(reason);
 
-      await expect(request).rejects.toThrow('Faucet request timed out');
+      // The request was out when it was aborted, so its outcome is unknown - and
+      // the abort reason is kept as the cause.
+      const error = await request.catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(Reflect.get(Object(error), 'cause')).toBe(reason);
+    });
+
+    it('reports a request that got no response as an unknown outcome, not a refusal', async () => {
+      // A dropped connection may have reached the faucet, which may have minted:
+      // a caller must not treat this as safe to retry.
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      await expect(
+        requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
+      ).rejects.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it('reports a success response whose body cannot be read as an unknown outcome, not a refusal', async () => {
+      // The faucet accepted the request, so it may have minted even though the
+      // note ids never arrived.
+      const parseError = new SyntaxError('Unexpected end of JSON input');
+      fetchMock.mockResolvedValue({ ...jsonResponse({}), json: () => Promise.reject(parseError) });
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(Reflect.get(Object(error), 'cause')).toBe(parseError);
     });
 
     it('rejects with the response text on failure', async () => {
       fetchMock.mockResolvedValue(errorResponse(400, 'requested amount 1000 exceeds the maximum claimable amount'));
 
-      await expect(
-        requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
-      ).rejects.toThrow(
-        'Faucet token request failed with status 400: requested amount 1000 exceeds the maximum claimable amount'
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+      expect(error).toEqual(
+        new Error(
+          'Faucet token request failed with status 400: requested amount 1000 exceeds the maximum claimable amount'
+        )
       );
+      // The faucet answered: a definitive refusal, safe to retry.
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it.each([500, 502, 504])(
+      'reports a %s as an unknown outcome, since the mint may already be queued',
+      async status => {
+        // The faucet answers 500 when a queued mint's result is lost, and a gateway
+        // error says nothing about whether the faucet behind it received the request.
+        fetchMock.mockResolvedValue(errorResponse(status, 'Internal error.'));
+
+        const error = await requestTokens(
+          'https://faucet-api.example',
+          'mtst1testaddress',
+          100_000_000n,
+          CHALLENGE_HEX,
+          42
+        ).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+      }
+    );
+
+    it.each([500, 502, 504])('reports a %s whose body cannot be read as an unknown outcome', async status => {
+      // The status says what happened; the body only explains it.
+      fetchMock.mockResolvedValue({
+        ...errorResponse(status, ''),
+        text: () => Promise.reject(new TypeError('network error'))
+      });
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it('reports a refusal as unable to mint as soon as its status arrives, before its body is read', async () => {
+      fetchMock.mockResolvedValue({ ...errorResponse(400, ''), text: () => new Promise<string>(() => {}) });
+      const onMayMint = jest.fn();
+
+      requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42,
+        undefined,
+        onMayMint
+      ).catch(() => undefined);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+
+      // Out (may mint), then refused: the body that never arrives changes nothing.
+      expect(onMayMint.mock.calls).toEqual([[true], [false]]);
+    });
+
+    it('reports a rate-limited request as unable to mint while it waits to retry', async () => {
+      jest.useFakeTimers();
+      try {
+        fetchMock
+          .mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '5' }))
+          .mockResolvedValueOnce(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+        const onMayMint = jest.fn();
+
+        const minted = requestTokens(
+          'https://faucet-api.example',
+          'mtst1testaddress',
+          100_000_000n,
+          CHALLENGE_HEX,
+          42,
+          undefined,
+          onMayMint
+        );
+        await jest.advanceTimersByTimeAsync(0);
+        expect(onMayMint.mock.calls).toEqual([[true], [false]]);
+
+        await jest.advanceTimersByTimeAsync(5_000);
+        await minted;
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [true]]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each([400, 503])('keeps a %i refusal whose body cannot be read a refusal', async status => {
+      fetchMock.mockResolvedValue({
+        ...errorResponse(status, ''),
+        text: () => Promise.reject(new TypeError('network error'))
+      });
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toEqual(new Error(`Faucet token request failed with status ${status}: `));
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it('keeps a 503 a refusal, safe to retry: the faucet sends it when it cannot queue the mint', async () => {
+      fetchMock.mockResolvedValue(errorResponse(503, 'The faucet is currently overloaded, please try again later.'));
+
+      const error = await requestTokens(
+        'https://faucet-api.example',
+        'mtst1testaddress',
+        100_000_000n,
+        CHALLENGE_HEX,
+        42
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
     });
   });
 
@@ -285,6 +445,80 @@ describe('faucet-api', () => {
       expect(tokensUrl.searchParams.get('challenge')).toBe(CHALLENGE_HEX);
       expect(tokensUrl.searchParams.get('nonce')).toMatch(/^\d+$/);
       expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+    });
+
+    it('sends the token request only once onBeforeSubmit has finished, and never when it fails', async () => {
+      fetchMock.mockImplementation((url: string) =>
+        Promise.resolve(
+          url.includes('/pow')
+            ? jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 })
+            : jsonResponse({ tx_id: '0xtx', note_id: '0xnote' })
+        )
+      );
+      const tokenRequests = () => fetchMock.mock.calls.filter(([url]) => String(url).includes('/get_tokens'));
+      const settle = async () => {
+        for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0));
+      };
+
+      // The hook stores the submitted flag: the token request must wait for it.
+      let finishHook = () => {};
+      const hook = jest.fn(
+        () =>
+          new Promise<void>(resolve => {
+            finishHook = resolve;
+          })
+      );
+      const minted = mintFromMidenFaucet('mtst1testaddress', 100_000_000n, undefined, hook);
+      await settle();
+      expect(hook).toHaveBeenCalledTimes(1);
+      expect(tokenRequests()).toHaveLength(0);
+      finishHook();
+      await minted;
+      expect(tokenRequests()).toHaveLength(1);
+
+      // A hook that fails (the flag could not be stored) sends nothing.
+      fetchMock.mockClear();
+      const refused = mintFromMidenFaucet('mtst1testaddress', 100_000_000n, undefined, async () => {
+        throw new Error('storage unavailable');
+      });
+      await expect(refused).rejects.toThrow('storage unavailable');
+      expect(tokenRequests()).toHaveLength(0);
+    });
+
+    it('runs onBeforeSubmit after the proof of work and before the token request goes out', async () => {
+      const order: string[] = [];
+      fetchMock.mockImplementation((url: string) => {
+        order.push(url.includes('/pow') ? 'pow' : 'get_tokens');
+        if (url.includes('/pow')) {
+          return Promise.resolve(jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 }));
+        }
+        return Promise.resolve(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+      });
+
+      await mintFromMidenFaucet('mtst1testaddress', 100_000_000n, undefined, async () => {
+        order.push('onBeforeSubmit');
+      });
+
+      // The hook is the last moment nothing can have been minted: after the
+      // challenge, before the request that can mint.
+      expect(order).toEqual(['pow', 'onBeforeSubmit', 'get_tokens']);
+    });
+
+    it('does not run onBeforeSubmit when the proof of work never completes', async () => {
+      // The challenge arrives, but the solve fails: the hook must follow the solve,
+      // not just the challenge fetch.
+      fetchMock.mockResolvedValue(jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 }));
+      const controller = new AbortController();
+      controller.abort(new Error('Faucet request timed out'));
+      const onBeforeSubmit = jest.fn(async () => undefined);
+
+      await expect(
+        mintFromMidenFaucet('mtst1testaddress', 100_000_000n, controller.signal, onBeforeSubmit)
+      ).rejects.toThrow('Faucet request timed out');
+
+      expect(onBeforeSubmit).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toContain('/pow');
     });
   });
 });

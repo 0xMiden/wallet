@@ -6,14 +6,21 @@ import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
+import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
-import { MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
+import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import {
+  type SpendingLimitAssessment,
+  type SpendingLimitAuthorization,
+  spendingLimitAssessmentFromError
+} from 'lib/miden/spending-limits/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { ChartContainer } from 'lib/ui/charts';
@@ -52,6 +59,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
+  const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
+  const amountBaseUnits = useMemo(() => {
+    try {
+      return stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS);
+    } catch {
+      return undefined;
+    }
+  }, [amount]);
+  const faucetId = getEarnCollateralFaucetId();
 
   // Reaching review, and owning the terminal outcome. The amount screen began
   // this flow and deliberately does not settle it on handoff, so every exit from
@@ -63,9 +80,17 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     return () => settleRouteFlow('earn', flow => flow.cancel());
   }, []);
 
-  const handleOpenPosition = async () => {
-    hapticLight();
-    if (isSubmitting) return;
+  const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
+    if (amountBaseUnits === undefined) return;
+    if (
+      authorization !== undefined &&
+      (authorization.accountId !== account.publicKey ||
+        authorization.faucetId !== faucetId ||
+        authorization.amount !== amountBaseUnits)
+    ) {
+      setSpendingLimitAssessment(undefined);
+      return;
+    }
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
       return;
@@ -73,7 +98,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     setIsSubmitting(true);
     setSubmitError(null);
     // A previous attempt that failed settled its flow errored and the user is
-    // still on this screen, so a retry needs a flow of its own — otherwise the
+    // still on this screen, so a retry needs a flow of its own. Otherwise the
     // second attempt reports nothing at all and a deposit that failed once and
     // then succeeded is recorded only as the failure. Same contract as
     // `enterSendFlow` and the swap retry path.
@@ -81,7 +106,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     reportRouteFlowStep('earn', 'submitting');
     try {
       await openEarnPosition({
-        amount: stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS),
+        amount: amountBaseUnits,
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
@@ -90,15 +115,59 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           // here. Settled before navigating, since that unmounts this screen.
           settleRouteFlow('earn', flow => flow.complete());
           navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
-        }
+        },
+        spendingLimitAuthorization: authorization
       });
     } catch (e) {
-      settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
-      setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
+      const assessment = spendingLimitAssessmentFromError(e);
+      if (assessment !== undefined) {
+        setSpendingLimitAssessment(assessment);
+      } else {
+        settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
+        setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const handleOpenPosition = async () => {
+    hapticLight();
+    if (isSubmitting) return;
+    if (!account.evmAddress) {
+      setSubmitError(t('earnNoEvmAddress'));
+      return;
+    }
+    if (amountBaseUnits === undefined) {
+      setSubmitError(t('earnFailedToOpenPosition'));
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const assessment = await assessSpendingLimit(account.publicKey, faucetId, amountBaseUnits);
+      if (assessment !== undefined && assessment.breaches.length > 0) {
+        setSpendingLimitAssessment(assessment);
+        setIsSubmitting(false);
+        return;
+      }
+      await runOpenPosition();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : t('earnFailedToOpenPosition'));
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      spendingLimitAssessment !== undefined &&
+      (spendingLimitAssessment.accountId !== account.publicKey ||
+        spendingLimitAssessment.faucetId !== faucetId ||
+        spendingLimitAssessment.amount !== amountBaseUnits)
+    ) {
+      setSpendingLimitAssessment(undefined);
+    }
+  }, [account.publicKey, amountBaseUnits, faucetId, spendingLimitAssessment]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-review-page">
@@ -132,6 +201,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
+      {spendingLimitAssessment !== undefined && (
+        <SpendingLimitChallenge
+          assessment={spendingLimitAssessment}
+          asset={{ symbol: depositSymbol, decimals: MIDEN_USDC_DECIMALS }}
+          onResult={authorization => {
+            setSpendingLimitAssessment(undefined);
+            if (authorization !== undefined) void runOpenPosition(authorization);
+          }}
+        />
+      )}
     </div>
   );
 };

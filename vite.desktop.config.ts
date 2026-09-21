@@ -110,6 +110,8 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'false'),
+    'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.

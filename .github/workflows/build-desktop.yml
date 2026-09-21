@@ -20,8 +20,8 @@ on:
 
 # Minimal permissions for security
 permissions:
-  contents: write   # needed to attach assets to a GitHub Release
-  actions: write    # needed for artifact cleanup
+  contents: write # needed to attach assets to a GitHub Release
+  actions: write # needed for artifact cleanup
 
 # Cancel in-progress runs for the same branch
 concurrency:
@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       networks: ${{ steps.set.outputs.networks }}
     steps:
@@ -192,7 +192,7 @@ jobs:
 
   # Cleanup old artifacts, keep only last 10 builds per platform/network
   cleanup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     needs: build
     steps:
       - name: Delete old artifacts

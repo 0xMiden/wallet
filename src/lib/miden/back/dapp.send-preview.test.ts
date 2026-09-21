@@ -110,6 +110,13 @@ jest.mock('lib/miden/metadata/utils', () => ({
   getTokenMetadata: (...args: unknown[]) => mockGetTokenMetadata(...args)
 }));
 
+const mockAssessOutgoingSpendingLimitDetails = jest.fn();
+const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
+jest.mock('lib/miden/spending-limits/queue', () => ({
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args),
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
+}));
+
 const mockRequestConfirmation = jest.fn();
 jest.mock('lib/dapp-browser/confirmation-store', () => ({
   dappConfirmationStore: {
@@ -199,7 +206,12 @@ import { requestSendTransaction, requestConsumeTransaction, requestTransaction }
 const DECLINED = MidenDAppErrorType.NotGranted;
 
 /** The single `DAppConfirmationRequest` the wallet put in front of the user. */
-type CapturedConfirmation = { origin: string; transactionMessages?: string[] };
+type CapturedConfirmation = {
+  origin: string;
+  transactionMessages?: string[];
+  spendingLimitAssessment?: unknown;
+  spendingLimitAsset?: unknown;
+};
 
 /**
  * The confirmation the wallet actually raised. The exactly-one check is the
@@ -241,6 +253,131 @@ beforeEach(() => {
   // shown, which is exactly the state these tests inspect. Approving would run
   // the transaction pipeline, which is a different test's subject.
   mockRequestConfirmation.mockResolvedValue({ confirmed: false });
+  mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+});
+
+describe('dApp send approval: spending-limit authorization stays inside the wallet', () => {
+  const assessment = {
+    accountId: 'miden-account-1',
+    faucetId: 'faucet-6dp',
+    amount: 1_500_000n,
+    revision: 'revision-1',
+    assessedAt: 100,
+    breaches: [
+      { period: '24h', spent: 900_000n, proposedTotal: 2_400_000n, limit: 1_000_000n, overBy: 1_400_000n, resetAt: 200 }
+    ]
+  };
+  const asset = { symbol: 'USDC', decimals: 6 };
+
+  beforeEach(() => {
+    mockGetTokenMetadata.mockResolvedValue(asset);
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue({ assessment, asset });
+  });
+
+  it('preflights the exact formatted send and requires strict confirmation before initiation', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+
+    const response = await requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1');
+
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      faucetId: 'faucet-6dp',
+      amount: 1_500_000n
+    });
+    expect(capturedConfirmation()).toMatchObject({ spendingLimitAssessment: assessment, spendingLimitAsset: asset });
+    expect(mockInitiateSendTransaction).toHaveBeenCalledWith(
+      'miden-account-1',
+      'mtst1recipient',
+      'faucet-6dp',
+      'private',
+      1_500_000n,
+      0,
+      false,
+      expect.objectContaining({
+        accountId: 'miden-account-1',
+        faucetId: 'faucet-6dp',
+        amount: 1_500_000n,
+        revision: 'revision-1'
+      })
+    );
+    expect(response).not.toHaveProperty('spendingLimitAuthorization');
+    expect(response).not.toHaveProperty('spendingLimitAuthenticated');
+  });
+
+  it('applies the same preflight and authorization to a generalized send request', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+    const send = sendRequest('faucet-6dp', '1500000');
+    const request = {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: send.sourcePublicKey,
+      transaction: { type: 'send', payload: send.transaction }
+    } as unknown as Parameters<typeof requestTransaction>[1];
+
+    const response = await requestTransaction(DAPP_ORIGIN, request, 'session-1');
+
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      faucetId: 'faucet-6dp',
+      amount: 1_500_000n
+    });
+    expect(mockInitiateSendTransaction.mock.calls[0]![7]).toMatchObject({ revision: 'revision-1' });
+    expect(response).toEqual({ type: MidenDAppMessageType.TransactionResponse, transactionId: 'tx-1' });
+  });
+
+  it('denies a breached request that resolves approved without strict authentication', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  type SendRequestWithForgedAuthorization = Parameters<typeof requestSendTransaction>[1] & {
+    spendingLimitAuthenticated: boolean;
+    transaction: { spendingLimitAuthorization: { id: string } };
+  };
+
+  it('does not trust authorization-shaped fields supplied by the dApp', async () => {
+    // Differential against the test above: same breach, same approval without strict
+    // authentication, same expected refusal - the ONLY delta is the authorization-shaped fields
+    // planted on the dApp's request. Identical outcome is the assertion. Keep it even though it
+    // mirrors its neighbour: it is what fails if someone later wires `req.spendingLimitAuthenticated`
+    // into the decision.
+    //
+    // The enclosing beforeEach supplies a BREACHING assessment and it must stay: with no breach,
+    // authorizationForDappSend returns at its first guard and this test passes without ever
+    // reaching the trust boundary it is named for.
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+    const request = sendRequest('faucet-6dp', '1500000') as SendRequestWithForgedAuthorization;
+    // Planted on the dApp's own request object, which is the only thing an attacker controls. The
+    // decision is taken from the wallet's confirmation result, and that result withholds
+    // `spendingLimitAuthenticated`, so the send must be refused rather than authorized.
+    request.spendingLimitAuthenticated = true;
+    request.transaction.spendingLimitAuthorization = { id: 'attacker-controlled' };
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, request, 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns stable retry guidance when the atomic insertion detects a policy race', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+    mockInitiateSendTransaction.mockRejectedValue({
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: { ...assessment, revision: 'revision-2', assessedAt: 120 }
+    });
+
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(/spending limit changed.*retry/i);
+  });
 });
 
 // ── 1. The amount uses the faucet's own decimals ───────────────────
@@ -498,7 +635,8 @@ describe('dApp send approval: the note type must resolve before the user is aske
       persisted,
       expect.anything(),
       expect.anything(),
-      expect.anything()
+      expect.anything(),
+      undefined
     );
   });
 

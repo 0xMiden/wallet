@@ -373,6 +373,9 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(
+      process.env.MIDEN_UPDATE_NOTIFICATIONS ?? (TARGET_BROWSER === 'chrome' ? 'true' : 'false')
+    ),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: route flag-gated WASM-client work through the chrome.offscreen
     // document. DEFAULT ON in the service worker — this is the bundle that runs
@@ -426,21 +429,6 @@ export default defineConfig({
     // return false in WKWebView / Capacitor anyway (no chrome.offscreen API), so
     // the fallback fires regardless.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
-    // Speculative pre-prove: when the user reaches the review screen, the
-    // popup tells the SW to start proving with the form params so the proof
-    // is ready by the time they click Confirm. Default ON for desktop chrome
-    // (gated further on !delegateEnabled at runtime). Mobile config pins
-    // this false — speculation has nothing to dispatch to without
-    // chrome.offscreen anyway, but the explicit pin makes intent clear.
-    //
-    // Left ON even though `initSpeculationManager` (lib/miden/back/speculation-manager.ts)
-    // now returns null whenever MIDEN_USE_OFFSCREEN_CLIENT is on and chrome.offscreen
-    // is present — i.e. on this build's own default. The flag stays a BUILD switch for
-    // the feature, and the realm gate is a RUNTIME fact only the service worker can
-    // evaluate; folding the two together here would also silently disable the flag-off
-    // and non-Chrome paths, which are unaffected by the realm split. See that
-    // function's TRADEOFF block.
-    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
     'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
