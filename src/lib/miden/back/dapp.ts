@@ -79,6 +79,7 @@ import {
   type SpendingLimitAssessmentDetails
 } from 'lib/miden/spending-limits/queue';
 import {
+  isSpendingLimitPriceUnavailable,
   spendingLimitAssessmentFromError,
   toSerializedSpendingLimitAssessment,
   type SpendingLimitAuthorization
@@ -1542,9 +1543,8 @@ export function buildCustomTxConfirmPayload(args: {
     transactionMessages: args.transactionMessages,
     preview: null,
     ...(args.spendingLimitDetails !== undefined &&
-      args.spendingLimitDetails.assessment.breaches.length > 0 && {
-        spendingLimitAssessment: toSerializedSpendingLimitAssessment(args.spendingLimitDetails.assessment),
-        spendingLimitAsset: args.spendingLimitDetails.asset
+      args.spendingLimitDetails.assessment.breach !== undefined && {
+        spendingLimitAssessment: toSerializedSpendingLimitAssessment(args.spendingLimitDetails.assessment)
       }),
     txKind: 'custom',
     requestBytes: tx.transactionRequest,
@@ -1613,7 +1613,7 @@ const authorizationForDappSend = (
   details: SpendingLimitAssessmentDetails | undefined,
   strictlyAuthenticated: boolean | undefined
 ): SpendingLimitAuthorization | undefined => {
-  if (details === undefined || details.assessment.breaches.length === 0) return undefined;
+  if (details === undefined || details.assessment.breach === undefined) return undefined;
   if (strictlyAuthenticated !== true) throw new Error(MidenDAppErrorType.NotGranted);
   return createSpendingLimitAuthorization(details.assessment);
 };
@@ -1623,8 +1623,9 @@ const authorizationForDappSend = (
  *
  * A custom request states its value only through the dry run, so an unknown `outgoing` is refused
  * whenever the account has any limit configured - otherwise "make the simulation fail" is the
- * bypass. More than one breached faucet is also refused: a one-time authorization binds to exactly
- * one (account, faucet, amount), so two breaches cannot be authorized in one step.
+ * bypass. A dollar figure sums across every asset the request moves, so there is exactly one
+ * charge and one authorization to bind it to - unlike the old per-asset caps, nothing here refuses
+ * a request for covering more than one asset.
  */
 const customSpendingLimitState = async (
   accountId: string,
@@ -1634,18 +1635,15 @@ const customSpendingLimitState = async (
     if (await hasSpendingLimits(accountId)) throw new Error(MidenDAppErrorType.NotGranted);
     return { totals: [] };
   }
-
-  const breaching: SpendingLimitAssessmentDetails[] = [];
-  for (const total of outgoing) {
-    const details = await assessOutgoingSpendingLimitDetails({
-      accountId,
-      faucetId: total.faucetId,
-      amount: total.amount
-    });
-    if (details !== undefined && details.assessment.breaches.length > 0) breaching.push(details);
+  try {
+    const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
+    return { totals: outgoing, details: details?.assessment.breach === undefined ? undefined : details };
+  } catch (error) {
+    // A value the wallet cannot establish is the same answer as a value it cannot see: an
+    // untrusted page does not get to spend against a cap nobody can check.
+    if (isSpendingLimitPriceUnavailable(error)) throw new Error(MidenDAppErrorType.NotGranted);
+    throw error;
   }
-  if (breaching.length > 1) throw new Error(MidenDAppErrorType.NotGranted);
-  return { totals: outgoing, details: breaching[0] };
 };
 
 const assertDappSendStillAuthorized = async (
@@ -1669,11 +1667,14 @@ const dappSendFailure = (error: unknown): Error => {
   if (spendingLimitAssessmentFromError(error) !== undefined) {
     return new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
   }
-  // A policy that cannot be evaluated is a refusal, not a malformed request. Without this the
-  // multi-breach refusal and every storage-read failure reached the dApp as
+  // A policy that cannot be evaluated, and a value the policy cannot see, are both refusals, not a
+  // malformed request. Without this a storage-read failure or an unpriced asset reached the dApp as
   // `InvalidParams: Error: Spending limit policy is unavailable: ...` - raw internal text on a
   // line the page renders, and the wrong error class for a permission decision.
-  if (isRecord(error) && Reflect.get(error, 'code') === 'SPENDING_LIMIT_POLICY_UNAVAILABLE') {
+  if (
+    isSpendingLimitPriceUnavailable(error) ||
+    (isRecord(error) && Reflect.get(error, 'code') === 'SPENDING_LIMIT_POLICY_UNAVAILABLE')
+  ) {
     return new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
   }
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
@@ -1851,8 +1852,7 @@ const generatePromisifyTransaction = async (
       existingPermission: true,
       transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
       ...(customLimit.details !== undefined && {
-        spendingLimitAssessment: customLimit.details.assessment,
-        spendingLimitAsset: customLimit.details.asset
+        spendingLimitAssessment: customLimit.details.assessment
       }),
       sourcePublicKey: req.sourcePublicKey
     });
@@ -2054,8 +2054,7 @@ const generatePromisifySendTransaction = async (
     });
     spendingLimitDetails = await assessOutgoingSpendingLimitDetails({
       accountId: senderAddress,
-      faucetId: req.transaction.faucetId,
-      amount: BigInt(req.transaction.amount)
+      spends: [{ faucetId: req.transaction.faucetId, amount: BigInt(req.transaction.amount) }]
     });
   } catch (e) {
     // Through the mapper: the assessment above can raise a policy error from a storage read or a
@@ -2082,9 +2081,8 @@ const generatePromisifySendTransaction = async (
       transactionMessages,
       sourcePublicKey: req.sourcePublicKey,
       ...(spendingLimitDetails !== undefined &&
-        spendingLimitDetails.assessment.breaches.length > 0 && {
-          spendingLimitAssessment: spendingLimitDetails.assessment,
-          spendingLimitAsset: spendingLimitDetails.asset
+        spendingLimitDetails.assessment.breach !== undefined && {
+          spendingLimitAssessment: spendingLimitDetails.assessment
         })
     });
 
@@ -2134,9 +2132,8 @@ const generatePromisifySendTransaction = async (
       transactionMessages,
       preview: null,
       ...(spendingLimitDetails !== undefined &&
-        spendingLimitDetails.assessment.breaches.length > 0 && {
-          spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment),
-          spendingLimitAsset: spendingLimitDetails.asset
+        spendingLimitDetails.assessment.breach !== undefined && {
+          spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment)
         })
     },
     onDecline: () => {

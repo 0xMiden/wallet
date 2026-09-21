@@ -10,6 +10,7 @@
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
@@ -775,16 +776,14 @@ describe('formatConsumeTransactionPreview', () => {
 // test green. Each case below fails if its production line is removed.
 describe('requestTransaction - custom spending-limit gate', () => {
   const ASSET = { symbol: 'TOK', decimals: 6 };
-  const breach = (faucetId: string, amount: bigint) => ({
+  const breach = (usdAmount: bigint) => ({
     assessment: {
       accountId: 'miden-account-1',
-      faucetId,
-      amount,
+      usdAmount,
       revision: 'revision-1',
       assessedAt: 1_000,
-      breaches: [{ period: '24h', spent: 0n, proposedTotal: amount, limit: 1n, overBy: amount - 1n, resetAt: null }]
-    },
-    asset: ASSET
+      breach: { spent: 0n, proposedTotal: usdAmount, limit: 1n, overBy: usdAmount - 1n, resetAt: null }
+    }
   });
   const customRequest = () =>
     ({
@@ -812,33 +811,36 @@ describe('requestTransaction - custom spending-limit gate', () => {
   });
 
   it('raises the challenge on the approval sheet when the simulated spend breaches', async () => {
-    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach('faucet-a', 100n));
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(100n));
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
 
     await dapp.requestTransaction('https://miden.xyz', customRequest());
 
     // Without this the sheet renders no challenge and the user is never asked to authenticate.
-    expect(mockRequestConfirmation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        spendingLimitAssessment: expect.objectContaining({ faucetId: 'faucet-a' }),
-        spendingLimitAsset: ASSET
-      })
-    );
+    const confirmation = mockRequestConfirmation.mock.calls[0]![0] as Record<string, unknown>;
+    expect(confirmation).toMatchObject({ spendingLimitAssessment: expect.objectContaining({ usdAmount: 100n }) });
+    // No per-asset snapshot any more: a dollar figure names no single asset.
+    expect(confirmation).not.toHaveProperty('spendingLimitAsset');
   });
 
   it('passes the simulated totals and a bound authorization to the queue once authenticated', async () => {
-    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach('faucet-a', 100n));
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(100n));
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
 
     await dapp.requestTransaction('https://miden.xyz', customRequest());
 
     const args = mockRequestCustomTransaction.mock.calls[0]!;
     expect(args[6]).toEqual([{ faucetId: 'faucet-a', amount: 100n }]);
-    expect(args[7]).toMatchObject({ accountId: 'miden-account-1', faucetId: 'faucet-a', amount: 100n });
+    expect(args[7]).toMatchObject({
+      kind: 'usd',
+      accountId: 'miden-account-1',
+      usdAmount: 100n,
+      revision: 'revision-1'
+    });
   });
 
   it('refuses a breaching request approved WITHOUT strict authentication, and ignores forged fields', async () => {
-    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach('faucet-a', 100n));
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(100n));
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
     const forged = customRequest() as unknown as Record<string, unknown> & { transaction: Record<string, unknown> };
     // Planted on the dApp's own request, the only object an attacker controls. The decision is
@@ -874,24 +876,48 @@ describe('requestTransaction - custom spending-limit gate', () => {
     expect(mockRequestCustomTransaction).toHaveBeenCalled();
   });
 
-  it('refuses outright when two faucets breach at once', async () => {
-    // One one-time credential binds to exactly one (account, faucet, amount).
+  it('no longer refuses a custom request that moves two capped assets', async () => {
+    // A dollar figure sums across every asset a request moves, so two covered assets in one
+    // request is one charge and one authorization - not the two-faucet refusal the old per-asset
+    // caps needed.
     mockSimulatedBytesToView.mockReturnValue(
       viewMoving([
         { faucetId: 'faucet-a', amount: 100n },
-        { faucetId: 'faucet-b', amount: 100n }
+        { faucetId: 'faucet-b', amount: 200n }
       ])
     );
-    mockAssessOutgoingSpendingLimitDetails.mockImplementation((proposal: unknown) =>
-      Promise.resolve(breach((proposal as { faucetId: string }).faucetId, 100n))
-    );
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(300n));
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    // One assessment call over the whole spend list - not a per-faucet loop.
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: [
+        { faucetId: 'faucet-a', amount: 100n },
+        { faucetId: 'faucet-b', amount: 200n }
+      ]
+    });
+    expect(mockRequestCustomTransaction).toHaveBeenCalled();
+    const args = mockRequestCustomTransaction.mock.calls[0]!;
+    expect(args[6]).toEqual([
+      { faucetId: 'faucet-a', amount: 100n },
+      { faucetId: 'faucet-b', amount: 200n }
+    ]);
+  });
+
+  it('refuses a dApp request when a covered asset has no price', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new SpendingLimitPriceUnavailableError('faucet-a'));
 
     await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
       MidenDAppErrorType.NotGranted
     );
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
-    mockAssessOutgoingSpendingLimitDetails.mockReset();
+    // Same reasoning as every other wallet-side refusal here: the carried notes must not stay
+    // hidden past a refusal that was never the user's decline.
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
   });
 
   it('simulates the request exactly once per approval', async () => {
