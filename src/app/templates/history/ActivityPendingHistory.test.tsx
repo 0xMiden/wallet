@@ -110,7 +110,10 @@ jest.mock('components/Button', () => ({
     children,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; isLoading?: boolean; size?: string }) => (
-    <button {...props} data-size={size}>
+    // `aria-busy` mirrors the real Button (components/ui/Button), where a loading button is also
+    // `pointer-events-none`. It is the only thing on the DOM that separates "already accepting"
+    // from "ready to accept", so the assertions below can pin it.
+    <button {...props} data-size={size} aria-busy={isLoading || undefined}>
       {children ?? (isLoading ? <span data-testid="claim-spinner" /> : title)}
     </button>
   )
@@ -259,6 +262,33 @@ it('offers no Accept All on the other filters, or once every transfer is accepte
   });
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+});
+
+it('keeps Accept All, and marks it busy, while the batch it started is still in flight', () => {
+  // THE STATE THE E2E DRAIN COULD NOT READ. Accept All queued a consume for every listed
+  // transfer, so there is nothing left to accept — but the control must not vanish from under
+  // the tap that started it, so it stays in its loading state instead. `aria-busy` is what says
+  // so, and it is load-bearing beyond the screen reader: the real Button is also
+  // `pointer-events-none` while loading, so anything that clicks this control without reading
+  // the flag (`ChromeWalletPage.claimAllNotes`) can only wait out its own timeout. The retired
+  // Claim All unmounted here, which is why nothing had to tell the two states apart before.
+  mockState.items = mockItems.map(item => ({ ...item, status: 'claiming' as const }));
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByTestId('pending-row-accept-all')).toHaveAttribute('aria-busy', 'true');
+});
+
+it('leaves Accept All idle, and accepting the rest, while only some transfers are in flight', () => {
+  const [, , claiming] = mockItems;
+  if (!claiming) throw new Error('Missing note fixtures');
+  claiming.status = 'claiming';
+  mockState.items = [...mockItems];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  // One in flight is not "accepting everything": two transfers are still waiting on a decision,
+  // so the control is live and takes exactly those two.
+  const button = screen.getByTestId('pending-row-accept-all');
+  expect(button).not.toHaveAttribute('aria-busy');
+  fireEvent.click(button);
+  expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
 });
 
 it('folds the details of a transfer waiting on a decision, and drops the card once it is accepted', () => {
