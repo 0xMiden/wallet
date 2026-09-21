@@ -25,18 +25,38 @@ export type PillSize = 'xs' | 'sm' | 'md';
  */
 export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'inactive' | 'plain';
 
-export interface PillProps {
+/**
+ * A pill is either static, and may announce itself as a polite live region, or tappable, and then
+ * it is a `<button>`. Never both: only the static branch renders the live region, and a
+ * `role="status"` on the button would replace its button role. Both arms keep `onClick` optional,
+ * so a wrapper forwarding its own `onClick?: () => void` (NetworkChip) still type-checks.
+ */
+type PillBehaviourProps =
+  | {
+      onClick?: never;
+      /**
+       * The pill's content changes while it is on screen (a live status), so it becomes a polite
+       * live region: `role="status"` plus an explicit `aria-live`, for readers that ignore the
+       * implicit one.
+       */
+      live?: boolean;
+    }
+  | {
+      /** Makes the pill a button, with a tap haptic. */
+      onClick?: () => void;
+      live?: never;
+    };
+
+export type PillProps = PillBehaviourProps & {
   children: React.ReactNode;
   /** Leading glyph, sized by the pill. */
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** Makes the pill a button, with a tap haptic. */
-  onClick?: () => void;
   /**
    * Which haptic the tap fires: `'light'` (default) for an ordinary action, `'selection'` for a
-   * segmented choice — fired only when the tap actually changes the selection (skipped while
-   * `selected` is already true, so re-tapping the active choice in a group is silent) — or
+   * segmented choice - fired only when the tap actually changes the selection (skipped while
+   * `selected` is already true, so re-tapping the active choice in a group is silent) - or
    * `false` to fire none and let the caller manage it.
    */
   haptic?: 'light' | 'selection' | false;
@@ -44,14 +64,9 @@ export interface PillProps {
   selected?: boolean;
   disabled?: boolean;
   className?: string;
-  /**
-   * The pill's content changes while it is on screen (a live status), so it becomes a polite live
-   * region: `role="status"` plus an explicit `aria-live`, for readers that ignore the implicit one.
-   */
-  live?: boolean;
   'aria-label'?: string;
   'data-testid'?: string;
-}
+};
 
 // Literal class strings, so Tailwind generates them.
 const pillVariants = cva(

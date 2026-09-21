@@ -281,3 +281,17 @@ it('becomes a polite live region when told it is live', () => {
   expect(screen.getByTestId('pill')).toHaveAttribute('role', 'status');
   expect(screen.getByTestId('pill')).toHaveAttribute('aria-live', 'polite');
 });
+
+// Only the static branch renders the live region, so a tappable pill can never be one: the props
+// are mutually exclusive at the type level rather than silently dropped at runtime, and a
+// `role="status"` on the `<button>` would replace its button role. A compile-time assertion - if
+// the union stops rejecting the pair, the directive is unused and `yarn ts` fails on it.
+it('does not typecheck as both live and tappable - a live pill is never a button', () => {
+  const element = (
+    // @ts-expect-error `live` and `onClick` are mutually exclusive at the type level.
+    <Pill onClick={jest.fn()} live>
+      Pending
+    </Pill>
+  );
+  expect(element).toBeTruthy();
+});
