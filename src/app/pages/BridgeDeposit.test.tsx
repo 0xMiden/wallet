@@ -4,6 +4,15 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { BridgeDeposit } from './BridgeDeposit';
 
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -65,6 +74,13 @@ describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
     mockNavigate.mockClear();
+  });
+
+  // A full-screen route renders outside TabLayout, so it never had the ribbon either.
+  it('names the network on a screen that commits value', () => {
+    render(<BridgeDeposit />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 
   it('closes via the header, falling back to /receive with no onClose prop', () => {

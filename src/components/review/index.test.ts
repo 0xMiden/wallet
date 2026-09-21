@@ -14,6 +14,15 @@ const h = React.createElement;
 // Module mocks (mirrors the sibling ReviewLayout test setup)
 // ---------------------------------------------------------------------------
 
+// The network banner now tops every review screen, so the wallet names the chain on each surface
+// that commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 // Hide-navbar hook: assert it's invoked, keep it a no-op so it doesn't mutate
 // document.body across tests. `mock`-prefixed so it's safe inside the factory.
 const mockUseHideNavbar = jest.fn();
@@ -121,7 +130,10 @@ describe('ReviewLayout (via barrel)', () => {
 
   it('does not render a secondary button when secondary is omitted', () => {
     render(h(ReviewLayout, makeLayoutProps()));
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    // The banner is a button too, so count the ACTIONS: the point of this case is that no
+    // secondary action renders, not that the screen holds exactly one button.
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button').filter(b => b.dataset.testid !== 'network-mode-banner')).toHaveLength(1);
   });
 
   it('renders the secondary button (Secondary variant, button type) and fires its onPress', () => {
