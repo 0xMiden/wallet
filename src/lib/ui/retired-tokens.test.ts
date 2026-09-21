@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { RETIRED_COLOUR_TOKENS } from './retired-tokens';
+
 /**
  * Deleting a colour token from `tailwind.config.ts` is silent by construction: a class naming a
  * token that no longer exists compiles to no CSS at all, so the element simply inherits and nothing
@@ -17,20 +19,7 @@ import path from 'path';
 const ROOT = path.join(__dirname, '../../..');
 const SRC = path.join(ROOT, 'src');
 
-/**
- * Colour tokens removed from `tailwind.config.ts`, with the replacement each site should take.
- * Add a name here in the same change that deletes it from the config.
- */
-const RETIRED: Record<string, string> = {
-  'heading-gray': 'ink (or muted where the text really is secondary)',
-  'gray-25': 'fill',
-  'gray-50': 'fill',
-  'surface-input': 'fill',
-  'surface-interactive': 'fill',
-  'surface-nav-button': 'fill',
-  'button-secondary': 'fill',
-  'button-secondary-hover': 'fill-pressed'
-};
+const RETIRED = RETIRED_COLOUR_TOKENS;
 
 /**
  * Tailwind utility prefixes that take a colour token, written flat. The two that carry an interior
@@ -116,14 +105,21 @@ describe('retired colour tokens', () => {
   it('every retired name really is absent from tailwind.config.ts', () => {
     const config = fs.readFileSync(path.join(ROOT, 'tailwind.config.ts'), 'utf8');
     const stillDeclared = Object.keys(RETIRED).filter(name => {
+      // The flat quoted form is checked for EVERY name, including scale names: this config writes
+      // its non-scale colour keys that way, so `'gray-25': 'var(--x)'` is a real re-add shape and
+      // returning early from the scale branch missed it entirely.
+      if (new RegExp(`['"]${name}['"]\\s*:`).test(config)) return true;
+
       const bare = name.replace(/-(\d+)$/, '');
       const scale = name.match(/-(\d+)$/)?.[1];
-      // a scale entry (gray-25) is declared as a numeric key inside its own object
-      if (scale) {
-        const block = new RegExp(`${bare}:\\s*\\{([^}]*)\\}`, 's').exec(config);
-        return block ? new RegExp(`\\b${scale}\\s*:`).test(block[1] ?? '') : false;
+      if (!scale) return false;
+      // A scale entry (gray-25) is normally a numeric key inside its own object. Scan EVERY block
+      // of that name, not the first: `theme.extend.colors.gray` creates a second one, and an
+      // `exec` that stops at the first would never reach it.
+      for (const block of config.matchAll(new RegExp(`${bare}:\\s*\\{([^}]*)\\}`, 'gs'))) {
+        if (new RegExp(`\\b${scale}\\s*:`).test(block[1] ?? '')) return true;
       }
-      return new RegExp(`['"]${name}['"]\\s*:`).test(config);
+      return false;
     });
     expect(stillDeclared).toEqual([]);
   });

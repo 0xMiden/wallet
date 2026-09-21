@@ -96,13 +96,10 @@ describe.each([':root', '.dark'] as const)('legacy muted text in %s', selector =
 });
 
 describe('retired legacy surfaces', () => {
-  it.each(['surface-input', 'surface-interactive', 'surface-nav-button', 'button-secondary', 'button-secondary-hover'])(
-    'no longer maps %s to a Tailwind color (use fill / fill-pressed)',
-    name => {
-      expect(config).not.toMatch(new RegExp(`'${name}':`));
-    }
-  );
-
+  // The "still declared in tailwind.config.ts" half is owned by retired-tokens.test.ts, driven off
+  // the shared RETIRED_COLOUR_TOKENS list. This one case stays because it is NOT subsumed: the
+  // survivor scans `gray:` blocks and the quoted flat form, while this is a file-wide line-anchored
+  // check on the specific retired VALUES, and the two are incomparable.
   it('no longer defines the gray-25 / gray-50 surfaces', () => {
     expect(config).not.toMatch(/^\s*(25|50): 'var\(--color-surface-(secondary|tertiary)\)'/m);
   });
@@ -124,10 +121,6 @@ describe('retired legacy surfaces', () => {
 });
 
 describe('legacy ink', () => {
-  it('no longer maps heading-gray to a Tailwind color (use ink)', () => {
-    expect(config).not.toMatch(/'heading-gray':/);
-  });
-
   it.each([':root', '.dark'] as const)(
     'drops the heading-gray var and aliases the legacy black to ink in %s',
     selector => {
