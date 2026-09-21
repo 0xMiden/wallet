@@ -18,7 +18,8 @@ jest.mock('app/icons/v2', () => ({
   ),
   IconName: {
     Backspace: 'backspace',
-    FaceId: 'face-id'
+    FaceId: 'face-id',
+    Fingerprint: 'fingerprint'
   }
 }));
 
@@ -169,12 +170,12 @@ describe('Numpad', () => {
     expect(screen.getByTestId('numpad-spacer')).toHaveClass('size-19');
   });
 
-  it('draws a Face ID key in the bottom-left slot when a biometric handler is given', () => {
+  it('draws a Face ID key in the bottom-left slot when the sensor is a face', () => {
     const onBiometric = jest.fn();
-    renderNumpad({ onBiometric, biometricLabel: 'Unlock with Face ID' });
+    renderNumpad({ onBiometric, biometryType: 'face' });
 
     expect(screen.queryByTestId('numpad-spacer')).not.toBeInTheDocument();
-    const key = screen.getByRole('button', { name: 'Unlock with Face ID' });
+    const key = screen.getByRole('button', { name: 'useFaceIdOrBiometric' });
     expect(key).toBe(screen.getByTestId('numpad-biometric'));
     expect(key.querySelector('[data-name="face-id"]')).toBeInTheDocument();
     // Still twelve slots, the biometric key in the tenth.
@@ -184,6 +185,19 @@ describe('Numpad', () => {
     expect(onBiometric).toHaveBeenCalledTimes(1);
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
+
+  // Keyed off the sensor, not the OS: a Touch ID iPhone and a fingerprint Android phone both get a
+  // fingerprint, and drawing Face ID on them asks for a gesture the device does not have.
+  it.each(['fingerprint', 'iris', 'multiple'] as const)(
+    'draws a fingerprint key when the sensor is %s',
+    biometryType => {
+      renderNumpad({ onBiometric: jest.fn(), biometryType });
+
+      const key = screen.getByTestId('numpad-biometric');
+      expect(key.querySelector('[data-name="fingerprint"]')).toBeInTheDocument();
+      expect(key.querySelector('[data-name="face-id"]')).not.toBeInTheDocument();
+    }
+  );
 
   it('falls back to the localized biometric label', () => {
     renderNumpad({ onBiometric: jest.fn() });
