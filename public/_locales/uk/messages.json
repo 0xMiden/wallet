@@ -4064,6 +4064,22 @@
     "message": "До очікуваних переказів",
     "englishSource": "Go to pending transfers"
   },
+  "swapCancelOrder": {
+    "message": "Скасувати обмін",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Скасувати цей обмін?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "Сума, що досі виставлена в заявці, повернеться на ваш рахунок. Уже виконана частина залишиться вашою.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Повертаємо на ваш рахунок суму, що залишалася в заявці. Це може зайняти мить.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
+  },
   "trackingUnavailable": {
     "message": "Недоступно",
     "englishSource": "Not available"

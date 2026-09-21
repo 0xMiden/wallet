@@ -4064,6 +4064,22 @@
     "message": "보류 중인 이체로 이동",
     "englishSource": "Go to pending transfers"
   },
+  "swapCancelOrder": {
+    "message": "스왑 취소",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "이 스왑을 취소할까요?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "아직 제공 중인 금액이 계정으로 돌아옵니다. 이미 체결된 부분은 그대로 유지됩니다.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "아직 제공 중인 금액을 계정으로 돌려받는 중입니다. 잠시 걸릴 수 있습니다.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
+  },
   "trackingUnavailable": {
     "message": "이용 불가",
     "englishSource": "Not available"

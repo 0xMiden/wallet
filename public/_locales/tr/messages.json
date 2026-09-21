@@ -4064,6 +4064,22 @@
     "message": "Bekleyen transferlere git",
     "englishSource": "Go to pending transfers"
   },
+  "swapCancelOrder": {
+    "message": "Takası iptal et",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Bu takas iptal edilsin mi?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "Hâlâ teklifte duran tutar hesabınıza geri döner. Zaten eşleşen kısım sizde kalır.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Hâlâ teklifte duran tutar hesabınıza geri gönderiliyor. Bu biraz sürebilir.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
+  },
   "trackingUnavailable": {
     "message": "Mevcut değil",
     "englishSource": "Not available"

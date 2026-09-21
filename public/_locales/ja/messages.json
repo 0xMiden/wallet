@@ -4064,6 +4064,22 @@
     "message": "保留中の送金へ",
     "englishSource": "Go to pending transfers"
   },
+  "swapCancelOrder": {
+    "message": "スワップをキャンセル",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "このスワップをキャンセルしますか？",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "まだ提供中の金額はアカウントに戻ります。すでに成立した分はそのまま残ります。",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "まだ提供中の金額をアカウントに戻しています。少し時間がかかることがあります。",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
+  },
   "trackingUnavailable": {
     "message": "利用不可",
     "englishSource": "Not available"

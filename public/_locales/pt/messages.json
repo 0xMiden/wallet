@@ -4064,6 +4064,22 @@
     "message": "Ir para as transferências pendentes",
     "englishSource": "Go to pending transfers"
   },
+  "swapCancelOrder": {
+    "message": "Cancelar swap",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Cancelar este swap?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "O valor ainda em oferta volta para a sua conta. O que já foi correspondido continua seu.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "A devolver para a sua conta o valor ainda em oferta. Pode demorar um momento.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
+  },
   "trackingUnavailable": {
     "message": "Indisponível",
     "englishSource": "Not available"

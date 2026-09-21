@@ -4064,6 +4064,22 @@
     "message": "前往待接受的轉帳",
     "englishSource": "Go to pending transfers"
   },
+  "swapCancelOrder": {
+    "message": "取消兌換",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "要取消這筆兌換嗎？",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "仍在掛單中的金額將退回你的帳戶。已經成交的部分仍歸你所有。",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "正在將仍在掛單中的金額退回你的帳戶，這可能需要一點時間。",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
+  },
   "trackingUnavailable": {
     "message": "暫無",
     "englishSource": "Not available"
