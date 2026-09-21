@@ -398,7 +398,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "正在同步公開轉帳…",
   "guardianNoteRecoveryPublicStep": "正在同步公開轉帳：區塊 $current$ / $latest$",
   "pendingNotesPromptTitle": "您有待接受的轉帳",
-  "pendingNotesPromptBody": "價值 $amount$ 的轉帳正在等待您接受。",
+  "pendingNotesPromptBody": "$count$ 筆等待中",
   "verifySeedPhrasePromptTitle": "驗證您的恢復短語",
   "verifySeedPhrasePromptBody": "請將您的恢復短語記錄下來，並確認您是否記得該短語的第一個和最後一個詞，以便日後能還原此錢包。",
   "hotKeyHardwareErrorPromptTitle": "無法進行安全簽署",

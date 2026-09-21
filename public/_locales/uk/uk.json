@@ -398,7 +398,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Синхронізація публічних переказів…",
   "guardianNoteRecoveryPublicStep": "Синхронізація публічних переказів: блок $current$ із $latest$",
   "pendingNotesPromptTitle": "У вас є перекази для прийняття",
-  "pendingNotesPromptBody": "Перекази на суму $amount$ очікують на ваше прийняття.",
+  "pendingNotesPromptBody": "$count$ очікує",
   "verifySeedPhrasePromptTitle": "Перевірте свою фразу відновлення",
   "verifySeedPhrasePromptBody": "Запишіть свою фразу відновлення та переконайтеся, що знаєте її перше та останнє слова, щоб згодом мати змогу відновити цей гаманець.",
   "hotKeyHardwareErrorPromptTitle": "Безпечне підписання недоступне",

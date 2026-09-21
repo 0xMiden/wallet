@@ -26,6 +26,13 @@ export interface PromptCardHero {
 export interface PromptCardProps {
   title: string;
   body?: string;
+  /**
+   * A figure that belongs on the body line and has to be READ, not scanned past — the money
+   * waiting behind the card. Rendered at the end of the line in the value style on `ink`, so it
+   * stands out from the `muted` words beside it. Kept out of `body` on purpose: a number
+   * interpolated into a translated sentence cannot be styled differently from the sentence.
+   */
+  bodyValue?: string;
   variant?: PromptCardVariant;
   icon?: IconName;
   hero?: PromptCardHero;
@@ -114,6 +121,7 @@ const PromptIconBubble: FC<PromptIconBubbleProps> = ({
 export const PromptCard: FC<PromptCardProps> = ({
   title,
   body,
+  bodyValue,
   icon,
   hero,
   onClick,
@@ -178,7 +186,7 @@ export const PromptCard: FC<PromptCardProps> = ({
   const liveAnnouncement = hero
     ? [hero.label, hero.subLabel].filter(Boolean).join('. ')
     : status === 'failure'
-      ? [t('failed'), body].filter(Boolean).join('. ')
+      ? [t('failed'), body, bodyValue].filter(Boolean).join('. ')
       : '';
 
   const heroShown = hero !== undefined;
@@ -305,9 +313,14 @@ export const PromptCard: FC<PromptCardProps> = ({
           {hero.subLabel && <span className="text-caption text-text-tertiary-token">{hero.subLabel}</span>}
         </motion.div>
       ) : (
-        <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-ink">
+        <Lockup className="flex flex-col gap-0.5 min-w-0 flex-1 text-left text-ink">
           <div className="text-row-title truncate">{title}</div>
-          {body && <div className="text-caption line-clamp-2 text-muted">{body}</div>}
+          {(body || bodyValue) && (
+            <div className="flex min-w-0 items-baseline gap-1.5">
+              {body && <span className="line-clamp-2 min-w-0 text-caption text-muted">{body}</span>}
+              {bodyValue && <span className="shrink-0 text-value text-ink">{bodyValue}</span>}
+            </div>
+          )}
         </Lockup>
       )}
       {onDismiss && !hero ? (

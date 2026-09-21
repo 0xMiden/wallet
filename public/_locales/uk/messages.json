@@ -1863,10 +1863,10 @@
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "Перекази на суму $amount$ очікують на ваше прийняття.",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$ очікує",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }

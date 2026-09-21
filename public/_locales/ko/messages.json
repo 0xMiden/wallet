@@ -1859,14 +1859,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "수락할 이체가 있습니다",
+    "message": "수락할 전송이 있습니다",
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "$amount$ 상당의 이체가 수락을 기다리고 있습니다.",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$건 대기 중",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }

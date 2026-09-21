@@ -398,7 +398,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Herkese açık transferler eşitleniyor…",
   "guardianNoteRecoveryPublicStep": "Herkese açık transferler eşitleniyor: blok $current$ / $latest$",
   "pendingNotesPromptTitle": "Kabul edilecek transferleriniz var",
-  "pendingNotesPromptBody": "$amount$ değerindeki transferler kabulünüzü bekliyor.",
+  "pendingNotesPromptBody": "$count$ bekliyor",
   "verifySeedPhrasePromptTitle": "Geri alma ifadesini doğrulayın",
   "verifySeedPhrasePromptBody": "Bu cüzdanı daha sonra geri yükleyebilmeniz için kurtarma ifadesini bir yere yazın ve ilk ve son kelimelerini ezberlediğinizden emin olun.",
   "hotKeyHardwareErrorPromptTitle": "Güvenli imzalama özelliği kullanılamıyor",

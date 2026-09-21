@@ -1863,10 +1863,10 @@
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "价值 $amount$ 的转账正在等待您接受。",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$ 笔等待中",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }

@@ -398,7 +398,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Synchronizowanie publicznych transferów…",
   "guardianNoteRecoveryPublicStep": "Synchronizowanie publicznych transferów: blok $current$ z $latest$",
   "pendingNotesPromptTitle": "Masz transfery do zaakceptowania",
-  "pendingNotesPromptBody": "Transfery o wartości $amount$ czekają na Twoją akceptację.",
+  "pendingNotesPromptBody": "$count$ oczekuje",
   "verifySeedPhrasePromptTitle": "Sprawdź swoją frazę odzyskiwania",
   "verifySeedPhrasePromptBody": "Zapisz swoją frazę odzyskiwania i upewnij się, że znasz jej pierwsze i ostatnie słowa, aby móc później odtworzyć ten portfel.",
   "hotKeyHardwareErrorPromptTitle": "Bezpieczne podpisywanie niedostępne",

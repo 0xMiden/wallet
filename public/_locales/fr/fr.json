@@ -398,7 +398,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Synchronisation des transferts publics…",
   "guardianNoteRecoveryPublicStep": "Synchronisation des transferts publics : bloc $current$ sur $latest$",
   "pendingNotesPromptTitle": "Vous avez des transferts à accepter",
-  "pendingNotesPromptBody": "Des transferts d'une valeur de $amount$ attendent votre acceptation.",
+  "pendingNotesPromptBody": "$count$ en attente",
   "verifySeedPhrasePromptTitle": "Vérifiez votre phrase de récupération",
   "verifySeedPhrasePromptBody": "Notez votre phrase de récupération et assurez-vous de bien connaître son premier et son dernier mot afin de pouvoir restaurer ce portefeuille ultérieurement.",
   "hotKeyHardwareErrorPromptTitle": "La signature sécurisée n'est pas disponible",

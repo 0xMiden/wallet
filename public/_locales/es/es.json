@@ -398,7 +398,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Sincronizando transferencias públicas…",
   "guardianNoteRecoveryPublicStep": "Sincronizando transferencias públicas: bloque $current$ de $latest$",
   "pendingNotesPromptTitle": "Tienes transferencias por aceptar",
-  "pendingNotesPromptBody": "Hay transferencias por valor de $amount$ esperando tu aceptación.",
+  "pendingNotesPromptBody": "$count$ en espera",
   "verifySeedPhrasePromptTitle": "Comprueba tu frase de recuperación",
   "verifySeedPhrasePromptBody": "Anota tu frase de recuperación y asegúrate de que recuerdas la primera y la última palabra para poder restaurar esta cartera más adelante.",
   "hotKeyHardwareErrorPromptTitle": "La firma segura no está disponible",

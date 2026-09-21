@@ -1859,14 +1859,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "Tem transferências para aceitar",
+    "message": "Você tem transferências para aceitar",
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "Transferências no valor de $amount$ aguardam a sua aceitação.",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$ aguardando",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }

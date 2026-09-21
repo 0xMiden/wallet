@@ -1859,14 +1859,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "受け取り待ちの送金があります",
+    "message": "承認待ちの送金があります",
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "$amount$ 相当の送金が受け取りを待っています。",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$ 件待機中",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
