@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -38,10 +39,15 @@ export interface TransactionSummaryBadgeContent {
   fillForArrow?: string;
 }
 
-/** Default separator — the horizontal "→" arrow, tinted by `fill`. */
+/**
+ * Default separator - the horizontal arrow, tinted by `fill`. The disc carries white strokes, so
+ * its colour owes WCAG 1.4.11's 3:1 like every other activity surface. It reads the shared
+ * constant rather than a literal: this was a third copy of the send hue and it was left behind
+ * when the activity tokens moved, so the detail hero showed one transaction in two shades.
+ */
 const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" fill={fill ?? '#91ACC1'} />
+    <rect width="24" height="24" rx="12" fill={fill ?? TRANSACTION_COLORS.send} />
     <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
     <path
       d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
@@ -299,7 +305,8 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
         rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
-        fillForArrow: '#BEACD2'
+        // Swap has no entry in TRANSACTION_COLORS; `var(--tx-swap)` is what TransactionIcon uses.
+        fillForArrow: 'var(--tx-swap)'
       };
     }
 

@@ -10,6 +10,7 @@
 
 - [CHANGE][mobile] The passcode keypad sits in thumb reach at the bottom of the screen, with larger keys and a Face ID key.
 - [CHANGE][all] Receive fits on one screen with aligned QR, address, notice and actions.
+- [CHANGE][mobile] The passcode keypad sits in thumb reach at the bottom of the screen, with larger keys and a biometric key that shows Face ID or a fingerprint to match the device.
 - [CHANGE][all] Transaction details close with the back button only; the extra X and Close button are gone.
 - [CHANGE][all] OpenZeppelin's logo follows its brand kit: official colours and mark, on a white tile.
 - [CHANGE][all] Authorized dApps pages use the shared Settings layout: the dApps switch is a row with its explanation under it, and each connected dApp is a section named after its site, with its origin, network, account and permissions in a grey detail card and a red Disconnect button in place of the unlabelled ✕. With no connected dApps, the page now says so instead of staying blank.
@@ -129,6 +130,7 @@
 - [CHANGE][all] Overview action bar: no grey band any more, the row sits on the page under a hairline rule, and the active pill is a raised white bubble with a soft shadow that sinks when pressed. The pill slides on the same bouncy spring as the bottom bar, the new segment's icon pops, a pressed segment dips, and swiping between the home pages now buzzes once per page change, like a tap on the bar.
 - [CHANGE][all] The test network is named on a corner ribbon, a solid brand-colour sash with white TESTNET (or DEVNET, LOCALNET) lettering across the bottom tab bar's lower-right corner, instead of a banner across the top of every screen; nothing shows on mainnet. It sits over the bar without changing its size or taking space from the tabs, and tapping it opens the same explanation sheet. The dApp confirmation window keeps its banner, where the network matters for what you sign.
 - [CHANGE][all] The theme picker, Developer settings pickers and Earn chart timeframes use the shared segmented control, and the old tab picker is removed.
+- [CHANGE][all] The test network is named on a corner ribbon, a solid brand-colour sash with white TESTNET (or DEVNET, LOCALNET) lettering across the bottom tab bar's lower-right corner, instead of a banner across the top of every screen; nothing shows on mainnet. It sits over the bar without changing its size or taking space from the tabs, and tapping it opens the same explanation sheet. The banner is kept wherever the network matters for what you sign: the dApp confirmation window, and the seven screens that commit value (send review, swap review, bridge deposit and its EVM review, Earn deposit and withdraw review, and guardian rotation review). Two of those render inside the tab layout but hide the tab bar, so the ribbon would not have reached them either.
 
 ## 1.16.1 (2026-09-15)
 

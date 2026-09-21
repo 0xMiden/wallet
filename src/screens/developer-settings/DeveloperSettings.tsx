@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
@@ -25,7 +26,7 @@ import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 
 import { CUSTOM_PRESET, ENDPOINT_PRESETS, NETWORK_ID_OPTIONS, presetToOverride } from './preset';
 
@@ -95,6 +96,10 @@ export interface DeveloperSettingsProps {
  * when an override is active).
  */
 const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false }) => {
+  // Both routes for this page are full-screen pages outside the Settings host, so neither inherits
+  // the host's fallback. A deep link or a reload lands at the first history entry, where goBack()
+  // does nothing. Read-only is the /settings sub-page; the standalone debug route belongs to home.
+  const handleBack = useBackWithFallback(readOnly ? '/settings' : '/');
   const { t } = useTranslation();
   const confirm = useConfirm();
   const initial = useMemo<EndpointOverride>(
@@ -225,7 +230,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   return (
     <SubPageLayout
       title={t('developerSettingsTitle')}
-      onBack={() => goBack()}
+      onBack={handleBack}
       data-testid="developer-settings"
       footerLayout="stack"
       footer={

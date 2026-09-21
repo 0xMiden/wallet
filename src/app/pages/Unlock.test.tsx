@@ -90,7 +90,11 @@ jest.mock('lib/miden/front', () => {
 });
 
 // Dynamic-import targets exercised by the mount hardware-unlock effect.
-jest.mock('lib/biometric', () => ({ hasHardwareKey: () => mockBioHasKey() }));
+const mockBiometryType = jest.fn(() => Promise.resolve({ biometryType: 'face' }));
+jest.mock('lib/biometric', () => ({
+  hasHardwareKey: () => mockBioHasKey(),
+  checkBiometricAvailability: () => mockBiometryType()
+}));
 jest.mock('lib/desktop/secure-storage', () => ({ hasHardwareKey: () => mockDesktopHasKey() }));
 jest.mock('lib/miden/back/vault', () => ({
   Vault: { hasPasswordProtector: () => mockHasPasswordProtector() }
@@ -178,15 +182,17 @@ jest.mock('components/Numpad', () => ({
   Numpad: ({
     onDigit,
     onDelete,
-    onBiometric
+    onBiometric,
+    biometryType
   }: {
     onDigit: (d: string) => void;
     onDelete: () => void;
     onBiometric?: () => void;
+    biometryType?: string;
   }) => (
     <div data-testid="numpad">
       {onBiometric && (
-        <button type="button" data-testid="numpad-biometric" onClick={onBiometric}>
+        <button type="button" data-testid="numpad-biometric" data-biometry={biometryType} onClick={onBiometric}>
           bio
         </button>
       )}
@@ -505,8 +511,11 @@ describe('Unlock — mobile passcode numpad', () => {
     mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
     const { container } = await renderUnlock();
 
-    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
-    expect(screen.getByText(/10:00/)).toBeInTheDocument();
+    // Announced once, with the lockout's full length; shown separately as a ticking countdown.
+    const status = screen.getByRole('status');
+    const visible = screen.getByTestId('passcode-message');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+    expect(visible).toHaveTextContent('unlockPasswordErrorDelay 10:00');
 
     // Digits and delete are ignored while disabled (handleDigit/handleDelete guards).
     type(container, '5');
@@ -516,7 +525,11 @@ describe('Unlock — mobile passcode numpad', () => {
 
     // Interval keeps counting without lifting the lock (false branch).
     await advance(1100);
-    expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
+    expect(visible).toHaveTextContent('unlockPasswordErrorDelay');
+    // The countdown the user SEES moves; the live region does not. Inside the region the time was
+    // re-announced once a second for the whole lockout.
+    expect(visible).not.toHaveTextContent('10:00');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
   });
 
   it('draws the shared passcode screen with the keypad docked at the bottom', async () => {
@@ -730,5 +743,109 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(mockBioHasKey).toHaveBeenCalledTimes(1);
     expect(mockUnlock).not.toHaveBeenCalled();
     expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
+  });
+});
+
+// One unlock() at a time. The keypad's biometric key and the auto-submitting passcode share a
+// screen, so without a shared in-flight guard they could both reach unlock(). The guard is taken at
+// the ENTRY of each path: submitPasscode can sleep 1-3s for the post-lockout throttle before it
+// calls unlock(), and a guard taken at the call would leave that window open.
+describe('the biometric key and the passcode never unlock concurrently', () => {
+  const type = (container: HTMLElement, digits: string) => {
+    for (const d of digits) {
+      fireEvent.click(container.querySelector(`[data-testid="digit-${d}"]`) as HTMLButtonElement);
+    }
+  };
+
+  // A mobile wallet with a biometric key whose mount-time unlock was cancelled, so the keypad shows
+  // with the biometric key on it.
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+  });
+
+  it('refuses a biometric tap while a passcode submit is in flight', async () => {
+    const { container } = await renderUnlock();
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the passcode never settles
+    type(container, '123456');
+    await advance(200); // past the auto-submit delay: submitPasscode now holds the guard
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    // Once at mount, once for the passcode - and NOT a third time for the biometric tap.
+    expect(mockUnlock).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a biometric tap during the post-lockout throttle, before unlock() is reached', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0); // throttle -> 1000ms
+    mockLsStore = { PasswordAttempts: 5, TimeLock: 0 };
+    const { container } = await renderUnlock();
+    type(container, '123456');
+    await advance(400); // submitPasscode has started and is sleeping; it has NOT called unlock() yet
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1); // the mount attempt only
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a failed biometric attempt on screen', async () => {
+    await renderUnlock();
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+  });
+
+  it('lets the biometric key try again after a failed attempt', async () => {
+    await renderUnlock();
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    // The guard was released in `finally`. A latch that is never cleared - which is what the
+    // mount-time `unlockInProgressRef` is - would turn this second tap into a silent no-op.
+    mockUnlock.mockResolvedValueOnce(undefined);
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(3);
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+});
+
+// The glyph is chosen from the sensor Unlock reads at mount. Without a case here, a typo in that
+// call would be swallowed by the defensive catch around it and ship the fallback glyph to every
+// device with this suite green.
+describe('the biometric key shows the sensor the device actually has', () => {
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+  });
+
+  it.each(['face', 'fingerprint'] as const)('hands the keypad a %s sensor', async biometryType => {
+    mockBiometryType.mockResolvedValueOnce({ biometryType });
+    await renderUnlock();
+
+    expect(screen.getByTestId('numpad-biometric')).toHaveAttribute('data-biometry', biometryType);
+  });
+
+  it('still unlocks when the sensor cannot be read', async () => {
+    mockBiometryType.mockRejectedValueOnce(new Error('plugin missing'));
+    mockUnlock.mockReset();
+    mockUnlock.mockResolvedValueOnce(undefined);
+    await renderUnlock();
+
+    // Only the glyph depends on the sensor, so failing to read it must not stop the unlock.
+    expect(mockUnlock).toHaveBeenCalledWith();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 });

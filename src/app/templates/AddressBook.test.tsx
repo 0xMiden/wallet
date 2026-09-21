@@ -84,10 +84,14 @@ it('shows an empty state with no saved contacts, and opens the new-contact page'
   contactsMock.mockReturnValue([MINE]);
   render(<AddressBook />);
 
-  expect(screen.getByTestId('address-book-empty')).toHaveTextContent('noContactsYet');
-  // Was `w-full max-w-none rounded-full bg-fill text-base font-semibold text-ink`
-  // — the Secondary variant already paints bg-fill/text-ink, so hand-painting
-  // them again was redundant on top of fighting the anatomy.
+  // Assert EmptyState's OWN structure, not just the testid and copy: the hand-rolled card this
+  // replaced rendered the same testid and the same two strings in spans, so a text-only assertion
+  // passed identically before and after and pinned nothing.
+  const empty = screen.getByTestId('address-book-empty');
+  expect(empty.querySelector('h3')).toHaveTextContent('noContactsYet');
+  expect(empty).toHaveTextContent('noContactsYetHint');
+  // Was `w-full max-w-none rounded-full bg-fill text-base font-semibold text-ink` - the Secondary
+  // variant already paints bg-fill/text-ink, so hand-painting them again was redundant.
   expect(screen.getByTestId('address-book-new-contact').className).not.toMatch(
     /rounded-full|text-base|font-semibold|bg-fill|text-ink/
   );

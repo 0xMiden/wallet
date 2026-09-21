@@ -48,7 +48,7 @@ describe('PasscodeScreen', () => {
     expect(screen.getByTestId('passcode-top-space')).toHaveClass('flex-[3]');
     expect(screen.getByTestId('passcode-bottom-space')).toHaveClass('flex-[2]');
     expect(dock).toContainElement(screen.getByTestId('numpad'));
-    // Its last row stays 20px above the body's safe-area padding.
+    // Without an action the layout keeps 20px of bottom padding under the flex space.
     expect(layout).toHaveClass('pb-5');
     // The header block holds the title, the message and the dots, above the keypad.
     const header = screen.getByTestId('passcode-header');
@@ -105,11 +105,13 @@ describe('PasscodeScreen', () => {
     expect(header).not.toContainElement(forgot);
     const dock = screen.getByTestId('passcode-keypad-dock');
     const slot = screen.getByTestId('passcode-screen-action');
-    // The keypad, then the action: the dock's last child, centred, 8px under the last key row.
+    // The keypad, then the action: the dock's last child, centred, 16px under the last key row.
+    // 8px put an action that LEAVES the unlock screen where a thumb aimed at 0 lands; jsdom has no
+    // layout engine, so the spacing is pinned by the class that sets it.
     expect(dock.lastElementChild).toBe(slot);
     expect(dock.firstElementChild).toBe(screen.getByTestId('numpad'));
     expect(slot).toContainElement(forgot);
-    expect(slot).toHaveClass('flex', 'justify-center', 'mt-2');
+    expect(slot).toHaveClass('flex', 'justify-center', 'mt-4');
     expect(
       screen.getByTestId('numpad').compareDocumentPosition(forgot) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();

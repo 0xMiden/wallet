@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -21,15 +21,23 @@ export interface AddContactDrawerProps {
   address: string;
   /** The destination network chosen for a `0x` recipient; preselected here. */
   network?: BridgeNetworkId;
+  /**
+   * Reported upward so EVERY writer of this sheet's open state can gate on the in-flight write,
+   * not just the dismissals vaul routes through `onOpenChange`. The mobile back handler closes the
+   * sheet by setting that state directly, which is the fourth dismissal path.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 interface SheetBodyProps {
   address: string;
   initialNetwork?: BridgeNetworkId;
   onSaved: () => void;
+  /** Reported upward so the sheet cannot be dismissed out from under an in-flight write. */
+  onBusyChange: (busy: boolean) => void;
 }
 
-const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved }) => {
+const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
   const isEvm = detectAddressChain(address) === 'ethereum';
@@ -46,6 +54,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
       return;
     }
     setSaving(true);
+    onBusyChange(true);
     setError(undefined);
     try {
       await addContact({
@@ -54,10 +63,15 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
         addedAt: Date.now(),
         ...(isEvm ? { network } : {})
       });
+      // Raise and lower in the same function. `onSaved` closes the sheet through the raw prop, and
+      // the flag lives in the PARENT, which outlives this body and survives close/reopen - so a
+      // success that does not lower it left the sheet permanently undismissable.
+      onBusyChange(false);
       onSaved();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
       setSaving(false);
+      onBusyChange(false);
     }
   };
 
@@ -132,18 +146,47 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
  * address, which network the contact is for). Closes once saved, at which point the recipient
  * matches a contact and the pill reverts to "Address Book".
  */
-export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ open, onOpenChange, address, network }) => {
+export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
+  open,
+  onOpenChange,
+  onBusyChange,
+  address,
+  network
+}) => {
   const { t } = useTranslation();
+  const [saving, setSaving] = useState(false);
+  const setBusy = useCallback(
+    (busy: boolean) => {
+      setSaving(busy);
+      onBusyChange?.(busy);
+    },
+    [onBusyChange]
+  );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    // A dismiss - swipe, backdrop, Escape - all route through onOpenChange, and the sheet body
+    // holds the only node that can show a failed save. Ignore a dismiss while the write is in
+    // flight, the same rule as the header back on the contact pages.
+    <Drawer
+      open={open}
+      onOpenChange={next => {
+        if (!next && saving) return;
+        onOpenChange(next);
+      }}
+    >
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('addContact')}</DrawerTitle>
         </DrawerHeader>
         <div className="flex min-h-0 flex-col overflow-y-auto no-scrollbar">
           {/* Remount per address so a new recipient starts with an empty name. */}
-          <SheetBody key={address} address={address} initialNetwork={network} onSaved={() => onOpenChange(false)} />
+          <SheetBody
+            key={address}
+            address={address}
+            initialNetwork={network}
+            onSaved={() => onOpenChange(false)}
+            onBusyChange={setBusy}
+          />
         </div>
       </DrawerContent>
     </Drawer>

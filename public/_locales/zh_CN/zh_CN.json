@@ -1080,7 +1080,6 @@
   "networkNoticeResetTitle": "网络可以重置",
   "activityCheckingTransfer": "正在核对……",
   "networkNoticeResetBody": "重置会清空余额和交易记录。测试网的余额绝不会转入主网。",
-  "receiveTestFundsTitle": "仅限测试代币",
   "withdrawalCheckingDescription": "正在检查您的提现状态。请保持钱包打开，直到交付得到确认。",
   "retryEarnDelivery": "重试交付",
   "activityTransferDetails": "详情",
