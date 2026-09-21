@@ -60,6 +60,12 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             onClick={() => handleSelect(item.id)}
             layout
             transition={barTransition}
+            // Framer can only undo the corner distortion of a layout projection for a radius it can
+            // read from `style` or a motion value; one that exists only in a CSS class is invisible
+            // to the scale corrector. This button's width really does change between states, so its
+            // `overflow-hidden` clip is what visibly squashes. `9999px` rather than a literal half
+            // the height, so the value is not silently coupled to `h-12`.
+            style={{ borderRadius: '9999px' }}
             className={classNames(
               'relative flex h-12 min-w-0 items-center justify-center overflow-hidden rounded-full',
               'text-text-primary-token transition-colors duration-200',
@@ -72,6 +78,10 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             {isActive && (
               <motion.span
                 layoutId={layoutId}
+                // Defensive, not load-bearing: this pill renders only on the active segment, which
+                // is always `w-28`, so its box is identical at both ends of a move and its net
+                // scale is ~1. The shadow is deliberately left as a class for the same reason.
+                style={{ borderRadius: '9999px' }}
                 className="absolute inset-0 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
                 transition={barTransition}
               />

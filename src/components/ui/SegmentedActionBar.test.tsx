@@ -144,16 +144,19 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(getTab('Receive').querySelector('.bg-white')).toBeNull();
   });
 
-  it('rounds every segment and the sliding pill fully, via the class rather than an inline radius', () => {
+  it('carries an inline radius the layout projection can correct, alongside the rounded-full class', () => {
     renderBar({ activeId: 'send' });
 
     const activeTab = getTab('Send');
     expect(activeTab.className).toContain('rounded-full');
-    expect(activeTab.style.borderRadius).toBe('');
+    // Framer is mocked wholesale in this suite, so this can only show that a radius reaches the
+    // DOM as a style - no assertion here can observe the scale correction itself. The visual
+    // behaviour is verified by hand; this guards the precondition the correction depends on.
+    expect(activeTab.style.borderRadius).toBe('9999px');
 
     const pill = activeTab.querySelector('.bg-white');
     expect(pill?.className).toContain('rounded-full');
-    expect((pill as HTMLElement | null)?.style.borderRadius).toBe('');
+    expect((pill as HTMLElement | null)?.style.borderRadius).toBe('9999px');
   });
 
   it('moves the pill and label when a different tab is active', () => {

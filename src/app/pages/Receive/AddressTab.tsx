@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
-import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
@@ -14,7 +14,6 @@ import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
@@ -45,7 +44,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : null;
-  const { fieldRef, copy } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
@@ -112,8 +110,19 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
-    copy();
-  }, [copy, shareText, t]);
+    // Stays OUTSIDE the try above, and the primary path here is NOT an error: wherever the
+    // Web Share API is absent the guard above is falsy - typically extension and desktop
+    // builds, which is why isMobile() is false there too - so the try runs out, nothing
+    // throws, no branch returns, and control reaches this line having entered no catch.
+    // A share rejection also lands here via the catch; every success branch returns first.
+    // Moving this into the catch leaves the Share button doing nothing at all on those
+    // builds (the page's tap-to-copy button is a separate affordance, not this one's
+    // fallback). Receive.test.tsx's FALLBACK_CASES row 'the web has no navigator.share'
+    // is what fails if anyone does: the only case reaching this line with no warn.
+    // @capacitor/clipboard rather than navigator.clipboard, which is not guaranteed
+    // outside WKWebView - the same move the dApp browser's copy action made.
+    await Clipboard.write({ string: address }).catch(e => console.warn('[Receive] clipboard fallback failed:', e));
+  }, [address, shareText, t]);
 
   return (
     <div
@@ -123,7 +132,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     >
       <div className="min-h-full flex flex-col">
         <div className="flex flex-col items-center px-6 pt-6 pb-32">
-          <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
           {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
           <span data-testid="receive-address-full" className="sr-only">
             {address}

@@ -10,6 +10,32 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+// The row's projection must never SCALE: a full `layout` distorts the plain
+// rounded avatar and status dot, whose radius is a class Framer cannot read.
+// Surface the prop so a revert to bare `layout` fails here.
+// Spread the real module rather than listing exports: the row reaches
+// `useReducedMotion` indirectly through `useMotion(springs.settle)`, and a
+// hand-listed factory that misses one such export throws on every render.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => false,
+    motion: {
+      div: ReactActual.forwardRef(
+        (
+          { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLDivElement>
+        ) => (
+          <div ref={ref} data-layout={String(layout)} {...rest}>
+            {children}
+          </div>
+        )
+      )
+    }
+  };
+});
+
 // i18n: echo the key plus its interpolated values, so the overflow count can be
 // asserted as data rather than as whatever copy `andMoreAssets` currently holds.
 jest.mock('react-i18next', () => ({
@@ -30,6 +56,15 @@ describe('ActivityRow', () => {
 
   it('exports the same component as default and named', () => {
     expect(ActivityRowDefault).toBe(ActivityRow);
+  });
+
+  it('animates position only, so a size change cannot scale the round avatar into an oval', () => {
+    const { container } = renderRow();
+
+    // Exact value on purpose, both here and on revert: bare `layout` is
+    // `layout={true}` and stringifies to 'true', so a mock reading the wrong
+    // prop would fail a plain not-'position' check either way and prove nothing.
+    expect(container.firstElementChild).toHaveAttribute('data-layout', 'position');
   });
 
   it('renders the icon, title, and default neutral icon background', () => {
