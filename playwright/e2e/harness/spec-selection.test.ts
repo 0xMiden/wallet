@@ -112,6 +112,7 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
     expect(src).not.toMatch(/fast blocks/);
     expect(src).not.toMatch(/strategy:/);
     expect(src).toMatch(/name: local-e2e \(chrome\)/);
+    expect(src).toMatch(/runs-on: warp-ubuntu-latest-x64-8x/);
     expect(src).toMatch(/MIDEN_NODE_BLOCK_INTERVAL: 500ms/);
   });
 

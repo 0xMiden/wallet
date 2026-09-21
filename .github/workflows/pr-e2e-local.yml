@@ -10,8 +10,12 @@ jobs:
   chrome-local:
     # Required-check name: keep this exact string.
     name: local-e2e (chrome)
-    # The full suite imports the published Linux napi module, which has no ARM64 build.
-    runs-on: warp-ubuntu-latest-x64-2x
+    # The full suite imports the published Linux napi module, which has no ARM64
+    # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
+    # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x
+    # runs of the same suite were 22-24m. Sharding does not help: workers=1
+    # against one chain, so a shard is another full node compile.
+    runs-on: warp-ubuntu-latest-x64-8x
     # Cold-cache runs compile the local 0.16 node from source (~28m) + miden-client-cli
     # (~8m) + note-transport (~5m) before any spec runs; warm-cache runs are ~20m. The
     # node-build cache is warmed on `next` (warm-node-cache.yml) so PRs branch off a
