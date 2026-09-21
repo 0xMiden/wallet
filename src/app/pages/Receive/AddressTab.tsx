@@ -110,8 +110,14 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
-    // Stays OUTSIDE the try above on purpose: each success branch returns, and the
-    // three rejection paths reach this line only by falling out of the catch.
+    // Stays OUTSIDE the try above, and the primary path here is NOT an error. With no
+    // Web Share API - the extension and desktop - the guard above is falsy, so the try
+    // simply runs out: nothing throws, no branch returns, and control falls to this line
+    // having entered no catch. A share rejection also lands here, via the catch. Every
+    // success branch returns before it. Moving this into the catch therefore deletes the
+    // only copy fallback on the extension path while leaving every rejection path working;
+    // Receive.test.tsx's FALLBACK_CASES row 'the web has no navigator.share' is what
+    // fails if anyone does - it is the only case that reaches this line with no warn.
     // @capacitor/clipboard rather than navigator.clipboard, which is not guaranteed
     // outside WKWebView - the same move the dApp browser's copy action made.
     await Clipboard.write({ string: address }).catch(e => console.warn('[Receive] clipboard fallback failed:', e));

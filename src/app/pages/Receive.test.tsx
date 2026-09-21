@@ -424,7 +424,8 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledTimes(1));
+        expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
         expect(warn.mock.calls).toEqual(warns ? dismissed : []);
       } finally {
         warn.mockRestore();
@@ -443,7 +444,8 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledTimes(1));
+        expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
         expect(warn).toHaveBeenCalledWith('[Receive] share dismissed:', expect.any(Error));
       } finally {
