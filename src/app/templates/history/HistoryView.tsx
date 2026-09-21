@@ -310,8 +310,8 @@ function buildRowProps(
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
-    // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
-    // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
+    // the badge tracks that leg, as the details page does. Deliberately checked
+    // AFTER cancelled/failed/pending so a Miden-side
     // failure always wins over the lending leg's state.
     status = earnDepositSettlementOf(entry);
   } else if (isSwap && entry.swapSettlement === 'pending') {

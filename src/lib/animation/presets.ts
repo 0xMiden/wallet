@@ -17,7 +17,6 @@
  * - `page`: the incoming page of a stack. The page beneath moves to `pageSlideParallax` under a
  *   `pageSlideDim` black dim on the same transition (`page-appearance.ts`).
  * - `press`: tap feedback for a tappable surface.
- * - `indicator`: a selection indicator shared across options through a `layoutId` the caller sets.
  * - `shimmer`: a pending runner moving across its track.
  * - `shake`: a horizontal shake that says "wrong" (a rejected passcode). It has no end state
  *   to jump to, so under reduced motion it does not run at all.
@@ -41,17 +40,7 @@ export interface MotionPreset {
   transition: Transition;
 }
 
-export const presetNames = [
-  'fade',
-  'reveal',
-  'pop',
-  'sheet',
-  'page',
-  'press',
-  'indicator',
-  'shimmer',
-  'shake'
-] as const;
+export const presetNames = ['fade', 'reveal', 'pop', 'sheet', 'page', 'press', 'shimmer', 'shake'] as const;
 
 export type PresetName = (typeof presetNames)[number];
 
@@ -90,9 +79,6 @@ export const presets: Record<PresetName, MotionPreset> = {
     whileTap: { scale: 0.96 },
     transition: springs.snappy
   },
-  indicator: {
-    transition: springs.pill
-  },
   shimmer: {
     initial: { x: '-100%' },
     animate: { x: '100%' },
@@ -111,7 +97,6 @@ const reducedPresets: Record<PresetName, MotionPreset> = {
   sheet: reduce(presets.sheet),
   page: reduce(presets.page),
   press: reduce(presets.press),
-  indicator: reduce(presets.indicator),
   // A loop has no end state to jump to, so it simply does not run.
   shimmer: { transition: resolveTransition(true, presets.shimmer.transition) },
   // Nor does a shake: it starts and ends at rest, so an instant one is no motion at all.

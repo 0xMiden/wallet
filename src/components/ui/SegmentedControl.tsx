@@ -1,4 +1,4 @@
-import React, { KeyboardEvent, ReactNode, useEffect, useRef } from 'react';
+import React, { KeyboardEvent, useEffect, useRef } from 'react';
 
 import { cva } from 'class-variance-authority';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -13,10 +13,6 @@ export interface SegmentedControlItem<T extends string = string> {
   id: T;
   /** Already-translated text, also the item's accessible name. */
   label: string;
-  /** Leading glyph, sized by the control. */
-  icon?: ReactNode;
-  /** A count after the label, e.g. how many rows a filter holds. */
-  count?: number;
   disabled?: boolean;
   'data-testid'?: string;
 }
@@ -30,12 +26,6 @@ export type SegmentedControlSize = 'sm' | 'md';
  */
 export type SegmentedControlLayout = 'scroll' | 'fill';
 
-/**
- * `radiogroup` for a choice that changes what one view shows (a filter, a timeframe, a setting);
- * `tablist` when each item switches to its own panel.
- */
-export type SegmentedControlRole = 'radiogroup' | 'tablist';
-
 export interface SegmentedControlProps<T extends string = string> {
   items: readonly SegmentedControlItem<T>[];
   value: T;
@@ -43,7 +33,6 @@ export interface SegmentedControlProps<T extends string = string> {
   onChange: (id: T) => void;
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
-  role?: SegmentedControlRole;
   'aria-label'?: string;
   /** Layout only (margins, padding, width); the look is the control's own. */
   className?: string;
@@ -99,23 +88,12 @@ const content = cva('flex min-w-0 items-center', {
   defaultVariants: { size: 'md' }
 });
 
-const icon = cva('flex shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full', {
-  variants: {
-    size: {
-      sm: 'size-4',
-      md: 'size-5'
-    }
-  },
-  defaultVariants: { size: 'md' }
-});
-
 interface SegmentProps<T extends string> {
   item: SegmentedControlItem<T>;
   active: boolean;
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
-  itemRole: 'radio' | 'tab';
   onSelect: (id: T) => void;
 }
 
@@ -124,7 +102,7 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, itemRole, onSelect }: SegmentProps<T>) {
+function Segment<T extends string>({ item, active, focusable, size, layout, onSelect }: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active);
 
@@ -132,9 +110,8 @@ function Segment<T extends string>({ item, active, focusable, size, layout, item
     <HighlightItem value={item.id} asChild as="span" className="flex min-w-0 items-center justify-center">
       <motion.button
         type="button"
-        role={itemRole}
-        aria-checked={itemRole === 'radio' ? active : undefined}
-        aria-selected={itemRole === 'tab' ? active : undefined}
+        role="radio"
+        aria-checked={active}
         tabIndex={focusable ? 0 : -1}
         disabled={item.disabled}
         data-testid={item['data-testid']}
@@ -149,13 +126,7 @@ function Segment<T extends string>({ item, active, focusable, size, layout, item
           onAnimationComplete={pop.onAnimationComplete}
           className={content({ size })}
         >
-          {item.icon && (
-            <span aria-hidden="true" className={icon({ size })}>
-              {item.icon}
-            </span>
-          )}
           <span className="min-w-0 truncate">{item.label}</span>
-          {item.count !== undefined && <span className="tabular-nums text-muted">{item.count}</span>}
         </motion.span>
       </motion.button>
     </HighlightItem>
@@ -181,7 +152,6 @@ export function SegmentedControl<T extends string>({
   onChange,
   size = 'md',
   layout = 'scroll',
-  role = 'radiogroup',
   'aria-label': ariaLabel,
   className,
   'data-testid': dataTestId
@@ -189,6 +159,10 @@ export function SegmentedControl<T extends string>({
   const motionTokens = useTabBarMotion();
   const reduceMotion = useReducedMotion();
   const rowRef = useRef<HTMLDivElement>(null);
+  // Mounting a page is not a selection change. scrollIntoView walks every scrollable ANCESTOR, so a
+  // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
+  // moves the page under it instead, sideways.
+  const scrolledOnce = useRef(false);
 
   const selectedIndex = items.findIndex(item => item.id === value);
   // The item Tab lands on: the selected one, or the first that can be chosen when none is.
@@ -209,6 +183,10 @@ export function SegmentedControl<T extends string>({
 
   useEffect(() => {
     if (layout !== 'scroll' || selectedIndex < 0) return;
+    if (!scrolledOnce.current) {
+      scrolledOnce.current = true;
+      return;
+    }
     const node = rowRef.current?.children[selectedIndex];
     if (!(node instanceof HTMLElement)) return;
     node.scrollIntoView({
@@ -248,7 +226,7 @@ export function SegmentedControl<T extends string>({
   return (
     <motion.div
       ref={rowRef}
-      role={role}
+      role="radiogroup"
       aria-label={ariaLabel}
       aria-orientation="horizontal"
       data-testid={dataTestId}
@@ -277,7 +255,6 @@ export function SegmentedControl<T extends string>({
             focusable={index === focusIndex}
             size={size}
             layout={layout}
-            itemRole={role === 'tablist' ? 'tab' : 'radio'}
             onSelect={select}
           />
         ))}
@@ -285,5 +262,3 @@ export function SegmentedControl<T extends string>({
     </motion.div>
   );
 }
-
-export default SegmentedControl;

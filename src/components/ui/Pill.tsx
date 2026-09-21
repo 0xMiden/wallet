@@ -17,7 +17,7 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
  * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
  * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink.
- * - `inactive` — a status that is neither good nor bad (cancelled, reclaimed, checking):
+ * - `inactive`: a status that is neither good nor bad (cancelled, reclaimed, unavailable),
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  *
@@ -27,12 +27,10 @@ export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' 
 
 export interface PillProps {
   children: React.ReactNode;
-  /** Leading glyph, sized by the pill. Mutually exclusive with `dot` in practice. */
+  /** Leading glyph, sized by the pill. */
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** A small 6px leading dot in the pill's own ink color (`currentColor`). */
-  dot?: boolean;
   /** Makes the pill a button, with a tap haptic. */
   onClick?: () => void;
   /**
@@ -47,10 +45,10 @@ export interface PillProps {
   disabled?: boolean;
   className?: string;
   /**
-   * `'status'` for a static pill whose content changes while it is on screen (a live status). The
-   * pill then also says `aria-live="polite"` outright, for screen readers that ignore the implicit one.
+   * The pill's content changes while it is on screen (a live status), so it becomes a polite live
+   * region: `role="status"` plus an explicit `aria-live`, for readers that ignore the implicit one.
    */
-  role?: 'status';
+  live?: boolean;
   'aria-label'?: string;
   'data-testid'?: string;
 }
@@ -116,13 +114,12 @@ export const Pill: React.FC<PillProps> = ({
   icon,
   size = 'md',
   tone = 'neutral',
-  dot,
   onClick,
   haptic = 'light',
   selected,
   disabled,
   className,
-  role,
+  live,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
@@ -140,7 +137,6 @@ export const Pill: React.FC<PillProps> = ({
 
   const content = (
     <>
-      {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>
@@ -150,8 +146,8 @@ export const Pill: React.FC<PillProps> = ({
     return (
       <span
         className={classes}
-        role={role}
-        aria-live={role === 'status' ? 'polite' : undefined}
+        role={live ? 'status' : undefined}
+        aria-live={live ? 'polite' : undefined}
         aria-label={ariaLabel}
         data-testid={dataTestId}
       >

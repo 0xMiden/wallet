@@ -188,8 +188,8 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
 
   const change = priceChange(priceInfo.change24h);
 
-  // Sits on `page`, not a `Card`: a status pill's ink only clears 4.5:1 on `page` (see `Pill`), and
-  // the chart reads better at the full content width than inset in a card.
+  // Sits on `page`, not a `Card`: the chart reads better at the full content width than inset in a
+  // card, and a neutral `Pill` on a `fill` card would not show at all.
   return (
     <section data-testid="token-detail-price">
       <SectionHeader>{t('tokenPrice')}</SectionHeader>

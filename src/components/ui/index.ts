@@ -40,7 +40,9 @@ export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
 
 export { StatusBadge } from './StatusBadge';
-export type { Status, StatusBadgeProps, StatusBadgeSize, StatusTone } from './StatusBadge';
+// `Status` is exported because HistoryView types a value with it; the badge's own tone and size
+// vocabularies have no importer, so they stay internal until one exists.
+export type { Status, StatusBadgeProps } from './StatusBadge';
 
 export { PromptCard } from './PromptCard';
 export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
@@ -55,13 +57,9 @@ export { SegmentedActionBar } from './SegmentedActionBar';
 export type { SegmentedActionBarProps, SegmentedActionBarItem } from './SegmentedActionBar';
 
 export { SegmentedControl } from './SegmentedControl';
-export type {
-  SegmentedControlProps,
-  SegmentedControlItem,
-  SegmentedControlSize,
-  SegmentedControlLayout,
-  SegmentedControlRole
-} from './SegmentedControl';
+// Only what a caller imports: the size, layout and role vocabularies have no importer, so they
+// stay internal until one exists.
+export type { SegmentedControlProps, SegmentedControlItem } from './SegmentedControl';
 
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
