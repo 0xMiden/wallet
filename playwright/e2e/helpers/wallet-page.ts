@@ -45,6 +45,16 @@ const LOCAL_STACK_CLAIM_FLOOR_MS = IS_LOCALNET ? 240_000 : 0;
 const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);
 
 /**
+ * Drain laps a busy Accept All may spend before the drain treats its batch as wedged and reloads.
+ *
+ * The "nothing rendered" fuse next to it is 3 laps (~20s), which is right for a list that failed
+ * to render and far too short for a consume that is merely slow — proving one on the local stack
+ * takes minutes. A reload mid-batch resets the claiming gate and enqueues a duplicate consume, so
+ * this fuse is long enough that only a genuinely stalled batch reaches it.
+ */
+const DRAINING_STALL_ITERS = 12;
+
+/**
  * Strip an optional `0x` prefix and lowercase, so a guardian commitment read
  * from on-chain storage (`getGuardianCommitmentFromAccount`) compares equal to
  * one obtained from a guardian operator's `GET /pubkey` response — mirrors
@@ -2114,6 +2124,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     let iteration = 0;
     let lastPending = -1;
     let stuckSameCountIters = 0;
+    let drainingIters = 0;
 
     while (Date.now() < deadline && stableZero < STABLE_ZERO_THRESHOLD) {
       iteration++;
@@ -2139,21 +2150,48 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // `pending > 0` means the store already has notes, so the one bulk action below is on its
       // way — wait for it instead of sleeping, capped at the old 2s so the "never rendered" path
       // (handled further down) costs no more than it used to.
+      //
+      // WAIT FOR THE IDLE CONTROL, NOT JUST THE CONTROL. Accept All does not vanish while the
+      // batch it started is in flight — it stays mounted in its loading state so it cannot
+      // disappear from under the tap that started it (`ActivityPendingHistory`'s `acceptingAll`).
+      // A loading Button is `aria-busy` AND `pointer-events-none`, so Playwright's hit-target
+      // check can never land on it: an unconditional `click()` retries for its whole 30s default
+      // and then THROWS out of the drain, failing the spec on a wallet that is consuming
+      // perfectly well. The retired Claim All had no loading state — it unmounted while claiming —
+      // which is why the old loop never met this and the rewrite inherited an unguarded click.
+      // The pending count only moves on the sync AFTER a consume commits, so every lap that
+      // follows a click and precedes that commit lands in exactly this state.
       const acceptAllBtn = this.page.getByTestId('pending-row-accept-all');
-      await acceptAllBtn.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
+      const acceptAllIdle = this.page.locator('[data-testid="pending-row-accept-all"]:not([aria-busy="true"])');
+      await acceptAllIdle.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
 
       // The Pending list has exactly ONE bulk action: Accept All takes every waiting transfer
       // whatever its asset or sender. The two-level per-asset claim the old pages offered is
       // gone, and with it the fallback that drove it.
-      if (await acceptAllBtn.isVisible().catch(() => false)) {
+      if (await acceptAllIdle.isVisible().catch(() => false)) {
         console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} clicking Accept All`);
-        await acceptAllBtn.click();
+        // Bounded and non-fatal. The row re-renders as transfers change state, so the control can
+        // go busy between the visibility read and the click; losing that race costs one lap of the
+        // drain, where letting it run to the default 30s costs the whole spec.
+        const clicked = await acceptAllIdle
+          .click({ timeout: 5_000 })
+          .then(() => true)
+          .catch(() => false);
+        if (!clicked) {
+          console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} Accept All went busy mid-click`);
+          continue;
+        }
+        drainingIters = 0;
         // LEFT AS A SLEEP: head start for the consume the click enqueued. No
         // usable signal — the pending count only moves on the NEXT sync, and the
         // enqueued row's id isn't exposed to the harness by the Accept All path.
         await this.page.waitForTimeout(8_000);
         continue;
       }
+
+      // Accept All is on screen but busy: the batch a previous lap queued has not settled yet.
+      const draining = await acceptAllBtn.isVisible().catch(() => false);
+      drainingIters = draining ? drainingIters + 1 : 0;
 
       // Cache says transfers are pending but the list hasn't rendered the
       // action. Two causes: (a) React hasn't rehydrated from the updated store
@@ -2163,17 +2201,27 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // navigate clears (a) but NOT (b), since the store survives navigation —
       // only a full reload resets the claiming gate. So after a few stuck
       // iterations, reload to break out of both.
+      //
+      // A batch in flight gets a fuse of its OWN, an order of magnitude longer. It is progress,
+      // not a stall: a healthy consume routinely outlives the 3 laps (~20s) that mean "nothing
+      // rendered", and reloading under it resets the claiming gate and enqueues a SECOND consume
+      // of notes already being consumed. A consume that really is wedged still gets rescued, just
+      // on the longer fuse.
+      const needsRescue = draining ? drainingIters >= DRAINING_STALL_ITERS : stuckSameCountIters >= 3;
       console.log(
-        `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
+        draining
+          ? `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} Accept All is draining its batch (lap ${drainingIters})`
+          : `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
       // The gate above is (b) — a consume that never committed — often enough that
       // it is worth asking the offscreen document what that consume is doing before
       // reloading and enqueuing another one. Streams to stdout so a stalled claim is
       // diagnosable from the live job log instead of from artifacts after the run.
-      if (stuckSameCountIters >= 3) {
+      if (needsRescue) {
         await dumpProveTelemetry(this.page, `claimAllNotes stuck at iter=${iteration}`);
         await this.reloadAndPreparePending();
         stuckSameCountIters = 0;
+        drainingIters = 0;
       }
       // Poll spacing before the next sync round — deliberately a sleep.
       await this.page.waitForTimeout(3_000);
