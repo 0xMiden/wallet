@@ -29,6 +29,11 @@ type FormData = {
 // The page opens on the privacy warning; the auth gate and the words come only after View.
 type Step = 'warning' | 'reveal';
 
+// The protector probe reads platform storage, which can hang rather than fail. The
+// bound only has to be shorter than a user's patience: its whole job is to convert a
+// hang into the retryable error path.
+const PROBE_TIMEOUT_MS = 5_000;
+
 const RevealSeedPhrase: FC = () => {
   const { t } = useTranslation();
   const { revealMnemonic } = useMidenContext();
@@ -108,11 +113,23 @@ const RevealSeedPhrase: FC = () => {
   // unavailable - see `probeError`. Off desktop and mobile `hasHardwareProtector`
   // returns false without touching storage, so none of this runs there.
   const probe = useCallback(async () => {
-    try {
-      return await Vault.hasHardwareProtector();
-    } catch {
-      return !(await Vault.hasPasswordProtector());
-    }
+    const read = (async () => {
+      try {
+        return await Vault.hasHardwareProtector();
+      } catch {
+        return !(await Vault.hasPasswordProtector());
+      }
+    })();
+    // Bounded, because the recovery affordance is gated on this settling. A storage
+    // read that HANGS rather than rejects would otherwise leave `probing` true for
+    // good: the Retry stays disabled (the real Button also sets `pointer-events-none`
+    // while loading, so it is inert, not merely styled), View is still disabled
+    // because no answer ever arrived, and Close is the only live control. Timing out
+    // into the existing catch is what turns that dead end back into a retryable error.
+    return new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('protector probe timed out')), PROBE_TIMEOUT_MS);
+      read.then(resolve, reject).finally(() => clearTimeout(timer));
+    });
   }, []);
 
   // One runner for both entry points. The token is defence in depth, not the active
@@ -151,6 +168,13 @@ const RevealSeedPhrase: FC = () => {
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') return;
     runProbe();
+    // Bump on the way out, the same way `secretGeneration` is: round 2 replaced this
+    // effect's `cancelled` flag with the token and then never invalidated on unmount,
+    // so an in-flight probe could still write. Harmless under React 18, but the
+    // asymmetry with its sibling is the kind that bites later.
+    return () => {
+      probeGeneration.current += 1;
+    };
   }, [runProbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No haptic here: Button fires one on every click.

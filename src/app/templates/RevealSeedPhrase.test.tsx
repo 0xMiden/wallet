@@ -34,8 +34,14 @@ let mockIsMobile = false;
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
+// A spy, not a bare identity fn: `probeError` holds a translation KEY that the render
+// site translates, while its sibling `authError` holds a message rendered raw. Under an
+// identity `t` both look the same on screen, so dropping the `t()` call would ship a raw
+// key in a user-facing banner with every test green. Asserting the CALL is the only way
+// to tell them apart here.
+const mockT = jest.fn((key: string) => key);
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: mockT })
 }));
 
 // Alert echoes its description so the auth-error branch is assertable.
@@ -434,6 +440,8 @@ describe('RevealSeedPhrase', () => {
     const container = await render();
 
     expect(container.querySelector('[data-testid="alert"]')!.textContent).toContain('couldNotCheckUnlockMethod');
+    // The banner must be TRANSLATED, not rendered as the bare key it stores.
+    expect(mockT).toHaveBeenCalledWith('couldNotCheckUnlockMethod');
     expect(buttonWithText(container, 'view')!.disabled).toBe(true);
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
 
@@ -464,6 +472,53 @@ describe('RevealSeedPhrase', () => {
     const retry = buttonWithText(container, 'retry');
     expect(retry).toBeTruthy();
     expect(retry!.disabled).toBe(true);
+  });
+
+  // Names the contract that the mount-failure tests only cover incidentally: a retry
+  // that fails AGAIN must hand the button back. The catch re-sets the identical key, so
+  // React bails out of that re-render and only the probing flag returns the control.
+  it('re-enables Retry after a retry fails again', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
+    const container = await render();
+
+    await act(async () => {
+      buttonWithText(container, 'retry')!.click();
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+    expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
+  });
+
+  // A storage read can HANG rather than reject, and the recovery affordance is gated on
+  // the probe settling - so without a bound this is the worst state on the page: no
+  // banner (nothing set it), a disabled View (no answer arrived) and only Close. The
+  // mount probe is the bad one, because a retry at least leaves the previous banner up.
+  it('turns a hanging probe into a retryable error instead of a dead end', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
+      const container = renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Before the bound: nothing to act on, which is the state being escaped.
+      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+      expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it.each(['close', 'back'])('returns to Settings via %s on the warning', async control => {
