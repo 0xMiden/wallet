@@ -4764,10 +4764,6 @@
     "message": "Uma reinicialização apaga os saldos e o histórico. Os saldos de teste nunca são transferidos para a Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "Apenas tokens de teste",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "Verificando seu saque. Mantenha a carteira aberta até que a entrega seja confirmada.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

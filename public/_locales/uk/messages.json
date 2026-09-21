@@ -4764,10 +4764,6 @@
     "message": "Скидання очищає залишки та історію. Тестові залишки ніколи не переносяться до Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "Тільки тестові токени",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "Перевіряємо ваше виведення коштів. Тримайте гаманець відкритим, доки доставку не буде підтверджено.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

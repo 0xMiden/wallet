@@ -4764,10 +4764,6 @@
     "message": "Sıfırlama işlemi, bakiyeleri ve geçmişi temizler. Test bakiyeleri asla Mainnet’e aktarılmaz.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "Yalnızca test token'ları",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "Para çekme işleminiz kontrol ediliyor. Teslimat onaylanana kadar cüzdanı açık tutun.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
