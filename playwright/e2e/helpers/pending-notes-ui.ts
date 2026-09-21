@@ -41,7 +41,7 @@ export const PENDING_NOTES_PROMPT_TESTID = 'pending-notes-prompt';
  * rendered text on purpose: a broken/renamed i18n key renders the key itself,
  * and the card would still be present, still be on screen, and still navigate.
  */
-const PENDING_NOTES_PROMPT_TITLE = 'You have Pending Notes';
+const PENDING_NOTES_PROMPT_TITLE = 'You have transfers to accept';
 
 /** Fraction of the card's own width that must lie inside the window. */
 const MIN_ON_SCREEN_FRACTION = 0.99;
