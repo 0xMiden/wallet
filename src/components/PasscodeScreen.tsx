@@ -32,11 +32,11 @@ export interface PasscodeScreenProps {
 }
 
 /**
- * A full-screen passcode page, laid out for the thumb like the iOS lock screen: the title, the
- * message and the dots sit in the upper part, the keypad is anchored to the bottom with its last
- * row 20px above the safe area, and the free height goes between the two. An action goes under the
- * keypad, in the space that padding held: 8px below the last row, a 44px hit area, then 8px above
- * the safe area, so the keypad rises only 40px to make room for it. Unlock and onboarding's
+ * A full-screen passcode page, laid out for the thumb: the title, message and dots, then the keypad,
+ * sit as one group a little below centre - the leftover height splits 3:2 above the prompt and
+ * below the keypad, so the keys stay in thumb reach without a tall gap under the dots. An optional
+ * text action (unlock's "Forgot passcode?") sits 16px under the last key row, far enough that a
+ * thumb aimed at 0 does not land on an action that leaves the screen. Unlock and onboarding's
  * set-up/confirm steps both draw it, so both share one keypad and one layout.
  */
 export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
@@ -88,7 +88,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
         <div className="w-full shrink-0 pt-12 [@media(max-height:720px)]:pt-8" data-testid="passcode-keypad-dock">
           <Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} biometryType={biometryType} />
           {action && (
-            <div className="mt-2 flex justify-center" data-testid="passcode-screen-action">
+            <div className="mt-4 flex justify-center" data-testid="passcode-screen-action">
               {action}
             </div>
           )}
