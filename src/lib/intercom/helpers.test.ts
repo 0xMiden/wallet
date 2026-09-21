@@ -6,7 +6,13 @@ import {
   type SpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
 
-import { DEFAULT_ERROR_MESSAGE, deserializeError, IntercomError, serializeError, serializeErrorForPage } from './helpers';
+import {
+  DEFAULT_ERROR_MESSAGE,
+  deserializeError,
+  IntercomError,
+  serializeError,
+  serializeErrorForPage
+} from './helpers';
 
 describe('intercom helpers', () => {
   it('serializes plain errors and arrays', () => {
@@ -117,5 +123,19 @@ describe('intercom helpers', () => {
 
     expect(pageSerialized).toEqual(['Operation failed', ['detail-1', 'detail-2']]);
     expect((pageSerialized as any).code).toBeUndefined();
+  });
+
+  it('carries the errors array alongside code in the internal object wire shape', () => {
+    // Every existing object-shape case here has a `code`/spending-limit payload but no `errors`
+    // array, so the `errors` key of the returned object has never actually been populated - only
+    // ever omitted. An error that legitimately carries both must keep both, not drop one for the
+    // other.
+    const error = { message: 'Operation failed', code: 'SOME_CODE', errors: ['detail-1', 'detail-2'] };
+
+    expect(serializeError(error)).toEqual({
+      message: 'Operation failed',
+      errors: ['detail-1', 'detail-2'],
+      code: 'SOME_CODE'
+    });
   });
 });

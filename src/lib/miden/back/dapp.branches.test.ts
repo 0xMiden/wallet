@@ -924,6 +924,23 @@ describe('requestTransaction - custom spending-limit gate', () => {
     expect(mockReleaseNoteIds).toHaveBeenCalled();
   });
 
+  it('lets a non-price-unavailable valuation failure surface as itself, not the retry wording', async () => {
+    // Only a price-unavailable refusal earns the retry-suffixed text (see the boundary-conversion
+    // comment in `customSpendingLimitState`). A storage fault or any other failure to resolve the
+    // spend must reach the dApp as its own reason, through the same mapper as every other refusal
+    // here - not be reshaped into the same "review and retry" wording a price outage gets.
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new Error('policy storage offline'));
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      /INVALID_PARAMS.*policy storage offline/i
+    );
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.not.toThrow(
+      /spending limit changed.*retry/i
+    );
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
+  });
+
   it('simulates the request exactly once per approval', async () => {
     mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
