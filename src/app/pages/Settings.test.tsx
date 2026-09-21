@@ -685,6 +685,17 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
+
+  // An action-only row has no sub-page, so its slug must bounce exactly like an
+  // unknown one rather than drawing its title over an empty body. Both rows are
+  // single-segment, which is what makes them reachable by the generic route at all -
+  // the external rows carry an absolute URL and no single path segment can match it.
+  it.each(['support', 'send-feedback'])('replaces the action-only slug %s instead of rendering a blank page', slug => {
+    render(<Settings tabSlug={slug} />);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
+  });
 });
 
 describe('Settings page — guardian account', () => {

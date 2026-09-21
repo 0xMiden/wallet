@@ -89,11 +89,11 @@ const AdvancedSettings: FC = () => {
           the user acknowledge the warning and spend a credential to reach a certain refusal. */}
       {!isGuardianAccount && (
         <button type="button" onClick={handleExportAccountFile} className="w-full">
-          <div className="flex items-center justify-between text-heading-gray">
+          <div className="flex items-center justify-between text-ink">
             <div className="flex flex-col">
               <span className="font-medium text-base">{t('exportAccountFile')}</span>
             </div>
-            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
+            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-ink" fill="none" />
           </div>
         </button>
       )}
