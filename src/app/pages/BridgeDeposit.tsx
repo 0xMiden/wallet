@@ -3,10 +3,12 @@ import React, { useCallback } from 'react';
 import { useAppKit, useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
-import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { Button } from 'components/ui/Button';
+import { Notice } from 'components/ui/Notice';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
@@ -74,6 +76,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg text-ink">
+      <NetworkModeBanner />
       <div className="shrink-0 px-4">
         <PageHeader title={t('midenBridge')} onClose={handleClose} />
       </div>
@@ -83,12 +86,15 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         <p className="max-w-80 text-sm text-text-tertiary-token">{t('connectEvmWalletDescription')}</p>
 
         {/* Same warning as the Receive-side connect drawer (#875). */}
-        <TestNetworkWarning
-          titleKey="evmConnectTestWalletTitle"
-          bodyKey="evmConnectTestWalletBody"
+        <Notice
+          tone="warning"
+          icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+          title={t('evmConnectTestWalletTitle')}
           className="max-w-80"
           data-testid="evm-connect-test-wallet-warning"
-        />
+        >
+          {t('evmConnectTestWalletBody')}
+        </Notice>
 
         {status === 'connecting' && <p className="text-sm text-grey-500">{t('preparing')}</p>}
 

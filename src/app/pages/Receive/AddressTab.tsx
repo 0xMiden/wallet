@@ -4,7 +4,6 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
-import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { NetworkChip } from 'components/NetworkChip';
@@ -16,7 +15,7 @@ import { Notice } from 'components/ui/Notice';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { isExtension, isMobile } from 'lib/platform';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { cn } from 'lib/ui/util';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
@@ -50,7 +49,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : null;
-  const { fieldRef, copy } = useCopyToClipboard();
+  // The share fallback copies through the same hook as the page's copy control: one clipboard
+  // path, and it catches a rejected write.
+  const { copy: copyAddress } = useClipboardCopy(address);
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
@@ -115,8 +116,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
-    copy();
-  }, [copy, shareText, t]);
+    await copyAddress();
+  }, [copyAddress, shareText, t]);
 
   const showCrossChain = !isExtension() && isBridgeDepositEnabled();
 
@@ -137,7 +138,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           isMobile() ? 'pb-18' : 'pb-20'
         )}
       >
-        <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
         {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
         <span data-testid="receive-address-full" className="sr-only">
           {address}
@@ -156,10 +156,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                   ref={qrRef}
                   address={address}
                   size={QR_EXPORT_SIZE}
-                  fluid
                   // The page names the network in the chip below; the shared image still carries it.
                   caption={network ? t('qrNetworkCaption', { network }) : undefined}
-                  showCaption={false}
                 />
               </div>
             </div>

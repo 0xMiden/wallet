@@ -1,13 +1,8 @@
-import React from 'react';
-
-import clsx from 'clsx';
-
 import { ReactComponent as GatewayLogo } from './gateway.svg';
 import { ReactComponent as KodaxLogo } from './kodax.svg';
 import { ReactComponent as LambdaClassLogo } from './lambdaclass.svg';
-import { ReactComponent as OpenZeppelinLogoDark } from './open-zeppelin-dark.svg';
 import { ReactComponent as OpenZeppelinMark } from './open-zeppelin-mark.svg';
-import { ReactComponent as OpenZeppelinLogoLight } from './open-zeppelin.svg';
+import { ReactComponent as OpenZeppelinLogo } from './open-zeppelin.svg';
 
 export interface GuardianLogoEntry {
   Logo: ImportedSVGComponent;
@@ -26,20 +21,6 @@ export interface GuardianLogoEntry {
   // provider keeps the wordmark-in-a-tile hero layout.
   Mark?: ImportedSVGComponent;
 }
-
-// OpenZeppelin's official wordmark ships as two fixed-color files rather than one
-// `currentColor` mark: the wordmark text is literal black or white per file (see
-// the brand kit), not `currentColor`, so a single asset recolored via CSS can't
-// serve both themes the way the grey wordmarks below do. Render both and toggle
-// with `dark:`, the same fixed-palette pattern as everywhere else in the wallet
-// (CLAUDE.md's Tailwind notes) — `keepBrandColor` on the entry below already
-// opts this logo out of the blanket grey recolor other providers get.
-const OpenZeppelinLogo: ImportedSVGComponent = ({ className, ...rest }) => (
-  <>
-    <OpenZeppelinLogoLight {...rest} className={clsx('block dark:hidden', className)} />
-    <OpenZeppelinLogoDark {...rest} className={clsx('hidden dark:block', className)} />
-  </>
-);
 
 // Brand wordmark per GUARDIAN_OPTIONS provider id.
 export const GUARDIAN_LOGOS: Record<string, GuardianLogoEntry> = {
