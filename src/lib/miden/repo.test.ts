@@ -651,6 +651,20 @@ describe('spending limits schema', () => {
 // reopen through the real `defineSchema` (via `createSchemaFor`) means a future collapse changes
 // what THIS test replays too, so it fails instead of passing green next to a broken migration.
 describe('spending limits schema migration (1.7 -> 1.9)', () => {
+  // A second, independent oracle for the two constants `seedV17` and the real chain
+  // (`createSchemaFor`, via `defineSchema`) both read below. Version 1.7 has already shipped on
+  // origin/main, so its shape is immutable in every existing user's IndexedDB - coupling this
+  // test's seed to repo.ts's own exports (rather than a hand-typed duplicate) closed one hole, but
+  // opened another: a future edit to what repo.ts DECLARES for 1.7 would have seed and reopen
+  // silently agree on the new, wrong shape, and every test below would keep passing next to a
+  // migration that no real user's database can actually run. These literals are that record.
+  it('pins the shipped 1.7 store definitions to literals independent of repo.ts', () => {
+    expect(TRANSACTIONS_V17_STORE).toBe(
+      'id,accountId,transactionId,initiatedAt,completedAt,noteId,*noteIds,noteDelivery,extraInputs.destinationAddress,extraInputs.swapOrderTxId,spendingLimitAuthorizationId'
+    );
+    expect(SPENDING_LIMITS_V17_STORE).toBe('[accountId+faucetId],accountId,faucetId,revision');
+  });
+
   const TEN_TRANSACTIONS_V17_INDEXES = [
     'accountId',
     'transactionId',
