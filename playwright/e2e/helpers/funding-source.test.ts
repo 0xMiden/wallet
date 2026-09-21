@@ -25,11 +25,16 @@ jest.mock('./public-faucet', () => ({
 const TARGET = '0xa5c2900b1895271109557de2d9ce04';
 
 /** Records every CLI command and answers the few the funding path actually issues. */
-function fakeRunner(parseTransfer = true): { runner: CLIRunner; commands: string[] } {
+function fakeRunner(workDir: string, parseTransfer = true): { runner: CLIRunner; commands: string[] } {
   const commands: string[] = [];
   const runner = {
     run: async (command: string) => {
       commands.push(command);
+      if (/\binit\b/.test(command)) {
+        const dir = path.join(workDir, '.miden');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'miden-client.toml'), 'rpc = {}\n');
+      }
       // `importFunders` parses the account id out of an import's stdout.
       const stdout = /\bimport\b/.test(command) ? 'Successfully imported account 0x3d6f968b3cd35c91' : '';
       return {
@@ -51,7 +56,7 @@ function fakeRunner(parseTransfer = true): { runner: CLIRunner; commands: string
 function cliFor(network: string, funderDir: string, parseTransfer = true): { cli: MidenCli; commands: string[] } {
   process.env.E2E_NETWORK = network;
   process.env.MIDEN_E2E_FUNDER_DIR = funderDir;
-  const { runner, commands } = fakeRunner(parseTransfer);
+  const { runner, commands } = fakeRunner(funderDir, parseTransfer);
   const cli = new MidenCli({
     binaryPath: 'miden-client',
     workDir: funderDir,
@@ -102,6 +107,10 @@ describe('MidenCli fee funding source', () => {
     const transfers = commands.filter(c => c.includes('transfer'));
     expect(transfers).toHaveLength(1);
     expect(transfers[0]).toContain(`--target ${TARGET}`);
+    expect(commands.some(c => /\binit\b/.test(c))).toBe(true);
+    expect(fs.readFileSync(path.join(funderDir, '.miden', 'miden-client.toml'), 'utf8')).toContain(
+      'fee_faucet_id = "0x3d6f968b3cd35c91"'
+    );
   });
 
   it('returns the exact native transfer receipt and requested amount from a local genesis funder', async () => {

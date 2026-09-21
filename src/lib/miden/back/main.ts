@@ -102,8 +102,10 @@ export async function start() {
     const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');
     installEarnTestHooks();
     const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');
-    (globalThis as { __TEST_SET_FEE_FAUCET__?: (id: string) => void }).__TEST_SET_FEE_FAUCET__ = (id: string) => {
-      setFeeFaucetIdForTest(id);
+    (globalThis as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> }).__TEST_SET_FEE_FAUCET__ = async (
+      id: string
+    ) => {
+      await setFeeFaucetIdForTest(id);
     };
   }
 

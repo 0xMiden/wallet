@@ -391,15 +391,21 @@ async function launchWalletInstance(
 
   if (feeFaucetId) {
     const deadline = Date.now() + 30_000;
+    let ready = false;
     while (Date.now() < deadline) {
-      const ready = await serviceWorker
+      ready = await serviceWorker
         .evaluate(() => typeof (self as { __TEST_SET_FEE_FAUCET__?: unknown }).__TEST_SET_FEE_FAUCET__ === 'function')
         .catch(() => false);
       if (ready) break;
       await new Promise(r => setTimeout(r, 200));
     }
-    await serviceWorker.evaluate(id => {
-      (self as { __TEST_SET_FEE_FAUCET__?: (id: string) => void }).__TEST_SET_FEE_FAUCET__?.(id);
+    if (!ready) {
+      throw new Error(`__TEST_SET_FEE_FAUCET__ was not installed on wallet ${label} within 30s`);
+    }
+    await serviceWorker.evaluate(async id => {
+      const setFee = (self as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> }).__TEST_SET_FEE_FAUCET__;
+      if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+      await setFee(id);
     }, feeFaucetId);
   }
 
@@ -560,9 +566,11 @@ async function launchWalletInstance(
         .waitFor({ timeout: ATTEMPT_TIMEOUT });
 
       if (feeFaucetId) {
-        await page.evaluate(id => {
-          const setFee = (window as { __TEST_SET_FEE_FAUCET__?: (id: string) => void }).__TEST_SET_FEE_FAUCET__;
-          if (setFee) setFee(id);
+        await page.evaluate(async id => {
+          const setFee = (window as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> })
+            .__TEST_SET_FEE_FAUCET__;
+          if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+          await setFee(id);
         }, feeFaucetId);
       }
 
@@ -932,7 +940,7 @@ export const test = base.extend<TwoWalletFixtures>({
 
   walletA: async ({ timeline, steps, failureSnapshots, midenCli }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const feeFaucetId = await midenCli.ensureNativeFaucetId().catch(() => undefined);
+    const feeFaucetId = await midenCli.ensureNativeFaucetId();
     const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'A', steps.outputDir);
@@ -978,7 +986,7 @@ export const test = base.extend<TwoWalletFixtures>({
 
   walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const feeFaucetId = await midenCli.ensureNativeFaucetId().catch(() => undefined);
+    const feeFaucetId = await midenCli.ensureNativeFaucetId();
     const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'B', steps.outputDir);

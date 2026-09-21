@@ -143,11 +143,14 @@ let e2eFeeFaucetId: string | undefined;
 let feeFaucetCache: string | undefined;
 
 /** E2E-only: genesis faucet id is random, so the harness injects it before client create. */
-export function setFeeFaucetIdForTest(id: string | undefined): void {
+export async function setFeeFaucetIdForTest(id: string | undefined): Promise<void> {
   e2eFeeFaucetId = id;
   feeFaucetCache = id;
+  const storage = getStorageProvider();
   if (id) {
-    void getStorageProvider().set({ [FEE_FAUCET_STORAGE_KEY]: id });
+    await storage.set({ [FEE_FAUCET_STORAGE_KEY]: id });
+  } else {
+    await storage.remove([FEE_FAUCET_STORAGE_KEY]);
   }
 }
 

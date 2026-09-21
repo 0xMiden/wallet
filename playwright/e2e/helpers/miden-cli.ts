@@ -301,9 +301,29 @@ export class MidenCli {
   private nativeFaucetId?: string;
 
   async ensureNativeFaucetId(): Promise<string | undefined> {
-    await this.importFunders();
+    await this.init();
     return this.nativeFaucetId;
   }
+
+  /**
+   * 0.17 CLI builds ProtocolConfig from `fee_faucet_id` in miden-client.toml.
+   * Without it, `transfer` fails with `account data wasn't found` for a funder
+   * that import just wrote.
+   */
+  private writeFeeFaucetId(id: string): void {
+    const tomlPath = path.join(this.workDir, '.miden', 'miden-client.toml');
+    if (!fs.existsSync(tomlPath)) {
+      throw new Error(`miden-client.toml missing at ${tomlPath}; init before setting fee_faucet_id`);
+    }
+    let text = fs.readFileSync(tomlPath, 'utf8');
+    if (/^fee_faucet_id\s*=/m.test(text)) {
+      text = text.replace(/^fee_faucet_id\s*=.*/m, `fee_faucet_id = "${id}"`);
+    } else {
+      text = `fee_faucet_id = "${id}"\n${text}`;
+    }
+    fs.writeFileSync(tomlPath, text);
+  }
+
   /** Set once a deployment has failed for want of a fee, which is how the chain reveals it charges. */
   private chainChargesFees = false;
   private readonly fundedForFees = new Set<string>();
@@ -316,6 +336,10 @@ export class MidenCli {
   }
 
   private async importFunders(): Promise<string[]> {
+    if (!this.initialized) {
+      await this.init();
+      return this.funderIds;
+    }
     const dir = MidenCli.funderDir();
     const files = fs.existsSync(dir)
       ? fs
@@ -335,6 +359,9 @@ export class MidenCli {
       if (fs.existsSync(nativeFaucet)) {
         const imported = await this.run(`import ${nativeFaucet}`, { timeoutMs: 120_000 });
         this.nativeFaucetId = imported.stdout.match(/imported account\s+(0x[0-9a-f]+)/i)?.[1];
+        if (this.nativeFaucetId) {
+          this.writeFeeFaucetId(this.nativeFaucetId);
+        }
       }
       for (const f of files) {
         const imported = await this.run(`import ${path.join(dir, f)}`, { timeoutMs: 120_000 });
