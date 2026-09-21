@@ -52,8 +52,19 @@ jest.mock('./components', () => {
         value
       ),
     // The shared hero: a probe that keeps the figure, its caption and the change line assertable.
-    EarnHero: ({ labelId, value, label, meta }: { labelId: string; value: string; label: string; meta?: string }) =>
-      R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, `${value} ${label} ${meta ?? ''}`),
+    // The figure and the change line are NODES (a live one is an `AnimatedNumber`), so they are
+    // rendered as children rather than interpolated into a string.
+    EarnHero: ({
+      labelId,
+      value,
+      label,
+      meta
+    }: {
+      labelId: string;
+      value: React.ReactNode;
+      label: string;
+      meta?: React.ReactNode;
+    }) => R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, value, ' ', label, ' ', meta),
     // The token mark that replaced the "{asset} on {network}" pill in the header.
     EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
       R.createElement(

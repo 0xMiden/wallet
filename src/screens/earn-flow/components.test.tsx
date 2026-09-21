@@ -267,9 +267,10 @@ describe('EarnSummaryPanel', () => {
   it('leads with the figure, then the caption and the blended APY line', () => {
     const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" showMetrics={false} />);
 
-    expect(screen.getByText('$218.32')).toHaveClass('text-display', 'text-ink');
+    // Both figures are `AnimatedNumber`s, so the type is on the slot the hero renders around them.
+    expect(screen.getByText('$218.32').closest('div')).toHaveClass('text-display', 'text-ink');
     expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-label', 'text-muted');
-    expect(screen.getByText('earnEarningBlendedApy')).toHaveClass('text-value', 'text-positive-tint-ink');
+    expect(screen.getByText('earnEarningBlendedApy').closest('p')).toHaveClass('text-value', 'text-positive-tint-ink');
     // The figure precedes its caption — the same order the vault page's APY hero takes.
     expect((container.querySelector('section') as HTMLElement).textContent).toBe(
       '$218.32earnTotalEarnedRewardsearnEarningBlendedApy'
