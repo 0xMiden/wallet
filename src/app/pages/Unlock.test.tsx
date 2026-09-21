@@ -945,6 +945,25 @@ describe('an unlock attempt in flight holds every input, and the latest failure 
       expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
       expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
     });
+
+    // The announcement is captured, so every time it is re-derived it must capture again: otherwise
+    // the tap after a failed attempt announces the time the screen was opened with.
+    it('recaptures the time left when the announcement returns after a failed biometric', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE }; // a 10-minute lockout, from now
+      await renderUnlock();
+      await advance(5 * 60_000);
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the next attempt stays pending
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay 05:00');
+    });
   });
 });
 
