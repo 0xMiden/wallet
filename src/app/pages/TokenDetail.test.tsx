@@ -633,18 +633,19 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
-    it('renders a short, middle-truncated contract id (not the raw id) in the regular value style', () => {
+    it('renders the faucet id as the same trimmed, copyable chip the transaction page uses', () => {
       renderPage({ network: { name: 'Devnet' } });
 
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
       // The shared DetailCard: `fill`, 16px radius, hairlines between rows.
       expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
-      expect(within(contract).getByText('contract')).toBeInTheDocument();
+      // One name for one thing: "Faucet ID", as the transaction detail page says it.
+      expect(within(contract).getByText('faucetId')).toBeInTheDocument();
 
       const copy = within(contract).getByTestId('token-detail-copy-contract');
-      // A bare copy control in the row's value style, its id truncated in the middle, not the
-      // full 49-char id.
+      // The shared `HashChip`, so the id is trimmed by the app's one truncation helper
+      // rather than a page-local copy of it - never the full 49-char id.
       expect(copy).toHaveClass('text-ink');
       expect(copy).not.toHaveTextContent(TOKEN_ID);
       expect(copy).toHaveTextContent(TOKEN_ID.slice(0, 7));
@@ -654,7 +655,7 @@ describe('TokenDetail', () => {
       expect(within(info).getByText('Devnet')).toBeInTheDocument();
     });
 
-    it('copies the full contract id, not the truncated display value', async () => {
+    it('copies the full faucet id, not the truncated display value', async () => {
       mockClipboardWrite.mockResolvedValue(undefined);
       renderPage();
 

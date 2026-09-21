@@ -9,12 +9,12 @@ import { useAppEnv } from 'app/env';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
+import HashChip from 'app/templates/HashChip';
 import History from 'app/templates/history/History';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { Button, ButtonVariant } from 'components/ui/Button';
-import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill, PillTone } from 'components/ui/Pill';
@@ -55,9 +55,6 @@ const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
 // follows the token rather than a hex literal.
 const CHART_CONFIG = { price: { color: 'var(--accent-primary)' } };
 const CHART_STROKE = 'var(--color-price)';
-
-/** `mtst1eth…9k2p`: the first 8 and last 4 characters of an id. */
-const shortenId = (id: string) => (id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id);
 
 function formatTooltipTime(timestamp: number, tf: Timeframe): string {
   const date = new Date(timestamp);
@@ -291,17 +288,13 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard>
-        {/* A bare copy glyph beside the middle-truncated id, in the row's value style; the full id
-            is what gets copied. */}
-        <DetailRow label={t('contract')} data-testid="token-detail-contract">
-          <CopyButton
-            text={tokenId}
-            label={shortenId(tokenId)}
-            icon="leading"
-            className="min-w-0 text-ink"
-            contentClassName="text-value"
-            data-testid="token-detail-copy-contract"
-          />
+        {/* The faucet that mints this token, under the same label and in the same copyable,
+            middle-truncated chip the transaction detail page gives every faucet id. Was a
+            page-local `shortenId` behind a "Contract" label - one id, trimmed two ways and
+            named two things across two screens (and translated as a legal contract in half
+            the locales). The full id is what gets copied. */}
+        <DetailRow label={t('faucetId')} data-testid="token-detail-contract">
+          <HashChip hash={tokenId} trimHash data-testid="token-detail-copy-contract" />
         </DetailRow>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
         <DetailRow label={t('network')}>
