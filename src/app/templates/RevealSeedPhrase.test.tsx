@@ -447,6 +447,25 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'view')!.disabled).toBe(false);
   });
 
+  // Retry must survive its own click. Clearing the error at the START of a probe
+  // unmounted the block the button lives in, so a read that HANGS rather than
+  // rejecting left a disabled View, no Retry and only Close.
+  it('keeps the error and the Retry on screen while a retry is still in flight', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
+    const container = await render();
+
+    mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
+    await act(async () => {
+      buttonWithText(container, 'retry')!.click();
+    });
+
+    expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+    const retry = buttonWithText(container, 'retry');
+    expect(retry).toBeTruthy();
+    expect(retry!.disabled).toBe(true);
+  });
+
   it.each(['close', 'back'])('returns to Settings via %s on the warning', async control => {
     const container = await render();
     const target =

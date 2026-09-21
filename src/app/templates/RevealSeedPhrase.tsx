@@ -72,6 +72,8 @@ const RevealSeedPhrase: FC = () => {
   // its own surface on the warning step with a Retry, because the failure is
   // transient and the mount probe runs once.
   const [probeError, setProbeError] = useState<string | null>(null);
+  const [probing, setProbing] = useState(false);
+  const probeGeneration = useRef(0);
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -106,7 +108,6 @@ const RevealSeedPhrase: FC = () => {
   // unavailable - see `probeError`. Off desktop and mobile `hasHardwareProtector`
   // returns false without touching storage, so none of this runs there.
   const probe = useCallback(async () => {
-    setProbeError(null);
     try {
       return await Vault.hasHardwareProtector();
     } catch {
@@ -114,29 +115,43 @@ const RevealSeedPhrase: FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    if (seedStatus && seedStatus !== 'stored') return;
-    let cancelled = false;
+  // One runner for both entry points. The token is defence in depth, not the active
+  // guard: what actually stops two probes overlapping today is the Retry being
+  // `disabled` while `probing` (and View likewise until the first settles), so the
+  // out-of-order case is unreachable through the UI and has no test. It stays because
+  // the invariant should not depend on a button's disabled prop - drop that and a
+  // stale rejection would set the banner back over an already-enabled View. The
+  // reveal path guards its own settles the same way with `secretGeneration`.
+  //
+  // The error is cleared when a probe SETTLES, never when one starts. Clearing at the
+  // start unmounted the very block the Retry button lives in, so the affordance
+  // deleted itself on click - and if the read hangs rather than rejects, nothing
+  // would bring it back.
+  // Stores the message KEY, not the message: `t` is a fresh identity on every render
+  // under the app's i18n provider, so depending on it here churns this callback and
+  // the effect below re-runs forever. Translated at the render site instead.
+  const runProbe = useCallback(() => {
+    const generation = (probeGeneration.current += 1);
+    setProbing(true);
     probe()
       .then(hasHw => {
-        if (!cancelled) setHasHardwareProtector(hasHw);
+        if (generation !== probeGeneration.current) return;
+        setProbeError(null);
+        setHasHardwareProtector(hasHw);
       })
       .catch(() => {
-        if (!cancelled) setProbeError(t('couldNotCheckUnlockMethod'));
+        if (generation !== probeGeneration.current) return;
+        setProbeError('couldNotCheckUnlockMethod');
+      })
+      .finally(() => {
+        if (generation === probeGeneration.current) setProbing(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [probe]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [probe]);
 
-  // Re-runs the mount probe. Safe to hang off a button in a way a reveal is not:
-  // this is a storage read, so there is no credential prompt to double-fire and
-  // nothing to await inside the reveal path.
-  const handleProbeRetry = useCallback(() => {
-    probe()
-      .then(setHasHardwareProtector)
-      .catch(() => setProbeError(t('couldNotCheckUnlockMethod')));
-  }, [probe, t]);
+  useEffect(() => {
+    if (seedStatus && seedStatus !== 'stored') return;
+    runProbe();
+  }, [runProbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No haptic here: Button fires one on every click.
   const handleView = useCallback(() => {
@@ -275,8 +290,15 @@ const RevealSeedPhrase: FC = () => {
 
         {probeError && (
           <div className="px-4 pt-4">
-            <Alert type="error" title={t('error')} description={probeError} className="rounded-lg text-ink" />
-            <Button className="mt-3" variant={ButtonVariant.Secondary} title={t('retry')} onClick={handleProbeRetry} />
+            <Alert type="error" title={t('error')} description={t(probeError)} className="rounded-lg text-ink" />
+            <Button
+              className="mt-3"
+              variant={ButtonVariant.Secondary}
+              title={t('retry')}
+              onClick={runProbe}
+              disabled={probing}
+              isLoading={probing}
+            />
           </div>
         )}
 
@@ -360,9 +382,12 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  // Auth error fallback. It has to offer a way out AND a way on: the catch no longer
-  // navigates, and the back arrow alone is dead here - `leave` is latched once per
-  // location, so the first press that claimed it has already been spent.
+  // Auth error fallback. It has to offer a way out AND a way on, because nothing else
+  // leaves this branch any more: the catch no longer navigates, and the auto-close
+  // effect above is gated on `authError === null`. The back arrow does work - an
+  // earlier note here claimed it was spent by the latch, which cannot happen, since
+  // any `leave()` bumps the generation and the catch then returns before setting
+  // `authError` at all, so reaching this view proves no `leave()` has run.
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
