@@ -185,14 +185,15 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [errorCount, setErrorCount] = useState(0);
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
-  // The time left, captured whenever the announcement is re-derived: when the lockout starts, when
-  // this screen mounts, and when a failed biometric attempt during the lockout clears again. Never
-  // on a clock tick (see `announcement`). `biometricError` is read here, not just listed: the
-  // announcement shows the failure instead of a duration while it is set, and a dependency the body
-  // ignores is an unnecessary-dependency warning under `yarn lint`. `t` stays out, so its identity
+  // What the live region says while a lockout runs, captured whenever it is re-derived: when the
+  // lockout starts, when this screen mounts, and on each biometric failure or retry during it.
+  // Never on a clock tick (see `announcement`). Synchronous by design: an effect writing this into
+  // state would leave the transition render announcing the previous capture. `afterFailure` records
+  // what the transition was, which is also why reading `biometricError` here is real work rather
+  // than a dependency the body ignores (which `yarn lint` rejects). `t` stays out, so its identity
   // cannot re-read the clock.
-  const lockoutLeftMs = useMemo(
-    () => (isDisabled && !biometricError ? timelock + lockLevel - Date.now() : 0),
+  const lockout = useMemo(
+    () => (isDisabled ? { leftMs: timelock + lockLevel - Date.now(), afterFailure: biometricError } : null),
     [isDisabled, biometricError, timelock, lockLevel]
   );
 
@@ -457,15 +458,17 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   // What a screen reader hears. It changes only when the STATE does, never on a clock tick: the
   // visible countdown below re-renders every second, and inside a live region that re-announced
-  // the remaining time sixty times a minute. So it carries the time left as captured when the
-  // lockout started or the screen mounted - the sentence ends where the duration goes, so dropping
-  // it would announce "...blocked for" - or, after a failed biometric attempt during the lockout,
-  // that failure: the live region shows `announcement ?? message`, so it must branch here.
-  const announcement = !isDisabled
-    ? undefined
-    : biometricError
-      ? t('biometricFailed')
-      : `${t('unlockPasswordErrorDelay')} ${formatDuration(lockoutLeftMs)}`;
+  // the remaining time sixty times a minute. So it carries the time left as captured at the last
+  // transition - the sentence ends where the duration goes, so dropping it would announce
+  // "...blocked for". A failed biometric attempt is announced WITH the lockout, never instead of
+  // it: the countdown is aria-hidden, so a region naming only the failure would leave a screen
+  // reader with no way to learn the wallet is locked or for how long.
+  const announcement =
+    lockout === null
+      ? undefined
+      : lockout.afterFailure
+        ? `${t('biometricFailed')} ${t('unlockPasswordErrorDelay')} ${formatDuration(lockout.leftMs)}`
+        : `${t('unlockPasswordErrorDelay')} ${formatDuration(lockout.leftMs)}`;
   const subtitle = isDisabled
     ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
     : isError

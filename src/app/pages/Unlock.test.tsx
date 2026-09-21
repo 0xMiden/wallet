@@ -1058,6 +1058,20 @@ describe('an unlock attempt in flight holds every input, and the latest failure 
       expect(screen.getByTestId('numpad-biometric')).not.toBeDisabled();
     });
 
+    it('announces the lockout WITH a biometric failure, never instead of it', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('biometricFailed');
+      // The countdown is aria-hidden, so a region naming only the failure would leave a screen
+      // reader with no way to learn the wallet is locked or for how long.
+      expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+    });
+
     it('clears a partly typed code when a biometric retry fails, as a rejected passcode does', async () => {
       const { container } = await renderUnlock();
       type(container, '12');
