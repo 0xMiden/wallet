@@ -169,7 +169,7 @@ describe('native-notifications', () => {
             channelId: 'miden_notes',
             extra: {
               type: 'note_received',
-              navigateTo: '/pending-notes'
+              navigateTo: '/history?filter=pending'
             }
           })
         ]
@@ -217,13 +217,13 @@ describe('native-notifications', () => {
       // Simulate notification tap
       await capturedCallback!({
         notification: {
-          extra: { navigateTo: '/pending-notes' }
+          extra: { navigateTo: '/history?filter=pending' }
         }
       });
 
       jest.advanceTimersByTime(200);
 
-      expect(navigate).toHaveBeenCalledWith('/pending-notes');
+      expect(navigate).toHaveBeenCalledWith('/history?filter=pending');
 
       jest.useRealTimers();
     });
