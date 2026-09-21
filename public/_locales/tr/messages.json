@@ -4627,6 +4627,10 @@
     "message": "guardian'a özel URL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "faucet'daki hesap kimliği",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "İlk katılımda 'Veli yok' seçeneğine izin ver",
     "englishSource": "Allow 'No guardian' option in onboarding"

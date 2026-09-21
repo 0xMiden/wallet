@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet URL de la API",
   "devEndpointExplorer": "URL del Explorador",
   "devEndpointGuardian": "URL personalizada de guardian",
+  "devEndpointFeeFaucet": "faucet de la cuenta para el pago de comisiones",
   "devAllowNoGuardian": "Permitir la opción \"Sin tutor\" en la incorporación",
   "devEndpointChecking": "Comprobando…",
   "devEndpointReachable": "El servidor está accesible",

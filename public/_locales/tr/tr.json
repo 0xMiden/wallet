@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet API URL'si",
   "devEndpointExplorer": "Explorer URL'si",
   "devEndpointGuardian": "guardian'a özel URL",
+  "devEndpointFeeFaucet": "faucet'daki hesap kimliği",
   "devAllowNoGuardian": "İlk katılımda 'Veli yok' seçeneğine izin ver",
   "devEndpointChecking": "Kontrol ediliyor…",
   "devEndpointReachable": "Sunucuya erişim sağlanıyor",

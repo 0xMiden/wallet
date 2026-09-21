@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet Adres URL interfejsu API",
   "devEndpointExplorer": "Adres URL przeglądarki Explorer",
   "devEndpointGuardian": "Niestandardowy adres URL guardian",
+  "devEndpointFeeFaucet": "Opłata faucet identyfikator konta",
   "devAllowNoGuardian": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
   "devEndpointChecking": "Sprawdzam…",
   "devEndpointReachable": "Serwer jest dostępny",

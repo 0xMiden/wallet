@@ -4627,6 +4627,10 @@
     "message": "Індивідуальна URL-адреса guardian",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Комісія faucet ідентифікатор рахунку",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Дозволити опцію «Без опікуна» під час реєстрації",
     "englishSource": "Allow 'No guardian' option in onboarding"

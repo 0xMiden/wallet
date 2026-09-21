@@ -4627,6 +4627,10 @@
     "message": "Пользовательский URL-адрес guardian",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Идентификатор счета Fee faucet",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Разрешить опцию «Нет опекуна» при регистрации",
     "englishSource": "Allow 'No guardian' option in onboarding"

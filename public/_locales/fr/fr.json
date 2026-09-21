@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet URL de l'API",
   "devEndpointExplorer": "URL de l'Explorateur",
   "devEndpointGuardian": "URL personnalisée guardian",
+  "devEndpointFeeFaucet": "faucet des frais – identifiant du compte",
   "devAllowNoGuardian": "Autoriser l'option « Aucun tuteur » lors de l'intégration",
   "devEndpointChecking": "Vérification en cours…",
   "devEndpointReachable": "Hôte accessible",
