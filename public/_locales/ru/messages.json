@@ -4703,6 +4703,10 @@
       }
     }
   },
+  "qrShareCardHint": {
+    "message": "Отсканируйте, чтобы отправить в этот кошелек",
+    "englishSource": "Scan to send to this wallet"
+  },
   "activityRejectExplanation": {
     "message": "Скрыть этот перевод из Активности на этом устройстве? Это не вернёт средства отправителю и не отменит перевод. Скрытые переводы можно восстановить в Активности.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."

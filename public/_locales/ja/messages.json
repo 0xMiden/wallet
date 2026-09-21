@@ -4703,6 +4703,10 @@
       }
     }
   },
+  "qrShareCardHint": {
+    "message": "このウォレットに送るにはスキャンしてください",
+    "englishSource": "Scan to send to this wallet"
+  },
   "activityRejectExplanation": {
     "message": "この送金をこの端末のアクティビティから非表示にしますか？資金が送信者に返却されたり、送金が取り消されたりすることはありません。非表示にした送金はアクティビティから元に戻せます。",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."

@@ -4703,6 +4703,10 @@
       }
     }
   },
+  "qrShareCardHint": {
+    "message": "Scannez pour envoyer vers ce portefeuille",
+    "englishSource": "Scan to send to this wallet"
+  },
   "activityRejectExplanation": {
     "message": "Masquer ce transfert de l'Activité sur cet appareil ? Cela ne renvoie pas les fonds à l'expéditeur et n'annule pas le transfert. Vous pouvez restaurer les transferts masqués dans l'Activité.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."

@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Podłącz wyłącznie portfel testowy",
   "bridgeTestFundsTitle": "Wyłącznie środki testowe",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Zeskanuj, aby wysłać do tego portfela",
   "activityRejectExplanation": "Ukryć ten transfer w Aktywności na tym urządzeniu? Nie spowoduje to zwrotu środków do nadawcy ani anulowania transferu. Ukryte transfery możesz przywrócić w Aktywności.",
   "activitySearch": "Aktywność wyszukiwania",
   "activityFilters": "Filtry aktywności",

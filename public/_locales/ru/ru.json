@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Подключайте только тестовый кошелек",
   "bridgeTestFundsTitle": "Только тестовые средства",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Отсканируйте, чтобы отправить в этот кошелек",
   "activityRejectExplanation": "Скрыть этот перевод из Активности на этом устройстве? Это не вернёт средства отправителю и не отменит перевод. Скрытые переводы можно восстановить в Активности.",
   "activitySearch": "Активность поиска",
   "activityFilters": "Фильтры активности",

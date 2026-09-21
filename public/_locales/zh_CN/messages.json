@@ -4703,6 +4703,10 @@
       }
     }
   },
+  "qrShareCardHint": {
+    "message": "扫描以向此钱包转账",
+    "englishSource": "Scan to send to this wallet"
+  },
   "activityRejectExplanation": {
     "message": "在此设备的活动中隐藏这笔转账？此操作不会将资金退回发送方，也不会取消转账。您可以在活动中恢复已隐藏的转账。",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."

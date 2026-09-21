@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Yalnızca bir test cüzdanını bağlayın",
   "bridgeTestFundsTitle": "Yalnızca test fonları",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Bu cüzdana göndermek için tarayın",
   "activityRejectExplanation": "Bu transfer bu cihazdaki Etkinlik'ten gizlensin mi? Bu, parayı gönderene iade etmez ve transferi iptal etmez. Gizlenen transferleri Etkinlik'ten geri getirebilirsiniz.",
   "activitySearch": "Arama etkinliği",
   "activityFilters": "Etkinlik filtreleri",

@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Conecta únicamente un monedero de prueba",
   "bridgeTestFundsTitle": "Fondos de prueba únicamente",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Escanea para enviar a esta cartera",
   "activityRejectExplanation": "¿Ocultar esta transferencia de la Actividad en este dispositivo? Esto no devuelve los fondos al remitente ni cancela la transferencia. Puedes restaurar las transferencias ocultas en Actividad.",
   "activitySearch": "Actividad de búsqueda",
   "activityFilters": "Filtros de actividad",

@@ -4703,6 +4703,10 @@
       }
     }
   },
+  "qrShareCardHint": {
+    "message": "Scannen, um an diese Wallet zu senden",
+    "englishSource": "Scan to send to this wallet"
+  },
   "activityRejectExplanation": {
     "message": "Diese Überweisung auf diesem Gerät aus der Aktivität ausblenden? Dadurch werden weder Mittel an den Absender zurückgegeben noch die Überweisung storniert. Ausgeblendete Überweisungen können Sie in der Aktivität wiederherstellen.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."

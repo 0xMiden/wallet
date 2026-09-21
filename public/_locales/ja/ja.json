@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "テスト用ウォレットのみを接続してください",
   "bridgeTestFundsTitle": "テスト用資金のみ",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "このウォレットに送るにはスキャンしてください",
   "activityRejectExplanation": "この送金をこの端末のアクティビティから非表示にしますか？資金が送信者に返却されたり、送金が取り消されたりすることはありません。非表示にした送金はアクティビティから元に戻せます。",
   "activitySearch": "検索履歴",
   "activityFilters": "アクティビティのフィルター",

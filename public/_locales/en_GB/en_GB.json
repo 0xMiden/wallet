@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Connect a test wallet only",
   "bridgeTestFundsTitle": "Test funds only",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Scan to send to this wallet",
   "activityRejectExplanation": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity.",
   "activitySearch": "Search activity",
   "activityFilters": "Activity filters",

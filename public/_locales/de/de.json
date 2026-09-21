@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Verbinden Sie nur eine Test-Wallet",
   "bridgeTestFundsTitle": "Nur Testguthaben",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Scannen, um an diese Wallet zu senden",
   "activityRejectExplanation": "Diese Überweisung auf diesem Gerät aus der Aktivität ausblenden? Dadurch werden weder Mittel an den Absender zurückgegeben noch die Überweisung storniert. Ausgeblendete Überweisungen können Sie in der Aktivität wiederherstellen.",
   "activitySearch": "Suchaktivität",
   "activityFilters": "Aktivitätsfilter",

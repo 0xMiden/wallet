@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "테스트 지갑만 연결하십시오",
   "bridgeTestFundsTitle": "테스트 자금 전용",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "이 지갑으로 보내려면 스캔하세요",
   "activityRejectExplanation": "이 이체를 이 기기의 활동에서 숨길까요? 자금이 보낸 사람에게 반환되거나 이체가 취소되지는 않습니다. 숨긴 이체는 활동에서 다시 표시할 수 있습니다.",
   "activitySearch": "검색 활동",
   "activityFilters": "활동 필터",

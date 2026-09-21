@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Підключайте лише тестовий гаманець",
   "bridgeTestFundsTitle": "Тільки тестові кошти",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Скануйте, щоб надіслати на цей гаманець",
   "activityRejectExplanation": "Сховати цей переказ з Активності на цьому пристрої? Це не поверне кошти відправнику й не скасує переказ. Приховані перекази можна відновити в Активності.",
   "activitySearch": "Активність пошуку",
   "activityFilters": "Фільтри активності",

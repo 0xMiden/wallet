@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "仅连接测试钱包",
   "bridgeTestFundsTitle": "仅限测试资金",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "扫描以向此钱包转账",
   "activityRejectExplanation": "在此设备的活动中隐藏这笔转账？此操作不会将资金退回发送方，也不会取消转账。您可以在活动中恢复已隐藏的转账。",
   "activitySearch": "搜索活动",
   "activityFilters": "活动筛选",

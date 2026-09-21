@@ -4703,6 +4703,10 @@
       }
     }
   },
+  "qrShareCardHint": {
+    "message": "Digitalize para enviar para esta carteira",
+    "englishSource": "Scan to send to this wallet"
+  },
   "activityRejectExplanation": {
     "message": "Ocultar esta transferência da Atividade neste dispositivo? Isto não devolve fundos ao remetente nem cancela a transferência. Pode restaurar as transferências ocultas na Atividade.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."

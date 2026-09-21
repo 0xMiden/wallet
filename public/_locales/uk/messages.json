@@ -4703,6 +4703,10 @@
       }
     }
   },
+  "qrShareCardHint": {
+    "message": "Скануйте, щоб надіслати на цей гаманець",
+    "englishSource": "Scan to send to this wallet"
+  },
   "activityRejectExplanation": {
     "message": "Сховати цей переказ з Активності на цьому пристрої? Це не поверне кошти відправнику й не скасує переказ. Приховані перекази можна відновити в Активності.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."

@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Conecte apenas uma carteira de teste",
   "bridgeTestFundsTitle": "Apenas fundos de teste",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Digitalize para enviar para esta carteira",
   "activityRejectExplanation": "Ocultar esta transferência da Atividade neste dispositivo? Isto não devolve fundos ao remetente nem cancela a transferência. Pode restaurar as transferências ocultas na Atividade.",
   "activitySearch": "Atividade de pesquisa",
   "activityFilters": "Filtros de atividade",

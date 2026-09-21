@@ -1073,6 +1073,7 @@
   "evmConnectTestWalletTitle": "Connectez uniquement un portefeuille de test",
   "bridgeTestFundsTitle": "Fonds de test uniquement",
   "qrNetworkCaption": "Miden $network$",
+  "qrShareCardHint": "Scannez pour envoyer vers ce portefeuille",
   "activityRejectExplanation": "Masquer ce transfert de l'Activité sur cet appareil ? Cela ne renvoie pas les fonds à l'expéditeur et n'annule pas le transfert. Vous pouvez restaurer les transferts masqués dans l'Activité.",
   "activitySearch": "Activité de recherche",
   "activityFilters": "Filtres d'activité",
