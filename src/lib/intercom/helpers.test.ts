@@ -6,7 +6,7 @@ import {
   type SpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
 
-import { DEFAULT_ERROR_MESSAGE, deserializeError, IntercomError, serializeError } from './helpers';
+import { DEFAULT_ERROR_MESSAGE, deserializeError, IntercomError, serializeError, serializeErrorForPage } from './helpers';
 
 describe('intercom helpers', () => {
   it('serializes plain errors and arrays', () => {
@@ -79,5 +79,43 @@ describe('intercom helpers', () => {
     expect(err).toBeInstanceOf(Error);
     // The consumer expression itself, verbatim — this is what the screens run.
     expect(err instanceof Error ? err.message : String(err)).toBe('No Guardian accounts found for this seed');
+  });
+
+  it('strips spending-limit and code fields at the page boundary', () => {
+    // The page-facing serializer must never leak code, assessment, or symbol to an untrusted
+    // dApp, even when the error carries them. Build an error the realistic way: through
+    // serializeError + deserializeError, so it carries the restored fields exactly as the
+    // content script would receive it.
+    const assessment: SpendingLimitAssessment = {
+      accountId: 'account-a',
+      usdAmount: 50n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breach: { spent: 45n, proposedTotal: 55n, limit: 50n, overBy: 5n, resetAt: 200 }
+    };
+    const spendingLimitError = new SpendingLimitAuthorizationRequiredError(assessment);
+    const restored = deserializeError(serializeError(spendingLimitError));
+
+    // Confirm the restored error has code (the main field the page-facing serializer should strip).
+    expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
+
+    // Pass through the page-facing serializer.
+    const pageSerialized = serializeErrorForPage(restored);
+
+    // Assert it contains ONLY the message, never code, assessment, or symbol.
+    expect(pageSerialized).toBe(restored.message);
+    expect(typeof pageSerialized).toBe('string');
+    expect((pageSerialized as any).code).toBeUndefined();
+    expect((pageSerialized as any).assessment).toBeUndefined();
+    expect((pageSerialized as any).symbol).toBeUndefined();
+  });
+
+  it('preserves [message, errors] shape at the page boundary', () => {
+    const error = { message: 'Operation failed', errors: ['detail-1', 'detail-2'] };
+
+    const pageSerialized = serializeErrorForPage(error);
+
+    expect(pageSerialized).toEqual(['Operation failed', ['detail-1', 'detail-2']]);
+    expect((pageSerialized as any).code).toBeUndefined();
   });
 });

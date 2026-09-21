@@ -52,6 +52,9 @@ function serializeSpendingLimitPayload(err: any): SpendingLimitWirePayload | und
  *
  * The old two wire shapes (a bare string, and `[message, errors]`) still decode exactly as before -
  * the object shape below is additive, taken only when there is a `code` or a payload to carry.
+ *
+ * IMPORTANT: This function is for the wallet-internal intercom only. DO NOT use it at the
+ * untrusted-page boundary (contentScript.ts sending to a dApp). Use serializeErrorForPage instead.
  */
 export function serializeError(err: any): SerializedError {
   const message = err?.message || DEFAULT_ERROR_MESSAGE;
@@ -69,6 +72,23 @@ export function serializeError(err: any): SerializedError {
     ...(code !== undefined && { code }),
     ...(spendingLimit !== undefined && { spendingLimit })
   };
+}
+
+/**
+ * Serialize an error for posting to an untrusted page (a dApp), intentionally narrower than
+ * serializeError. This function ONLY includes the message and errors array - never code,
+ * assessment, symbol, or any other fields, even if the error carries them.
+ *
+ * This is the guard at the page boundary: before this change, a page could only receive
+ * a message. If serializeError is used here instead, spending-limit assessments and asset
+ * symbols would leak to an untrusted site. This narrower function restores that guarantee.
+ *
+ * For the wallet-internal intercom (SW <-> popup/content-script), use serializeError instead.
+ */
+export function serializeErrorForPage(err: any): SerializedError {
+  const message = err?.message || DEFAULT_ERROR_MESSAGE;
+  const errors = Array.isArray(err?.errors) && err.errors.length > 0 ? err.errors : undefined;
+  return errors !== undefined ? [message, errors] : message;
 }
 
 export function deserializeError(data: any): IntercomError {
