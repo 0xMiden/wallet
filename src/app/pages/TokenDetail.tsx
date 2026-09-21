@@ -14,6 +14,7 @@ import History from 'app/templates/history/History';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
@@ -21,7 +22,7 @@ import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
@@ -89,7 +90,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const scaleIsKnown = hasKnownScale(metadata);
   // An em dash, not a translated phrase: this slot is a number in the hero,
   // and the header above it already names the token.
-  const heroBalance = scaleIsKnown ? toAdaptiveFixed(balance) : '—';
+  const formatBalance = adaptiveFormatterFor(balance);
+  const formatFiat = adaptiveFormatterFor(fiatValue);
 
   const handleBack = () => goBack();
 
@@ -109,8 +111,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <Hero
             data-testid="token-detail-hero"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
-            value={heroBalance}
-            subtitle={scaleIsKnown ? `$${toAdaptiveFixed(fiatValue)}` : undefined}
+            value={<AnimatedNumber value={scaleIsKnown ? balance : null} format={formatBalance} placeholder="—" />}
+            subtitle={
+              scaleIsKnown ? <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} /> : undefined
+            }
           />
 
           <div className="flex gap-2.5">
@@ -202,6 +206,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const yDomain: [number, number] = [minVal - padding, maxVal + padding];
 
   const change = priceChange(priceInfo.change24h);
+  // Three decimals is the price line's own shape (`toAdaptiveFixed(price, 3)`), pinned to the
+  // destination so a count does not change how many it shows on the way.
+  const formatPrice = (value: number) => `$${adaptiveFormatterFor(priceInfo.price, 3)(value)}`;
 
   // Sits on `page`, not a `Card`: a status pill's ink only clears 4.5:1 on `page` (see `Pill`), and
   // the chart reads better at the full content width than inset in a card.
@@ -211,9 +218,18 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         {t('tokenPrice')}
       </SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
-        <span className="min-w-0 truncate text-hero-value text-ink">${toAdaptiveFixed(priceInfo.price, 3)}</span>
+        <AnimatedNumber
+          className="min-w-0 truncate text-hero-value text-ink"
+          value={priceInfo.price}
+          format={formatPrice}
+        />
+        {/* The tone is the SHOWN change's, read once from the destination, so the pill does not
+            change colour on its way there; the label follows each frame. */}
         <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
-          {t('tokenDetailChange24h', { change: change.label })}
+          <AnimatedNumber
+            value={priceInfo.change24h}
+            format={value => t('tokenDetailChange24h', { change: priceChange(value).label })}
+          />
         </Pill>
       </div>
       <div className="mt-4 h-28">

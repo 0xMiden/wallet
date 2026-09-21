@@ -3,8 +3,9 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
@@ -70,18 +71,27 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 const scaleIsKnown = held ? hasKnownScale(held.metadata) : true;
                 const balance = held?.balance ?? 0;
                 const price = tokenPrices[token.symbol]?.price;
-                const fiat =
-                  scaleIsKnown && price !== undefined && balance > 0
-                    ? `$${toAdaptiveFixed(balance * price)}`
-                    : undefined;
+                const fiatValue = scaleIsKnown && price !== undefined && balance > 0 ? balance * price : undefined;
+                const formatQuantity = adaptiveFormatterFor(balance);
+                const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
 
                 return (
                   <AssetListItem
                     key={token.faucetId}
                     icon={<TokenLogo symbol={token.logoSymbol} />}
                     name={token.symbol}
-                    amount={scaleIsKnown ? `${toAdaptiveFixed(balance)} ${token.symbol}` : token.symbol}
-                    price={fiat}
+                    amount={
+                      scaleIsKnown ? (
+                        <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${token.symbol}`} />
+                      ) : (
+                        token.symbol
+                      )
+                    }
+                    price={
+                      fiatValue === undefined ? undefined : (
+                        <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
+                      )
+                    }
                     selected={token.faucetId === currentFaucetId}
                     accent="swap"
                     onClick={() => onSelectToken(token)}

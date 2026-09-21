@@ -198,6 +198,9 @@ jest.mock('framer-motion', () => {
       ) => ReactActual.createElement(tag, { ...rest, ref, 'data-layout-id': layoutId }, children)
     );
   return {
+    // The real module underneath, so the value helpers `AnimatedNumber` uses (`useMotionValue`,
+    // `animate`) are the real ones; only the element factories below are stubbed.
+    ...jest.requireActual('framer-motion'),
     __esModule: true,
     motion: new Proxy({}, { get: (_target, tag: string) => (cache[tag] ??= build(tag)) }),
     AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
@@ -301,8 +304,9 @@ describe('TokenDetail', () => {
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.
-    expect(within(hero).getByText('12.50')).toHaveClass('text-hero-value', 'text-ink');
-    expect(within(hero).getByText('$25000.00')).toHaveClass('text-muted');
+    // Both figures are `AnimatedNumber`s now, so the type is on the slot Hero renders around them.
+    expect(within(hero).getByText('12.50').closest('div')).toHaveClass('text-hero-value', 'text-ink');
+    expect(within(hero).getByText('$25000.00').closest('p')).toHaveClass('text-muted');
   });
 
   it('expands precision for a small non-zero hero balance and fiat value', () => {

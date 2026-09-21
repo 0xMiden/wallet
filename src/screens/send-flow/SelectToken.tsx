@@ -3,9 +3,10 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
 import { SearchInput } from 'components/ui/SearchInput';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenPrice } from 'lib/prices';
@@ -74,13 +75,29 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
               {filteredBalances.map(b => {
                 const scaleIsKnown = hasKnownScale(b.metadata);
                 const price = getTokenPrice(tokenPrices, b.metadata.symbol).price;
+                const fiatValue = b.balance * price;
+                const formatQuantity = adaptiveFormatterFor(b.balance);
+                const formatFiat = adaptiveFormatterFor(fiatValue);
                 return (
                   <AssetListItem
                     key={b.tokenId}
                     icon={<TokenLogo symbol={b.metadata.symbol} />}
                     name={b.metadata.name || b.metadata.symbol}
-                    amount={scaleIsKnown ? `${toAdaptiveFixed(b.balance)} ${b.metadata.symbol}` : b.metadata.symbol}
-                    price={scaleIsKnown ? `$${toAdaptiveFixed(b.balance * price)}` : undefined}
+                    amount={
+                      scaleIsKnown ? (
+                        <AnimatedNumber
+                          value={b.balance}
+                          format={value => `${formatQuantity(value)} ${b.metadata.symbol}`}
+                        />
+                      ) : (
+                        b.metadata.symbol
+                      )
+                    }
+                    price={
+                      scaleIsKnown ? (
+                        <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
+                      ) : undefined
+                    }
                     data-testid={`send-token-${b.metadata.symbol}`}
                     data-token-id={b.tokenId}
                     onClick={() =>
