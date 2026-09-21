@@ -88,7 +88,7 @@ describe('PendingActivityCard', () => {
     it('shows the claim in progress as the button own loading state rather than as disabled', () => {
       renderCard('claiming');
 
-      const accept = screen.getByRole('button', { name: 'claiming' });
+      const accept = screen.getByRole('button', { name: 'activityAcceptingTransfer' });
       expect(accept).not.toBeDisabled();
       expect(accept).toHaveAttribute('aria-busy', 'true');
       expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
