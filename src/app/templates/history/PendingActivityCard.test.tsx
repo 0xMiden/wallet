@@ -206,18 +206,6 @@ describe('PendingActivityCard', () => {
       expect(screen.getByText('amount')).toBeInTheDocument();
     });
 
-    it('draws Decline and Accept as the app own pill buttons, with nothing overridden', () => {
-      renderCard('pending');
-
-      for (const name of ['activityRejectTransfer', 'activityAcceptTransfer']) {
-        const button = screen.getByRole('button', { name });
-        // The shared CTA size and radius, not a squared-off panel with its shape argued away.
-        expect(button).toHaveClass('h-12', 'rounded-full', 'text-cta');
-        expect(button.className).not.toContain('!');
-        expect(button.className).not.toContain('text-sm');
-      }
-    });
-
     it('keeps the action row static, so a filter change cannot replay a width animation', () => {
       // The footer used to expand Decline from 0 to 40% inside an `AnimatePresence`, which
       // replayed on every remount — and switching the Activity filter remounts every card.
@@ -279,6 +267,59 @@ describe('PendingActivityCard', () => {
       expect(container.querySelector('[data-pending-status="claimed"]')).toBeTruthy();
       expect(screen.queryByText('activityTransferDetails')).toBeNull();
       expect(screen.queryByTestId('pending-activity-row-status')).toHaveTextContent('pending');
+    });
+    it('explains the wait in the shared notice: one type size, upright, clear of the buttons', () => {
+      const recallable: PendingActivityItem = {
+        note: { ...note, recallableAtMs: Date.UTC(2026, 0, 2) },
+        status: 'pending'
+      };
+      render(<PendingActivityCard item={recallable} onAccept={jest.fn()} onReject={jest.fn()} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+      const notice = screen.getByTestId('pending-activity-hint');
+      expect(notice).toHaveAttribute('data-tone', 'neutral');
+      expect(notice).toHaveAttribute('role', 'status');
+      // Both lines at 13px: the explanation bold in the tone's ink, the deadline under it in the
+      // quieter one. One size, two weights — not 14px over 12px, and not a page-local grey band.
+      const explanation = notice.querySelector('[data-slot="title"]');
+      const deadline = notice.querySelector('[data-slot="body"]');
+      expect(explanation).toHaveTextContent('activityNotYetAccepted');
+      expect(explanation).toHaveClass('text-label');
+      expect(deadline).toHaveTextContent(/^noteReturnsToSenderBy/);
+      expect(deadline).toHaveClass('text-caption', 'text-muted');
+      expect(notice.className).not.toContain('italic');
+      expect(notice.className).not.toContain('text-center');
+      // The block sits in the card's own margin with room under it, so it no longer shares an
+      // edge with the action row.
+      expect(notice.parentElement).toHaveClass('px-4', 'py-3');
+    });
+    it('turns the notice negative, and says so in words, when the claim failed', () => {
+      renderCard('failed');
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+      const notice = screen.getByTestId('pending-activity-hint');
+      expect(notice).toHaveAttribute('data-tone', 'negative');
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(notice).toHaveTextContent('noteClaimFailedRetry');
+      // Nothing subordinate to say, so there is no empty second line under it.
+      expect(notice.querySelector('[data-slot="body"]')).toBeNull();
+    });
+    it('draws Decline and Accept as the app own pill buttons, at the row action size', () => {
+      renderCard('pending');
+
+      for (const name of ['activityRejectTransfer', 'activityAcceptTransfer']) {
+        const button = screen.getByRole('button', { name });
+        // The shared `sm` size — the same one the Pending list's Accept All uses — not the 48px
+        // page CTA, which took over a card whose whole row above it is 40px, and not a
+        // squared-off panel with its shape argued away.
+        expect(button).toHaveClass('h-9', 'rounded-full', 'text-cta-sm');
+        expect(button).not.toHaveClass('h-12', 'text-cta');
+        expect(button.className).not.toContain('!');
+        expect(button.className).not.toContain('text-sm');
+      }
+      // The footer's bottom padding came down with them, so a shorter button leaves no band of
+      // empty space under the card.
+      expect(screen.getByRole('button', { name: 'activityRejectTransfer' }).parentElement).toHaveClass('pb-3');
     });
   });
 });

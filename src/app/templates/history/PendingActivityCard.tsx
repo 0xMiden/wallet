@@ -1,6 +1,5 @@
 import React, { useId, useState } from 'react';
 
-import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +8,7 @@ import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
+import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
 import { formatBigInt } from 'lib/i18n/numbers';
@@ -130,9 +130,9 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
       break;
   }
 
-  // The hint belongs to the folded section, which only an open note has.
+  // The hint belongs to the folded section, which only an open note has. The tone carries the
+  // failure; the words say it too, so the block is never colour alone.
   const hint = status === 'failed' ? t('noteClaimFailedRetry') : t('activityNotYetAccepted');
-  const hintTone = status === 'failed' ? 'text-status-negative' : 'text-text-secondary-token';
 
   const rows: Array<{ key: string; label: string; value: string }> = [
     { key: 'from', label: t('from'), value: sender },
@@ -231,32 +231,47 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
                 ))}
               </dl>
 
-              <div className={classNames('bg-fill px-4 py-3 text-center text-sm italic', hintTone)}>
-                <p role={status === 'failed' ? 'alert' : 'status'}>{hint}</p>
-                {note.recallableAtMs !== undefined && (
-                  <p className="mt-1 text-xs text-text-secondary-token">
-                    {t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
-                  </p>
-                )}
+              {/* The shared inline explanation, not a hand-rolled grey band: one 13px size for
+                both lines, the explanation in the tone's ink and the deadline under it in the
+                quieter one, left-aligned and upright like every other block of copy in the app.
+                It sits in the card's own margin with 12px above and below, so it no longer shares
+                an edge with the buttons under it. */}
+              <div className="px-4 py-3">
+                <Notice
+                  data-testid="pending-activity-hint"
+                  tone={status === 'failed' ? 'negative' : 'neutral'}
+                  role={status === 'failed' ? 'alert' : 'status'}
+                  title={hint}
+                >
+                  {note.recallableAtMs === undefined
+                    ? undefined
+                    : t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
+                </Notice>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* The actions are ordinary design-system buttons: the app's pill, at the app's size, with
-            the card's own padding around them. `className` here sets width only; nothing restyles
-            a Button from the call site.
+        {/* The actions are ordinary design-system buttons: the app's pill, with the card's own
+            padding around them. `className` here sets width only; nothing restyles a Button from
+            the call site.
+            They are `sm`, the same size as the Pending list's own Accept All — a row-level
+            action, not a page's CTA. At `lg` two 48px pills with 19px labels sat under a 40px
+            avatar row and took over the card; stacked cards read as a wall of orange. `pb-3`
+            follows them down so the footer keeps the header row's 12px rhythm instead of leaving
+            a band of empty space under a shorter button.
             The row's layout is STATIC: Decline takes 40%, Accept the rest, and a button is either
             there or it is not. The previous footer expanded Decline from 0 to 40% through an
             `AnimatePresence` with `initial={false}` — which only suppresses the entry animation
             for what is present when that `AnimatePresence` FIRST mounts. Switching the Activity
             filter renders a different list, so every card remounted and the width tween replayed
             from zero on each tab change, reflowing the whole footer. */}
-        <div className="flex gap-2.5 px-4 pb-4">
+        <div className="flex gap-2.5 px-4 pb-3">
           {onReject && status !== 'claiming' && (
             <Button
               variant={ButtonVariant.Secondary}
-              className="w-2/5 max-w-none whitespace-nowrap"
+              size="sm"
+              className="w-2/5 whitespace-nowrap"
               title={t('activityRejectTransfer')}
               disabled={!canAccept}
               onClick={() => onReject(note)}
@@ -266,7 +281,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               label is swapped for the spinner at the label's width and taps are refused. It is
               NOT `disabled`, which would grey the one action in progress. */}
           <Button
-            className="min-w-0 flex-1 max-w-none"
+            size="sm"
+            className="min-w-0 flex-1"
             title={actionLabel}
             disabled={!canAccept && status !== 'claiming'}
             isLoading={status === 'claiming'}
