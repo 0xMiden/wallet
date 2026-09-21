@@ -211,6 +211,20 @@ describe('SpendingLimits', () => {
     );
   });
 
+  it('persists nothing and hides the authentication UI when authentication is cancelled', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
+
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '25' } });
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
+    await screen.findByTestId('strict-authentication');
+
+    fireEvent.click(screen.getByRole('button', { name: 'cancel-authentication' }));
+
+    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('strict-authentication')).not.toBeInTheDocument();
+  });
+
   it('authenticates before creating the first cap when none exists yet', async () => {
     renderScreen();
 
