@@ -9,6 +9,10 @@ on:
       - 'mw-**'
       - 'feat/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   # Required by .github/actions/inject-linked-web-sdk-pr's sticky comment
@@ -34,6 +38,20 @@ jobs:
         run: |
           node scripts/check-native-prover-pin.mjs --self-test
           node scripts/check-native-prover-pin.mjs
+
+  e2e-selector:
+    name: E2E selector
+    # The selector decides whether the Earn and Guardian suites run at all, and a wrong
+    # answer is invisible: the suite is skipped and its required gate still reports success.
+    # Its test is pure bash over a path list, so it needs no checkout of node_modules.
+    runs-on: ubuntu-slim
+    steps:
+      - name: Check Out Code
+        # v4, not the v3 the older jobs in this file use: actionlint rejects v3 as too old
+        # to run on GitHub Actions, and a new job should not add to that debt.
+        uses: actions/checkout@v4
+      - name: Check E2E suite selector
+        run: bash scripts/select-e2e-changes.test.sh
 
   translations:
     name: Update Translation Files
