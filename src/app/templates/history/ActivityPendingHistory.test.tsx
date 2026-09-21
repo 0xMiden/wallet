@@ -179,41 +179,43 @@ it('shows Accept All on the pending tab and claims every listed note that can be
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
 });
 
-it('pins Accept All below the list and hides the navbar while the pending tab has notes', () => {
+it('puts Accept All in the actions row above the list, and leaves the navbar alone', () => {
   render(<ActivityPendingHistory search="" filter="pending" />);
-  const button = screen.getByRole('button', { name: 'acceptAll' });
-  // The footer is a sibling after the scroller, not a row inside it, so it stays at the bottom edge.
+  const button = screen.getByTestId('pending-row-accept-all');
+  // The one bulk action lives in the row above the list, not pinned over the tab bar, so the
+  // Activity tab keeps its navbar the way every other tab does.
   const scroller = screen.getByTestId('timeline').closest('.overflow-y-auto');
   if (!scroller) throw new Error('The timeline is not inside the scroller');
-  expect(scroller).not.toContainElement(button);
-  expect(scroller.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(true);
+  expect(scroller).toContainElement(button);
+  expect(mockHideNavbar).not.toHaveBeenCalledWith(true);
 });
 
-it('gives the navbar back when a Pending search lists no transfer', () => {
+it('stands Accept All beside Restore when declined transfers exist, and alone when they do not', () => {
+  mockHidden.ids = new Set(['third']);
+  const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-accept-all')).not.toHaveClass('ml-auto');
+
+  mockHidden.ids = new Set();
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
+  // Alone in the row, it keeps the right edge Restore would have sat on.
+  expect(screen.getByTestId('pending-row-accept-all')).toHaveClass('ml-auto');
+});
+
+it('offers no Accept All when a Pending search lists no transfer', () => {
   render(<ActivityPendingHistory search="zzz" filter="pending" />);
-  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
 });
 
-it('keeps the navbar on the other filters and when every note is claimed', () => {
+it('offers no Accept All on the other filters, or once every transfer is accepted', () => {
   const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
   mockItems.forEach(item => {
     item.status = 'claimed';
   });
   rerender(<ActivityPendingHistory search="" filter="pending" />);
-  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
-});
-
-it('keeps the navbar while the Activity tab is mounted under another tab', () => {
-  // TabLayout keeps a visited tab mounted; the pending list must not hide the
-  // navbar on the tab that is actually showing.
-  mockPathname = '/';
-  render(<ActivityPendingHistory search="" filter="pending" />);
-  expect(screen.getByRole('button', { name: 'acceptAll' })).toBeInTheDocument();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
 });
 
 it('folds the details of a transfer waiting on a decision, and drops the card once it is accepted', () => {

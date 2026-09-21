@@ -9,10 +9,8 @@ import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { markActivityRead } from 'lib/settings/activity-read';
 import { useConfirm } from 'lib/ui/dialog';
-import { useLocation } from 'lib/woozie';
 
 import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
@@ -69,21 +67,18 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
   const hiddenCount = items.filter(
     item => hidden.ids.has(item.note.id) && (item.status === 'pending' || item.status === 'failed')
   ).length;
-  // Claim All on the Pending tab takes every listed note that can be accepted.
+  // Accept All takes every listed transfer that can be accepted — whatever the asset, whoever
+  // sent it. It is the ONE bulk action on this tab; there is no per-asset or per-sender variant.
   const claimableNotes = listItems
     .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
-  // Accept All is the page's primary action, so it sits at the bottom edge in
-  // place of the tab navbar, the way the send flow pins its CTA. It follows the
-  // listed notes, search included, so a search that lists nothing gives the
-  // navbar back. The navbar is hidden only while the Activity tab is the ACTIVE
-  // route: TabLayout keeps a visited tab mounted under the others, so without the
-  // route gate a pending list on a hidden Activity tab would hide the navbar on Home.
-  const showAcceptAll = filter === 'pending' && listItems.length > 0;
-  const { pathname } = useLocation();
-  const onActivityTab = pathname.split('/')[1] === 'history';
-  useHideNavbarWhileOpen(showAcceptAll && onActivityTab);
+  // Every acceptable transfer is already in flight: the action stays, in its loading state, so it
+  // does not vanish from under the tap that started it.
+  const acceptingAll = claimingCount > 0 && claimableNotes.length === 0;
+  const showAcceptAll = filter === 'pending' && (claimableNotes.length > 0 || acceptingAll);
+  // Restore is offered only while a declined transfer could still be accepted.
+  const showRestore = filter === 'pending' && hiddenCount > 0;
 
   const reject = async (note: NoteWithMetadata) => {
     const accepted = await confirm({
@@ -139,36 +134,44 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
         )}
       </div>
 
-      {/* `pb-28` clears the floating navbar; with the Accept All footer in its
-          place the list only needs its own bottom breathing room. */}
-      <div ref={scrollRef} className={classNames('flex-1 min-h-0 overflow-y-auto', showAcceptAll ? 'pb-4' : 'pb-28')}>
+      {/* `pb-28` clears the floating navbar. There is no pinned footer any more: Accept All sits
+          in the row below, so the tab keeps its navbar the way every other tab does. */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
         {hidden.failed && (
           <p role="alert" className="px-4 py-2 text-xs text-status-negative">
             {t('activityHiddenNotesError')}
           </p>
         )}
-        {filter === 'pending' && hiddenCount > 0 && (
+        {(showRestore || showAcceptAll) && (
+          // One actions row above the list, carrying whichever of the two actions applies. With
+          // no declined transfers it holds Accept All alone, pushed to the same right edge
+          // Restore would have sat on, so the row does not change shape when Restore appears.
           <div className="flex items-center gap-2 px-4 pt-3 text-xs text-text-secondary-token">
-            {/* The count gives up its width first, so two buttons beside it cannot wrap the row on
-                a 360px phone; the labels themselves never break. */}
-            <span className="min-w-0 flex-1 truncate">{t('activityHiddenTransfers', { count: hiddenCount })}</span>
-            <Button
-              variant={ButtonVariant.Secondary}
-              size="sm"
-              className="w-auto shrink-0"
-              title={t('activityRestoreTransfers')}
-              onClick={() => hidden.restore()}
-            />
-            {/* The same accept-everything action the pinned CTA below runs, in reach of the row a
-                user is already looking at. `acceptMany` is that handler — nothing is reimplemented. */}
-            <Button
-              size="sm"
-              className="w-auto shrink-0"
-              data-testid="pending-row-accept-all"
-              title={t('acceptAll')}
-              disabled={claimableNotes.length === 0}
-              onClick={() => acceptAll()}
-            />
+            {showRestore && (
+              <>
+                {/* The count gives up its width first, so two buttons beside it cannot wrap the
+                    row on a 360px phone; the labels themselves never break. */}
+                <span className="min-w-0 flex-1 truncate">{t('activityHiddenTransfers', { count: hiddenCount })}</span>
+                <Button
+                  variant={ButtonVariant.Secondary}
+                  size="sm"
+                  className="w-auto shrink-0"
+                  title={t('activityRestoreTransfers')}
+                  onClick={() => hidden.restore()}
+                />
+              </>
+            )}
+            {showAcceptAll && (
+              <Button
+                size="sm"
+                className={classNames('w-auto shrink-0', !showRestore && 'ml-auto')}
+                data-testid="pending-row-accept-all"
+                title={acceptingAll ? t('claiming') : t('acceptAll')}
+                disabled={claimableNotes.length === 0 && !acceptingAll}
+                isLoading={acceptingAll}
+                onClick={() => acceptAll()}
+              />
+            )}
           </div>
         )}
         <div className="px-4">
@@ -185,18 +188,6 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
           />
         </div>
       </div>
-
-      {showAcceptAll && (
-        <div className="shrink-0 px-4 pt-3 pb-4">
-          <Button
-            className="max-w-none"
-            title={claimingCount > 0 && claimableNotes.length === 0 ? t('activityAcceptingTransfer') : t('acceptAll')}
-            disabled={claimableNotes.length === 0}
-            isLoading={claimingCount > 0 && claimableNotes.length === 0}
-            onClick={() => acceptAll()}
-          />
-        </div>
-      )}
     </>
   );
 };
