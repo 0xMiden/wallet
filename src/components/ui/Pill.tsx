@@ -17,7 +17,7 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
  * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
  * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink.
- * - `inactive` — a status that is neither good nor bad (cancelled, reclaimed, unavailable):
+ * - `inactive`: a status that is neither good nor bad (cancelled, reclaimed, unavailable),
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  *
