@@ -2,7 +2,6 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import EarnPositionDetail from './EarnPositionDetail';
@@ -113,11 +112,10 @@ jest.mock('./components', () => {
   };
 });
 
-// Native haptics wrap the Capacitor plugin — stub both entry points so the
-// timeframe taps and the action buttons never reach native code.
+// Native haptics wrap the Capacitor plugin - stub the entry point the action
+// buttons use so they never reach native code.
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn(),
-  hapticSelection: jest.fn()
+  hapticLight: jest.fn()
 }));
 
 // Feed the component a deterministic dataset through `useEarnPositions` (the
@@ -316,24 +314,12 @@ describe('EarnPositionDetail', () => {
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
   });
 
-  it('renders the four timeframes as the shared segmented control, 1M selected, switching on tap', () => {
+  // No timeframe row: the chart draws one fixed series, so the control changed nothing.
+  it('draws the chart with no timeframe row', () => {
     renderDetail('pos-flat');
 
-    expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-    const radio = (name: string) => screen.getByRole('radio', { name });
-
-    expect(radio('1M')).toHaveAttribute('aria-checked', 'true');
-    ['1D', '1W', 'All'].forEach(label => expect(radio(label)).toHaveAttribute('aria-checked', 'false'));
-    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised');
-
-    fireEvent.click(radio('1W'));
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(radio('1W')).toHaveAttribute('aria-checked', 'true');
-    expect(radio('1M')).toHaveAttribute('aria-checked', 'false');
-
-    // A tap on the selected timeframe is silent.
-    fireEvent.click(radio('1W'));
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument();
   });
 
   it('invokes goBack when the back button is pressed', () => {
