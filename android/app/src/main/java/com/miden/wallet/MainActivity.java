@@ -20,6 +20,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HotKeyPlugin.class);
         registerPlugin(ReownPlugin.class);
         registerPlugin(ScreenshotGuardPlugin.class);
+        registerPlugin(UpdateAvailabilityPlugin.class);
 
         super.onCreate(savedInstanceState);
         setupStatusBar();

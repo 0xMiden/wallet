@@ -11,7 +11,7 @@ import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
 
-import { SuccessDivider, TransactionSuccessLayout, TransactionSuccessProps } from './TransactionSuccessLayout';
+import { TransactionSuccessLayout, TransactionSuccessProps } from './TransactionSuccessLayout';
 
 const isSwitchGuardianExtraInputs = (value: unknown): value is ISwitchGuardianExtraInputs =>
   !!value &&
@@ -131,9 +131,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
         />
       )}
 
-      <SuccessDivider />
-
-      <div className="mt-4 w-full text-left">
+      <div className="mt-6 w-full text-left">
         <p className="text-base font-semibold text-heading-gray">{t('guardianSwitchSuccessInfoTitle')}</p>
         <ul className="mt-2 flex flex-col gap-2">
           {infoKeys.map(key => (

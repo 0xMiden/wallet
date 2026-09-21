@@ -188,6 +188,16 @@ describe('ForgotPassword', () => {
     expect(el.getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
   });
 
+  it('remains seed-only when handed the new-wallet file-import action', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+
+    await dispatch({ id: 'import-from-file' });
+
+    expect(flow(container).getAttribute('data-type')).toBe(OnboardingType.Import);
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
+  });
+
   it('import-from-seed: moves to ImportFromSeed step', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'import-from-seed' });

@@ -3,6 +3,7 @@ import { formatUnits } from 'viem';
 
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
+import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 
 import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
 import {
@@ -118,6 +119,7 @@ export interface EpochSendArgs {
    * this txId so it tracks the real row instead of racing an empty queue.
    */
   onRowCreated?: (txId: string) => void;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
 }
 
 /**
@@ -154,6 +156,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   // submitted. The sponsor is the recipient (set inside buildCrossChainIntent). We
   // capture the row id from the callback so we can patch the EVM solve hash on it.
   let bridgeTxId: string | undefined;
+  let spendingLimitError: unknown;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
   const intent = await buildCrossChainIntent(sdk, {
     ...params,
@@ -161,22 +164,29 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     collateralType: CollateralType.Miden,
     midenSourceAccount: args.senderPublicKey,
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
-      const res = await createBridgeP2IDENote({
-        senderAccountId: args.senderPublicKey,
-        faucetId: faucet,
-        amount,
-        allocatorId,
-        recallBlocks,
-        bindingAttachmentFelts,
-        destinationAddress: args.destinationAddress,
-        destinationNetwork: EPOCH_DESTINATION_CHAIN_ID,
-        deps: args.deps,
-        onRowCreated: args.onRowCreated
-      });
-      bridgeTxId = res.txId;
-      return { success: res.success, noteId: res.noteId };
+      try {
+        const res = await createBridgeP2IDENote({
+          senderAccountId: args.senderPublicKey,
+          faucetId: faucet,
+          amount,
+          allocatorId,
+          recallBlocks,
+          bindingAttachmentFelts,
+          destinationAddress: args.destinationAddress,
+          destinationNetwork: EPOCH_DESTINATION_CHAIN_ID,
+          deps: args.deps,
+          onRowCreated: args.onRowCreated,
+          spendingLimitAuthorization: args.spendingLimitAuthorization
+        });
+        bridgeTxId = res.txId;
+        return { success: res.success, noteId: res.noteId };
+      } catch (error) {
+        spendingLimitError = error;
+        return { success: false };
+      }
     }
   });
+  if (spendingLimitError !== undefined) throw spendingLimitError;
   if (intent.error) {
     // The `createMidenP2IDENote` callback already committed the P2IDE note and the
     // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'

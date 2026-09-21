@@ -9,6 +9,10 @@ on:
       - 'mw-**'
       - 'feat/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   # Required by .github/actions/inject-linked-web-sdk-pr's sticky comment
@@ -34,6 +38,20 @@ jobs:
         run: |
           node scripts/check-native-prover-pin.mjs --self-test
           node scripts/check-native-prover-pin.mjs
+
+  e2e-selector:
+    name: E2E selector
+    # The selector decides whether the Guardian suite runs at all, and a wrong
+    # answer is invisible: the suite is skipped and its required gate still reports success.
+    # Pure bash over a path list, so no node_modules.
+    runs-on: ubuntu-slim
+    steps:
+      - name: Check Out Code
+        # v4, not the v3 the older jobs in this file use: actionlint rejects v3 as too old
+        # to run on GitHub Actions, and a new job should not add to that debt.
+        uses: actions/checkout@v4
+      - name: Check E2E suite selector
+        run: bash scripts/select-e2e-changes.test.sh
 
   translations:
     name: Update Translation Files
@@ -130,8 +148,8 @@ jobs:
           git push
           echo "committed=true" >> $GITHUB_OUTPUT
 
-  ci:
-    name: Test
+  unit:
+    name: Unit tests
     needs: translations
     runs-on: ubuntu-latest
     steps:
@@ -148,15 +166,10 @@ jobs:
           node-version: 22
 
       # comment=false (default): translations is the designated
-      # comment-poster — see its `Inject` step for rationale. Other
+      # comment-poster - see its `Inject` step for rationale. Other
       # jobs just need the package.json mutation, not the comment.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
-        with:
-          # This job runs playwright/tests/mock-web-client.spec.ts, which imports the SDK under
-          # node and so needs the napi binary the published package supplies through its platform
-          # optionalDependencies; a `file:` source build has none.
-          build-node-module: 'true'
       - name: Inject linked guardian PR
         uses: ./.github/actions/inject-linked-guardian-pr
 
@@ -177,6 +190,43 @@ jobs:
         uses: borales/actions-yarn@v4
         with:
           cmd: test
+
+      # The catalog is served live to every client from main, so its shape is
+      # checked before it can merge. It never gates a release build: a missing
+      # entry only costs the card its summary.
+      - name: Validate update manifest
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: check:update-manifest
+
+  mock-e2e:
+    name: mock-e2e
+    needs: translations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.head_ref }}
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          # playwright/tests/mock-web-client.spec.ts imports the SDK under node
+          # and needs the napi binary the published package supplies through its
+          # platform optionalDependencies; a `file:` source build has none.
+          build-node-module: 'true'
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
 
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
@@ -200,20 +250,44 @@ jobs:
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
 
+  # Required-check name `Test`. Lint/unit and mock Playwright used to run in this
+  # one job (~42m sequential). They now run in parallel; this gate keeps the
+  # required name and fails if either side failed or was skipped.
+  ci:
+    name: Test
+    needs: [unit, mock-e2e]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
+    steps:
+      - run: |
+          if [ "${{ needs.unit.result }}" != "success" ]; then
+            echo "unit ${{ needs.unit.result }}"; exit 1; fi
+          if [ "${{ needs.mock-e2e.result }}" != "success" ]; then
+            echo "mock-e2e ${{ needs.mock-e2e.result }}"; exit 1; fi
+          echo "unit and mock-e2e ok"
+
+  # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
+  # one ubuntu-latest). Three shards keep billed minutes about the same and cut
+  # wall clock under 25m. The required-check name stays on the merge gate.
   coverage:
-    name: Coverage Check (95% minimum)
+    name: Coverage shard ${{ matrix.shard }}/3
     needs: translations
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
+    env:
+      JEST_COVERAGE_SHARD: '1'
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          # Fork PRs: the head branch lives in the fork, not the base repo.
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
 
       - name: Use Node 22
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
@@ -225,10 +299,45 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
-      - name: Run Coverage Check
-        uses: borales/actions-yarn@v4
+      - name: Run Coverage shard
+        run: yarn test:coverage --shard=${{ matrix.shard }}/3 --coverageReporters=json --coverageReporters=text-summary
+
+      - uses: actions/upload-artifact@v4
         with:
-          cmd: test:coverage
+          name: coverage-shard-${{ matrix.shard }}
+          path: coverage/coverage-final.json
+          if-no-files-found: error
+
+  coverage-gate:
+    name: Coverage Check (95% minimum)
+    needs: coverage
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
+    steps:
+      - name: Check shards
+        run: |
+          if [ "${{ needs.coverage.result }}" != "success" ]; then
+            echo "coverage shards ${{ needs.coverage.result }}"; exit 1; fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Install outside the repo: `npm install` in the wallet tree reads
+      # package.json `link:./packages/dapp-browser`, which npm rejects.
+      - name: Install coverage reporters
+        run: |
+          mkdir -p "$RUNNER_TEMP/covtools"
+          cd "$RUNNER_TEMP/covtools"
+          npm init -y
+          npm install istanbul-lib-coverage istanbul-lib-report istanbul-reports
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          path: coverage-shards
+      - name: Merge shards and enforce 95%
+        env:
+          NODE_PATH: ${{ runner.temp }}/covtools/node_modules
+        run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
 
   i18n-check:
     name: Check for non-i18n'd strings

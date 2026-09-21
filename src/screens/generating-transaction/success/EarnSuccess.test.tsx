@@ -92,7 +92,6 @@ jest.mock('./TransactionSuccessLayout', () => ({
       </div>
     );
   },
-  SuccessDivider: () => <hr data-testid="divider" />,
   ReceiptRows: ({ rows }: { rows: ReceiptRow[] }) => {
     mockLastRows = rows;
     return <div data-testid="rows" />;

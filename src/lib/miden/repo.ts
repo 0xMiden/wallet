@@ -1,9 +1,11 @@
 import Dexie, { Transaction } from 'dexie';
 
 import { ITransaction, ITransactionStatus } from './db/types';
+import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
-  Transactions = 'transactions'
+  Transactions = 'transactions',
+  SpendingLimits = 'spendingLimits'
 }
 
 // `modifyChunkSize` caps how many records dexie's `modify` materialises at once (`getMany` +
@@ -145,9 +147,7 @@ db.version(1.6).stores({
   )
 });
 
-// v1.7 - type-scoped reads. The app-root bridge watcher asks for the `bridged-receive` and
-// `bridged-send` rows every eight seconds, and without an index each ask walked the whole
-// history. No upgrade step: IndexedDB builds a new index over the rows already stored.
+// v1.7 - spending-limit authorization index + SpendingLimits table (shipped on main 1.16.1).
 db.version(1.7).stores({
   [Table.Transactions]: indexes(
     'id',
@@ -160,11 +160,34 @@ db.version(1.7).stores({
     'noteDelivery',
     'extraInputs.destinationAddress',
     'extraInputs.swapOrderTxId',
+    'spendingLimitAuthorizationId'
+  ),
+  [Table.SpendingLimits]: indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision')
+});
+
+// v1.8 - type-scoped reads. The app-root bridge watcher asks for the `bridged-receive` and
+// `bridged-send` rows every eight seconds, and without an index each ask walked the whole
+// history. No upgrade step: IndexedDB builds a new index over the rows already stored.
+db.version(1.8).stores({
+  [Table.Transactions]: indexes(
+    'id',
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    '*noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress',
+    'extraInputs.swapOrderTxId',
+    'spendingLimitAuthorizationId',
     'type'
-  )
+  ),
+  [Table.SpendingLimits]: indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision')
 });
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+export const spendingLimits = db.table<PersistedSpendingLimit, [string, string]>(Table.SpendingLimits);
 
 function indexes(...items: string[]) {
   return items.join(',');

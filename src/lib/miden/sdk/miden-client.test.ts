@@ -434,17 +434,21 @@ describe('getMidenClient singleton', () => {
   it('uninstall drops only the callback it names: a newer install stays', async () => {
     await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, uninstallRealmKeystore }, create) => {
       await getMidenClient();
-      const { insertKeyCallback } = create.mock.calls[0]![0];
+      const { getKeyCallback, insertKeyCallback } = create.mock.calls[0]![0];
       const older = jest.fn();
       const newer = jest.fn();
-      installRealmKeystore({ insertKey: older });
-      installRealmKeystore({ insertKey: newer });
+      const olderGetKey = jest.fn(async () => new Uint8Array([1]));
+      const newerGetKey = jest.fn(async () => new Uint8Array([2]));
+      installRealmKeystore({ getKey: olderGetKey, insertKey: older });
+      installRealmKeystore({ getKey: newerGetKey, insertKey: newer });
       // A vault retiring after a newer one installed (a lock landing during an unlock) leaves the newer sink.
-      uninstallRealmKeystore({ insertKey: older });
+      uninstallRealmKeystore({ getKey: olderGetKey, insertKey: older });
+      await expect(getKeyCallback(publicKey)).resolves.toEqual(new Uint8Array([2]));
       await insertKeyCallback(publicKey, signingInputs);
       expect(newer).toHaveBeenCalledTimes(1);
       expect(older).not.toHaveBeenCalled();
-      uninstallRealmKeystore({ insertKey: newer });
+      uninstallRealmKeystore({ getKey: newerGetKey, insertKey: newer });
+      await expect(getKeyCallback(publicKey)).rejects.toThrow('no getKey callback installed');
       await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toThrow('no insertKey callback installed');
     });
   });
@@ -462,8 +466,8 @@ describe('getMidenClient singleton', () => {
       await getMidenClient();
       const { signCallback } = create.mock.calls[0]![0];
       installRealmKeystore({ sign: lockedSigner() });
-      // A hold whose sign reported locked, but which completed anyway (a dry run,
-      // a speculation): its record is nobody else's.
+      // A hold whose sign reported locked, but which completed anyway (a dry run):
+      // its record is nobody else's.
       await withWasmClientLock(async () => {
         await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({ reason: 'locked' });
       });
@@ -530,27 +534,75 @@ describe('getMidenClient singleton', () => {
     );
   });
 
-  it('isRealmKeystoreInstalled answers by identity: the installed sink, no other, nothing once cleared', async () => {
+  it('isRealmKeystoreInstalled answers by identity: the installed callback, no other, nothing once cleared', async () => {
     await withKeystoreClient(async ({ installRealmKeystore, uninstallRealmKeystore, isRealmKeystoreInstalled }) => {
       const a = jest.fn();
       const b = jest.fn();
-      installRealmKeystore({ insertKey: a });
-      expect(isRealmKeystoreInstalled({ insertKey: a })).toBe(true);
-      expect(isRealmKeystoreInstalled({ insertKey: b })).toBe(false);
-      uninstallRealmKeystore({ insertKey: a });
-      expect(isRealmKeystoreInstalled({ insertKey: a })).toBe(false);
+      installRealmKeystore({ getKey: a, insertKey: a });
+      expect(isRealmKeystoreInstalled({ getKey: a, insertKey: a })).toBe(true);
+      expect(isRealmKeystoreInstalled({ getKey: b, insertKey: b })).toBe(false);
+      uninstallRealmKeystore({ getKey: a, insertKey: a });
+      expect(isRealmKeystoreInstalled({ getKey: a, insertKey: a })).toBe(false);
     });
   });
 
-  it('refuses getKey by name: no realm serves it, secrets live in the vault', async () => {
+  it('routes getKey only while a realm callback is installed', async () => {
     await withKeystoreClient(async ({ getMidenClient, installRealmKeystore }, create) => {
       installRealmKeystore({ sign: async () => new Uint8Array(), insertKey: async () => {} });
       await getMidenClient();
       const { getKeyCallback } = create.mock.calls[0]![0];
-      await expect(getKeyCallback(publicKey)).rejects.toThrow('getKey is not served by this realm');
-      // No installable slot exists for it: one supplied past the types changes nothing.
-      installRealmKeystore({ getKey: async () => new Uint8Array([1]) } as never);
-      await expect(getKeyCallback(publicKey)).rejects.toThrow('getKey is not served by this realm');
+      await expect(getKeyCallback(publicKey)).rejects.toThrow('no getKey callback installed');
+      const getKey = jest.fn(async () => new Uint8Array([1]));
+      installRealmKeystore({ getKey });
+      await expect(getKeyCallback(publicKey)).resolves.toEqual(new Uint8Array([1]));
+      expect(getKey).toHaveBeenCalledWith(publicKey);
+    });
+  });
+
+  it('refuses a replaced client getKey instead of reading a newer export callback', async () => {
+    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, resetMidenClient }, create) => {
+      const older = jest.fn(async () => new Uint8Array([1]));
+      installRealmKeystore({ getKey: older });
+      await getMidenClient();
+      const staleGetKey = create.mock.calls[0]![0].getKeyCallback;
+
+      await resetMidenClient();
+      const newer = jest.fn(async () => new Uint8Array([2]));
+      installRealmKeystore({ getKey: newer });
+      await getMidenClient();
+      const liveGetKey = create.mock.calls[1]![0].getKeyCallback;
+
+      await expect(staleGetKey(publicKey)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(older).not.toHaveBeenCalled();
+      expect(newer).not.toHaveBeenCalled();
+      await expect(liveGetKey(publicKey)).resolves.toEqual(new Uint8Array([2]));
+    });
+  });
+
+  it('refuses a getKey result when replacement lands while the key read is parked', async () => {
+    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, resetMidenClient }, create) => {
+      let resolveOlder!: (key: Uint8Array) => void;
+      const olderResult = new Promise<Uint8Array>(resolve => {
+        resolveOlder = resolve;
+      });
+      const older = jest.fn(() => olderResult);
+      installRealmKeystore({ getKey: older });
+      await getMidenClient();
+      const staleGetKey = create.mock.calls[0]![0].getKeyCallback;
+      const pendingRead = staleGetKey(publicKey);
+      await Promise.resolve();
+      expect(older).toHaveBeenCalledWith(publicKey);
+
+      await resetMidenClient();
+      const newer = jest.fn(async () => new Uint8Array([2]));
+      installRealmKeystore({ getKey: newer });
+      await getMidenClient();
+      const liveGetKey = create.mock.calls[1]![0].getKeyCallback;
+
+      resolveOlder(new Uint8Array([1]));
+      await expect(pendingRead).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      await expect(liveGetKey(publicKey)).resolves.toEqual(new Uint8Array([2]));
+      expect(newer).toHaveBeenCalledTimes(1);
     });
   });
 

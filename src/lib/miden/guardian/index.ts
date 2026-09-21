@@ -145,7 +145,7 @@ export class MultisigService {
       // RESOLVED inside the same hold: resolving it outside left a window where
       // a recovery replaced the singleton between the resolve and the lock, so
       // this caller drove a client that no longer existed (issue #775; the same
-      // shape speculation-manager and vault already fixed).
+      // shape vault already fixed).
       //
       // Reuse the shared singleton client instead of spinning up a fresh
       // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker

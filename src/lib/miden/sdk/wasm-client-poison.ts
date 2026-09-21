@@ -2,7 +2,7 @@
  * The watchdog ceiling and the named recovery error for a wedged WASM client
  * lock (issue #775). These live in their own dependency-free module — NOT in
  * `miden-client.ts` — because that module sits in an import cycle
- * (`miden-client` ⇄ `miden-client-interface` via `speculation-manager`), and a
+ * (`miden-client` ⇄ `miden-client-interface`), and a
  * `const`/`class` export is TDZ-bound during a cycle's partial initialization:
  * any consumer that touches the namespace mid-cycle (e.g. a jest
  * `requireActual` spread) would throw "Cannot access before initialization".

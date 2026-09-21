@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { clearSendDraft, hasSendDraft, setSendDraft } from './send-draft';
+import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
@@ -17,8 +17,8 @@ import { WalletType } from '../onboarding/types';
  *     `renderStep`'s default branch with an unknown route name).
  *   - The four step/drawer child components are mocked into thin harnesses that
  *     surface their props and expose buttons/inputs to fire the callbacks.
- *   - Data hooks, platform gates, the wallet store, woozie navigation and the
- *     speculative-proving RPCs are all jest.fn()s steered per test.
+ *   - Data hooks, platform gates, the wallet store and woozie navigation are all
+ *     jest.fn()s steered per test.
  * The real `./send-draft`, `./types`, `../onboarding/types`, react-hook-form
  * and yup are kept so their integration with SendManager is exercised for real.
  */
@@ -50,12 +50,8 @@ const useRecentRecipientsMock = jest.fn((_accountId?: string | null) => [] as an
 const useHideNavbarWhileOpenMock = jest.fn();
 const useMobileBackHandlerMock = jest.fn();
 
-const isExtensionMock = jest.fn(() => false);
-const isDelegateProofEnabledMock = jest.fn(() => false);
 const isValidMidenAddressMock = jest.fn((addr: string) => !!addr && addr.startsWith('0x'));
 const stringToBigIntMock = jest.fn((s: string) => BigInt(Math.floor(parseFloat(s || '0'))));
-const requestSpeculateSendMock = jest.fn();
-const requestSpeculateInvalidateMock = jest.fn();
 const isScanAvailableMock = jest.fn(() => false);
 const scanQRCodeMock = jest.fn();
 // `isMobile` now selects the scan path: mobile keeps the native plugin
@@ -63,6 +59,8 @@ const scanQRCodeMock = jest.fn();
 // so the existing native-scan tests below exercise `scanQRCode` unchanged; the
 // extension drawer tests flip it to false.
 const isMobileMock = jest.fn(() => true);
+const clipboardReadMock = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -79,7 +77,11 @@ const walletStoreState = {
 jest.mock('components/Navigator', () => ({
   __esModule: true,
   useNavigator: () => ({ navigateTo: navigateToMock, goBack: goBackMock, cardStack: mockCardStack }),
-  NavigatorProvider: ({ children }: any) => <div data-testid="nav-provider">{children}</div>,
+  NavigatorProvider: ({ children, initialRouteName, initialRouteNames }: any) => (
+    <div data-testid="nav-provider" data-initial-stack={(initialRouteNames ?? [initialRouteName]).join(',')}>
+      {children}
+    </div>
+  ),
   Navigator: ({ renderRoute }: any) => {
     const name = mockRenderRouteName ?? mockCardStack[mockCardStack.length - 1]?.name;
     return <div data-testid="navigator">{renderRoute({ name, animationIn: 'push', animationOut: 'pop' }, 0)}</div>;
@@ -99,6 +101,7 @@ jest.mock('./SelectRecipient', () => ({
       <button data-testid="sr-addcontact" onClick={props.onAddContact} />
       <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
+      {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -118,16 +121,19 @@ jest.mock('./ScanQrDrawer', () => ({
   )
 }));
 
-jest.mock('./SelectAmount', () => ({
-  SelectAmount: (props: any) => (
+jest.mock('./SendAmount', () => ({
+  SendAmount: (props: any) => (
     <div data-testid="select-amount">
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
-      <span data-testid="sa-footer">{props.footerClassName}</span>
+      <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
+      <span data-testid="sa-network">{props.network ?? ''}</span>
+      <button data-testid="sa-receive" onClick={props.onReceive} />
       <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
       <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
+      {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
       <button data-testid="sa-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -211,12 +217,11 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: (cb: any, deps: any) => useMobileBackHandlerMock(cb, deps)
 }));
-jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => isMobileMock() }));
+jest.mock('lib/platform', () => ({ isExtension: () => false, isMobile: () => isMobileMock() }));
 jest.mock('lib/qr', () => ({
   isScanAvailable: () => isScanAvailableMock(),
   scanQRCode: () => scanQRCodeMock()
 }));
-jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => isDelegateProofEnabledMock() }));
 jest.mock('lib/store', () => ({ useWalletStore: { getState: () => walletStoreState } }));
 jest.mock('lib/woozie', () => ({
   navigate: (...a: any[]) => navigateMock(...a),
@@ -243,17 +248,11 @@ jest.mock('utils/miden', () => {
   };
 });
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
-jest.mock('lib/miden/activity', () => ({
-  requestSpeculateSend: (...a: any[]) => requestSpeculateSendMock(...a),
-  requestSpeculateInvalidate: (...a: any[]) => requestSpeculateInvalidateMock(...a)
-}));
 
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
 const renderFlow = (isLoading = false) => render(<SendFlow isLoading={isLoading} />);
-
-const origSpecFlag = process.env.MIDEN_USE_SPECULATIVE_PROVING;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -274,8 +273,6 @@ beforeEach(() => {
   useAllBalancesMock.mockReturnValue({ data: undefined });
   useAllTokensBaseMetadataMock.mockReturnValue({});
   useFilteredContactsMock.mockReturnValue({ contacts: [] });
-  isExtensionMock.mockReturnValue(false);
-  isDelegateProofEnabledMock.mockReturnValue(false);
   isScanAvailableMock.mockReturnValue(false);
   isMobileMock.mockReturnValue(true);
   isValidMidenAddressMock.mockImplementation((addr: string) => !!addr && addr.startsWith('0x'));
@@ -288,14 +285,10 @@ beforeEach(() => {
   useMobileBackHandlerMock.mockImplementation((cb: any) => {
     capturedBackHandler = cb;
   });
-
-  delete process.env.MIDEN_USE_SPECULATIVE_PROVING;
 });
 
 afterEach(() => {
   clearSendDraft();
-  if (origSpecFlag === undefined) delete process.env.MIDEN_USE_SPECULATIVE_PROVING;
-  else process.env.MIDEN_USE_SPECULATIVE_PROVING = origSpecFlag;
 });
 
 // ---------------------------------------------------------------------------
@@ -317,8 +310,16 @@ describe('SendManager rendering', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
-    expect(screen.getByTestId('sa-footer')).toBeEmptyDOMElement();
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
+  });
+
+  it('links the amount step fee shortfall notice to Receive', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-receive'));
+
+    expect(navigateMock).toHaveBeenCalledWith('/receive');
   });
 
   it('does not hide the navbar when not on the /send path even past recipient', () => {
@@ -399,6 +400,44 @@ describe('stale transaction modal dismissal', () => {
 // ---------------------------------------------------------------------------
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
+describe('on-screen step back button', () => {
+  it('opens a fresh flow on the recipient step', () => {
+    renderFlow();
+
+    expect(screen.getByTestId('nav-provider')).toHaveAttribute('data-initial-stack', SendFlowStep.SelectRecipient);
+  });
+
+  it('reopens a restored draft with the recipient step under Amount, so back reaches the address', () => {
+    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: 'T1' });
+    renderFlow();
+
+    expect(screen.getByTestId('nav-provider')).toHaveAttribute(
+      'data-initial-stack',
+      `${SendFlowStep.SelectRecipient},${SendFlowStep.SelectAmount}`
+    );
+  });
+
+  it('pops to the recipient step from Amount', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-back'));
+
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('closes the flow when Amount is the root step (restored draft)', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-back'));
+
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(navigateMock).toHaveBeenCalledWith('/');
+  });
+});
+
 describe('mobile back handler', () => {
   it('closes the contacts drawer first when it is open', () => {
     renderFlow();
@@ -679,6 +718,62 @@ describe('recipient address entry', () => {
       await Promise.resolve();
     });
 
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('pastes a trimmed address from the native clipboard on mobile and validates it', async () => {
+    clipboardReadMock.mockResolvedValue({ type: 'text/plain', value: '  me-pk\n' });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-paste'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('me-pk');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+  });
+
+  it('leaves the address untouched when the clipboard is empty or unreadable', async () => {
+    clipboardReadMock.mockResolvedValueOnce({ type: 'text/plain', value: '   ' });
+    clipboardReadMock.mockRejectedValueOnce(new Error('denied'));
+    renderFlow();
+
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('sr-paste'));
+        await Promise.resolve();
+      });
+    }
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  // Off mobile there is no read that works: a WebView's readText() raises the platform's paste
+  // callout instead of returning text, and in the extension it never settles, because the manifest
+  // holds clipboardWrite and not clipboardRead. The pill is gated like the scanner rather than
+  // offered and silently doing nothing; the field is a textarea, so the platform's paste still works.
+  it('offers no paste control off mobile', () => {
+    isMobileMock.mockReturnValue(false);
+    renderFlow();
+
+    expect(screen.queryByTestId('sr-paste')).not.toBeInTheDocument();
+  });
+
+  it('ignores a clipboard that holds no text, so an image cannot become the recipient', async () => {
+    clipboardReadMock.mockResolvedValue({
+      type: 'image/png',
+      value: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=='
+    });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-paste'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('');
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
   });
 
@@ -980,7 +1075,7 @@ describe('confirming the amount', () => {
       fireEvent.click(screen.getByTestId('sa-confirm'));
     });
 
-    expect(hasSendDraft()).toBe(false);
+    expect(consumeSendDraft()).toBeNull();
     expect(navigateToMock).toHaveBeenCalledWith(SendFlowStep.Route);
     expect(navigateMock).not.toHaveBeenCalled();
   });
@@ -991,7 +1086,7 @@ describe('confirming the amount', () => {
       fireEvent.click(screen.getByTestId('sa-confirm'));
     });
     expect(navigateMock).not.toHaveBeenCalled();
-    expect(hasSendDraft()).toBe(false);
+    expect(consumeSendDraft()).toBeNull();
   });
 });
 
@@ -1041,222 +1136,5 @@ describe('token preselection', () => {
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Speculative pre-proving effect (feature-flagged, extension-only).
-// ---------------------------------------------------------------------------
-describe('speculative pre-proving', () => {
-  const seedValidDraft = (amount = '5') => {
-    setSendDraft({ amount, recipientAddress: '0xrecip', tokenId: 'T1' });
-    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
-  };
-
-  const enableFlag = () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(true);
-  };
-
-  it('requests a speculative send once the form is valid (debounced)', () => {
-    jest.useFakeTimers();
-    try {
-      enableFlag();
-      seedValidDraft('5');
-      renderFlow();
-      // token undefined initially -> no request yet.
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      expect(requestSpeculateSendMock).not.toHaveBeenCalled();
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      expect(requestSpeculateSendMock).toHaveBeenCalledWith({
-        accountId: 'me-pk',
-        recipientAccountId: '0xrecip',
-        faucetId: 'T1',
-        noteType: 'private',
-        amount: BigInt(5)
-      });
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('bails out when stringToBigInt throws', () => {
-    jest.useFakeTimers();
-    try {
-      enableFlag();
-      stringToBigIntMock.mockImplementation(() => {
-        throw new Error('bad number');
-      });
-      seedValidDraft('5');
-      renderFlow();
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      expect(requestSpeculateSendMock).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('does not speculate when delegated proving is enabled', () => {
-    jest.useFakeTimers();
-    try {
-      enableFlag();
-      isDelegateProofEnabledMock.mockReturnValue(true);
-      seedValidDraft('5');
-      renderFlow();
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      expect(requestSpeculateSendMock).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('does not speculate outside the extension context', () => {
-    jest.useFakeTimers();
-    try {
-      process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-      isExtensionMock.mockReturnValue(false);
-      seedValidDraft('5');
-      renderFlow();
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      expect(requestSpeculateSendMock).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('does not speculate for an invalid recipient address', () => {
-    jest.useFakeTimers();
-    try {
-      enableFlag();
-      isValidMidenAddressMock.mockReturnValue(false);
-      seedValidDraft('5');
-      renderFlow();
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      expect(requestSpeculateSendMock).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('does not speculate for a non-positive amount', () => {
-    jest.useFakeTimers();
-    try {
-      enableFlag();
-      seedValidDraft('0');
-      renderFlow();
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      expect(requestSpeculateSendMock).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('does not speculate for an amount above balance', () => {
-    jest.useFakeTimers();
-    try {
-      enableFlag();
-      mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1, fiatPrice: 1 };
-      seedValidDraft('5');
-      renderFlow();
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      expect(requestSpeculateSendMock).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('clears the debounce timer when dependencies change before it fires', () => {
-    jest.useFakeTimers();
-    try {
-      enableFlag();
-      seedValidDraft('5');
-      renderFlow();
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select')); // schedules timer
-      });
-      // Change the amount before the 500ms elapses -> cleanup clears the timer.
-      act(() => {
-        fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '6' } });
-      });
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-      // Exactly one request from the rescheduled timer (not two).
-      expect(requestSpeculateSendMock).toHaveBeenCalledTimes(1);
-      expect(requestSpeculateSendMock).toHaveBeenCalledWith(expect.objectContaining({ amount: BigInt(6) }));
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Speculative invalidation on unmount.
-// ---------------------------------------------------------------------------
-describe('speculative invalidation on unmount', () => {
-  it('invalidates speculative state on unmount when no draft is pending', () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(true);
-    const { unmount } = renderFlow();
-    unmount();
-    expect(requestSpeculateInvalidateMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not invalidate on unmount when a draft handoff is pending', () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(true);
-    const { unmount } = renderFlow();
-    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId: 'T1' });
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
-  });
-
-  it('does not invalidate on unmount outside the extension context', () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(false);
-    const { unmount } = renderFlow();
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
-  });
-
-  it('does not invalidate on unmount when the feature flag is off', () => {
-    isExtensionMock.mockReturnValue(true);
-    const { unmount } = renderFlow();
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ import {
   reconcileEarnDeposits,
   resolveEarnIntentOutcome
 } from './earn';
+import { createEarnP2IDENote } from './earn-note';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
@@ -461,6 +462,7 @@ describe('reconcileEarnDeposits', () => {
 });
 
 const mockGetBlock = getCurrentMidenBlock as jest.MockedFunction<typeof getCurrentMidenBlock>;
+const mockCreateEarnP2IDENote = createEarnP2IDENote as jest.MockedFunction<typeof createEarnP2IDENote>;
 
 /**
  * The amount/address validation is the wallet's only guard against minting a
@@ -508,5 +510,41 @@ describe('openEarnPosition guards', () => {
     await expect(openEarnPosition(args)).rejects.toThrow('stop');
 
     expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR);
+  });
+
+  it('threads the exact authorization through intent preparation and preserves final rejection', async () => {
+    const spendingLimitAuthorization = {
+      id: 'authorization-1',
+      accountId: 'mtst1sender',
+      faucetId: '0x2458e5446128e6b150b75b8ebd9ce1',
+      amount: 1_000_000n,
+      revision: 'revision-1',
+      issuedAt: 100,
+      expiresAt: 220
+    };
+    const error = {
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: {
+        accountId: 'mtst1sender',
+        faucetId: '0x2458e5446128e6b150b75b8ebd9ce1',
+        amount: 1_000_000n,
+        revision: 'revision-2',
+        assessedAt: 240,
+        breaches: [{ period: '7d', spent: 1n, proposedTotal: 1_000_001n, limit: 2n, overBy: 999_999n, resetAt: null }]
+      }
+    };
+    mockCreateEarnP2IDENote.mockRejectedValue(error);
+    mockGetSdk.mockResolvedValue({
+      getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+      getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+      solveIntent: jest.fn(async options => {
+        await options.createMidenP2IDENote('0xfaucet', '1000000', '0xallocator', 5_000, [1n]);
+        return { nonce: 'nonce-1' };
+      })
+    } as never);
+
+    await expect(openEarnPosition({ ...baseArgs(), spendingLimitAuthorization })).rejects.toBe(error);
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(expect.objectContaining({ spendingLimitAuthorization }));
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
   });
 });

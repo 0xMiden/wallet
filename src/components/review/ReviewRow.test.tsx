@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 import { ReviewRow } from './ReviewRow';
 
@@ -18,5 +18,12 @@ describe('ReviewRow note', () => {
     expect(noteWrapper.className).toContain('text-heading-gray');
     expect(noteWrapper.className).not.toContain('text-text-muted');
     expect(noteWrapper.className).not.toContain('text-[#6B6862]');
+  });
+});
+
+describe('ReviewRow edit link', () => {
+  it('is brand orange', () => {
+    render(<ReviewRow label="Expires" value="Never" onEdit={jest.fn()} editLabel="Edit" />);
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveClass('text-primary-500');
   });
 });
