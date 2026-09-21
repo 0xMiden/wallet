@@ -18,6 +18,23 @@ beforeEach(() => {
   mockedFetch.mockResolvedValue({});
 });
 
+/**
+ * Sets `MIDEN_E2E_TEST` to `'true'` for the duration of `fn`, then restores whatever value the
+ * environment actually had before - never unconditionally deletes it. `dotenv/config` runs in
+ * jest's `setupFiles`, so a developer whose own `.env` sets this flag would otherwise have it
+ * silently stripped for the rest of the worker the first time a test here used `delete`.
+ */
+const withE2eFlagSet = async (fn: () => void | Promise<void>): Promise<void> => {
+  const previous = process.env.MIDEN_E2E_TEST;
+  process.env.MIDEN_E2E_TEST = 'true';
+  try {
+    await fn();
+  } finally {
+    if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = previous;
+  }
+};
+
 describe('coverage', () => {
   it('covers exactly the feed symbols', () => {
     expect(isCoveredSymbol('ETH')).toBe(true);
@@ -30,14 +47,11 @@ describe('coverage', () => {
     expect(isCoveredSymbol('constructor')).toBe(false);
   });
 
-  it('covers the E2E fixture symbol only inside an E2E build', () => {
+  it('covers the E2E fixture symbol only inside an E2E build', async () => {
     expect(isCoveredSymbol('TST')).toBe(false);
-    process.env.MIDEN_E2E_TEST = 'true';
-    try {
+    await withE2eFlagSet(() => {
       expect(isCoveredSymbol('TST')).toBe(true);
-    } finally {
-      delete process.env.MIDEN_E2E_TEST;
-    }
+    });
   });
 });
 
@@ -118,12 +132,9 @@ describe('getPriceMicro', () => {
   });
 
   it('prices the E2E fixture symbol at exactly one dollar, reading neither the cache nor the feed', async () => {
-    process.env.MIDEN_E2E_TEST = 'true';
-    try {
+    await withE2eFlagSet(async () => {
       await expect(getPriceMicro('TST', 1_000)).resolves.toBe(1_000_000n);
-    } finally {
-      delete process.env.MIDEN_E2E_TEST;
-    }
+    });
     expect(mockedRead).not.toHaveBeenCalled();
     expect(mockedFetch).not.toHaveBeenCalled();
   });
