@@ -26,6 +26,12 @@ export async function importWalletToConsentPrompt(page: Page): Promise<void> {
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
   await page.locator('#import-link').click();
 
+  // Test networks show the notice before the import choice. The seed form is
+  // one option on that choice, not the screen Import opens.
+  await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+  await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+  await page.getByTestId('import-type-seed-phrase').click();
+
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   for (let i = 0; i < SEED_WORDS.length; i++) {
     await page.locator(`#seed-phrase-input-${i}`).fill(SEED_WORDS[i]!);
