@@ -38,6 +38,17 @@ export interface EarnChartPoint {
   value: number;
 }
 
+/**
+ * What recharts hands an `Area`'s `dot` render prop. Its own typings widen the argument to a union
+ * that carries neither `index` nor the resolved coordinates, so the two earn charts name the three
+ * fields they read rather than taking `any`.
+ */
+export interface ChartDotProps {
+  cx?: number;
+  cy?: number;
+  index?: number;
+}
+
 export interface EarnVault {
   id: string;
   protocol: string;

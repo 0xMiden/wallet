@@ -8,7 +8,8 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { TextAction } from 'components/ui/TextAction';
 import { navigate } from 'lib/woozie';
-import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
+import { EarnSummaryPanel } from 'screens/earn-flow/components';
+import { ProviderLogo } from 'screens/earn-flow/ProviderLogo';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
@@ -21,7 +22,15 @@ const Earn: FC = () => {
       <div className="h-full overflow-y-auto">
         {/* The 16px page margin, 20px between sections, and Explore's bottom clearance: the two
             home-group tab pages end the same distance above the floating tab bar. */}
-        <div className="flex flex-col gap-5 px-4 pt-3 pb-24">
+        <div className="flex flex-col gap-5 px-4 pt-4 pb-24">
+          {/* The page's first line, where Send puts "Send to" and Receive "Receive at":
+              `text-title-tab` 24px down from the top of the pane, so the home-group tabs line up as
+              you swipe between them. The `pt-2` is the column's 16px plus 8, not a rhythm of its
+              own. */}
+          <h1 data-testid="earn-title" className="pt-2 text-title-tab text-ink">
+            {t('earnTitle')}
+          </h1>
+
           <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
 
           <section aria-label={t('earnCurrentPositionsTitle')}>

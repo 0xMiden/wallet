@@ -26,23 +26,43 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-jest.mock('./components', () => ({
-  MetricCard: ({
-    label,
-    value,
-    valueClassName,
-    className
-  }: {
-    label: string;
-    value: string;
-    valueClassName?: string;
-    className?: string;
-  }) => (
-    <div data-testid="metric-card" data-label={label} data-value-class={valueClassName ?? ''} className={className}>
-      {value}
-    </div>
-  )
-}));
+jest.mock('./components', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    MetricCard: ({
+      label,
+      value,
+      valueClassName,
+      className
+    }: {
+      label: string;
+      value: string;
+      valueClassName?: string;
+      className?: string;
+    }) =>
+      R.createElement(
+        'div',
+        {
+          'data-testid': 'metric-card',
+          'data-label': label,
+          'data-value-class': valueClassName ?? '',
+          className
+        },
+        value
+      ),
+    // The shared hero: a probe that keeps the figure, its caption and the change line assertable.
+    EarnHero: ({ labelId, value, label, meta }: { labelId: string; value: string; label: string; meta?: string }) =>
+      R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, `${value} ${label} ${meta ?? ''}`),
+    // The token mark that replaced the "{asset} on {network}" pill in the header.
+    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+      R.createElement(
+        'span',
+        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
+        'earnAssetOnNetwork'
+      )
+  };
+});
 
 // `lib/woozie` back/forward navigation is native-history-backed; stub the two
 // entry points the component calls so we can assert them without a real router.
@@ -195,19 +215,23 @@ describe('EarnVaultDetail', () => {
     // Page root.
     expect(screen.getByTestId('earn-vault-detail-page')).toBeInTheDocument();
 
-    // Header: the protocol alone, so the title holds one line, plus the "{asset} on {network}" pill.
+    // Header: the protocol alone, so the title holds one line, plus the asset's compact mark.
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Aave');
-    // The asset belongs to the pill; naming it twice wrapped the header onto a second line.
+    // The asset belongs to the mark; naming it twice wrapped the header onto a second line.
     expect(heading).not.toHaveTextContent('•');
-    // "{{asset}} on {{network}}" pill — the stubbed t() echoes the key.
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    // The mark rides the header row, in place of the pill that took the title's width.
+    const mark = screen.getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', 'USDC');
+    expect(mark).toHaveAttribute('data-network', 'Ethereum');
+    expect(screen.getByRole('banner')).toContainElement(mark);
 
-    // APY section.
-    expect(screen.getByText('earnCurrentApy')).toBeInTheDocument();
-    expect(screen.getByText('+0.12% (24h)')).toBeInTheDocument();
-    // "5.24%" appears in the APY headline (and in the mocked tooltip body).
-    expect(screen.getAllByText('5.24%').length).toBeGreaterThanOrEqual(1);
+    // APY hero: the figure, its caption and the 24h move, through the shared hero.
+    const hero = screen.getByTestId('earn-hero');
+    expect(hero).toHaveAttribute('id', 'earn-vault-apy-title');
+    expect(hero).toHaveTextContent('5.24%');
+    expect(hero).toHaveTextContent('earnCurrentApy');
+    expect(hero).toHaveTextContent('+0.12% (24h)');
 
     // Stats: audited → "✓ yes" with the ink value class.
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
@@ -231,7 +255,7 @@ describe('EarnVaultDetail', () => {
     render(<EarnVaultDetail vaultId="v-unaudited" />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound');
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', 'DAI');
 
     // Not audited → "no" and no explicit value class (undefined → '').
     const audited = metricValue('earnAuditedLabel');

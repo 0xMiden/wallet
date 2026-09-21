@@ -108,8 +108,13 @@ jest.mock('./components', () => {
         { 'data-testid': 'metric-card', 'data-label': label, 'data-valueclass': valueClassName ?? '' },
         value
       ),
-    PositionLogo: ({ asset, className }: { asset: string; className?: string }) =>
-      R.createElement('div', { 'data-testid': 'position-logo', 'data-asset': asset, className })
+    // The token mark with its network badge, in place of the logo-plus-pill pair.
+    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+      R.createElement(
+        'div',
+        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
+        'earnAssetOnNetwork'
+      )
   };
 });
 
@@ -244,10 +249,12 @@ describe('EarnPositionDetail', () => {
     expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
     expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
 
-    // PositionHeading: logo + "{protocol} • {asset}" + "{asset} on {network}" pill.
-    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', 'FUSD');
+    // PositionHeading: the shared asset mark + "{protocol} • {asset}".
+    const mark = screen.getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', 'FUSD');
+    expect(mark).toHaveAttribute('data-network', 'Flatnet');
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('FlatProto');
-    // "{asset} on {network}" pill -> t('earnAssetOnNetwork', { asset, network }).
+    // The pair is still named in text, for assistive tech and in the details rows.
     expect(container.textContent).toContain('earnAssetOnNetwork');
     expect(container.textContent).toContain('Flatnet');
 
@@ -295,7 +302,7 @@ describe('EarnPositionDetail', () => {
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('earnPositionHeaderTitle');
-    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', '—');
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', '—');
 
     const cards = screen.getAllByTestId('metric-card');
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;

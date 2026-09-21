@@ -61,7 +61,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
-      <EarnFlowHeader vault={vault} />
+      <EarnFlowHeader subject={vault} />
 
       <div className="min-h-0 flex-1">
         <SelectAmount
