@@ -1609,6 +1609,15 @@ function delegateFromConfirmation(result: DAppConfirmationResult): boolean {
 
 const DAPP_SPENDING_LIMIT_RETRY = 'Spending limit changed. Review and retry the transaction.';
 
+/**
+ * The one message a dApp ever sees for a spending-limit refusal it can retry past (a policy or
+ * price read that failed, or a stale authorization). One place decides the text so every throw
+ * site - the send path's `dappSendFailure` and the custom path's own conversion below - says the
+ * same thing for the same underlying condition.
+ */
+const spendingLimitRetryError = (): Error =>
+  new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+
 const authorizationForDappSend = (
   details: SpendingLimitAssessmentDetails | undefined,
   strictlyAuthenticated: boolean | undefined
@@ -1640,8 +1649,12 @@ const customSpendingLimitState = async (
     return { totals: outgoing, details: details?.assessment.breach === undefined ? undefined : details };
   } catch (error) {
     // A value the wallet cannot establish is the same answer as a value it cannot see: an
-    // untrusted page does not get to spend against a cap nobody can check.
-    if (isSpendingLimitPriceUnavailable(error)) throw new Error(MidenDAppErrorType.NotGranted);
+    // untrusted page does not get to spend against a cap nobody can check. Converted at this
+    // boundary - not left to propagate for `dappSendFailure` to map downstream - so no internal
+    // error text can ever reach an untrusted page even if some future caller's catch does not
+    // route through that mapper; `spendingLimitRetryError` keeps the wording identical to the
+    // send path's own mapping of the same condition.
+    if (isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
     throw error;
   }
 };
@@ -1665,7 +1678,7 @@ const assertDappSendStillAuthorized = async (
 
 const dappSendFailure = (error: unknown): Error => {
   if (spendingLimitAssessmentFromError(error) !== undefined) {
-    return new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+    return spendingLimitRetryError();
   }
   // A policy that cannot be evaluated, and a value the policy cannot see, are both refusals, not a
   // malformed request. Without this a storage-read failure or an unpriced asset reached the dApp as
@@ -1675,7 +1688,7 @@ const dappSendFailure = (error: unknown): Error => {
     isSpendingLimitPriceUnavailable(error) ||
     (isRecord(error) && Reflect.get(error, 'code') === 'SPENDING_LIMIT_POLICY_UNAVAILABLE')
   ) {
-    return new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+    return spendingLimitRetryError();
   }
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
   if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;

@@ -911,8 +911,12 @@ describe('requestTransaction - custom spending-limit gate', () => {
   it('refuses a dApp request when a covered asset has no price', async () => {
     mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new SpendingLimitPriceUnavailableError('faucet-a'));
 
+    // The full retry-suffixed message, not a bare NotGranted substring: the custom path converts
+    // this error at its own throw site (see the boundary-conversion comment in
+    // `customSpendingLimitState`), and a substring match can't tell that conversion apart from one
+    // that dropped the retry text - which is exactly the divergence this asserts against.
     await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
-      MidenDAppErrorType.NotGranted
+      /spending limit changed.*retry/i
     );
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
     // Same reasoning as every other wallet-side refusal here: the carried notes must not stay
