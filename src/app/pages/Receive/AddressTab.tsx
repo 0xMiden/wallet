@@ -156,10 +156,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                   ref={qrRef}
                   address={address}
                   size={QR_EXPORT_SIZE}
-                  fluid
                   // The page names the network in the chip below; the shared image still carries it.
                   caption={network ? t('qrNetworkCaption', { network }) : undefined}
-                  showCaption={false}
                 />
               </div>
             </div>

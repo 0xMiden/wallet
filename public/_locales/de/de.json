@@ -1078,7 +1078,6 @@
   "networkNoticeResetTitle": "Das Netzwerk kann zurückgesetzt werden",
   "activityCheckingTransfer": "Wird überprüft…",
   "networkNoticeResetBody": "Ein Reset löscht Guthaben und den Verlauf. Testguthaben werden niemals ins Mainnet übertragen.",
-  "receiveTestFundsTitle": "Nur Test-Token",
   "withdrawalCheckingDescription": "Ihre Auszahlung wird überprüft. Lassen Sie die Wallet geöffnet, bis die Zustellung bestätigt ist.",
   "retryEarnDelivery": "Zustellung erneut versuchen",
   "activityTransferDetails": "Details",

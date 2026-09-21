@@ -267,7 +267,7 @@ describe('Receive - Address', () => {
 
     expect(container.querySelector('[data-testid="receive-network"]')?.textContent).toBe('qrNetworkCaption:testnet:');
     expect(mockQRCodeProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({ caption: 'qrNetworkCaption:testnet:', showCaption: false, fluid: true, size: 300 })
+      expect.objectContaining({ caption: 'qrNetworkCaption:testnet:', size: 300 })
     );
   });
 

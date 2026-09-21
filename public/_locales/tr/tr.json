@@ -1078,7 +1078,6 @@
   "networkNoticeResetTitle": "Ağ sıfırlanabilir",
   "activityCheckingTransfer": "Kontrol ediliyor…",
   "networkNoticeResetBody": "Sıfırlama işlemi, bakiyeleri ve geçmişi temizler. Test bakiyeleri asla Mainnet’e aktarılmaz.",
-  "receiveTestFundsTitle": "Yalnızca test token'ları",
   "withdrawalCheckingDescription": "Para çekme işleminiz kontrol ediliyor. Teslimat onaylanana kadar cüzdanı açık tutun.",
   "retryEarnDelivery": "Teslimatı tekrar dene",
   "activityTransferDetails": "Ayrıntılar",
