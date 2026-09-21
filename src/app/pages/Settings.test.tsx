@@ -684,10 +684,21 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     rerender(<Settings tabSlug="general-settings" />);
 
-    // Keyed on the slug so the header remounts and its focus effect re-runs;
-    // reconciling one header would announce the first page's name only.
+    // Every sub-page tab renders its own Component, so the move changes element type and React
+    // remounts - which is what re-runs the header's focus effect. Reconciling one header would
+    // announce the first page's name only. A slug key used to be credited with this and was
+    // deleted once measured: removing it left this test passing.
     expect(screen.getByTestId('nav-header')).not.toBe(first);
     expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
+
+    // Going BACK to the first page must remount too, not reuse a cached instance. This half was
+    // lost with the key's own test: that test was vacuous about the key, but it was the only one
+    // that revisited a slug, and nothing else in this file does.
+    const second = screen.getByTestId('nav-header');
+    rerender(<Settings tabSlug="language" />);
+
+    expect(screen.getByTestId('nav-header')).not.toBe(second);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('language');
   });
 
   // The root's back-to-home chevron is gone: Settings is a bottom-nav
