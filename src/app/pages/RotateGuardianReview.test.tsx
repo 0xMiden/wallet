@@ -228,6 +228,15 @@ beforeEach(() => {
   mockGetUncompleted.mockResolvedValue([]);
 });
 
+// This screen commits value, so it names the network. The registry test proves the element is in
+// the file; this proves it actually renders - the distinction a source match cannot make, and how
+// a banner once shipped behind an early return.
+it('names the network it will commit on', () => {
+  render(<RotateGuardianReview />);
+
+  expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+});
+
 it('renders the current and destination endpoints in the shared transition hero', async () => {
   render(<RotateGuardianReview />);
 

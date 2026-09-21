@@ -240,4 +240,13 @@ describe('EarnWithdrawReview', () => {
     expect(footer).toHaveClass('px-8');
     expect(footer).not.toHaveClass('px-6');
   });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - which is the distinction a source match could
+  // not make, and how a banner once shipped behind an early return.
+  it('names the network it will commit on', () => {
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
 });
