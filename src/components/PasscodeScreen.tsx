@@ -13,7 +13,7 @@ export interface PasscodeScreenProps {
   /** How many digits are entered. */
   filled: number;
   length: number;
-  /** Bumped on each rejected code; see `PasscodeDots`. */
+  /** Bumped on each failed attempt; see `PasscodeDots`. */
   errorKey?: number;
   onDigit: (digit: string) => void;
   onDelete: () => void;

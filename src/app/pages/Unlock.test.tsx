@@ -834,6 +834,152 @@ describe('the biometric key and the passcode never unlock concurrently', () => {
   });
 });
 
+// The attempt in flight is visible to every input, not just to the guard: a keypad, auto-submit or
+// password form that started behind it would be refused by the guard without a word. And the most
+// recent failure, from either path, is what the screen shows.
+describe('an unlock attempt in flight holds every input, and the latest failure shows', () => {
+  const type = (container: HTMLElement, digits: string) => {
+    for (const d of digits) {
+      fireEvent.click(container.querySelector(`[data-testid="digit-${d}"]`) as HTMLButtonElement);
+    }
+  };
+  const filledDots = () =>
+    screen.getAllByTestId('passcode-dot').filter(dot => dot.getAttribute('data-filled') === 'true').length;
+
+  beforeEach(() => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+  });
+
+  it('refuses the biometric key while the mount-time attempt is still in flight', async () => {
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the mount attempt never settles
+    await renderUnlock();
+    await flushMicro();
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('once the mount-time attempt was cancelled', () => {
+    beforeEach(() => {
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    });
+
+    it('holds the keypad while a biometric retry is in flight, then takes the passcode', async () => {
+      const { container } = await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      type(container, '123456');
+      await advance(200);
+      expect(filledDots()).toBe(0);
+      expect(mockUnlock).toHaveBeenCalledTimes(2); // mount, then the retry - nothing for the code
+
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+      type(container, '123456');
+      await advance(200);
+      expect(mockUnlock).toHaveBeenLastCalledWith('123456');
+    });
+
+    it('holds delete too while a biometric retry is in flight', async () => {
+      const { container } = await renderUnlock();
+      type(container, '12');
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      fireEvent.click(screen.getByTestId('numpad-delete'));
+
+      expect(filledDots()).toBe(2);
+    });
+
+    it('shows a failed biometric attempt after a wrong passcode, not the stale passcode error', async () => {
+      const { container } = await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('wrong passcode'));
+      type(container, '111111');
+      await advance(600);
+      expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+
+    it('clears a partly typed code when a biometric retry fails, as a rejected passcode does', async () => {
+      const { container } = await renderUnlock();
+      type(container, '12');
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      // The dots are empty when they shake: PasscodeDots replays the row from rest on a new errorKey.
+      expect(filledDots()).toBe(0);
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+    });
+
+    it('during a lockout, shakes the dots and announces a failed biometric while the countdown stays', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      await renderUnlock();
+      // The mount-time attempt was cancelled: not an error, so nothing shook.
+      expect(screen.getByTestId('passcode-dots')).not.toHaveAttribute('data-shake');
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+      expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    });
+  });
+});
+
+describe('the desktop password form waits for the mount-time Touch ID attempt', () => {
+  it('disables Unlock while the attempt is in flight, then takes the password', async () => {
+    mockIsDesktop = true;
+    mockDesktopHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    let rejectMount: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectMount = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+    await flushMicro();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, {
+      target: { value: 'hunter2' }
+    });
+    const submit = container.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submit).toBeDisabled();
+
+    await act(async () => rejectMount(new Error('cancelled')));
+    await flushMicro();
+    expect(submit).not.toBeDisabled();
+
+    mockUnlock.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await flushMicro();
+    expect(mockUnlock).toHaveBeenLastCalledWith('hunter2');
+  });
+});
+
 // The glyph is chosen from the sensor Unlock reads at mount. Without a case here, a typo in that
 // call would be swallowed by the defensive catch around it and ship the fallback glyph to every
 // device with this suite green.
