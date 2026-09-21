@@ -50,7 +50,8 @@ const EarnPositions: FC = () => {
         <>
           <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
 
-          <section className="flex flex-col gap-5" aria-label={t('earnPositionsRegionLabel')}>
+          {/* Cards in a list are separated by space, 12px, as on the tab root. */}
+          <section className="flex flex-col gap-3" aria-label={t('earnPositionsRegionLabel')}>
             {positions.map(position => (
               <EarnPositionDetailCard key={position.id} position={position} />
             ))}
@@ -65,7 +66,10 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
   const { t } = useTranslation();
 
   return (
+    // Outlined, like the same position's card on the tab root: one card standing on the page, not a
+    // grey block. `5a0abd807` moved the tab root's cards here and left this page's behind.
     <CardButton
+      surface="outline"
       padding="tile"
       data-testid={`earn-position-card-${position.id}`}
       onClick={() => navigate(`/earn/positions/${position.id}`)}
