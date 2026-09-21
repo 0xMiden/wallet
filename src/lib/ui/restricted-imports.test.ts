@@ -60,6 +60,7 @@ const REPLACEMENTS: Record<string, string> = {
   'components/NavButton': 'components/ui/IconButton',
   'components/CardItem': 'components/ui/ListRow',
   'components/ListItem': 'components/ui/ListRow',
+  'components/TabPicker': 'components/ui/SegmentedControl',
   'app/templates/MenuItem': 'components/ui/ListRow',
   'components/Chip': 'components/ui/Pill',
   'components/TextArea': 'components/ui/TextField',
