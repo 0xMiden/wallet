@@ -94,15 +94,6 @@
     "message": "読み込み中",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "$date$ までに受け取られない場合、送信者に返却されます",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -2844,18 +2835,6 @@
     "message": "お客様のMIDENはネットワーク手数料用に確保されています。送金するには、さらにMIDENを受け取る必要があります。",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "各クレームにはそれぞれ手数料がかかります。まとめて請求する場合は、手数料は1回分のみとなります。",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "請求された資産ごとに1回課金されます。",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "ネットワーク手数料の支払いにMIDENが必要です。続行するには、MIDENを受け取ってください。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3319,72 +3298,9 @@
     "message": "支払いを行う",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "すべて請求する",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "「すべて請求？」（$unclaimed$ / $total$）",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "未処理の合計",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "資産",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ 受信",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Midenは「notes」と呼ばれる独自のシステムを採用しています。これは、受け取る資金を手動で請求する機能です。これにより、悪意のある攻撃者からウォレットを安全に守ることができます。",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$の全資産において保留中",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ 振込入金",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ 未解決",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "受け取れませんでした — 「再試行」をタップしてください",
@@ -3393,10 +3309,6 @@
   "noteUnavailable": {
     "message": "この送金は利用できなくなりました",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "保留中のnotes",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "トークンを取得する",
@@ -3881,10 +3793,6 @@
     "message": "ハプティックフィードバック",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "現在、notesを請求できるものはありません。",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "送金が届いています",
     "englishSource": "You have an incoming transfer"
@@ -3993,10 +3901,6 @@
   "enterAddress": {
     "message": "住所を入力してください",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "noteの請求に失敗しました",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "テストネット",

@@ -94,15 +94,6 @@
     "message": "Loading",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "Returns to the sender if not accepted by $date$",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -2844,18 +2835,6 @@
     "message": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Each claim pays its own fee. Claiming them together pays one.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Charged once per asset claimed.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "You need MIDEN to pay the network fee. Receive some MIDEN to continue.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3319,72 +3298,9 @@
     "message": "Send Payment",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Claim All",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Claim All? ($unclaimed$/$total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Total Pending",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "assets",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ Incoming",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes pending across $assets$ assets",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ incoming transfers",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ unresolved",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "Could not accept — tap Retry to try again",
@@ -3393,10 +3309,6 @@
   "noteUnavailable": {
     "message": "This transfer is no longer available",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Pending notes",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "Get tokens",
@@ -3881,10 +3793,6 @@
     "message": "Haptic Feedback",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "You don't currently have notes to claim.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "You have an incoming transfer",
     "englishSource": "You have an incoming transfer"
@@ -3993,10 +3901,6 @@
   "enterAddress": {
     "message": "Enter Address",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "Failed to claim note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Testnet",

@@ -94,15 +94,6 @@
     "message": "正在加载",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "如果在 $date$ 前未被接受，将退回给发送方",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -2844,18 +2835,6 @@
     "message": "您的 MIDEN 将用于支付网络手续费。获得更多 MIDEN 即可进行转账。",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "每笔申领均需支付相应手续费。若合并申领，则仅需支付一次。",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "每笔申领的资产仅收取一次费用。",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "您需要 MIDEN 来支付网络费用。请获取一定数量的 MIDEN 以继续操作。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3319,72 +3298,9 @@
     "message": "发送付款",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "全额申领",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "“全额申领”？（$unclaimed$ / $total$）",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "待处理总数",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "资产",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ 即将到来",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden 采用了一个名为“确认凭证”（notes）的独特系统。用户需要在此手动申领收到的款项。这是保护您的钱包免受恶意攻击者侵害的一种方式。",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$旗下各资产中的待处理事项",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ 入账转账",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ 未解决",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "接受失败——点击重试再试一次",
@@ -3393,10 +3309,6 @@
   "noteUnavailable": {
     "message": "此转账已不可用",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "待处理 notes",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "获取代币",
@@ -3881,10 +3793,6 @@
     "message": "触觉反馈",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "您目前没有可申领的notes。",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "您有一笔待接收的转账",
     "englishSource": "You have an incoming transfer"
@@ -3993,10 +3901,6 @@
   "enterAddress": {
     "message": "输入地址",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "无法领取 note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "测试网",

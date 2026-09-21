@@ -94,15 +94,6 @@
     "message": "Chargement en cours",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "Retourne à l'expéditeur s'il n'est pas accepté avant le $date$",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -2844,18 +2835,6 @@
     "message": "Votre MIDEN est réservé aux frais de réseau. Recevez davantage de MIDEN pour effectuer des envois.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Chaque réclamation donne lieu au paiement de ses propres frais. Les réclamer ensemble ne donne lieu qu’au paiement d’une seule fois.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Facturé une fois par actif réclamé.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Vous avez besoin de MIDEN pour payer les frais de réseau. Recevez des MIDEN pour continuer.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3319,72 +3298,9 @@
     "message": "Effectuer un paiement",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Réclamer le tout",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Tout réclamer ? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Total en attente",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "actifs",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ À venir",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden utilise un système unique appelé « notes ». C'est là que vous réclamez manuellement l'argent qui vous est destiné. C'est un moyen pour vous de protéger votre portefeuille contre les acteurs malveillants.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes en attente sur l'ensemble des actifs d'$assets$",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ virements entrants",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ en suspens",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "Impossible d'accepter — appuyez sur Réessayer",
@@ -3393,10 +3309,6 @@
   "noteUnavailable": {
     "message": "Ce transfert n'est plus disponible",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "notes en attente",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "Obtenir des jetons",
@@ -3881,10 +3793,6 @@
     "message": "Retour haptique",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "Vous n’avez actuellement aucunnotess à réclamer.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "Vous avez un transfert entrant",
     "englishSource": "You have an incoming transfer"
@@ -3993,10 +3901,6 @@
   "enterAddress": {
     "message": "Saisir l'adresse",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "Échec de la réclamation note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Réseau de test",

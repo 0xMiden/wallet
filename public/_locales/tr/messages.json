@@ -94,15 +94,6 @@
     "message": "Yükleniyor",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "$date$ tarihine kadar kabul edilmezse gönderene geri döner",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -2844,18 +2835,6 @@
     "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Talep edilen her varlık için bir kez ücret alınır.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3319,72 +3298,9 @@
     "message": "Ödemeyi Gönder",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Tümünü Talep Et",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Hepsini Talep Et? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Toplam Beklemede Olan",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "varlıklar",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ Gelen",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden, \"notes\" (Gelen Ödemeleri Talep Etme) adlı benzersiz bir sistem kullanır. Bu sistemde, gelen parayı manuel olarak talep edersiniz. Bu, cüzdanınızı kötü niyetli kişilerden korumanın bir yoludur.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$’ın tüm varlıklarında beklemede olan",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ gelen havaleler",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ çözülmemiş",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "Kabul edilemedi — tekrar denemek için Yeniden Dene'ye dokunun",
@@ -3393,10 +3309,6 @@
   "noteUnavailable": {
     "message": "Bu transfer artık kullanılamıyor",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Bekleyen notes",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "Jetonları al",
@@ -3881,10 +3793,6 @@
     "message": "Dokunsal Geri Bildirim",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "Şu anda talep edebileceğiniz bir notes'ınız bulunmamaktadır.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "Gelen bir transferiniz var",
     "englishSource": "You have an incoming transfer"
@@ -3993,10 +3901,6 @@
   "enterAddress": {
     "message": "Adresi Girin",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "note'i talep edemedi",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Test ağı",
