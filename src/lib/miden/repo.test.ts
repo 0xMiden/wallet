@@ -604,4 +604,18 @@ describe('spending limits schema', () => {
       transactions.where('spendingLimitAuthorizationId').equals('authorization-1').primaryKeys()
     ).resolves.toEqual(['transaction-1']);
   });
+
+  it('stores a stamped dollar value on a transaction row', async () => {
+    await transactions.add({
+      id: 'tx-usd',
+      type: 'send',
+      accountId: 'account-a',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      spentUsd: 1_500_000n
+    });
+
+    await expect(transactions.get('tx-usd')).resolves.toMatchObject({ spentUsd: 1_500_000n });
+  });
 });

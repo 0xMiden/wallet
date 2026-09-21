@@ -423,6 +423,15 @@ export interface ITransaction {
    * the policy counts instead.
    */
   spentAssetTotals?: IConsumedAssetTotal[];
+  /**
+   * What this row sent, in micro-dollars, as valued when it was queued.
+   *
+   * Stamped once and never revalued: the rolling window sums these, so a price move must not
+   * silently change what a past transaction consumed of the cap. Absent on rows written before
+   * USD limits existed and on rows whose assets the price feed does not cover; both contribute
+   * nothing, which is the same verdict the policy reaches for an uncovered asset today.
+   */
+  spentUsd?: bigint;
   transactionId?: string;
   spendingLimitAuthorizationId?: string;
   /**
@@ -670,6 +679,7 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
+  spentUsd?: bigint;
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
