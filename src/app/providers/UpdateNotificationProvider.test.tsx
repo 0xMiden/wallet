@@ -104,7 +104,14 @@ describe('UpdateNotificationProvider', () => {
     expect(await screen.findByTestId('update-card')).toHaveTextContent('1.1.0');
   });
 
-  it.each(['/reset-required', '/reset-wallet', '/forgot-password', '/forgot-password-info', '/finish-side-panel'])(
+  it.each([
+    '/reset-required',
+    '/reset-wallet',
+    '/forgot-password',
+    '/forgot-password-info',
+    '/finish-side-panel',
+    '/help-improve-wallet'
+  ])(
     'stays silent on the recovery or onboarding route %s',
     async route => {
       pathname = route;
