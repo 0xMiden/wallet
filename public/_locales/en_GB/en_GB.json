@@ -1080,7 +1080,6 @@
   "networkNoticeResetTitle": "The network can reset",
   "activityCheckingTransfer": "Checking…",
   "networkNoticeResetBody": "A reset clears balances and history. Test balances never carry over to Mainnet.",
-  "receiveTestFundsTitle": "Test tokens only",
   "withdrawalCheckingDescription": "Checking your withdrawal. Keep the wallet open while delivery is confirmed.",
   "retryEarnDelivery": "Retry delivery",
   "activityTransferDetails": "Details",

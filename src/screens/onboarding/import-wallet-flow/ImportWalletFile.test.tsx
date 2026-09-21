@@ -127,10 +127,19 @@ jest.mock('app/atoms/FormField', () => {
     __esModule: true,
     PASSWORD_ERROR_CAPTION: 'PASSWORD_ERROR_CAPTION',
     default: ReactLib.forwardRef(
-      ({ label, errorCaption }: { label?: React.ReactNode; errorCaption?: React.ReactNode }, _ref: unknown) =>
+      (
+        {
+          label,
+          errorCaption,
+          autoComplete
+        }: { label?: React.ReactNode; errorCaption?: React.ReactNode; autoComplete?: string },
+        _ref: unknown
+      ) =>
         ReactLib.createElement(
           'div',
-          { 'data-testid': 'form-field' },
+          // `autoComplete` is forwarded so a caller's choice is visible here. Whether FormField
+          // honours it is FormField.test.tsx's job; this file's job is that the caller asks.
+          { 'data-testid': 'form-field', 'data-auto-complete': autoComplete },
           ReactLib.createElement('span', { 'data-testid': 'ff-label' }, label),
           errorCaption ? ReactLib.createElement('div', { 'data-testid': 'ff-error' }, errorCaption) : null
         )
@@ -296,6 +305,18 @@ describe('initial render / drop zone', () => {
     expect(getFileInput(container)).toHaveAttribute('accept', '.json,application/json');
     // No password field and no notice before a file is loaded.
     expect(screen.queryByTestId('form-field')).not.toBeInTheDocument();
+  });
+
+  // A wallet FILE is decrypted with a password chosen at export time, so this is the one password
+  // field in the wallet that WANTS the manager. The component default is `new-password`, which
+  // suppresses the manager on vault secrets and would offer to generate a password that already
+  // exists, so this field overrides it. That FormField honours the override is its own suite's
+  // job; this asserts the caller asks for it.
+  it('asks the password manager for the stored file password', () => {
+    const { container } = renderScreen();
+    uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
+
+    expect(screen.getByTestId('form-field')).toHaveAttribute('data-auto-complete', 'current-password');
   });
 
   it('registers the password field with the required caption once a file is loaded', () => {

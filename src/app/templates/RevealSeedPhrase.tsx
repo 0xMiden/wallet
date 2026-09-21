@@ -29,6 +29,11 @@ type FormData = {
 // The page opens on the privacy warning; the auth gate and the words come only after View.
 type Step = 'warning' | 'reveal';
 
+// The protector probe reads platform storage, which can hang rather than fail. The
+// bound only has to be shorter than a user's patience: its whole job is to convert a
+// hang into the retryable error path.
+const PROBE_TIMEOUT_MS = 5_000;
+
 const RevealSeedPhrase: FC = () => {
   const { t } = useTranslation();
   const { revealMnemonic } = useMidenContext();
@@ -49,11 +54,32 @@ const RevealSeedPhrase: FC = () => {
   // close, which also trip that effect — and `history.go(-1)` settles on a later
   // task, so each call popped another page (Settings too). The hook fires once
   // per location, and routes to the Settings root when opened cold.
-  const leave = useBackWithFallback('/settings');
+  const popPage = useBackWithFallback('/settings');
+  // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
+  // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
+  // settles on a later task, so a reveal that resolves in between would otherwise
+  // store the mnemonic and swap the rendered branch to the word grid on a page the
+  // user has already dismissed. Bumping the generation gives that in-flight promise
+  // the same mismatch unmount already produces. Wrapped at the binding rather than
+  // at each call site: there are seven, and a list is one edit away from being six.
+  const leave = useCallback(() => {
+    secretGeneration.current += 1;
+    setSecret(null);
+    popPage();
+  }, [popPage, setSecret]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  // Set only when BOTH protector reads fail, which means storage itself is
+  // unavailable rather than that the wallet has no credential - a wallet with no
+  // credential resolves both reads to false and never lands here. It therefore has
+  // its own surface on the warning step with a Retry, because the failure is
+  // transient and the mount probe runs once.
+  const [probeError, setProbeError] = useState<string | null>(null);
+  const [probing, setProbing] = useState(false);
+  const probeGeneration = useRef(0);
+  const probeTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -74,21 +100,102 @@ const RevealSeedPhrase: FC = () => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
   }, [seedStatus, setSecret]);
 
-  // Detect the auth type on mount, so View knows which gate to open.
+  // Detect the auth type, so View knows which gate to open.
+  //
+  // A REJECTION MUST NOT BE READ AS "no hardware". Both protectors are a `getPlain`
+  // read of their own key, so a failure of the hardware read says nothing about the
+  // password one - and answering `false` sends a hardware-only wallet into
+  // `unlockWithPassword`, which finds no stored password key and throws a fixed
+  // English string telling the user to use the biometrics this page has just stopped
+  // offering. So resolve the unknown with the complement instead of guessing it:
+  // a password credential means the password gate is genuinely right, and its absence
+  // means hardware, which then either works or fails loudly and correctly.
+  // Only a failure of BOTH reads is unresolvable, and that is storage being
+  // unavailable - see `probeError`. Off desktop and mobile `hasHardwareProtector`
+  // returns false without touching storage, so none of this runs there.
+  const probe = useCallback(async () => {
+    try {
+      return await Vault.hasHardwareProtector();
+    } catch (hardwareError) {
+      try {
+        return !(await Vault.hasPasswordProtector());
+      } catch (passwordError) {
+        // Carry both. The log is the only evidence for this state, and a bare rethrow
+        // could only ever name the complement's failure.
+        throw new Error('both protector reads failed', { cause: { hardwareError, passwordError } });
+      }
+    }
+  }, []);
+
+  // One runner for both entry points, with a monotonic token guarding every write.
+  // The token is NOT redundant: the deadline below releases the button without settling
+  // the read, so a user can start a second probe while the first is still outstanding -
+  // an overlap that could not happen before that change. The token is what makes the
+  // first probe's late settle a no-op instead of a write from a superseded run.
+  const runProbe = useCallback(() => {
+    const generation = (probeGeneration.current += 1);
+    const isCurrent = () => generation === probeGeneration.current;
+    // At most one line per run. The deadline and a rejection can both land for the same
+    // run - a read that outlives the bound and then fails - and two lines for one banner
+    // would over-count probes in a report.
+    let logged = false;
+    const raiseBanner = (message: string) => {
+      if (!isCurrent()) return;
+      if (!logged) {
+        logged = true;
+        console.warn(`[RevealSeedPhrase] ${message}`);
+      }
+      setProbeError('couldNotCheckUnlockMethod');
+      setProbing(false);
+    };
+
+    setProbing(true);
+    clearTimeout(probeTimer.current);
+    // Held in a LOCAL as well as the ref, and the local is what `.finally` clears. The
+    // ref alone was wrong: a superseded probe settles late by design here, and its
+    // `.finally` would then clear whatever handle the ref holds - which after a Retry is
+    // the LIVE probe's deadline. That left the second probe unbounded and put the page
+    // back in the dead end this whole mechanism exists to prevent. The ref stays for the
+    // unmount cleanup and the pre-arm clear, both of which do want the newest handle.
+    // A WAIT, not a failure. This fires on any read slower than the bound, and such a
+    // read is adopted below - so calling it a failure made the common mobile case, a slow
+    // bridge read that succeeds, report an error that never happened.
+    const timer = setTimeout(
+      () => raiseBanner(`protector probe still waiting after ${PROBE_TIMEOUT_MS}ms`),
+      PROBE_TIMEOUT_MS
+    );
+    probeTimer.current = timer;
+
+    probe()
+      .then(hasHw => {
+        if (!isCurrent()) return;
+        // Withdraw the wait, so "slow then answered" is separable from "never answered".
+        if (logged) console.warn('[RevealSeedPhrase] protector probe answered after the wait');
+        setProbeError(null);
+        setHasHardwareProtector(hasHw);
+      })
+      .catch(err => raiseBanner(`protector probe failed: ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        clearTimeout(timer);
+        if (isCurrent()) setProbing(false);
+      });
+  }, [probe]);
+
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') return;
-    let cancelled = false;
-    Vault.hasHardwareProtector()
-      .then(hasHw => {
-        if (!cancelled) setHasHardwareProtector(hasHw);
-      })
-      .catch(() => {
-        if (!cancelled) setHasHardwareProtector(false);
-      });
+    runProbe();
+    // Bump on the way out, the same way `secretGeneration` is: round 2 replaced this
+    // effect's `cancelled` flag with the token and then never invalidated on unmount,
+    // so an in-flight probe could still write. Harmless under React 18, but the
+    // asymmetry with its sibling is the kind that bites later.
     return () => {
-      cancelled = true;
+      probeGeneration.current += 1;
+      // The generation bump invalidates the WRITE; this invalidates the TIMER. Round 3
+      // added the first and not the second, which left a live handle behind on exactly
+      // the hanging read the bound exists for.
+      clearTimeout(probeTimer.current);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [runProbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No haptic here: Button fires one on every click.
   const handleView = useCallback(() => {
@@ -106,6 +213,10 @@ const RevealSeedPhrase: FC = () => {
     revealMnemonic(undefined)
       .then(mnemonic => {
         if (generation !== secretGeneration.current) return;
+        // Clear on success, not on Retry: a retry that leaves this set would be
+        // caught by the auto-close gate below after the 20s auto-hide and drop the
+        // user back onto a stale error instead of letting the page close.
+        setAuthError(null);
         setSecret(mnemonic);
         setStep('reveal');
       })
@@ -116,10 +227,9 @@ const RevealSeedPhrase: FC = () => {
         if (generation !== secretGeneration.current) return;
         setAuthError(err instanceof Error ? err.message : String(err));
         setStep('reveal');
-        leave();
       })
       .finally(() => setIsSubmitting(false));
-  }, [hasHardwareProtector, isSubmitting, revealMnemonic, setSecret, leave]);
+  }, [hasHardwareProtector, isSubmitting, revealMnemonic, setSecret]);
 
   useEffect(() => {
     return () => setSecret(null);
@@ -128,10 +238,21 @@ const RevealSeedPhrase: FC = () => {
   // When secret is cleared (auto-hide after 20s), go back. Not on the warning,
   // where no secret has been asked for yet.
   useEffect(() => {
-    if (step === 'reveal' && secret === null && hasHardwareProtector !== null && !isSubmitting && !showPasswordDrawer) {
+    // `authError === null` is load-bearing, not defensive: the catch above leaves
+    // exactly this state once `finally` clears isSubmitting, so without it this
+    // effect simply becomes the caller that navigates away from the error view and
+    // the user is bounced with no explanation - the same outcome by another route.
+    if (
+      step === 'reveal' &&
+      authError === null &&
+      secret === null &&
+      hasHardwareProtector !== null &&
+      !isSubmitting &&
+      !showPasswordDrawer
+    ) {
       leave();
     }
-  }, [step, secret, hasHardwareProtector, isSubmitting, showPasswordDrawer, leave]);
+  }, [step, authError, secret, hasHardwareProtector, isSubmitting, showPasswordDrawer, leave]);
 
   const words = secret ? secret.split(' ') : [];
 
@@ -179,10 +300,16 @@ const RevealSeedPhrase: FC = () => {
       </p>
     );
 
+  // Each branch keys its own header so React remounts it at a step change rather than
+  // reconciling one instance in place - PageHeader focuses the title from a mount
+  // effect, so without a remount the announcement never fires and the h1 keeps no
+  // tabIndex. Keyed per BRANCH, not on `step`: three of the four run with
+  // step === 'reveal'. The drawer branch is deliberately not focused - its sheet is a
+  // portal that owns focus, and that branch remounts on every failed submit.
   if (step === 'warning') {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
+        <PageHeader key="warning" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
 
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-2">
           {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
@@ -205,6 +332,20 @@ const RevealSeedPhrase: FC = () => {
           </div>
         </div>
 
+        {probeError && (
+          <div className="px-4 pt-4">
+            <Alert type="error" title={t('error')} description={t(probeError)} className="rounded-lg text-ink" />
+            <Button
+              className="mt-3"
+              variant={ButtonVariant.Secondary}
+              title={t('retry')}
+              onClick={runProbe}
+              disabled={probing}
+              isLoading={probing}
+            />
+          </div>
+        )}
+
         <div className="flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
           <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
           <Button
@@ -220,7 +361,9 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  if (hasHardwareProtector === null || (!secret && isSubmitting)) {
+  // The error view is exempt: a Retry sets isSubmitting again, and blanking here
+  // would take the Alert and the Retry button off screen for the whole prompt.
+  if (!authError && (hasHardwareProtector === null || (!secret && isSubmitting))) {
     return null;
   }
 
@@ -228,7 +371,7 @@ const RevealSeedPhrase: FC = () => {
   if (secret && words.length > 0) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={handleHide} />
+        <PageHeader key="words" className="px-4" title={t('recoveryPhrase')} onBack={handleHide} focusTitleOnMount />
 
         <div className="flex-1 flex flex-col px-4 pt-4">
           {isGuardReady && (
@@ -283,13 +426,30 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  // Auth error fallback
+  // Auth error fallback. It has to offer a way out AND a way on, because nothing else
+  // leaves this branch any more: the catch no longer navigates, and the auto-close
+  // effect above is gated on `authError === null`. The back arrow does work - an
+  // earlier note here claimed it was spent by the latch, which cannot happen, since
+  // any `leave()` bumps the generation and the catch then returns before setting
+  // `authError` at all, so reaching this view proves no `leave()` has run.
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
+        <PageHeader key="error" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
         <div className="px-4 pt-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
+        </div>
+
+        <div className="mt-auto flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
+          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
+          <Button
+            className="flex-1"
+            variant={ButtonVariant.Primary}
+            title={t('retry')}
+            onClick={handleView}
+            disabled={isSubmitting}
+            isLoading={isSubmitting}
+          />
         </div>
       </div>
     );
@@ -302,7 +462,7 @@ const RevealSeedPhrase: FC = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
+      <PageHeader key="auth" className="px-4" title={t('recoveryPhrase')} onBack={leave} />
 
       <Drawer
         open={showPasswordDrawer}

@@ -22,6 +22,7 @@ import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
+import { TRANSACTION_COLORS } from './transactionUtils';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
@@ -78,6 +79,9 @@ const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
+// useBackWithFallback reads live history at call time, so the position is a knob, not a constant.
+// Defaults to a page reached by navigation; the cold-open case sets it to 0 explicitly.
+let mockHistoryPosition = 1;
 const mockCancelTransactionById = jest.fn();
 const mockRequeueFailedTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
@@ -150,7 +154,17 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 jest.mock('lib/woozie', () => ({
   goBack: () => mockGoBack(),
-  navigate: (...args: unknown[]) => mockNavigate(...args)
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  // useBackWithFallback reads live history at call time, and useOncePerLocation calls listen() in a
+  // mount effect, so without these the whole suite throws on render, not just the back-button cases.
+  createLocationState: () => ({
+    historyPosition: mockHistoryPosition,
+    href: 'http://localhost/#/history-details/tx-1'
+  }),
+  listen: () => () => undefined,
+  // The real values, unlike the two sibling suites that mock 'push'/'replace': asserting a literal
+  // production never emits would pin the mock rather than the behaviour.
+  HistoryAction: { Pop: 'popstate', Push: 'pushstate', Replace: 'replacestate' }
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
@@ -203,9 +217,11 @@ jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onBack, onClose }: { title: string; onBack: () => void; onClose?: () => void }) => (
     <div data-testid="screen-header">
       <span data-testid="header-title">{title}</span>
-      <button data-testid="back-button" onClick={onBack}>
-        back
-      </button>
+      {onBack && (
+        <button data-testid="back-button" onClick={onBack}>
+          back
+        </button>
+      )}
       {onClose && (
         <button data-testid="header-close" onClick={onClose}>
           close
@@ -286,7 +302,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
-  getTransactionIconBackgroundColor: () => '#91ACC1'
+  // Reads the shared constant so a future move of the activity hues carries this mock with it;
+  // it was left on the retired literal when they last moved.
+  getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
@@ -390,6 +408,7 @@ const rowByLabel = (label: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockHistoryPosition = 1;
   // Keep IndexedDB/Dexie's scheduling primitives real so the global database
   // cleanup hook can complete; only timer-based order polling needs faking.
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
@@ -823,6 +842,18 @@ describe('HistoryDetails', () => {
       fireEvent.click(screen.getByTestId('back-button'));
       expect(mockGoBack).toHaveBeenCalledTimes(1);
     });
+
+    // `/history-details/:transactionId` is its own route, so a reload or a deep link opens it with
+    // no history behind it, and `goBack()` is `history.go(-1)`, which does nothing there. This
+    // page draws its own header instead of PageLayout's toolbar, so nothing else covers it.
+    it('falls back to home when the back button is pressed on a cold-opened page', async () => {
+      mockHistoryPosition = 0;
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+      fireEvent.click(screen.getByTestId('back-button'));
+      expect(mockNavigate).toHaveBeenCalledWith('/', 'replacestate');
+      expect(mockGoBack).not.toHaveBeenCalled();
+    });
   });
 
   describe('header close control', () => {
@@ -917,7 +948,7 @@ describe('HistoryDetails', () => {
       // Transfer details and Notes are separated using the transaction icon accent.
       const dividers = screen.getAllByTestId('history-section-divider');
       expect(dividers).toHaveLength(2);
-      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.send }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
