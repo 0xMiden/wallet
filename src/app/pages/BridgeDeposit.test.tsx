@@ -98,8 +98,10 @@ describe('BridgeDeposit (#875)', () => {
     render(<BridgeDeposit />);
 
     const warning = screen.getByTestId('evm-connect-test-wallet-warning');
-    expect(warning).toHaveTextContent('evmConnectTestWalletTitle');
-    expect(warning).toHaveTextContent('evmConnectTestWalletBody');
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
   });
 
   it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {
