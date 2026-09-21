@@ -172,6 +172,9 @@ describe('GeneralSettings', () => {
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
     expect(themeRow.querySelector('[data-slot="title"]')).toHaveTextContent('theme');
     expect(themeRow).toContainElement(screen.getByRole('radiogroup', { name: 'theme' }));
+    // A settings choice is a fill row: it never scrolls, so it can never scroll the page under it.
+    expect(screen.getByRole('radiogroup', { name: 'theme' })).toHaveClass('w-full');
+    expect(screen.getByRole('radiogroup', { name: 'theme' }).className).not.toMatch(/overflow-x-auto/);
     expect(themeRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     expect(themeRow.parentElement).toContainElement(
       screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
