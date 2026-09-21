@@ -199,7 +199,7 @@ describe('Numpad', () => {
     }
   );
 
-  it('falls back to the localized biometric label', () => {
+  it('names the biometric key with its localized label', () => {
     renderNumpad({ onBiometric: jest.fn() });
 
     expect(screen.getByRole('button', { name: 'useFaceIdOrBiometric' })).toBeInTheDocument();
