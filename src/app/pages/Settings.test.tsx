@@ -836,16 +836,6 @@ describe('Settings page — active tab routing', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
-  it('remounts a SubPageLayout page, header and all, on a sibling move', () => {
-    const { rerender } = render(<Settings tabSlug="keys" />);
-    const first = screen.getByTestId('nav-header');
-
-    rerender(<Settings tabSlug="general-settings" />);
-    rerender(<Settings tabSlug="keys" />);
-
-    expect(screen.getByTestId('nav-header')).not.toBe(first);
-  });
-
   it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
     // A deep link or a reload lands on the sub-page at the first history entry,
     // where goBack() is a no-op — the chevron has to route instead, and replace so

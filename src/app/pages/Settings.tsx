@@ -503,10 +503,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
 
   if (activeTab?.rendersSubPageLayout) {
     return (
-      // Keyed on the slug so a sibling-to-sibling move remounts the page, its header's focus
-      // effect re-runs and the new body opens at its top.
+      // No key: every sub-page tab has its own Component, so a sibling-to-sibling move already
+      // remounts the page and re-runs its header's focus effect. A key here claimed to cause that
+      // and changed nothing - removing it left the test written to pin it green.
       <SubPageHeaderProvider
-        key={activeTab.slug}
         value={{ title: subPageTitle, onBack: handleSubPageBack, focusTitleOnMount: focusSubPageTitle }}
       >
         <activeTab.Component />
