@@ -111,11 +111,13 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           onClick={onGoNext}
           title={t('continue')}
           className="flex-1 max-w-none"
+          data-testid="export-file-submit"
           disabled={!passwordValue || !verifyPassword || !fileName || !isValidPassword}
         />
       }
     >
       <TextField
+        data-testid="export-file-name-input"
         placeholder={DEFAULT_FILE_NAME}
         value={fileName}
         label={t('name')}
@@ -129,6 +131,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
       <SubPageSection description={t('enterPasswordToEncrypt')} className="gap-4">
         <TextField
           ref={passwordRef}
+          data-testid="export-file-password-input"
           type={isPasswordVisible ? 'text' : 'password'}
           label={t('password')}
           value={passwordValue}
@@ -144,6 +147,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
       <div className="flex flex-col gap-2">
         <TextField
           ref={verifyPasswordRef}
+          data-testid="export-file-password-verify-input"
           type={isVerifyPasswordVisible ? 'text' : 'password'}
           label={t('verifyPassword')}
           value={verifyPassword}

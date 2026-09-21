@@ -150,6 +150,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           <Button
             className="flex-1 max-w-none"
             variant={ButtonVariant.Primary}
+            data-testid="encrypted-file-wallet-password-submit"
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}
             disabled={!continueEnabled}
             onClick={() => onSubmit()}
@@ -186,7 +187,11 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
         )}
       </SubPageSection>
 
-      <CheckboxConsent checked={confirmed} onCheckedChange={setConfirmed}>
+      <CheckboxConsent
+        checked={confirmed}
+        onCheckedChange={setConfirmed}
+        data-testid="encrypted-file-wallet-password-consent"
+      >
         {t('encryptedWalletFileConfirmation')}
       </CheckboxConsent>
 
