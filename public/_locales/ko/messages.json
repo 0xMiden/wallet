@@ -4627,6 +4627,10 @@
     "message": "guardian 맞춤 URL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "수수료 faucet 계정 ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "온보딩 시 '보호자 없음' 옵션 허용",
     "englishSource": "Allow 'No guardian' option in onboarding"

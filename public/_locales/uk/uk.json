@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet URL-адреса API",
   "devEndpointExplorer": "URL-адреса браузера Explorer",
   "devEndpointGuardian": "Індивідуальна URL-адреса guardian",
+  "devEndpointFeeFaucet": "Комісія faucet ідентифікатор рахунку",
   "devAllowNoGuardian": "Дозволити опцію «Без опікуна» під час реєстрації",
   "devEndpointChecking": "Перевірка…",
   "devEndpointReachable": "Хост доступний",

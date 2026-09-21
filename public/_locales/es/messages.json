@@ -4627,6 +4627,10 @@
     "message": "URL personalizada de guardian",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "faucet de la cuenta para el pago de comisiones",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Permitir la opción \"Sin tutor\" en la incorporación",
     "englishSource": "Allow 'No guardian' option in onboarding"

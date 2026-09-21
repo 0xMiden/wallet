@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet API-URL",
   "devEndpointExplorer": "Explorer-URL",
   "devEndpointGuardian": "Benutzerdefinierte URL für „guardian“",
+  "devEndpointFeeFaucet": "Gebührenfaucet-Konto-ID",
   "devAllowNoGuardian": "Erlauben Sie beim Onboarding die Option „Kein Vormund“.",
   "devEndpointChecking": "Wird geprüft…",
   "devEndpointReachable": "Host erreichbar",

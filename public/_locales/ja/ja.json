@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet API URL",
   "devEndpointExplorer": "エクスプローラーのURL",
   "devEndpointGuardian": "guardianのカスタムURL",
+  "devEndpointFeeFaucet": "手数料 faucet アカウントID",
   "devAllowNoGuardian": "オンボーディングで「保護者なし」オプションを許可する",
   "devEndpointChecking": "確認中…",
   "devEndpointReachable": "ホストに接続可能",

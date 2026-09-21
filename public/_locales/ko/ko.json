@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet API URL",
   "devEndpointExplorer": "탐색기 URL",
   "devEndpointGuardian": "guardian 맞춤 URL",
+  "devEndpointFeeFaucet": "수수료 faucet 계정 ID",
   "devAllowNoGuardian": "온보딩 시 '보호자 없음' 옵션 허용",
   "devEndpointChecking": "확인 중…",
   "devEndpointReachable": "호스트에 연결 가능",

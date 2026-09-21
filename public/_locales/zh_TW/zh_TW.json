@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet API URL",
   "devEndpointExplorer": "資源管理員網址",
   "devEndpointGuardian": "自訂 guardian 網址",
+  "devEndpointFeeFaucet": "手續費 faucet 帳戶 ID",
   "devAllowNoGuardian": "在入职时允许“无监护人”选项",
   "devEndpointChecking": "正在檢查……",
   "devEndpointReachable": "主機可連線",

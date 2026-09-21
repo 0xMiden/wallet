@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet URL-адрес API",
   "devEndpointExplorer": "URL-адрес в «Проводнике»",
   "devEndpointGuardian": "Пользовательский URL-адрес guardian",
+  "devEndpointFeeFaucet": "Идентификатор счета Fee faucet",
   "devAllowNoGuardian": "Разрешить опцию «Нет опекуна» при регистрации",
   "devEndpointChecking": "Проверка…",
   "devEndpointReachable": "Хост доступен",

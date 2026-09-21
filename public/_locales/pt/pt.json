@@ -1040,6 +1040,7 @@
   "devEndpointFaucetApi": "Faucet URL da API",
   "devEndpointExplorer": "URL do Explorer",
   "devEndpointGuardian": "URL personalizada guardian",
+  "devEndpointFeeFaucet": "Taxa faucet ID da conta",
   "devAllowNoGuardian": "Permitir a opção 'Sem responsável' na integração",
   "devEndpointChecking": "Verificando…",
   "devEndpointReachable": "Servidor acessível",

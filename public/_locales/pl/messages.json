@@ -4627,6 +4627,10 @@
     "message": "Niestandardowy adres URL guardian",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Opłata faucet identyfikator konta",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
     "englishSource": "Allow 'No guardian' option in onboarding"
