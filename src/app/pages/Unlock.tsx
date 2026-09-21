@@ -375,6 +375,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             title={t('tryAgain')}
             variant={ButtonVariant.Primary}
             onClick={onRetryHardwareUnlock}
+            isLoading={isSubmitting}
+            disabled={isSubmitting}
             className="w-full mb-3"
           />
           <Button
@@ -486,6 +488,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       onDelete={handleDelete}
       onBiometric={hasBiometricKey ? onRetryHardwareUnlock : undefined}
       biometryType={biometryType}
+      // A press that will be dropped must not look accepted. Entry is refused through a lockout and
+      // while any attempt runs; the biometric key only while one runs - it stays usable in a lockout.
+      disabled={isDisabled || isSubmitting}
+      biometricDisabled={isSubmitting}
       action={
         // Centred under the keypad, where the iOS lock screen keeps its secondary action: in reach,
         // but past the last key row, so it is not hit while a code is typed.

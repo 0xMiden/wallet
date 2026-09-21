@@ -225,3 +225,45 @@ describe('Numpad', () => {
     expect(Numpad).toBe(NamedNumpad);
   });
 });
+
+// A press that will be refused must not look accepted: the key carries the native attribute, so it
+// neither animates nor fires the tap haptic. Entry and the biometric key have separate guards,
+// because a passcode lockout refuses digits while the biometric key stays usable through it.
+describe('refused keys', () => {
+  it('disables the entry keys without touching the biometric key', () => {
+    const onDigit = jest.fn();
+    const onDelete = jest.fn();
+    const onBiometric = jest.fn();
+    render(<Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} disabled />);
+
+    for (const digit of DIGITS) {
+      expect(screen.getByTestId(`numpad-${digit}`)).toBeDisabled();
+    }
+    expect(screen.getByTestId('numpad-delete')).toBeDisabled();
+    expect(screen.getByTestId('numpad-biometric')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('numpad-5'));
+    fireEvent.click(screen.getByTestId('numpad-delete'));
+    expect(onDigit).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  it('disables the biometric key alone', () => {
+    const onBiometric = jest.fn();
+    render(<Numpad onDigit={jest.fn()} onDelete={jest.fn()} onBiometric={onBiometric} biometricDisabled />);
+
+    expect(screen.getByTestId('numpad-biometric')).toBeDisabled();
+    expect(screen.getByTestId('numpad-1')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('numpad-biometric'));
+    expect(onBiometric).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  it('carries the design system disabled treatment', () => {
+    render(<Numpad onDigit={jest.fn()} onDelete={jest.fn()} onBiometric={jest.fn()} disabled />);
+
+    expect(screen.getByTestId('numpad-1')).toHaveClass('disabled:cursor-default', 'disabled:opacity-50');
+  });
+});

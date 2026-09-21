@@ -17,6 +17,10 @@ export interface PasscodeScreenProps {
   errorKey?: number;
   onDigit: (digit: string) => void;
   onDelete: () => void;
+  /** Refuses the entry keys: they take the native disabled attribute (no press animation, no haptic). */
+  disabled?: boolean;
+  /** Refuses the biometric key alone; it has its own guard (see `Numpad`). */
+  biometricDisabled?: boolean;
   /** Biometric key in the keypad's bottom-left slot, where a biometric unlock is available. */
   onBiometric?: () => void;
   /** The device's biometric sensor, which picks the key's glyph. */
@@ -50,6 +54,8 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
   onDelete,
   onBiometric,
   biometryType,
+  disabled,
+  biometricDisabled,
   announcement,
   action,
   'data-testid': dataTestId
@@ -86,7 +92,14 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
           <PasscodeDots className="mt-7" filled={filled} length={length} errorKey={errorKey} />
         </div>
         <div className="w-full shrink-0 pt-12 [@media(max-height:720px)]:pt-8" data-testid="passcode-keypad-dock">
-          <Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} biometryType={biometryType} />
+          <Numpad
+            onDigit={onDigit}
+            onDelete={onDelete}
+            onBiometric={onBiometric}
+            biometryType={biometryType}
+            disabled={disabled}
+            biometricDisabled={biometricDisabled}
+          />
           {action && (
             <div className="mt-4 flex justify-center" data-testid="passcode-screen-action">
               {action}

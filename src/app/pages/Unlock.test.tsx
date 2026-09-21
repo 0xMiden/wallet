@@ -179,29 +179,42 @@ jest.mock('components/Input', () => ({
 }));
 
 jest.mock('components/Numpad', () => ({
+  // Both refusal props are forwarded onto the keys, as the real component does: a stub that dropped
+  // them would make every assertion about a refused press a statement about the stub. The two are
+  // separate because a lockout refuses entry while the biometric key stays usable.
   Numpad: ({
     onDigit,
     onDelete,
     onBiometric,
-    biometryType
+    biometryType,
+    disabled,
+    biometricDisabled
   }: {
     onDigit: (d: string) => void;
     onDelete: () => void;
     onBiometric?: () => void;
     biometryType?: string;
+    disabled?: boolean;
+    biometricDisabled?: boolean;
   }) => (
     <div data-testid="numpad">
       {onBiometric && (
-        <button type="button" data-testid="numpad-biometric" data-biometry={biometryType} onClick={onBiometric}>
+        <button
+          type="button"
+          data-testid="numpad-biometric"
+          data-biometry={biometryType}
+          disabled={biometricDisabled}
+          onClick={onBiometric}
+        >
           bio
         </button>
       )}
       {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
-        <button key={d} type="button" data-testid={`digit-${d}`} onClick={() => onDigit(d)}>
+        <button key={d} type="button" data-testid={`digit-${d}`} disabled={disabled} onClick={() => onDigit(d)}>
           {d}
         </button>
       ))}
-      <button type="button" data-testid="numpad-delete" onClick={onDelete}>
+      <button type="button" data-testid="numpad-delete" disabled={disabled} onClick={onDelete}>
         del
       </button>
     </div>
@@ -731,6 +744,33 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  // The only unlock control on this screen: it must show its attempt, like the password form's own
+  // button does, instead of looking idle for the whole OS prompt while a second tap is dropped.
+  it('disables the retry button while its attempt is in flight', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockHasPasswordProtector.mockResolvedValue(false);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    let rejectRetry: (error: Error) => void = () => undefined;
+    const { container } = await renderUnlock();
+
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectRetry = reject;
+        })
+    );
+    const retry = container.querySelector('#retry-biometric') as HTMLButtonElement;
+    fireEvent.click(retry);
+    await flushMicro();
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAttribute('data-loading', 'true');
+
+    await act(async () => rejectRetry(new Error('cancelled again')));
+    await flushMicro();
+    expect(container.querySelector('#retry-biometric')).not.toBeDisabled();
+  });
+
   it('logs and stays on the biometric UI when the retry fails', async () => {
     mockIsMobile = true;
     mockBioHasKey.mockResolvedValue(true);
@@ -979,6 +1019,43 @@ describe('an unlock attempt in flight holds every input, and the latest failure 
       await flushMicro();
 
       expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+    });
+
+    it('refuses the entry keys during a lockout while the biometric key still works', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
+      const { container } = await renderUnlock();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).toBeDisabled();
+      expect(container.querySelector('[data-testid="numpad-delete"]')).toBeDisabled();
+      // The biometric key is a separate factor the OS rate-limits, and it stays usable.
+      const bio = screen.getByTestId('numpad-biometric');
+      expect(bio).not.toBeDisabled();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(bio);
+      await flushMicro();
+      expect(mockUnlock).toHaveBeenCalledTimes(2); // the mount attempt, then this one
+    });
+
+    it('refuses every key while an attempt is in flight, and releases them when it fails', async () => {
+      const { container } = await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).toBeDisabled();
+      expect(screen.getByTestId('numpad-biometric')).toBeDisabled();
+
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+
+      expect(container.querySelector('[data-testid="digit-5"]')).not.toBeDisabled();
+      expect(screen.getByTestId('numpad-biometric')).not.toBeDisabled();
     });
 
     it('clears a partly typed code when a biometric retry fails, as a rejected passcode does', async () => {
