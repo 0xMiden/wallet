@@ -84,6 +84,21 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     if (!accentPrimaryHover) throw new Error('accent-primary-hover not defined');
     expect(contrast('#FFFFFF', accentPrimaryHover)).toBeGreaterThanOrEqual(3);
   });
+
+  // HistoryView paints every activity glyph white over its token
+  // (`[&_path]:fill-pure-white`), so each square is non-text contrast under WCAG
+  // 1.4.11 and owes 3:1. Four of the five sat between 2.10 and 2.42:1 and only
+  // the faucet was ever looked at; a per-token row is what keeps the next one
+  // from shipping the same way. These carry no `ds-` prefix, so they are read
+  // straight off `vars`.
+  it.each(['tx-received', 'tx-sent', 'tx-swap', 'tx-earn', 'tx-faucet'])(
+    'keeps the white activity glyph at 3:1 on %s',
+    token => {
+      const value = vars[token];
+      if (!value) throw new Error(`token --${token} not defined`);
+      expect(contrast('#FFFFFF', value)).toBeGreaterThanOrEqual(3);
+    }
+  );
 });
 
 it('maps every token to a Tailwind color', () => {
