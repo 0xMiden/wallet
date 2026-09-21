@@ -4,6 +4,7 @@ import { useAppKit, useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { Button } from 'components/ui/Button';
@@ -74,6 +75,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg text-ink">
+      <NetworkModeBanner />
       <div className="shrink-0 px-4">
         <PageHeader title={t('midenBridge')} onClose={handleClose} />
       </div>

@@ -412,7 +412,13 @@ const HomeSwipeContainer: FC = () => {
     });
   };
 
-  const landAfterInterruptedRelease = () => {
+  const landAfterInterruptedRelease = (event: React.PointerEvent) => {
+    // The same rule as the pointer-down guard above, at the carousel's other two capture-phase
+    // bindings: a second finger is not the gesture. Without it a second finger LIFTING mid-swipe
+    // lands the track on the current page while the first finger is still dragging. `=== false`
+    // rather than `!isPrimary`, because a synthesized pointerup carries no `isPrimary` at all and
+    // must keep behaving as it does today.
+    if (event.isPrimary === false) return;
     requestAnimationFrame(() => {
       if (isReleaseRunning() || !width) return;
       const resting = -activeIdx * width;
