@@ -680,14 +680,23 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
   });
 
-  it('re-enables the submit button and shows an error when opening the unvalued challenge itself fails', async () => {
+  it('re-enables the submit button when the drawer authorize path cannot open the unpriced challenge', async () => {
+    // `handleSpendingLimitResult` fires `runSameChainSend(authorization)` without awaiting it and
+    // with no catch of its own - unlike `onSubmit`, which has a surrounding catch that would mask
+    // this. This is the one call path where a throw inside `openUnpricedChallenge` used to leave
+    // the button disabled forever with no visible error.
     setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
     initiateMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
-    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
     render(<ReviewTransaction />);
     await flush();
 
     await clickSubmit();
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
 
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();

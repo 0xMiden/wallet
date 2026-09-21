@@ -284,7 +284,16 @@ export const ReviewTransaction: React.FC = () => {
           setIsSubmitting(false);
           return;
         }
-        if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
+        // `openUnpricedChallenge` reads spending-limit config and can itself throw. Caught here so
+        // that failure still lands on the fallback error message and a re-enabled button below,
+        // rather than skipping past both `setIsSubmitting(false)` calls and freezing the CTA.
+        let opened = false;
+        try {
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+        if (opened) {
           setIsSubmitting(false);
           return;
         }
@@ -347,7 +356,15 @@ export const ReviewTransaction: React.FC = () => {
           setIsSubmitting(false);
           return;
         }
-        if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
+        // See `runSameChainSend`: guard against `openUnpricedChallenge` itself throwing, or a
+        // storage read failure here leaves the CTA disabled forever with no visible error.
+        let opened = false;
+        try {
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+        if (opened) {
           setIsSubmitting(false);
           return;
         }
@@ -385,7 +402,15 @@ export const ReviewTransaction: React.FC = () => {
       }
     } catch (error) {
       console.error(error);
-      if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
+      // See `runSameChainSend`: guard against `openUnpricedChallenge` itself throwing, or a
+      // storage read failure here leaves the CTA disabled forever with no visible error.
+      let opened = false;
+      try {
+        opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+      } catch (challengeError) {
+        console.error(challengeError);
+      }
+      if (opened) {
         setIsSubmitting(false);
         return;
       }

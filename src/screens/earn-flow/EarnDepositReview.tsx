@@ -114,8 +114,15 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         setSpendingLimitChallenge({ assessment, spends: [{ faucetId, amount: amountBaseUnits }] });
         return;
       }
-      if (isSpendingLimitPriceUnavailable(e) && (await openUnpricedChallenge(amountBaseUnits))) {
-        return;
+      // `openUnpricedChallenge` reads spending-limit config and can itself throw. The outer
+      // `finally` already releases `isSubmitting` either way, but without this it does so
+      // silently, with no error shown for what actually failed.
+      try {
+        if (isSpendingLimitPriceUnavailable(e) && (await openUnpricedChallenge(amountBaseUnits))) {
+          return;
+        }
+      } catch (challengeError) {
+        console.error(challengeError);
       }
       setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
     } finally {
@@ -146,7 +153,15 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       }
       await runOpenPosition();
     } catch (error) {
-      if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(amountBaseUnits))) {
+      // See `runOpenPosition`: guard against `openUnpricedChallenge` itself throwing, or a
+      // storage read failure here leaves the CTA disabled forever with no visible error.
+      let opened = false;
+      try {
+        opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(amountBaseUnits));
+      } catch (challengeError) {
+        console.error(challengeError);
+      }
+      if (opened) {
         setIsSubmitting(false);
         return;
       }

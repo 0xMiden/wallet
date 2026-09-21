@@ -287,7 +287,16 @@ const SwapManager: React.FC = () => {
           setSubmitting(false);
           return;
         }
-        if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
+        // `openUnpricedChallenge` reads spending-limit config and can itself throw. Caught here so
+        // that failure still lands on the fallback error message and a re-enabled button below,
+        // rather than skipping past both `setSubmitting(false)` calls and freezing the CTA.
+        let opened = false;
+        try {
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+        if (opened) {
           setSubmitting(false);
           return;
         }
@@ -347,11 +356,19 @@ const SwapManager: React.FC = () => {
       }
       await runSwap();
     } catch (error) {
-      if (
-        offerAmountBaseUnits !== undefined &&
-        isSpendingLimitPriceUnavailable(error) &&
-        (await openUnpricedChallenge([{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }]))
-      ) {
+      // See `runSwap`: guard against `openUnpricedChallenge` itself throwing, or a storage read
+      // failure here leaves the CTA disabled forever with no visible error.
+      let opened = false;
+      if (offerAmountBaseUnits !== undefined) {
+        try {
+          opened =
+            isSpendingLimitPriceUnavailable(error) &&
+            (await openUnpricedChallenge([{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }]));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+      }
+      if (opened) {
         setSubmitting(false);
         return;
       }
