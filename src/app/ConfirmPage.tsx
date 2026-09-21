@@ -492,10 +492,6 @@ const ConfirmDAppForm: FC = () => {
         : undefined,
     [payload]
   );
-  const spendingLimitAsset = payload.type === 'transaction' ? payload.spendingLimitAsset : undefined;
-  if ((spendingLimitAssessment === undefined) !== (spendingLimitAsset === undefined)) {
-    throw new Error('Incomplete spending limit confirmation payload');
-  }
   let requirePrivateDataCheckbox = false;
   let privateDataPermission = PrivateDataPermission.UponRequest;
   if (payload.type === 'connect') {
@@ -590,7 +586,7 @@ const ConfirmDAppForm: FC = () => {
 
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
-    if (spendingLimitAssessment !== undefined && spendingLimitAsset !== undefined) {
+    if (spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
     }
@@ -600,7 +596,7 @@ const ConfirmDAppForm: FC = () => {
     await confirm(true);
     setConfirming(false);
     confirmationInFlightRef.current = false;
-  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment, spendingLimitAsset]);
+  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment]);
 
   const handleDeclineClick = useCallback(async () => {
     if (confirming || declining) return;
@@ -817,10 +813,9 @@ const ConfirmDAppForm: FC = () => {
           </div>
         </div>
       </div>
-      {showSpendingLimitChallenge && spendingLimitAssessment !== undefined && spendingLimitAsset !== undefined && (
+      {showSpendingLimitChallenge && spendingLimitAssessment !== undefined && (
         <SpendingLimitChallenge
           assessment={spendingLimitAssessment}
-          asset={spendingLimitAsset}
           onResult={authorization => {
             setShowSpendingLimitChallenge(false);
             if (confirmationInFlightRef.current) return;

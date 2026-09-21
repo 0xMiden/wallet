@@ -34,7 +34,8 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
 
 const mockWalletStoreState = {
   setLastCompletedTxHash: jest.fn(),
-  assessSpendingLimit: jest.fn()
+  assessSpendingLimit: jest.fn(),
+  readSpendingLimit: jest.fn()
 };
 
 // ---------------------------------------------------------------------------
@@ -83,18 +84,19 @@ jest.mock('./NetworkChip', () => ({
 
 jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => {
+    const source = props.assessment ?? props.unpriced;
     return (
       <div data-testid="spending-limit-challenge">
-        <span>{props.assessment.revision}</span>
+        <span>{source.revision}</span>
+        <span data-testid="challenge-kind">{props.assessment !== undefined ? 'assessment' : 'unpriced'}</span>
         <button
           type="button"
           onClick={() =>
             props.onResult({
+              kind: props.assessment !== undefined ? 'usd' : 'unpriced',
               id: 'authorization-1',
-              accountId: props.assessment.accountId,
-              faucetId: props.assessment.faucetId,
-              amount: props.assessment.amount,
-              revision: props.assessment.revision,
+              accountId: source.accountId,
+              revision: source.revision,
               issuedAt: 120,
               expiresAt: 240
             })
@@ -296,6 +298,15 @@ const setValidRoute = () => {
   mockBalanceData = [VALID_TOKEN];
 };
 
+const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
+  accountId: 'pubkey-1',
+  usdAmount: 12345n,
+  revision: 'revision-1',
+  assessedAt: 100,
+  breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 },
+  ...overrides
+});
+
 const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
@@ -313,6 +324,14 @@ beforeEach(() => {
   isValidMidenAddressMock.mockReturnValue(true);
   mockWalletStoreState.setLastCompletedTxHash.mockReset();
   mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
+  mockWalletStoreState.readSpendingLimit.mockReset();
+  mockWalletStoreState.readSpendingLimit.mockResolvedValue({
+    accountId: 'pubkey-1',
+    limit: 100_000_000n,
+    revision: 'revision-1',
+    createdAt: 1,
+    updatedAt: 2
+  });
 
   // Base route state.
   mockSearch = '';
@@ -562,7 +581,9 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
-    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', 'tok1', 12345n);
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
+      { faucetId: 'tok1', amount: 12345n }
+    ]);
     expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
@@ -573,20 +594,14 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('uses strict authentication instead of the ordinary confirmation for a spending-limit breach', async () => {
     setValidRoute();
-    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-      accountId: 'pubkey-1',
-      faucetId: 'tok1',
-      amount: 12345n,
-      revision: 'revision-1',
-      assessedAt: 100,
-      breaches: [{ period: '24h', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 }]
-    });
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
     render(<ReviewTransaction />);
     await flush();
 
     await clickSubmit();
 
     expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('assessment');
     expect(confirmMock).not.toHaveBeenCalled();
     expect(initiateMock).not.toHaveBeenCalled();
 
@@ -604,12 +619,56 @@ describe('ReviewTransaction — onSubmit', () => {
       expect.objectContaining({
         id: 'authorization-1',
         accountId: 'pubkey-1',
-        faucetId: 'tok1',
-        amount: 12345n,
         revision: 'revision-1'
       })
     );
     expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('opens the unvalued challenge when the pre-check cannot price the transaction', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      symbol: 'MDN'
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(mockWalletStoreState.readSpendingLimit).toHaveBeenCalledWith('pubkey-1');
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('opens the unvalued challenge when the actual send cannot be priced', async () => {
+    setValidRoute();
+    initiateMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+  });
+
+  it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      symbol: 'MDN'
+    });
+    mockWalletStoreState.readSpendingLimit.mockResolvedValue(undefined);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
   });
 
   it('bridges over the Slow route with the faucet of the token being sent', async () => {
@@ -636,14 +695,7 @@ describe('ReviewTransaction — onSubmit', () => {
     mockDetectedChain = 'ethereum';
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
     mockBalanceData = [VALID_TOKEN];
-    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-      accountId: 'pubkey-1',
-      faucetId: 'tok1',
-      amount: 12345n,
-      revision: 'revision-1',
-      assessedAt: 100,
-      breaches: [{ period: '24h', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 }]
-    });
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
     render(<ReviewTransaction />);
     await flush();
 
@@ -675,7 +727,9 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
-    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', 'tok1', 12345n);
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
+      { faucetId: 'tok1', amount: 12345n }
+    ]);
     expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
@@ -691,14 +745,9 @@ describe('ReviewTransaction — onSubmit', () => {
     mockDetectedChain = 'ethereum';
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
-    const firstAssessment = {
-      accountId: 'pubkey-1',
-      faucetId: 'tok1',
-      amount: 12345n,
-      revision: 'revision-1',
-      assessedAt: 100,
-      breaches: [{ period: '7d', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }]
-    };
+    const firstAssessment = breachAssessment({
+      breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }
+    });
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
     bridgeEpochSendMock.mockRejectedValue({
       code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
@@ -722,14 +771,9 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('cancels a spending-limit challenge without queueing or losing the review draft', async () => {
     setValidRoute();
-    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-      accountId: 'pubkey-1',
-      faucetId: 'tok1',
-      amount: 12345n,
-      revision: 'revision-1',
-      assessedAt: 100,
-      breaches: [{ period: '7d', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }]
-    });
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
+      breachAssessment({ breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null } })
+    );
     render(<ReviewTransaction />);
     await flush();
 
@@ -746,14 +790,9 @@ describe('ReviewTransaction — onSubmit', () => {
     mockDetectedChain = 'ethereum';
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
-    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-      accountId: 'pubkey-1',
-      faucetId: 'tok1',
-      amount: 12345n,
-      revision: 'revision-1',
-      assessedAt: 100,
-      breaches: [{ period: '7d', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }]
-    });
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
+      breachAssessment({ breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null } })
+    );
     render(<ReviewTransaction />);
     await flush();
 
@@ -768,19 +807,12 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('reopens the challenge with the final atomic assessment when authorization expires or loses a race', async () => {
     setValidRoute();
-    const firstAssessment = {
-      accountId: 'pubkey-1',
-      faucetId: 'tok1',
-      amount: 12345n,
-      revision: 'revision-1',
-      assessedAt: 100,
-      breaches: [{ period: '24h', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 }]
-    };
+    const firstAssessment = breachAssessment();
     const finalAssessment = {
       ...firstAssessment,
       revision: 'revision-2',
       assessedAt: 121,
-      breaches: [{ ...firstAssessment.breaches[0], spent: 95n, proposedTotal: 12440n, overBy: 12340n }]
+      breach: { ...firstAssessment.breach, spent: 95n, proposedTotal: 12440n, overBy: 12340n }
     };
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
     initiateMock.mockRejectedValue({

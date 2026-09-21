@@ -50,36 +50,39 @@ jest.mock('lib/epoch', () => ({
   openEarnPosition: jest.fn(() => Promise.resolve())
 }));
 
-const mockWalletStoreState = { assessSpendingLimit: jest.fn() };
+const mockWalletStoreState = { assessSpendingLimit: jest.fn(), readSpendingLimit: jest.fn() };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockWalletStoreState) => unknown) => selector(mockWalletStoreState)
 }));
 
 jest.mock('components/SpendingLimitChallenge', () => ({
-  SpendingLimitChallenge: (props: any) => (
-    <div data-testid="spending-limit-challenge">
-      <span>{props.assessment.revision}</span>
-      <button
-        type="button"
-        onClick={() =>
-          props.onResult({
-            id: 'authorization-1',
-            accountId: props.assessment.accountId,
-            faucetId: props.assessment.faucetId,
-            amount: props.assessment.amount,
-            revision: props.assessment.revision,
-            issuedAt: 100,
-            expiresAt: 220
-          })
-        }
-      >
-        authorize-limit
-      </button>
-      <button type="button" onClick={() => props.onResult(undefined)}>
-        cancel-limit
-      </button>
-    </div>
-  )
+  SpendingLimitChallenge: (props: any) => {
+    const source = props.assessment ?? props.unpriced;
+    return (
+      <div data-testid="spending-limit-challenge">
+        <span>{source.revision}</span>
+        <span data-testid="challenge-kind">{props.assessment !== undefined ? 'assessment' : 'unpriced'}</span>
+        <button
+          type="button"
+          onClick={() =>
+            props.onResult({
+              kind: props.assessment !== undefined ? 'usd' : 'unpriced',
+              id: 'authorization-1',
+              accountId: source.accountId,
+              revision: source.revision,
+              issuedAt: 100,
+              expiresAt: 220
+            })
+          }
+        >
+          authorize-limit
+        </button>
+        <button type="button" onClick={() => props.onResult(undefined)}>
+          cancel-limit
+        </button>
+      </div>
+    );
+  }
 }));
 
 // --- Wallet context: the screen needs the account's EVM address (the deposit
@@ -172,6 +175,15 @@ const renderReview = (vaultId: string, search = '') => {
   return render(<EarnDepositReview vaultId={vaultId} />);
 };
 
+const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
+  accountId: 'mm1testaccount',
+  usdAmount: 1_000_000_000n,
+  revision: 'revision-1',
+  assessedAt: 100,
+  breach: { spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 },
+  ...overrides
+});
+
 describe('EarnDepositReview', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -181,6 +193,13 @@ describe('EarnDepositReview', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     mockOpenEarnPosition.mockResolvedValue(undefined);
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
+    mockWalletStoreState.readSpendingLimit.mockResolvedValue({
+      accountId: 'mm1testaccount',
+      limit: 100_000_000n,
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 2
+    });
   });
 
   describe('deposit amount header', () => {
@@ -268,16 +287,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('requires strict authentication before any Earn quote or intent work when over limit', async () => {
-      mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'mm1testaccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '24h', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 }
-        ]
-      });
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
@@ -296,18 +306,11 @@ describe('EarnDepositReview', () => {
 
     it('discards an authorization that no longer matches the deposit it was minted for', async () => {
       // The assessment names another account, so the authorization the challenge returns is bound
-      // to a different (account, faucet, amount) than the one about to be opened. Honouring it
-      // would spend this deposit against a credential issued for something else.
-      mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'mm1someotheraccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '24h', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 }
-        ]
-      });
+      // to an account other than the one opening this deposit. Honouring it would spend this
+      // deposit against a credential issued for something else.
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
+        breachAssessment({ accountId: 'mm1someotheraccount' })
+      );
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
@@ -319,17 +322,33 @@ describe('EarnDepositReview', () => {
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
-    it('cancels the Earn challenge before quote or intent work and preserves the amount', async () => {
-      mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'mm1testaccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '24h', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 }
-        ]
+    it('opens the unvalued challenge when the pre-check cannot price the deposit', async () => {
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'USDC'
       });
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() => expect(mockWalletStoreState.readSpendingLimit).toHaveBeenCalledWith('mm1testaccount'));
+      expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('opens the unvalued challenge when the actual deposit cannot be priced', async () => {
+      mockOpenEarnPosition.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'USDC' });
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+    });
+
+    it('cancels the Earn challenge before quote or intent work and preserves the amount', async () => {
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
@@ -341,16 +360,9 @@ describe('EarnDepositReview', () => {
     });
 
     it('reopens the challenge after a stale Earn authorization without losing the deposit amount', async () => {
-      const firstAssessment = {
-        accountId: 'mm1testaccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '7d', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: null }
-        ]
-      };
+      const firstAssessment = breachAssessment({
+        breach: { spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: null }
+      });
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
       mockOpenEarnPosition.mockRejectedValue({
         code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
