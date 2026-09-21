@@ -195,8 +195,11 @@ describe('EarnVaultDetail', () => {
     // Page root.
     expect(screen.getByTestId('earn-vault-detail-page')).toBeInTheDocument();
 
-    // Header: "{protocol} • {asset}" title and "{asset} on {network}" pill.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
+    // Header: the protocol alone, so the title holds one line, plus the "{asset} on {network}" pill.
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent('Aave');
+    // The asset belongs to the pill; naming it twice wrapped the header onto a second line.
+    expect(heading).not.toHaveTextContent('•');
     // "{{asset}} on {{network}}" pill — the stubbed t() echoes the key.
     expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
 
@@ -227,7 +230,7 @@ describe('EarnVaultDetail', () => {
   it('renders the unaudited vault with flat chart data (padding fallback + "No")', () => {
     render(<EarnVaultDetail vaultId="v-unaudited" />);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound • DAI');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound');
     expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
 
     // Not audited → "no" and no explicit value class (undefined → '').
@@ -246,7 +249,7 @@ describe('EarnVaultDetail', () => {
 
     // `?? placeholderVault()` — every display field is the "—" placeholder and
     // the empty id disables the Deposit CTA.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('— • —');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('—');
     expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
   });

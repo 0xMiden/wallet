@@ -43,15 +43,20 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
     <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-vault-detail-page">
       <PageHeader
         className="shrink-0 px-4"
-        title={`${vault.protocol} • ${vault.asset}`}
+        // Back and the protocol, nothing else: a pill in the actions slot took the width the title
+        // needed, so a two-word protocol wrapped onto a second line. The asset and its network are
+        // the vault's metadata, not a page action, so they sit with the rest of it in the body.
+        title={vault.protocol}
         onBack={goBack}
-        actions={
-          <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
-        }
       />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 pb-8">
+          {/* What this vault is, on its own line so it has the page's full width. */}
+          <Pill className="mb-4 self-start">
+            {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
+          </Pill>
+
           <section aria-labelledby="earn-vault-apy-title">
             {/* The figure the page is about, then its label and its 24h move — all on named type
                 styles, and on `positive-tint-ink`, the only green that carries text. */}
