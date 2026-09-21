@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import { historyEntryUnreadKey, pendingNoteUnreadKey } from 'app/templates/history/activityUnread';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { ITransaction } from 'lib/miden/db/types';
@@ -61,6 +62,7 @@ async function readRecentRows(): Promise<RecentRow[]> {
 export function useHasUnreadActivity(): boolean {
   const account = useAccount();
   const { data: claimableNotes } = useManuallyClaimableNotes(account.publicKey);
+  const hiddenNotes = useActivityHiddenNotes(account.publicKey);
   const readState = useActivityReadState();
   const [recent, setRecent] = useState<RecentRow[]>([]);
 
@@ -73,8 +75,13 @@ export function useHasUnreadActivity(): boolean {
     []
   );
 
+  // A DECLINED transfer is not waiting for anything, so it marks nothing unread. Declining marks
+  // it read as it happens, but a transfer declined by a build that had no read state at all would
+  // otherwise keep the tab lit forever; the hidden set is the authority either way.
   const unreadTransfer = (claimableNotes ?? []).some(
-    note => !isActivityRead(readState, pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN)
+    note =>
+      !hiddenNotes.ids.has(note.id) &&
+      !isActivityRead(readState, pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN)
   );
   if (unreadTransfer) return true;
   return recent.some(row => !isActivityRead(readState, row.id, row.timestamp));
