@@ -15,19 +15,8 @@ import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
-import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import {
-  cancelTransactionById,
-  isCancellableTransaction,
-  isRequeueableTransaction,
-  isUnverifiableSendRetryError,
-  isUserCancelledTransaction,
-  requestSWTransactionProcessing,
-  requeueFailedTransaction,
-  retryEarnWithdrawReceive,
-  USER_CANCELLED_TRANSACTION_REASON
-} from 'lib/miden/activity';
+import { isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -85,6 +74,7 @@ import {
   swapSettlementOf
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
+import { useTransactionActions } from './useTransactionActions';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -256,11 +246,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-  const [isRetrying, setIsRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
-  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
@@ -470,45 +455,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
 
-  const handleCancel = useCallback(async () => {
-    setIsCancelling(true);
-    setCancelError(null);
-
-    try {
-      await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to cancel transaction:', error);
-      setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
-    } finally {
-      setIsCancelling(false);
-    }
-  }, [t, transactionId]);
-
-  const handleRetry = useCallback(
-    async (acknowledgeUnverifiedSend = false) => {
-      if (!entry) return;
-      setIsRetrying(true);
-      setRetryError(null);
-      setNeedsSendAcknowledgement(false);
-      try {
-        if (entry.txType === 'earn-withdraw') {
-          await retryEarnWithdrawReceive(transactionId);
-        } else {
-          await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
-          requestSWTransactionProcessing();
-          navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
-          return;
-        }
-      } catch (error) {
-        console.error('[HistoryDetails] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
-      } finally {
-        setIsRetrying(false);
-      }
-    },
-    [entry, t, transactionId]
-  );
+  // Cancel, Retry and the swap-order cancel, with their in-flight flags and error
+  // strings. Shared with `SwapDetail`, which renders the swap branch of this same
+  // page - see `useTransactionActions`.
+  const actions = useTransactionActions(transactionId, entry, transaction);
+  const { canCancel, canRetry, earnRetryKind } = actions;
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
@@ -651,25 +602,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
-  // Cancel is offered on a narrower set than "pending": a structural op that has
-  // already been picked up cannot be stopped, retried, or completed afterwards,
-  // so the button only mislabels a rotation that is going to land anyway.
-  const canCancel = entry ? isCancellableTransaction({ status: entry.status, type: entry.txType }) : false;
-  const earnRetryKind = earnWithdrawalRetryKind(transaction);
-  const canRetry =
-    entry !== null &&
-    !entry.isCancelled &&
-    !transaction?.restoredFromBackup &&
-    (entry.txType === 'earn-withdraw'
-      ? earnRetryKind !== undefined
-      : isRequeueableTransaction({
-          status: entry.status,
-          type: entry.txType,
-          // Epoch (Fast) bridged sends are not replayable - their Epoch intent is
-          // already gone, so a requeue would mint a second orphan collateral note.
-          bridgeProvider: entry.bridgeProvider,
-          restoredFromBackup: transaction?.restoredFromBackup
-        }));
 
   return (
     <PageLayout hideToolbar>
@@ -1126,14 +1058,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
         {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
-            {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
+            {actions.cancelError && (
+              <p className="mb-2 text-center text-sm text-status-negative">{actions.cancelError}</p>
+            )}
             <Button
               data-testid="history-cancel-button"
               variant={ButtonVariant.Destructive}
               title={t('cancel')}
-              isLoading={isCancelling}
-              disabled={isCancelling}
-              onClick={handleCancel}
+              isLoading={actions.isCancelling}
+              disabled={actions.isCancelling}
+              onClick={actions.onCancel}
               className="max-w-none"
             />
           </div>
@@ -1147,9 +1081,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
-            {retryError && (
+            {actions.retryError && (
               <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
-                {retryError}
+                {actions.retryError}
               </p>
             )}
             {maxNetworkFee && !isEarnWithdraw && (
@@ -1164,21 +1098,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               data-testid="history-retry-button"
               variant={ButtonVariant.Primary}
               title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
-              isLoading={isRetrying}
-              disabled={isRetrying}
-              onClick={() => handleRetry(false)}
+              isLoading={actions.isRetrying}
+              disabled={actions.isRetrying}
+              onClick={() => actions.onRetry(false)}
               className="max-w-none"
             />
             {/* Only after the refusal above has been shown, so the warning is
                 always read first. */}
-            {needsSendAcknowledgement && (
+            {actions.needsSendAcknowledgement && (
               <Button
                 data-testid="history-retry-anyway-button"
                 variant={ButtonVariant.Secondary}
                 title={t('retryAnyway')}
-                isLoading={isRetrying}
-                disabled={isRetrying}
-                onClick={() => handleRetry(true)}
+                isLoading={actions.isRetrying}
+                disabled={actions.isRetrying}
+                onClick={() => actions.onRetry(true)}
                 className="mt-2 max-w-none"
               />
             )}

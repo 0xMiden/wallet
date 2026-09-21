@@ -88,6 +88,7 @@ const mockRequeueFailedTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockIsRequeueableTransaction = jest.fn();
 const mockIsUnverifiableSendRetryError = jest.fn((..._args: unknown[]) => false);
+const mockConfirm = jest.fn();
 
 const mockT = (key: string, opts?: Record<string, string | number | boolean | undefined>) => {
   const values = opts ? Object.values(opts) : [];
@@ -165,6 +166,10 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
 jest.mock('./useSwapSettlementNotes', () => ({
   useSwapSettlementNotes: (swapTxId: string | undefined) => (swapTxId ? mockSettlementNotes : null)
 }));
+
+// `useConfirm` is context-backed and the hook reads it unconditionally, so the
+// suite supplies one rather than mounting the provider.
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 
 // ---------------------------------------------------------------------------
 // Presentational dependency mocks - light DOM so the test stays focused on
@@ -409,6 +414,7 @@ beforeEach(() => {
   mockIsUnverifiableSendRetryError.mockReturnValue(false);
   mockCancelTransactionById.mockResolvedValue(undefined);
   mockRequeueFailedTransaction.mockResolvedValue(undefined);
+  mockConfirm.mockResolvedValue(true);
 
   // Reset the deterministic formatAmount default (a test may override it).
   // eslint-disable-next-line @typescript-eslint/no-var-requires
