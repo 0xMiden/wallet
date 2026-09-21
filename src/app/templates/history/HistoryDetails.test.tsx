@@ -155,8 +155,11 @@ jest.mock('lib/woozie', () => ({
   goBack: () => mockGoBack(),
   navigate: (...args: unknown[]) => mockNavigate(...args),
   // useBackWithFallback reads live history at call time, and useOncePerLocation calls listen() in a
-  // mount effect — without these the whole suite throws on render, not just the back-button cases.
-  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/history-details/tx-1' }),
+  // mount effect, so without these the whole suite throws on render, not just the back-button cases.
+  createLocationState: () => ({
+    historyPosition: mockHistoryPosition,
+    href: 'http://localhost/#/history-details/tx-1'
+  }),
   listen: () => () => undefined,
   // The real values, unlike the two sibling suites that mock 'push'/'replace': asserting a literal
   // production never emits would pin the mock rather than the behaviour.
@@ -838,7 +841,7 @@ describe('HistoryDetails', () => {
     });
 
     // `/history-details/:transactionId` is its own route, so a reload or a deep link opens it with
-    // no history behind it — and `goBack()` is `history.go(-1)`, which does nothing there. This
+    // no history behind it, and `goBack()` is `history.go(-1)`, which does nothing there. This
     // page draws its own header instead of PageLayout's toolbar, so nothing else covers it.
     it('falls back to home when the back button is pressed on a cold-opened page', async () => {
       mockHistoryPosition = 0;
