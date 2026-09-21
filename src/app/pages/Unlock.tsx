@@ -196,6 +196,19 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     [isDisabled, biometricError, timelock, lockLevel]
   );
 
+  // A failure from before or during a lockout is not what the screen means once the lockout ends:
+  // the line would read "incorrect passcode" (or, on the password form, "incorrect password") at the
+  // moment the wallet becomes usable again, and the live region would announce it. Cleared on the
+  // transition, not on the interval's tick: that branch is also true every second when nothing is
+  // locked, and `timelock` outlives its lockout (no success path resets it). No errorCount bump, so
+  // nothing shakes. The mount run is a no-op: both flags start false.
+  useEffect(() => {
+    if (!isDisabled) {
+      setIsError(false);
+      setBiometricError(false);
+    }
+  }, [isDisabled]);
+
   const submitPasscode = useCallback(
     async (passcode: string) => {
       if (isSubmitting || !beginUnlock()) return;
