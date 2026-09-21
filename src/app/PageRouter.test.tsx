@@ -114,10 +114,6 @@ jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
 }));
-jest.mock('app/pages/PendingNotes', () => ({
-  __esModule: true,
-  default: () => <div data-testid="pending" />
-}));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
 jest.mock('app/pages/BridgeDeposit', () => ({
   __esModule: true,
@@ -503,9 +499,9 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('import-account'));
   });
 
-  it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
+  it('no longer routes /pending-notes: the page is gone and its link is the Activity Pending tab', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
+    expect(screen.queryByTestId('pending')).toBeNull();
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {

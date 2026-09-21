@@ -36,7 +36,6 @@ import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
-import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
@@ -222,14 +221,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage entrance="slide">
         <ImportAccount />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/pending-notes',
-    onlyReady(() => (
-      <FullScreenPage>
-        <PendingNotes />
       </FullScreenPage>
     ))
   ],
