@@ -182,6 +182,7 @@ describe('formatUsdMicroAmount', () => {
     [1_000_000n, '$1.00'],
     [1_500_000n, '$1.50'],
     [1_234_567n, '$1.23'],
+    // Load-bearing case: 123.456789 rounds to $123.46 but formatter truncates to $123.45 (third decimal is 6, rounding and truncation diverge).
     [123_456_789n, '$123.45']
   ])('formats %s as %s', (value, expected) => {
     expect(formatUsdMicroAmount(value)).toBe(expected);
