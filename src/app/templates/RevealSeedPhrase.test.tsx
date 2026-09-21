@@ -22,6 +22,7 @@ const mockSetSecret = jest.fn((v: string | null) => {
 });
 const mockRevealMnemonic = jest.fn();
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 const mockHapticLight = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
@@ -162,7 +163,10 @@ jest.mock('lib/ui/drawer', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -213,6 +217,8 @@ describe('RevealSeedPhrase', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Only read when the hardware probe REJECTS, which no other test makes it do.
+    mockHasPasswordProtector.mockResolvedValue(false);
     mockSecret = null;
     mockSeedStatus = 'stored';
     mockCopied = false;
@@ -377,6 +383,53 @@ describe('RevealSeedPhrase', () => {
     const view = buttonWithText(container, 'view')!;
     expect(close.parentElement).toBe(view.parentElement);
     expect(close.parentElement).toHaveClass('flex', 'gap-2.5', 'px-4');
+  });
+
+  // A failed hardware probe says nothing about the password credential, so the page
+  // asks the complement instead of guessing. Answering "no hardware" on a rejection
+  // would send a hardware-only wallet into a password gate that cannot succeed.
+  it('takes the password gate when the probe fails but a password credential exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+
+    const container = await renderAndView();
+
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('takes the hardware gate when the probe fails and there is no password credential', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+
+    const container = await renderAndView();
+
+    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+    expect(container.querySelector('[data-testid="drawer"]')).toBeNull();
+  });
+
+  // Both reads failing means storage is unavailable, not that the wallet has no
+  // credential - a credential-less wallet resolves both to false. It is transient,
+  // and the probe only runs on mount, so the surface carries its own Retry.
+  it('surfaces an error with a working Retry when both protector reads fail', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('storage'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('storage'));
+
+    const container = await render();
+
+    expect(container.querySelector('[data-testid="alert"]')!.textContent).toContain('couldNotCheckUnlockMethod');
+    expect(buttonWithText(container, 'view')!.disabled).toBe(true);
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+
+    mockHasHardwareProtector.mockResolvedValue(true);
+    await act(async () => {
+      buttonWithText(container, 'retry')!.click();
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+    expect(buttonWithText(container, 'view')!.disabled).toBe(false);
   });
 
   it.each(['close', 'back'])('returns to Settings via %s on the warning', async control => {

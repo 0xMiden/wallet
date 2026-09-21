@@ -54,6 +54,12 @@ const RevealSeedPhrase: FC = () => {
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  // Set only when BOTH protector reads fail, which means storage itself is
+  // unavailable rather than that the wallet has no credential - a wallet with no
+  // credential resolves both reads to false and never lands here. It therefore has
+  // its own surface on the warning step with a Retry, because the failure is
+  // transient and the mount probe runs once.
+  const [probeError, setProbeError] = useState<string | null>(null);
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -74,21 +80,51 @@ const RevealSeedPhrase: FC = () => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
   }, [seedStatus, setSecret]);
 
-  // Detect the auth type on mount, so View knows which gate to open.
+  // Detect the auth type, so View knows which gate to open.
+  //
+  // A REJECTION MUST NOT BE READ AS "no hardware". Both protectors are a `getPlain`
+  // read of their own key, so a failure of the hardware read says nothing about the
+  // password one - and answering `false` sends a hardware-only wallet into
+  // `unlockWithPassword`, which finds no stored password key and throws a fixed
+  // English string telling the user to use the biometrics this page has just stopped
+  // offering. So resolve the unknown with the complement instead of guessing it:
+  // a password credential means the password gate is genuinely right, and its absence
+  // means hardware, which then either works or fails loudly and correctly.
+  // Only a failure of BOTH reads is unresolvable, and that is storage being
+  // unavailable - see `probeError`. Off desktop and mobile `hasHardwareProtector`
+  // returns false without touching storage, so none of this runs there.
+  const probe = useCallback(async () => {
+    setProbeError(null);
+    try {
+      return await Vault.hasHardwareProtector();
+    } catch {
+      return !(await Vault.hasPasswordProtector());
+    }
+  }, []);
+
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') return;
     let cancelled = false;
-    Vault.hasHardwareProtector()
+    probe()
       .then(hasHw => {
         if (!cancelled) setHasHardwareProtector(hasHw);
       })
       .catch(() => {
-        if (!cancelled) setHasHardwareProtector(false);
+        if (!cancelled) setProbeError(t('couldNotCheckUnlockMethod'));
       });
     return () => {
       cancelled = true;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [probe]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-runs the mount probe. Safe to hang off a button in a way a reveal is not:
+  // this is a storage read, so there is no credential prompt to double-fire and
+  // nothing to await inside the reveal path.
+  const handleProbeRetry = useCallback(() => {
+    probe()
+      .then(setHasHardwareProtector)
+      .catch(() => setProbeError(t('couldNotCheckUnlockMethod')));
+  }, [probe, t]);
 
   // No haptic here: Button fires one on every click.
   const handleView = useCallback(() => {
@@ -204,6 +240,13 @@ const RevealSeedPhrase: FC = () => {
             <p className="font-sans text-base text-muted">{t('anyoneWithRecoveryPhrase')}</p>
           </div>
         </div>
+
+        {probeError && (
+          <div className="px-4 pt-4">
+            <Alert type="error" title={t('error')} description={probeError} className="rounded-lg text-ink" />
+            <Button className="mt-3" variant={ButtonVariant.Secondary} title={t('retry')} onClick={handleProbeRetry} />
+          </div>
+        )}
 
         <div className="flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
           <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
