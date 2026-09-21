@@ -24,6 +24,15 @@ const mockCurrentAccount = {
   hdIndex: 0
 };
 
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -217,6 +226,15 @@ beforeEach(() => {
   mockInitiateSwitch.mockResolvedValue('switch-tx');
   // Re-armed after `clearAllMocks`, which drops the declaration-site default.
   mockGetUncompleted.mockResolvedValue([]);
+});
+
+// This screen commits value, so it names the network. The registry test proves the element is in
+// the file; this proves it actually renders - the distinction a source match cannot make, and how
+// a banner once shipped behind an early return.
+it('names the network it will commit on', () => {
+  render(<RotateGuardianReview />);
+
+  expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
 });
 
 it('renders the current and destination endpoints in the shared transition hero', async () => {

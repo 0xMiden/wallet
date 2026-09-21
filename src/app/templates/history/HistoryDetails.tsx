@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
@@ -55,7 +56,7 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 import {
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
@@ -297,6 +298,11 @@ const AccountDisplay: FC<{
 
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
+  // This page draws its own header instead of PageLayout's toolbar, so it opts out of the
+  // toolbar's fallback too. `/history-details/:transactionId` is a real route, so a reload or a
+  // deep link opens it cold, where a bare `goBack()` is inert and the header chevron is the only
+  // exit left on extension and desktop.
+  const handleBack = useBackWithFallback('/');
   const maxNetworkFee = useNetworkFeeEstimate();
   const allAccounts = useAllAccounts();
   const account = useAccount();
@@ -693,7 +699,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   return (
     <PageLayout hideToolbar>
-      <PageHeader className="px-4" title={t('transaction')} onBack={goBack} />
+      <PageHeader className="px-4" title={t('transaction')} onBack={handleBack} />
       <div className="flex flex-1 flex-col min-h-0 px-4">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">

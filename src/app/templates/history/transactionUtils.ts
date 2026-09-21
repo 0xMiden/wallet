@@ -340,14 +340,16 @@ export const fontColorForType = (type: ITransactionType): string => {
 };
 
 export const TRANSACTION_COLORS = {
-  send: '#91ACC1',
-  receive: '#99AC94',
-  // Same muted-pastel family as the other activity accents (--tx-received/
-  // sent/swap/earn): a dusty rose distinct from Received's sage and Swap's
-  // lavender, so a faucet mint reads as its own accent rather than the
-  // previous highly-saturated #891DB1, which broke the pastel pattern.
-  // Mirrors --tx-faucet in main.css — keep both in sync.
-  faucet: '#CCA4B8'
+  send: '#7697B2',
+  receive: '#839A7D',
+  // The activity accents carry a white glyph (HistoryView paints
+  // `[&_path]:fill-pure-white` over them), so each must clear WCAG 1.4.11's 3:1
+  // against white. The original muted pastels sat at 2.10-2.42:1; these are the
+  // same hue and saturation taken down in lightness until they clear it.
+  // TransactionIcon draws send, receive and faucet from THESE constants and
+  // swap from `var(--tx-swap)`, so all three mirror main.css and must stay in
+  // sync with it - the test below is what enforces that.
+  faucet: '#BA839F'
 } as const;
 
 export const formatDate = (timestamp: number | string): string => {
