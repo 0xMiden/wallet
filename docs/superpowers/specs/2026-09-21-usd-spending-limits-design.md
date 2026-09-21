@@ -55,7 +55,7 @@ Rounding is up, so a charge against the allowance is never understated. A price 
 
 Enforcement runs in the backend, which on the extension is the service worker. A price supplied by the caller alongside the request is not acceptable, because declaring a zero price would be the bypass. So price resolution moves to a module both realms can call, sitting on the existing Binance fetch, with a small Dexie-backed cache of `{ symbol, priceMicro, fetchedAt }`.
 
-The existing frontend provider keeps its SWR schedule and writes through to that cache. The backend reads the cache and refreshes it when the entry is older than the freshness bound. Resolution happens before the Dexie read-write transaction opens, never inside it, because network work must not run under the write lock.
+The existing frontend provider keeps its SWR schedule and writes through to that cache. The backend reads the cache and refreshes it when the entry is older than ten minutes, twice the provider's five-minute refresh, so an open wallet window keeps the cache warm and the backend fetches only when nothing else has. Resolution happens before the Dexie read-write transaction opens, never inside it, because network work must not run under the write lock.
 
 `resolvePrice` returns exactly one of three things, and the distinction is the whole safety story:
 
