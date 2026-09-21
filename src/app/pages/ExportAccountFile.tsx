@@ -234,7 +234,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
         className="mb-4 rounded-lg"
       />
 
-      <label className="mb-6 flex items-start gap-2 text-sm text-black cursor-pointer select-none">
+      <label className="mb-6 flex items-start gap-2 text-sm text-ink cursor-pointer select-none">
         <input
           type="checkbox"
           className="mt-0.5"
@@ -250,7 +250,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
       {/* Suppressed on the passcode branch: PasscodeEntry paints the same string as its own hint,
           so rendering both duplicates the failure and displaces the passcode description. */}
       {error && !usePasscodeEntry && (
-        <Alert type="error" title={t('error')} description={error} className="mb-4 rounded-lg text-black" />
+        <Alert type="error" title={t('error')} description={error} className="mb-4 rounded-lg text-ink" />
       )}
       {saveResult && (
         <Alert
