@@ -37,6 +37,7 @@ import { SegmentedActionBar } from './SegmentedActionBar';
 import { Skeleton } from './Skeleton';
 import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
+import { SubPageLayout } from './SubPageLayout';
 import { TabHeader, TabHeaderAction } from './TabHeader';
 import { TextField } from './TextField';
 
@@ -88,7 +89,8 @@ describe('components/ui barrel', () => {
     ListRow,
     SectionHeader,
     Card,
-    CardButton
+    CardButton,
+    SubPageLayout
   } as const;
 
   // Runtime values the barrel forwards that are NOT components. `ButtonVariant` is a real `enum`,

@@ -80,3 +80,8 @@ export type { TextFieldProps, TextFieldElement } from './TextField';
 
 export { Card, CardButton } from './Card';
 export type { CardProps, CardButtonProps, CardPadding } from './Card';
+
+// Only the module's own name: the directory-enumerating test requires that and nothing more, and
+// every extra runtime symbol has to be declared in the barrel suite's expected set as well.
+export { SubPageLayout } from './SubPageLayout';
+export type { SubPageLayoutProps } from './SubPageLayout';
