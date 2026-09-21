@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -13,6 +14,7 @@ import { resolve } from 'node:path';
  * reading the file keeps @playwright/test out of the jest module graph.
  */
 const repoRoot = resolve(__dirname, '../../..');
+const playwright = resolve(repoRoot, 'node_modules/.bin/playwright');
 
 const configSource = (file: string) => readFileSync(resolve(repoRoot, file), 'utf8');
 
@@ -33,41 +35,63 @@ describe('dedicated e2e configs override the base testIgnore', () => {
   });
 });
 
-function guardianSpecs(): string[] {
-  const root = resolve(repoRoot, 'playwright/e2e/tests');
-  const out: string[] = [];
-  const walk = (dir: string) => {
-    for (const ent of readdirSync(dir, { withFileTypes: true })) {
-      const p = resolve(dir, ent.name);
-      if (ent.isDirectory()) walk(p);
-      else if (/^guardian-.*\.spec\.ts$/.test(ent.name)) out.push(ent.name);
-    }
-  };
-  walk(root);
-  return out.sort();
+function listGuardianTests(suite?: string): string {
+  const env: NodeJS.ProcessEnv = { ...process.env, E2E_NETWORK: 'localhost' };
+  delete env.JEST_WORKER_ID;
+  if (suite === undefined) delete env.GUARDIAN_E2E_SUITE;
+  else env.GUARDIAN_E2E_SUITE = suite;
+  return execFileSync(playwright, ['test', '--list', '--config', 'playwright.guardian.config.ts'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env
+  });
 }
 
+const MAIN_ONLY = [
+  'guardian-fault.smoke.spec.ts',
+  'guardian-recovery-stress.spec.ts',
+  'guardian-switch-stress.spec.ts'
+];
+
 describe('guardian e2e suite split', () => {
-  it('PR suite drops stress and fault.smoke; full suite does not', () => {
-    const src = configSource('playwright.guardian.config.ts');
-    expect(src).toMatch(/GUARDIAN_E2E_SUITE/);
-    expect(src).toMatch(/-stress\\.spec\\.ts/);
-    expect(src).toMatch(/guardian-fault\\.smoke\\.spec\\.ts/);
-    expect(src).toMatch(/testIgnore: prSuite \? .* : undefined/);
+  let prList: string;
+  let fullList: string;
+  let fullNamedList: string;
+
+  beforeAll(() => {
+    prList = listGuardianTests('pr');
+    fullList = listGuardianTests();
+    fullNamedList = listGuardianTests('full');
   });
 
-  it('classifies the live guardian specs into PR vs main', () => {
-    const files = guardianSpecs();
-    const mainOnly = files.filter(f => f.includes('-stress.spec.ts') || f.endsWith('guardian-fault.smoke.spec.ts'));
-    expect(mainOnly).toEqual([
-      'guardian-fault.smoke.spec.ts',
-      'guardian-recovery-stress.spec.ts',
-      'guardian-switch-stress.spec.ts'
-    ]);
-    expect(files).toEqual(
-      expect.arrayContaining(['guardian-onboarding-create.spec.ts', 'guardian-send-consume.spec.ts'])
-    );
-    expect(files.length).toBeGreaterThan(mainOnly.length);
+  it('PR suite drops stress and fault.smoke', () => {
+    for (const spec of MAIN_ONLY) {
+      expect(prList).not.toContain(spec);
+    }
+    expect(prList).toContain('guardian-onboarding-create.spec.ts');
+    expect(prList).toContain('guardian-send-consume.spec.ts');
+    expect(prList).toContain('guardian-switch.spec.ts');
+  });
+
+  it('full suite (unset or GUARDIAN_E2E_SUITE=full) keeps stress and fault.smoke', () => {
+    for (const spec of MAIN_ONLY) {
+      expect(fullList).toContain(spec);
+      expect(fullNamedList).toContain(spec);
+    }
+  });
+
+  it('the on-disk guardian specs still include the main-only files', () => {
+    const root = resolve(repoRoot, 'playwright/e2e/tests');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const p = resolve(dir, ent.name);
+        if (ent.isDirectory()) walk(p);
+        else if (/^guardian-.*\.spec\.ts$/.test(ent.name)) files.push(ent.name);
+      }
+    };
+    walk(root);
+    expect(files.sort()).toEqual(expect.arrayContaining(MAIN_ONLY));
   });
 });
 
@@ -77,10 +101,10 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
     expect(src).toMatch(/if: github\.event_name != 'pull_request'/);
   });
 
-  it('earn selector is false on pull_request', () => {
+  it('earn-e2e is skipped on pull_request', () => {
     const src = configSource('.github/workflows/pr-e2e-earn.yml');
-    expect(src).toMatch(/GITHUB_EVENT_NAME" = pull_request/);
-    expect(src).toMatch(/echo "run=false"/);
+    expect(src).toMatch(/if: github\.event_name != 'pull_request'/);
+    expect(src).not.toMatch(/select-earn-e2e/);
   });
 
   it('local-e2e has no fast-blocks matrix', () => {

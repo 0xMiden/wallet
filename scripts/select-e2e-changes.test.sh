@@ -7,13 +7,13 @@ set -euo pipefail
 # Every case below asserts what the SELECTOR decides, not what git does: an earlier version of
 # this file asserted that `git diff --no-renames` lists both sides of a rename, which no change
 # to this repository can falsify. The cases are chosen so that each of these mutants turns the
-# suite red - all of them passed the earlier version:
+# suite red:
 #   (a) initialising `selected=true`
-#   (b) deleting the earn arm            (d) swapping the earn and guardian arms
-#   (c) deleting the guardian arm        (e) deleting `src/*` from the shared block
-#                                        (f) deleting `playwright/e2e/helpers/*`
-# (e) and (f) matter most: dropping a shared entry is the largest fail-open in the script,
-# because every source-only pull request would then skip both suites.
+#   (b) deleting the guardian arm
+#   (c) deleting `src/*` from the shared block
+#   (d) deleting `playwright/e2e/helpers/*`
+# (c) and (d) matter most: dropping a shared entry is the largest fail-open in the script,
+# because every source-only pull request would then skip the suite.
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 selector="$repo_root/scripts/select-e2e-changes.sh"
@@ -38,13 +38,10 @@ expect() {
 }
 
 # --- the skip path: the whole point of the change, and previously unasserted anywhere ---
-expect earn     1 docs/x.md CHANGELOG.md
 expect guardian 1 docs/x.md CHANGELOG.md
 
-# --- differential selection: a suite-only path must select ONLY its own suite (mutants b, c, d) ---
+# --- suite-only paths (mutant b) ---
 expect guardian 0 playwright/e2e/tests/guardian-switch.spec.ts
-expect earn     1 playwright/e2e/tests/guardian-switch.spec.ts
-expect earn     0 playwright/e2e/tests/earn/earn-deposit.spec.ts
 expect guardian 1 playwright/e2e/tests/earn/earn-deposit.spec.ts
 
 # --- the guardian suite collects `**/guardian-*.spec.ts` recursively, so the selector must too.
@@ -52,26 +49,20 @@ expect guardian 1 playwright/e2e/tests/earn/earn-deposit.spec.ts
 for spec in guardian-conflict-retry guardian-consume-transient-5xx \
             guardian-offline-direct-switch guardian-switch-transient-5xx; do
   expect guardian 0 "playwright/e2e/tests/resilience/$spec.spec.ts"
-  expect earn     1 "playwright/e2e/tests/resilience/$spec.spec.ts"
 done
 
-# --- the shared block: these must select for BOTH suites (mutants a, e, f).
-# The four src/ and helpers/ paths are the ones whose per-suite arms were deleted as dead;
-# they keep passing here, which is what makes that deletion provably a no-op. ---
-expect earn     0 src/lib/epoch/x.ts
+# --- the shared block: these must select (mutants a, c, d). ---
 expect guardian 0 src/lib/epoch/x.ts
-expect earn     0 src/screens/earn-flow/x.tsx
 expect guardian 0 src/screens/onboarding/x.tsx
-expect earn     0 playwright/e2e/helpers/epoch-x.ts
 expect guardian 0 playwright/e2e/helpers/epoch-x.ts
 expect guardian 0 .github/actions/run-local-node/action.yml
 # scripts/report-flaky-e2e.mjs is executed with no `|| true` by the gated jobs themselves.
-expect earn     0 scripts/report-flaky-e2e.mjs
 expect guardian 0 scripts/report-flaky-e2e.mjs
 
 # --- a bad suite name must be distinguishable from "skip", because the workflow's
 # `[ "$status" -eq 1 ] || exit "$status"` guard depends on it ---
 expect bogus 2 src/lib/x.ts
+expect earn  2 src/lib/x.ts
 
 # --- a moved file must count as both a deletion and an addition, which is what
 # `git diff --no-renames` in the workflow provides ---

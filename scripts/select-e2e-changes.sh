@@ -4,22 +4,20 @@ set -euo pipefail
 
 suite=${1:-}
 
-# Earn is still a valid suite name because the unit tests pin that arm. The Earn
-# workflow no longer consults this script on pull_request (the suite runs on
-# main and workflow_dispatch only).
 case "$suite" in
-  earn | guardian) ;;
+  guardian) ;;
   *)
-    echo "usage: $0 {earn|guardian}" >&2
+    echo "usage: $0 guardian" >&2
     exit 2
     ;;
 esac
 
-# NOTE: the shared block below matches src/* , so ANY source change runs BOTH suites. The
-# per-suite arms exist only for paths the shared block does not reach - they are not per-suite
-# source coverage, and the guardian arm deliberately names no guardian library path. Narrowing
-# src/* to gain selectivity would therefore silently strip guardian coverage of every guardian
-# source file; give each arm its real source paths first.
+# NOTE: the shared block below matches src/* , so ANY source change runs the
+# guardian suite. The per-suite arm exists only for paths the shared block does
+# not reach - it is not extra source coverage, and it deliberately names no
+# guardian library path. Narrowing src/* to gain selectivity would therefore
+# silently strip guardian coverage of every guardian source file; give the arm
+# its real source paths first.
 selected=false
 
 while IFS= read -r path; do
@@ -50,25 +48,13 @@ while IFS= read -r path; do
       ;;
   esac
 
-  if [ "$suite" = earn ]; then
-    case "$path" in
-      .github/workflows/pr-e2e-earn.yml | \
-      playwright.earn.config.ts | \
-      playwright/e2e/ios/helpers/anvil.ts | \
-      playwright/e2e/ios/helpers/evm-doubles.ts | \
-      playwright/e2e/tests/earn/*)
-        selected=true
-        ;;
-    esac
-  else
-    case "$path" in
-      .github/workflows/pr-e2e-guardian-lifecycle.yml | \
-      playwright.guardian.config.ts | \
-      playwright/e2e/tests/*guardian-*.spec.ts)
-        selected=true
-        ;;
-    esac
-  fi
+  case "$path" in
+    .github/workflows/pr-e2e-guardian-lifecycle.yml | \
+    playwright.guardian.config.ts | \
+    playwright/e2e/tests/*guardian-*.spec.ts)
+      selected=true
+      ;;
+  esac
 done
 
 [ "$selected" = true ]

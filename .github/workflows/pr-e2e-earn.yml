@@ -10,28 +10,12 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  # PRs skip the heavy job; this selector still reports so earn-e2e-gate (the
-  # required check) can stay green. Main and workflow_dispatch always run.
-  select-earn-e2e:
-    name: Select Earn E2E
-    runs-on: ubuntu-slim
-    outputs:
-      run: ${{ steps.select.outputs.run }}
-    steps:
-      - name: Decide whether to run
-        id: select
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-
+  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # The workflow still triggers on PRs so earn-e2e-gate (the required check) can
+  # report green when the suite is skipped.
   earn-e2e:
     name: earn-e2e (chrome)
-    needs: select-earn-e2e
-    if: needs.select-earn-e2e.outputs.run == 'true'
+    if: github.event_name != 'pull_request'
     # 2 vCPUs is ADEQUATE — do not "fix" this suite by chasing a larger runner.
     # That was measured twice. On this runner two consumes completed end to end in
     # 12.1s and 9.9s, and the node batched both; capping the prover's rayon pool to
@@ -229,28 +213,22 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian down -v || true
 
-  # Stable required-check name: passes iff earn-e2e succeeded, fails if it
-  # failed/cancelled. Mark THIS "required" in branch protection (not earn-e2e
-  # directly) so the required check name stays stable if the job is renamed.
+  # Stable required-check name. On PRs the heavy job is skipped and this still
+  # reports success so branch protection is not blocked. On main it requires
+  # earn-e2e to have succeeded.
   earn-e2e-gate:
     name: earn-e2e-gate
-    needs: [select-earn-e2e, earn-e2e]
+    needs: [earn-e2e]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
       - run: |
-          SELECT_RESULT="${{ needs.select-earn-e2e.result }}"
-          SELECTED="${{ needs.select-earn-e2e.outputs.run }}"
-          E2E_RESULT="${{ needs.earn-e2e.result }}"
-
-          [ "$SELECT_RESULT" = "success" ] || {
-            echo "Earn selector $SELECT_RESULT"; exit 1;
-          }
-
-          case "$SELECTED" in
-            true) [ "$E2E_RESULT" = "success" ] || { echo "earn-e2e $E2E_RESULT"; exit 1; } ;;
-            false) [ "$E2E_RESULT" = "skipped" ] || { echo "earn-e2e $E2E_RESULT"; exit 1; } ;;
-            *) echo "Earn selector returned '$SELECTED'"; exit 1 ;;
-          esac
-
-          echo "earn-e2e $E2E_RESULT"
+          RESULT="${{ needs.earn-e2e.result }}"
+          EVENT="${{ github.event_name }}"
+          if [ "$EVENT" = pull_request ]; then
+            [ "$RESULT" = skipped ] || { echo "earn-e2e $RESULT on PR, expected skipped"; exit 1; }
+            echo "earn-e2e skipped on PR"
+          else
+            [ "$RESULT" = success ] || { echo "earn-e2e $RESULT"; exit 1; }
+            echo "earn-e2e ok"
+          fi
