@@ -7,6 +7,7 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { InfoHint } from 'components/ui/InfoHint';
@@ -40,12 +41,16 @@ export interface ReviewSwapProps {
   onSubmit: () => void;
 }
 
-/** "1 {offer} ≈ {marketPrice} {request}" from the oracle rate, or undefined if unavailable. */
-function formatRate(offerSymbol: string, requestSymbol: string, marketPrice?: string): string | undefined {
+/** The oracle rate as a number, or `undefined` when there isn't one to show. */
+function parseRate(marketPrice?: string): number | undefined {
   const rate = Number(marketPrice);
   if (!rate || !Number.isFinite(rate)) return undefined;
-  const formatted = Number(rate.toPrecision(4)).toString();
-  return `1 ${offerSymbol} ≈ ${formatted} ${requestSymbol}`;
+  return rate;
+}
+
+/** "1 {offer} ≈ {rate} {request}" at four significant figures. */
+function formatRate(offerSymbol: string, requestSymbol: string, rate: number): string {
+  return `1 ${offerSymbol} ≈ ${Number(rate.toPrecision(4)).toString()} ${requestSymbol}`;
 }
 
 /**
@@ -109,7 +114,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
-  const rate = formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice);
+  // The quote is re-fetched while this screen is open, so the rate counts to each new one.
+  const rate = parseRate(swapEta?.marketPrice);
 
   // Seconds stay the value the flow owns (`expirySeconds` in, seconds out). The unit and the
   // typed digits are this screen's own: without a local draft, a half-typed "1" out of "12"
@@ -202,7 +208,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         <DetailRow
           label={t('rate')}
           info={
-            rate ? (
+            rate !== undefined ? (
               <InfoHint label={t('moreInfoAbout', { label: t('rate') })} data-testid="swap-rate-info">
                 {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
               </InfoHint>
@@ -210,7 +216,9 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           }
           data-testid="swap-rate-row"
         >
-          {rate}
+          {rate !== undefined && (
+            <AnimatedNumber value={rate} format={value => formatRate(offerToken.symbol, requestToken.symbol, value)} />
+          )}
         </DetailRow>
         {networkFee && (
           // Kept as its own row so the solver spread noted above isn't read as the whole price
