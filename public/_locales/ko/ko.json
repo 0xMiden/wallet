@@ -711,6 +711,7 @@
   "useCustomGuardianUrl": "Guardian 맞춤 URL을 사용하세요",
   "default": "기본값",
   "home": "홈",
+  "earn": "수익",
   "noteId": "Note ID",
   "viewOnMidenscan": "Midenscan에서 보기",
   "inProgress": "진행 중",

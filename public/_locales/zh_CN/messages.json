@@ -3147,6 +3147,10 @@
     "message": "首页",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "赚取",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note ID",
     "englishSource": "Note ID"

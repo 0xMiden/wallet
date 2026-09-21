@@ -711,6 +711,7 @@
   "useCustomGuardianUrl": "Используйте настраиваемый URL-адрес Guardian",
   "default": "По умолчанию",
   "home": "Главная",
+  "earn": "Заработок",
   "noteId": "Note ИД",
   "viewOnMidenscan": "Просмотр на Midenscan",
   "inProgress": "В процессе выполнения",

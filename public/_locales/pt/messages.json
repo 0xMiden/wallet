@@ -3147,6 +3147,10 @@
     "message": "Página inicial",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "Ganhar",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note ID",
     "englishSource": "Note ID"

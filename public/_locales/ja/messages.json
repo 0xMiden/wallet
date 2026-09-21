@@ -3147,6 +3147,10 @@
     "message": "ホーム",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "獲得",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note ID",
     "englishSource": "Note ID"

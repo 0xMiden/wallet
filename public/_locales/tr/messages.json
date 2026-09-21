@@ -3147,6 +3147,10 @@
     "message": "Ana Sayfa",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "Kazan",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note Kimlik",
     "englishSource": "Note ID"

@@ -711,6 +711,7 @@
   "useCustomGuardianUrl": "GuardianのカスタムURLを使用してください",
   "default": "デフォルト",
   "home": "ホーム",
+  "earn": "獲得",
   "noteId": "Note ID",
   "viewOnMidenscan": "Midenscanで閲覧する",
   "inProgress": "進行中",

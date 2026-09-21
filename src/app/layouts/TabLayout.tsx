@@ -238,22 +238,22 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const actionItems = [
     {
       id: 'overview',
-      label: 'Overview',
+      label: t('home'),
       icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-action-overview" />
     },
     {
       id: 'send',
-      label: 'Send',
+      label: t('send'),
       icon: <Icon name={IconName.Send} className="w-5 h-5 text-action-send" />
     },
     {
       id: 'receive',
-      label: 'Receive',
+      label: t('receive'),
       icon: <Icon name={IconName.Receive} className="w-5 h-5 text-action-receive" />
     },
     {
       id: 'earn',
-      label: 'Earn',
+      label: t('earn'),
       icon: <Icon name={IconName.Earn} className="w-5 h-5 text-action-earn" />
     },
     // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
@@ -261,7 +261,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       ? [
           {
             id: 'swap',
-            label: 'Swap',
+            label: t('swap'),
             icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap" />
           }
         ]

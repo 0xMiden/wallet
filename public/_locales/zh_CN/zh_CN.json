@@ -711,6 +711,7 @@
   "useCustomGuardianUrl": "请使用自定义的 Guardian 链接",
   "default": "默认",
   "home": "首页",
+  "earn": "赚取",
   "noteId": "Note ID",
   "viewOnMidenscan": "在 Midenscan 上查看",
   "inProgress": "进行中",
