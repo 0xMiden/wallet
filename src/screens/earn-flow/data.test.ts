@@ -36,24 +36,24 @@ describe('earn-flow/data', () => {
   });
 
   describe('summary', () => {
-    it('carries the four preformatted summary strings verbatim', () => {
+    it('carries the four summary figures verbatim', () => {
       expect(EARN_DATA.summary).toEqual({
-        totalRewards: '$218.32',
-        blendedApy: '~5.2%',
-        totalDeposited: '$4, 218.32',
-        estimatedRewards: '+$24.50'
+        totalRewardsUsd: 218.32,
+        blendedApyPercent: 5.2,
+        totalDepositedUsd: 4218.32,
+        estimatedRewardsUsd: 24.5
       });
     });
 
-    it('has exactly the EarnSummary fields, all non-empty strings', () => {
+    it('has exactly the EarnSummary fields, all finite numbers', () => {
       expect(Object.keys(EARN_DATA.summary).sort()).toEqual([
-        'blendedApy',
-        'estimatedRewards',
-        'totalDeposited',
-        'totalRewards'
+        'blendedApyPercent',
+        'estimatedRewardsUsd',
+        'totalDepositedUsd',
+        'totalRewardsUsd'
       ]);
       Object.values(EARN_DATA.summary).forEach(value => {
-        expect(isNonEmptyString(value)).toBe(true);
+        expect(Number.isFinite(value)).toBe(true);
       });
     });
   });

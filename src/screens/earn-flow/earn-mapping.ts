@@ -72,12 +72,14 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
     asset: position.symbol,
     network,
     amount: formatUsd(position.depositsUSD),
+    depositsUsd: position.depositsUSD,
     // The positions service reports current deposits only — no principal split.
     depositedAmount: formatUsd(position.depositsUSD),
     rewards: EARN_PLACEHOLDER,
     age: EARN_PLACEHOLDER,
     activeDuration: EARN_PLACEHOLDER,
     apy: `${position.depositApr.toFixed(2)}%`,
+    aprPercent: position.depositApr,
     dailyAverage: EARN_PLACEHOLDER,
     started: EARN_PLACEHOLDER,
     yearlyEstimate: `${formatSignedUsd(yearlyUsd)} / yr`,
@@ -105,6 +107,7 @@ export function mapEarnVault(vault: EarnVaultInfo): EarnVault {
     asset: display.asset,
     network: networkName(vault.chainId),
     apy: `${vault.depositApr.toFixed(2)}%`,
+    aprPercent: vault.depositApr,
     apyChange24h: EARN_PLACEHOLDER,
     tvl: EARN_PLACEHOLDER,
     risk: EARN_PLACEHOLDER,
@@ -125,10 +128,10 @@ export function buildEarnSummary(positions: LibEarnPosition[]): EarnSummary {
     totalDeposits > 0 ? positions.reduce((sum, p) => sum + p.depositsUSD * p.depositApr, 0) / totalDeposits : 0;
   return {
     // No rewards-history endpoint yet — report zero rather than a dash.
-    totalRewards: formatUsd(0),
-    blendedApy: `~${blendedApy.toFixed(1)}%`,
-    totalDeposited: formatUsd(totalDeposits),
-    estimatedRewards: formatSignedUsd(yearlyUsd)
+    totalRewardsUsd: 0,
+    blendedApyPercent: blendedApy,
+    totalDepositedUsd: totalDeposits,
+    estimatedRewardsUsd: yearlyUsd
   };
 }
 

@@ -93,14 +93,14 @@ jest.mock('./components', () => {
       titleId,
       showMetrics
     }: {
-      summary: { totalRewards: string };
+      summary: { totalRewardsUsd: number };
       titleId: string;
       showMetrics?: boolean;
     }) =>
       R.createElement(
         'div',
         { 'data-testid': 'earn-summary', id: titleId, 'data-showmetrics': String(showMetrics) },
-        summary.totalRewards
+        summary.totalRewardsUsd
       ),
     MetricCard: ({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) =>
       R.createElement(
@@ -134,10 +134,10 @@ jest.mock('lib/mobile/haptics', () => ({
 jest.mock('./useEarnPositions', () => ({
   useEarnPositions: () => ({
     summary: {
-      totalRewards: '$218.32',
-      blendedApy: '~5.2%',
-      totalDeposited: '$4,218.32',
-      estimatedRewards: '+$24.50'
+      totalRewardsUsd: 218.32,
+      blendedApyPercent: 5.2,
+      totalDepositedUsd: 4218.32,
+      estimatedRewardsUsd: 24.5
     },
     positions: [
       {
@@ -235,7 +235,7 @@ describe('EarnPositionDetail', () => {
     const summary = screen.getByTestId('earn-summary');
     expect(summary).toHaveAttribute('id', 'earn-position-summary-title');
     expect(summary).toHaveAttribute('data-showmetrics', 'false');
-    expect(summary).toHaveTextContent('$218.32');
+    expect(summary).toHaveTextContent('218.32');
 
     // Six MetricCards with the flat position's values.
     const cards = screen.getAllByTestId('metric-card');

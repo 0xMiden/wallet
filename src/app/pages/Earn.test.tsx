@@ -15,8 +15,8 @@ import Earn from './Earn';
 // while still letting us assert the props it forwards (summary + titleId to the panel, protocol to
 // the logo). This mirrors how the sibling `components.test.tsx` stubs its own children.
 jest.mock('screens/earn-flow/components', () => ({
-  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewards: string }; titleId: string }) => (
-    <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewards} />
+  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
+    <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewardsUsd} />
   )
 }));
 jest.mock('screens/earn-flow/ProviderLogo', () => ({
@@ -89,7 +89,7 @@ describe('Earn page', () => {
 
     const panel = screen.getByTestId('earn-summary-panel');
     expect(panel).toHaveAttribute('data-title-id', 'earn-summary-title');
-    expect(panel).toHaveAttribute('data-total-rewards', summary.totalRewards);
+    expect(panel).toHaveAttribute('data-total-rewards', String(summary.totalRewardsUsd));
   });
 
   it('opens with the tab-root title, the page\u2019s one h1, like Send and Receive', () => {

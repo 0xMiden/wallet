@@ -83,8 +83,8 @@ describe('useEarnPositions', () => {
       apy: '5.00%'
     });
     expect(result.current.summary).toMatchObject({
-      totalDeposited: '$10.00',
-      blendedApy: '~5.0%'
+      totalDepositedUsd: 10,
+      blendedApyPercent: 5
     });
     expect(result.current.error).toBe('owner unavailable');
     expect(result.current.isLoading).toBe(false);
@@ -98,10 +98,10 @@ describe('useEarnPositions', () => {
     expect(result.current.positions).toEqual([]);
     expect(result.current.vaults).toEqual([]);
     expect(result.current.summary).toMatchObject({
-      totalRewards: '$0.00',
-      blendedApy: '~0.0%',
-      totalDeposited: '$0.00',
-      estimatedRewards: '+$0.00'
+      totalRewardsUsd: 0,
+      blendedApyPercent: 0,
+      totalDepositedUsd: 0,
+      estimatedRewardsUsd: 0
     });
     expect(result.current.error).toBeUndefined();
     expect(result.current.isLoading).toBe(true);

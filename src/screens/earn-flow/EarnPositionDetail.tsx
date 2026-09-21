@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
@@ -13,7 +14,7 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAssetMark, EarnSummaryPanel, MetricCard } from './components';
-import { placeholderPosition } from './earn-mapping';
+import { formatUsd, placeholderPosition } from './earn-mapping';
 import { ChartDotProps, EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -172,9 +173,20 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
 
   return (
     <div className="grid grid-cols-3 gap-2">
-      <MetricCard label={t('earnMetricDeposited')} value={position.depositedAmount} />
+      <MetricCard
+        label={t('earnMetricDeposited')}
+        value={
+          <AnimatedNumber value={position.depositsUsd} format={formatUsd} placeholder={position.depositedAmount} />
+        }
+      />
       <MetricCard label={t('earnMetricTotalEarned')} value={position.rewards} valueClassName="text-positive-tint-ink" />
-      <MetricCard label="APY" value={position.apy} valueClassName="text-positive-tint-ink" />
+      <MetricCard
+        label="APY"
+        value={
+          <AnimatedNumber value={position.aprPercent} format={apr => `${apr.toFixed(2)}%`} placeholder={position.apy} />
+        }
+        valueClassName="text-positive-tint-ink"
+      />
       <MetricCard
         label={t('earnMetricDailyAvg')}
         value={position.dailyAverage}

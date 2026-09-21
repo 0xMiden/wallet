@@ -91,10 +91,10 @@ const VAULT: EarnVault = {
 };
 
 const SUMMARY: EarnSummary = {
-  totalRewards: '$218.32',
-  blendedApy: '~5.2%',
-  totalDeposited: '$4,218.32',
-  estimatedRewards: '+$24.50'
+  totalRewardsUsd: 218.32,
+  blendedApyPercent: 5.2,
+  totalDepositedUsd: 4218.32,
+  estimatedRewardsUsd: 24.5
 };
 
 beforeEach(() => {

@@ -133,7 +133,7 @@ jest.mock('recharts', () => {
 //     `(max-min)*0.18` is 0, so the `|| 1` fallback branch runs.
 jest.mock('./useEarnPositions', () => ({
   useEarnPositions: () => ({
-    summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
+    summary: { totalRewardsUsd: 0, blendedApyPercent: 0, totalDepositedUsd: 0, estimatedRewardsUsd: 0 },
     positions: [],
     vaults: [
       {

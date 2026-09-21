@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
@@ -63,7 +64,8 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
     >
       <EarnHero
         labelId="earn-vault-apy-title"
-        value={vault.apy}
+        // The APY counts to each new rate; `vault.apy` is what shows before a rate has been read.
+        value={<AnimatedNumber value={vault.aprPercent} format={apr => `${apr.toFixed(2)}%`} placeholder={vault.apy} />}
         valueClassName="text-positive-tint-ink"
         label={t('earnCurrentApy')}
         meta={vault.apyChange24h}

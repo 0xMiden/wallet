@@ -46,9 +46,9 @@ jest.mock('app/icons/v2', () => ({
 // lives in `components.test.tsx`, and the provider logo, which imports `aave.svg?url` — a `?url`
 // query jest's `\.svg$` mapper does NOT match (the suffix defeats the `$` anchor).
 jest.mock('./components', () => ({
-  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewards: string }; titleId: string }) => (
+  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId}>
-      {summary.totalRewards}
+      {summary.totalRewardsUsd}
     </div>
   )
 }));
@@ -97,7 +97,7 @@ describe('EarnPositions', () => {
 
     const panel = screen.getByTestId('earn-summary-panel');
     expect(panel).toHaveAttribute('data-title-id', 'earn-positions-summary-title');
-    expect(panel).toHaveTextContent(EARN_DATA.summary.totalRewards);
+    expect(panel).toHaveTextContent(String(EARN_DATA.summary.totalRewardsUsd));
   });
 
   it('renders one position card per entry in EARN_DATA.positions', () => {

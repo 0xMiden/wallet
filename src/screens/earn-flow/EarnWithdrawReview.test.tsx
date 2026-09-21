@@ -47,7 +47,7 @@ jest.mock('lib/woozie', () => ({
 
 jest.mock('./useEarnPositions', () => ({
   useEarnPositions: () => ({
-    summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
+    summary: { totalRewardsUsd: 0, blendedApyPercent: 0, totalDepositedUsd: 0, estimatedRewardsUsd: 0 },
     positions: mockPositions,
     vaults: [],
     isLoading: false,

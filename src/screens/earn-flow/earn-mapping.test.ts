@@ -112,19 +112,19 @@ describe('buildEarnSummary', () => {
       libPosition({ depositsUSD: 3000, depositApr: 8 })
     ]);
     // (1000*4 + 3000*8) / 4000 = 7.0
-    expect(summary.blendedApy).toBe('~7.0%');
-    expect(summary.totalDeposited).toBe('$4,000.00');
+    expect(summary.blendedApyPercent).toBeCloseTo(7);
+    expect(summary.totalDepositedUsd).toBe(4000);
     // 1000*0.04 + 3000*0.08 = 280
-    expect(summary.estimatedRewards).toBe('+$280.00');
-    expect(summary.totalRewards).toBe('$0.00');
+    expect(summary.estimatedRewardsUsd).toBeCloseTo(280);
+    expect(summary.totalRewardsUsd).toBe(0);
   });
 
   it('renders zeros (not dashes) for no positions', () => {
     const summary = buildEarnSummary([]);
-    expect(summary.totalDeposited).toBe('$0.00');
-    expect(summary.totalRewards).toBe('$0.00');
-    expect(summary.blendedApy).toBe('~0.0%');
-    expect(summary.estimatedRewards).toBe('+$0.00');
+    expect(summary.totalDepositedUsd).toBe(0);
+    expect(summary.totalRewardsUsd).toBe(0);
+    expect(summary.blendedApyPercent).toBe(0);
+    expect(summary.estimatedRewardsUsd).toBe(0);
   });
 });
 
