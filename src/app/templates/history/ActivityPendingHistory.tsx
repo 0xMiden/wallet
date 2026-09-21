@@ -24,7 +24,10 @@ interface ActivityPendingHistoryProps {
 
 function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boolean {
   if (item.status === 'checking' || item.status === 'unavailable') return false;
-  return !hiddenIds.has(item.note.id) || item.status === 'claimed' || item.status === 'claiming';
+  // An accepted transfer is no longer a card at all: `History` stops standing its consume row
+  // down once the claim settles, so it appears in the feed as the ordinary transaction it now is.
+  if (item.status === 'claimed') return false;
+  return !hiddenIds.has(item.note.id) || item.status === 'claiming';
 }
 
 export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPendingHistoryProps) => {
@@ -50,7 +53,6 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
       items.filter(item => {
         if (!isShown(item, hidden.ids)) return false;
         if (filter === 'sent' || filter === 'faucet') return false;
-        if (filter === 'pending' && item.status === 'claimed') return false;
         return (
           !query ||
           [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>

@@ -245,11 +245,13 @@ const History = memo<HistoryProps>(
       }
     };
 
-    // A card carries its claim's outcome, failed included, so the row that outcome would repeat stays hidden.
+    // A card stands in for the consume row only while there is still something to DO with it: a
+    // claim in flight (the card holds the spinner) or one that failed (the card offers Retry).
+    // An ACCEPTED transfer has no card any more — it is an ordinary row in this feed, drawn by
+    // the same component as every other settled transaction — so its consume row must come
+    // through rather than be hidden behind a card that no longer exists.
     const representedNotes = new Set(
-      pendingItems
-        ?.filter(item => item.status === 'claiming' || item.status === 'claimed' || item.status === 'failed')
-        .map(item => item.note.id)
+      pendingItems?.filter(item => item.status === 'claiming' || item.status === 'failed').map(item => item.note.id)
     );
     let entries: IHistoryEntry[] = allEntries.filter(
       entry =>

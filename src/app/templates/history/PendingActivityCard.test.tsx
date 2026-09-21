@@ -95,46 +95,17 @@ describe('PendingActivityCard', () => {
     });
   });
 
-  describe('a claimed note', () => {
-    it('has no toggle and no chevron: the decision is already made', () => {
-      renderCard('claimed', { txId: 'tx-1' });
-
-      expect(screen.queryByTestId('icon-chevron-down')).toBeNull();
-      expect(screen.queryByRole('button', { expanded: false })).toBeNull();
-      expect(screen.queryByRole('button', { expanded: true })).toBeNull();
-      expect(screen.queryByText('activityNotYetAccepted')).toBeNull();
-      expect(screen.queryByText('from')).toBeNull();
-    });
-
-    it('has no action footer left: no Details button, no accept, no decline', () => {
+  describe('an accepted transfer', () => {
+    it('is not this component at all: the card has no accepted state', () => {
+      // `ActivityPendingHistory` drops a claimed item from the card list and `History` stops
+      // standing its consume row down, so an accepted transfer is drawn by the SAME row component
+      // as every other settled transaction — which brings its own navigation to the detail page.
+      // Nothing here special-cases it.
       const { container } = renderCard('claimed', { txId: 'tx-1' });
 
+      expect(container.querySelector('[data-pending-status="claimed"]')).toBeTruthy();
       expect(screen.queryByText('activityTransferDetails')).toBeNull();
-      expect(screen.queryByRole('button', { name: 'activityAcceptTransfer' })).toBeNull();
-      expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
-      // Nothing is left carrying a rule or padding over an empty element.
-      expect(container.querySelector('.border-t')).toBeNull();
-      expect(container.querySelector('.pb-4')).toBeNull();
-    });
-
-    it('opens the transaction from the row itself, by tap and by keyboard', () => {
-      renderCard('claimed', { txId: 'tx/1' });
-
-      // `History` hides the real consume row while this card stands for it, so the row has to
-      // carry the route or the detail page is unreachable for the rest of the session.
-      const row = screen.getByRole('button');
-      row.focus();
-      expect(row).toHaveFocus();
-
-      fireEvent.click(row);
-      expect(mockNavigate).toHaveBeenCalledWith('/history-details/tx%2F1');
-    });
-
-    it('does not pretend to navigate when the claim has no transaction id yet', () => {
-      renderCard('claimed');
-
-      expect(screen.getByRole('button')).toBeDisabled();
-      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('pending-activity-row-status')).toHaveTextContent('pending');
     });
   });
 });

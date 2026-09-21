@@ -207,7 +207,7 @@ it('keeps the navbar while the Activity tab is mounted under another tab', () =>
   expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
 });
 
-it('folds the details of a pending note and drops the disclosure once it is claimed', () => {
+it('folds the details of a transfer waiting on a decision, and drops the card once it is accepted', () => {
   const [, , claimed] = mockItems;
   if (!claimed) throw new Error('Missing note fixtures');
   claimed.status = 'claimed';
@@ -217,14 +217,10 @@ it('folds the details of a pending note and drops the disclosure once it is clai
   expect(within(pendingCard).getByText('activityNotYetAccepted')).toBeInTheDocument();
   expect(within(pendingCard).getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
 
-  // The decision is made, so the row is no longer a toggle and has no action footer left: the
-  // row itself is what opens the transaction.
-  const claimedCard = screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]');
-  if (!(claimedCard instanceof HTMLElement)) throw new Error('Missing claimed card');
-  expect(within(claimedCard).queryByRole('button', { expanded: false })).toBeNull();
-  expect(within(claimedCard).queryByRole('button', { expanded: true })).toBeNull();
-  expect(within(claimedCard).queryByText('activityTransferDetails')).toBeNull();
-  expect(within(claimedCard).queryByRole('button', { name: 'activityAcceptTransfer' })).not.toBeInTheDocument();
+  // The decision is made, so there is no card at all: `History` stops standing the consume row
+  // down and the transfer is an ordinary row in the feed, drawn by the same component as every
+  // other settled transaction.
+  expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
   delete claimed.txId;
 });
 
