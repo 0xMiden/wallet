@@ -101,15 +101,30 @@ jest.mock('app/icons/v2', () => ({
   IconName: { CheckboxCircleFill: 'CheckboxCircleFill', FileCopy: 'FileCopy', EyeOff: 'EyeOff' }
 }));
 
-jest.mock('components/PageHeader', () => ({
-  __esModule: true,
-  PageHeader: (props: { title?: string; onBack?: () => void; className?: string }) => (
-    <div data-testid="nav-header" className={props.className}>
-      <span data-testid="nh-title">{props.title}</span>
-      <button data-testid="nh-back" onClick={props.onBack} />
-    </div>
-  )
-}));
+// Mirrors the real header's focus contract rather than stubbing it away: the title is
+// an h1 that is focusable and claims focus from a MOUNT effect only when asked. That is
+// what makes the step-change assertion meaningful - a header reconciled in place instead
+// of remounted never re-runs the effect, so the announcement silently stops happening.
+jest.mock('components/PageHeader', () => {
+  const ReactActual = jest.requireActual<typeof import('react')>('react');
+  return {
+    __esModule: true,
+    PageHeader: (props: { title?: string; onBack?: () => void; className?: string; focusTitleOnMount?: boolean }) => {
+      const titleRef = ReactActual.useRef<HTMLHeadingElement>(null);
+      ReactActual.useEffect(() => {
+        if (props.focusTitleOnMount) titleRef.current?.focus();
+      }, [props.focusTitleOnMount]);
+      return (
+        <div data-testid="nav-header" className={props.className}>
+          <h1 data-testid="nh-title" ref={titleRef} tabIndex={props.focusTitleOnMount ? -1 : undefined}>
+            {props.title}
+          </h1>
+          <button data-testid="nh-back" onClick={props.onBack} />
+        </div>
+      );
+    }
+  };
+});
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock exposes onChange/onSubmit + echoes error/isSubmitting props.
@@ -561,6 +576,60 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed failure path -> auth-error view.
   // -------------------------------------------------------------------------
+  // Warning -> words is the boundary that needs the key. The password path reaches the
+  // words through the `!secret && isSubmitting` null return, which already unmounts and
+  // remounts the header on its own, so a test written there would pass with the key
+  // deleted. The hardware path never returns null, so only the key remounts it.
+  it('mounts a fresh header at the words step so its title is announced', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+
+    const container = renderNoFlush();
+    await flush();
+    await flush();
+    const warningTitle = container.querySelector('[data-testid="nh-title"]');
+
+    await act(async () => {
+      buttonWithText(container, 'view')!.click();
+    });
+    await flush();
+
+    expect(container.textContent).toContain('Alpha');
+    const wordsTitle = container.querySelector('[data-testid="nh-title"]');
+    // Node identity, not focus: this suite renders into a DETACHED container, so
+    // element.focus() is a no-op and document.activeElement never leaves <body>.
+    // A remount is the thing the key buys and the thing the focus effect needs -
+    // PageHeader.test.tsx already pins that a mounted header with the prop takes
+    // focus for real, so proving the remount completes the chain.
+    expect(wordsTitle).not.toBe(warningTitle);
+    expect(wordsTitle).toHaveAttribute('tabindex', '-1');
+  });
+
+  // Close stays live while the biometric prompt is up, and history.go(-1) settles on
+  // a later task, so the page is still mounted when a late reveal resolves. Leaving
+  // has to invalidate the request, not just navigate.
+  it('discards a reveal that resolves after the user has already left', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let resolveReveal!: (value: string) => void;
+    mockRevealMnemonic.mockReturnValue(
+      new Promise<string>(res => {
+        resolveReveal = res;
+      })
+    );
+    const container = await renderAndView();
+
+    await act(async () => {
+      buttonWithText(container, 'close')!.click();
+    });
+    await act(async () => {
+      resolveReveal('alpha beta gamma delta');
+    });
+    await flush();
+
+    expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
+    expect(container.textContent).not.toContain('Alpha');
+  });
+
   it('stands on the auth-error view instead of navigating away from it', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockRejectedValue(new Error('biometric failed'));

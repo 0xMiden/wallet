@@ -49,7 +49,19 @@ const RevealSeedPhrase: FC = () => {
   // close, which also trip that effect — and `history.go(-1)` settles on a later
   // task, so each call popped another page (Settings too). The hook fires once
   // per location, and routes to the Settings root when opened cold.
-  const leave = useBackWithFallback('/settings');
+  const popPage = useBackWithFallback('/settings');
+  // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
+  // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
+  // settles on a later task, so a reveal that resolves in between would otherwise
+  // store the mnemonic and swap the rendered branch to the word grid on a page the
+  // user has already dismissed. Bumping the generation gives that in-flight promise
+  // the same mismatch unmount already produces. Wrapped at the binding rather than
+  // at each call site: there are seven, and a list is one edit away from being six.
+  const leave = useCallback(() => {
+    secretGeneration.current += 1;
+    setSecret(null);
+    popPage();
+  }, [popPage, setSecret]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -229,10 +241,16 @@ const RevealSeedPhrase: FC = () => {
       </p>
     );
 
+  // Each branch keys its own header so React remounts it at a step change rather than
+  // reconciling one instance in place - PageHeader focuses the title from a mount
+  // effect, so without a remount the announcement never fires and the h1 keeps no
+  // tabIndex. Keyed per BRANCH, not on `step`: three of the four run with
+  // step === 'reveal'. The drawer branch is deliberately not focused - its sheet is a
+  // portal that owns focus, and that branch remounts on every failed submit.
   if (step === 'warning') {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
+        <PageHeader key="warning" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
 
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-2">
           {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
@@ -287,7 +305,7 @@ const RevealSeedPhrase: FC = () => {
   if (secret && words.length > 0) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={handleHide} />
+        <PageHeader key="words" className="px-4" title={t('recoveryPhrase')} onBack={handleHide} focusTitleOnMount />
 
         <div className="flex-1 flex flex-col px-4 pt-4">
           {isGuardReady && (
@@ -348,7 +366,7 @@ const RevealSeedPhrase: FC = () => {
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
+        <PageHeader key="error" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
         <div className="px-4 pt-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
         </div>
@@ -375,7 +393,7 @@ const RevealSeedPhrase: FC = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
+      <PageHeader key="auth" className="px-4" title={t('recoveryPhrase')} onBack={leave} />
 
       <Drawer
         open={showPasswordDrawer}
