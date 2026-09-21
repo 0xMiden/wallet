@@ -8,6 +8,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
 import { PageHeader } from 'components/PageHeader';
@@ -702,7 +703,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
+            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate(ACTIVITY_PENDING_PATH) : undefined}
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">

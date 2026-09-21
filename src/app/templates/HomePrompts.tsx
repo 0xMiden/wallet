@@ -2,9 +2,11 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { IconName } from 'app/icons/v2';
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardHero, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import { formatUsd } from 'lib/i18n/numbers';
@@ -45,6 +47,7 @@ import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {
   body?: string;
+  bodyValue?: string;
   // Overrides `definition.dismissible`. `onDismiss: undefined` cannot express this,
   // because the render falls through to the definition's default dismiss handler.
   dismissible?: boolean;
@@ -86,7 +89,9 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
   [WalletPromptType.PendingNotes]: {
     titleKey: 'pendingNotesPromptTitle',
     bodyKey: 'pendingNotesPromptBody',
-    dismissible: true
+    // Not dismissible: money waiting to be accepted is not a notice to be swept away, and a
+    // wallet that dismissed it once must not go quiet about every later transfer.
+    dismissible: false
   },
   [WalletPromptType.VerifySeedPhrase]: {
     titleKey: 'verifySeedPhrasePromptTitle',
@@ -186,7 +191,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
 }) => {
   const { t } = useTranslation();
   const seedStatus = useWalletStore(s => s.seedPhraseStatus);
-  const { storage, isLoaded, setPromptStatus, setFaucetStatus, dismissPrompt, completePrompt, isPromptPending } =
+  const { storage, isLoaded, setFaucetStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
   // Non-null between a successful faucet request and the minted funds becoming
@@ -247,25 +252,30 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   );
   const bridgePromptPending = isPromptPending(WalletPromptType.Bridge);
   const hotKeyPromptPending = isPromptPending(WalletPromptType.HotKeyHardwareUnavailable);
-  const pendingNotesStatus = storage.prompts[WalletPromptType.PendingNotes];
-  const pendingNoteIds = useMemo(() => claimableNotes?.map(note => note.id) ?? [], [claimableNotes]);
+  // A DECLINED transfer is not waiting for anything. It stays claimable — declining only hides
+  // it, and Restore brings it back — so the raw claimable list still contains it, and the banner
+  // counted it and added its value to the total the user was told was waiting. The Pending tab's
+  // "Hidden transfers — Restore" row reads the same set; this is what makes the two agree.
+  const hiddenNotes = useActivityHiddenNotes(account.publicKey);
+  // `ids` is empty until the set has been read, so the banner waits rather than announcing a
+  // total it is about to revise down. An unreadable set settles too: it is `failed`, not pending
+  // forever, and the banner falls back to showing everything.
+  const hiddenSettled = hiddenNotes.loaded || hiddenNotes.failed;
+  const waitingNotes = useMemo(
+    () => (claimableNotes ?? []).filter(note => !hiddenNotes.ids.has(note.id)),
+    [claimableNotes, hiddenNotes.ids]
+  );
+  const pendingNoteIds = useMemo(() => waitingNotes.map(note => note.id), [waitingNotes]);
   const hasPendingNotes = pendingNoteIds.length > 0;
-  // A dismiss hides the batch of note ids current at the time; the prompt
-  // resurfaces once none of the currently-pending notes were in that batch.
-  const hasDismissedBatchNote = useMemo(() => {
-    if (pendingNotesStatus !== WalletPromptStatus.Dismissed) return false;
-    const dismissedIds = new Set(storage.pendingNotesDismissedIds);
-    return pendingNoteIds.some(noteId => dismissedIds.has(noteId));
-  }, [pendingNoteIds, pendingNotesStatus, storage.pendingNotesDismissedIds]);
-  const showPendingNotesPrompt = isLoaded && hasPendingNotes && !hasDismissedBatchNote;
+  const showPendingNotesPrompt = isLoaded && hiddenSettled && hasPendingNotes;
   const fundingNoteIds = useMemo(() => fundingNotes?.map(note => note.id) ?? [], [fundingNotes]);
   const formattedFundingNotesUsdTotal = useMemo(
     () => formatUsd(getPendingNotesUsdTotal(fundingNotes ?? [], tokenPrices)),
     [fundingNotes, tokenPrices]
   );
   const formattedPendingNotesUsdTotal = useMemo(
-    () => formatUsd(getPendingNotesUsdTotal(claimableNotes ?? [], tokenPrices)),
-    [claimableNotes, tokenPrices]
+    () => formatUsd(getPendingNotesUsdTotal(waitingNotes, tokenPrices)),
+    [waitingNotes, tokenPrices]
   );
 
   // One localized line per recovery step; the public-backfill step carries the
@@ -853,9 +863,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           };
         case WalletPromptType.PendingNotes:
           return {
-            onClick: () => navigate('/pending-notes'),
-            body: t(WALLET_PROMPT_DEFINITIONS[type].bodyKey, { amount: formattedPendingNotesUsdTotal }),
-            onDismiss: () => setPromptStatus(type, WalletPromptStatus.Dismissed, pendingNoteIds)
+            onClick: () => navigate(ACTIVITY_PENDING_PATH),
+            // The count carries the fact; the money is the `bodyValue`, so it is read rather
+            // than scanned past in the middle of a sentence.
+            body: t(WALLET_PROMPT_DEFINITIONS[type].bodyKey, { count: pendingNoteIds.length }),
+            bodyValue: formattedPendingNotesUsdTotal
           };
         case WalletPromptType.HotKeyHardwareUnavailable:
           return {
@@ -896,7 +908,6 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       rotateHotKey,
       rotationStatusIndicator,
       setFaucetStatus,
-      setPromptStatus,
       t
     ]
   );
@@ -914,6 +925,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             actionTestId={testId ? `${testId}-action` : undefined}
             title={t(definition.titleKey)}
             body={overrides.body ?? t(definition.bodyKey)}
+            bodyValue={overrides.bodyValue}
             variant={definition.variant}
             icon={definition.icon}
             hero={overrides.hero}
