@@ -6,6 +6,7 @@ import type { Transition } from 'framer-motion';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
+import { useHomePaneSubPage } from './home-pane-subpage';
 import { PageActiveContext, usePageActive } from './page-active';
 import TabLayout from './TabLayout';
 
@@ -179,8 +180,21 @@ jest.mock('components/NetworkModeRibbon', () => ({
 const mockNavigate = navigate as jest.Mock;
 const mockHaptic = hapticSelection as jest.Mock;
 
-const renderLayout = (children: React.ReactNode = <div data-testid="child-content" />) =>
-  render(<TabLayout>{children}</TabLayout>);
+// A stand-in for a step pushed inside a pane (Send's amount step, Swap's review): it declares
+// itself a sub-page exactly as those do. The real hook is used, so this drives the same store and
+// the same body flag the flows drive.
+const PaneSubPage: React.FC = () => {
+  useHomePaneSubPage(true);
+  return <div data-testid="pane-sub-page" />;
+};
+
+const renderLayout = (children: React.ReactNode = <div data-testid="child-content" />, extra?: React.ReactNode) =>
+  render(
+    <>
+      <TabLayout>{children}</TabLayout>
+      {extra}
+    </>
+  );
 
 const getRoot = (container: HTMLElement) => container.firstChild as HTMLElement;
 
@@ -301,6 +315,55 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     expect(screen.queryByTestId('action-bar')).toBeNull();
     expect(screen.queryByTestId('home-swipe')).toBeNull();
     expect(screen.getByTestId('child-content')).toBeInTheDocument();
+  });
+
+  // A sub-page pushed inside a pane (Send's amount step, Swap's review) takes over the screen the
+  // way Earn's routed vault detail does. The pane it lives in must NOT be torn down for that: the
+  // carousel stays exactly where it is, only the bar above it goes.
+  it('drops the action bar while a pane has a sub-page up, keeping the carousel mounted', () => {
+    mockLocation.pathname = '/send';
+    renderLayout(<div data-testid="child-content" />, <PaneSubPage />);
+    expect(screen.queryByTestId('action-bar')).toBeNull();
+    expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
+    // Never the fallback children: for `/send` those are a second SendFlow, for `/earn` nothing.
+    expect(screen.queryByTestId('child-content')).toBeNull();
+    // And the bottom bar goes with it, through the flag the sub-page hook raises.
+    expect(document.body.hasAttribute('data-hide-navbar')).toBe(true);
+  });
+
+  it('brings the action bar back when the sub-page closes', () => {
+    mockLocation.pathname = '/send';
+    const { rerender } = renderLayout(<div data-testid="child-content" />, <PaneSubPage />);
+    expect(screen.queryByTestId('action-bar')).toBeNull();
+
+    act(() => {
+      rerender(
+        <TabLayout>
+          <div data-testid="child-content" />
+        </TabLayout>
+      );
+    });
+    expect(screen.getByTestId('action-bar')).toBeInTheDocument();
+    expect(document.body.hasAttribute('data-hide-navbar')).toBe(false);
+  });
+
+  it('leaves a non-home tab alone: a parked sub-page cannot strip another tab of its bar', () => {
+    // Panes stay mounted, so this state is reachable only through a pane's own pathname gate;
+    // the layout still must not confuse a sub-page with a route change.
+    mockLocation.pathname = '/history';
+    renderLayout(<div data-testid="child-content" />, <PaneSubPage />);
+    expect(screen.getByTestId('child-content')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-swipe')).toBeNull();
+  });
+
+  it('takes the Home status-bar band down with the bar', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/send';
+    renderLayout(<div data-testid="child-content" />, <PaneSubPage />);
+    // The band is the action bar's own colour continued through the safe area; with no bar there
+    // is nothing for it to continue.
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+    document.body.removeAttribute('data-home-band');
   });
 });
 

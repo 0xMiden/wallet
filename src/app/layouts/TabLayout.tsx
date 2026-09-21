@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
+import { useHomePaneSubPageOpen } from 'app/layouts/home-pane-subpage';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
 import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
@@ -37,7 +38,8 @@ import { navigate, useLocation } from 'lib/woozie';
  * The top action bar is mounted when the route is in the "home"
  * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
- * Activity, Settings) hide it.
+ * Activity, Settings) hide it — and so does a sub-page pushed inside one of those panes, which
+ * takes over the whole screen exactly as Earn's routed vault detail does (home-pane-subpage.ts).
  *
  * Only the Settings ROOT (`/settings`) is a tab destination; `/settings/<slug>`
  * sub-pages keep their FullScreenPage drill-in so back behaviour and history
@@ -270,7 +272,16 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   const activeTab = activeTabFromPath(pathname);
   const activeAction = activeActionFromPath(pathname);
-  const showActionBar = HOME_GROUP_ROUTES.has(pathname);
+  // Which pane content the home tab shows, and whether the bar above it is drawn — two questions,
+  // deliberately not one value. The carousel is what a home-group ROUTE mounts; the bar comes off
+  // while a pane has a sub-page pushed inside it, and the carousel must stay exactly where it is
+  // underneath (conflated, the home tab fell back to `children` mid-flow — a second SendFlow for
+  // `/send`, nothing at all for `/earn`).
+  const onHomeGroup = HOME_GROUP_ROUTES.has(pathname);
+  // A pushed step owns the screen, the way Earn's routed vault detail does: no action bar over it,
+  // and no bottom nav under it (the same flag hides that one). See home-pane-subpage.ts.
+  const paneSubPageOpen = useHomePaneSubPageOpen();
+  const showActionBar = onHomeGroup && !paneSubPageOpen;
 
   // Mobile, Home only: the body paints the status-bar safe area above the
   // app, so the action bar's band is drawn up there by a fixed pseudo-element
@@ -318,12 +329,16 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   // The action bar lives inside the Home pane. A tab change swaps whole
   // panes in one frame, so the bar can never shift the content below it.
-  // The Home pane holds the swipe carousel for every home-group route.
-  panesRef.current[activeTab] = showActionBar ? (
+  // The Home pane holds the swipe carousel for every home-group route; the bar above it comes and
+  // goes with `showActionBar` while the carousel stays mounted, so a pushed step grows into the
+  // bar's row without the pane it lives in being torn down.
+  panesRef.current[activeTab] = onHomeGroup ? (
     <>
-      <div className="shrink-0 relative z-10">
-        <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
-      </div>
+      {showActionBar && (
+        <div className="shrink-0 relative z-10">
+          <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
+        </div>
+      )}
       <div className="flex-1 min-h-0 flex flex-col">
         <HomeSwipeContainer />
       </div>
