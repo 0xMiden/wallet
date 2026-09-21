@@ -2,7 +2,7 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
 /**
@@ -54,12 +54,11 @@ export type PillProps = PillBehaviourProps & {
   size?: PillSize;
   tone?: PillTone;
   /**
-   * Which haptic the tap fires: `'light'` (default) for an ordinary action, `'selection'` for a
-   * segmented choice - fired only when the tap actually changes the selection (skipped while
-   * `selected` is already true, so re-tapping the active choice in a group is silent) - or
-   * `false` to fire none and let the caller manage it.
+   * Which haptic the tap fires: `'light'` (default) for an ordinary action, or `false` to fire
+   * none and let the caller manage it. A single choice in a row is a `SegmentedControl`, which
+   * fires the selection haptic itself.
    */
-  haptic?: 'light' | 'selection' | false;
+  haptic?: 'light' | false;
   /** Reflected as `aria-pressed` on a tappable pill. */
   selected?: boolean;
   disabled?: boolean;
@@ -177,8 +176,6 @@ export const Pill: React.FC<PillProps> = ({
       onClick={() => {
         if (haptic === 'light') {
           hapticLight();
-        } else if (haptic === 'selection' && !selected) {
-          hapticSelection();
         }
         onClick();
       }}

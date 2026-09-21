@@ -2,11 +2,11 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 
 import { Pill } from './Pill';
 
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -165,32 +165,6 @@ describe('haptic', () => {
     fireEvent.click(screen.getByTestId('pill'));
 
     expect(hapticLight).toHaveBeenCalledTimes(2);
-    expect(hapticSelection).not.toHaveBeenCalled();
-    expect(onClick).toHaveBeenCalledTimes(2);
-  });
-
-  it('fires hapticSelection only when the tap actually selects (haptic="selection")', () => {
-    const onClick = jest.fn();
-    const { rerender } = render(
-      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected={false}>
-        received
-      </Pill>
-    );
-
-    fireEvent.click(screen.getByTestId('pill'));
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(hapticLight).not.toHaveBeenCalled();
-
-    // Re-tapping an already-selected pill (the caller flips `selected` once it commits the
-    // change) is silent — the equivalent of tapping the already-active filter twice.
-    rerender(
-      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected>
-        received
-      </Pill>
-    );
-    fireEvent.click(screen.getByTestId('pill'));
-
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledTimes(2);
   });
 
@@ -205,7 +179,6 @@ describe('haptic', () => {
     fireEvent.click(screen.getByTestId('pill'));
 
     expect(hapticLight).not.toHaveBeenCalled();
-    expect(hapticSelection).not.toHaveBeenCalled();
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
