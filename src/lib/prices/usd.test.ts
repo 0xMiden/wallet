@@ -29,6 +29,16 @@ describe('coverage', () => {
     expect(isCoveredSymbol('toString')).toBe(false);
     expect(isCoveredSymbol('constructor')).toBe(false);
   });
+
+  it('covers the E2E fixture symbol only inside an E2E build', () => {
+    expect(isCoveredSymbol('TST')).toBe(false);
+    process.env.MIDEN_E2E_TEST = 'true';
+    try {
+      expect(isCoveredSymbol('TST')).toBe(true);
+    } finally {
+      delete process.env.MIDEN_E2E_TEST;
+    }
+  });
 });
 
 describe('toPriceMicro', () => {
@@ -105,6 +115,21 @@ describe('getPriceMicro', () => {
     mockedRead.mockResolvedValue({ ETH: null });
 
     await expect(getPriceMicro('ETH', 1_050)).resolves.toBeUndefined();
+  });
+
+  it('prices the E2E fixture symbol at exactly one dollar, reading neither the cache nor the feed', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    try {
+      await expect(getPriceMicro('TST', 1_000)).resolves.toBe(1_000_000n);
+    } finally {
+      delete process.env.MIDEN_E2E_TEST;
+    }
+    expect(mockedRead).not.toHaveBeenCalled();
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  it('leaves the fixture symbol unpriced outside an E2E build', async () => {
+    await expect(getPriceMicro('TST', 1_000)).resolves.toBeUndefined();
   });
 });
 

@@ -25,12 +25,27 @@ interface CachedUsdPrice {
 type UsdPriceCache = Record<string, CachedUsdPrice>;
 
 /**
+ * The E2E harness's own fixture faucet symbol, and the exact dollar rate it prices at.
+ *
+ * The live feed can never price a symbol the harness invents on the fly for a throwaway devnet
+ * faucet, so without this an E2E spending-limit cap could never be breached - every spend of the
+ * fixture token would count as zero, no matter what the suite configured, and the enforcement
+ * path this exists to test would be permanently unverifiable end to end. $1.00 per whole unit is
+ * arbitrary but exact, so a spec's existing native-unit figures convert to identical dollar
+ * figures with no rescaling. Confined to `MIDEN_E2E_TEST` builds, which never ship to a user.
+ */
+const E2E_FIXTURE_SYMBOL = 'TST';
+const isE2eFixtureSymbol = (symbol: string): boolean =>
+  process.env.MIDEN_E2E_TEST === 'true' && symbol === E2E_FIXTURE_SYMBOL;
+
+/**
  * Whether the feed can price this symbol at all.
  *
  * Indexed rather than `in` or `hasOwnProperty` so an inherited member such as `toString` cannot
  * read as covered: the value test is what decides, and a function is not a trading pair.
  */
-export const isCoveredSymbol = (symbol: string): boolean => typeof KNOWN_SYMBOLS[symbol] === 'string';
+export const isCoveredSymbol = (symbol: string): boolean =>
+  typeof KNOWN_SYMBOLS[symbol] === 'string' || isE2eFixtureSymbol(symbol);
 
 export const toPriceMicro = (price: number): bigint | undefined => {
   if (!Number.isFinite(price) || price <= 0) return undefined;
@@ -111,6 +126,7 @@ export const getPriceMicro = async (
   symbol: string,
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<bigint | undefined> => {
+  if (isE2eFixtureSymbol(symbol)) return USD_SCALE;
   const cached = cachedPriceMicro(await readCache(), symbol, now);
   if (cached !== undefined) return cached;
   return cachedPriceMicro(await refresh(now), symbol, now);
