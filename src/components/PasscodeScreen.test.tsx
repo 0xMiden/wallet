@@ -152,3 +152,42 @@ describe('PasscodeScreen', () => {
     expect(onBiometric).toHaveBeenCalledTimes(1);
   });
 });
+
+// This is the one caller suite that renders the real Numpad, so it is where the refusal props are
+// proven to reach the keys rather than a stub.
+describe('refused keys', () => {
+  it('forwards each refusal prop to the keys it guards', () => {
+    const { rerender } = render(
+      <PasscodeScreen
+        title="t"
+        message="m"
+        filled={0}
+        length={6}
+        onDigit={jest.fn()}
+        onDelete={jest.fn()}
+        onBiometric={jest.fn()}
+        disabled
+      />
+    );
+
+    expect(screen.getByTestId('numpad-1')).toBeDisabled();
+    expect(screen.getByTestId('numpad-delete')).toBeDisabled();
+    expect(screen.getByTestId('numpad-biometric')).not.toBeDisabled();
+
+    rerender(
+      <PasscodeScreen
+        title="t"
+        message="m"
+        filled={0}
+        length={6}
+        onDigit={jest.fn()}
+        onDelete={jest.fn()}
+        onBiometric={jest.fn()}
+        biometricDisabled
+      />
+    );
+
+    expect(screen.getByTestId('numpad-biometric')).toBeDisabled();
+    expect(screen.getByTestId('numpad-1')).not.toBeDisabled();
+  });
+});

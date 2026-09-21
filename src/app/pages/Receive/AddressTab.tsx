@@ -116,6 +116,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
+    // Stays OUTSIDE the try above, and the primary path here is NOT an error: wherever the Web
+    // Share API is absent the guard above is falsy - typically extension and desktop builds - so
+    // the try runs out, nothing throws, no branch returns, and control reaches this line having
+    // entered no catch. A share rejection also lands here via the catch; every success branch
+    // returns first. Moved into the catch, the Share button would do nothing at all on those builds;
+    // Receive.test.tsx's 'the web has no navigator.share' row is what fails if anyone does.
     await copyAddress();
   }, [copyAddress, shareText, t]);
 

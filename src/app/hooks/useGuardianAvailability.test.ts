@@ -114,28 +114,24 @@ describe('useGuardianAvailability', () => {
   // guard. What it can observe is that the already-out promise chain itself
   // must not reject into the runtime — an unhandled rejection per closed
   // picker.
+  // Jest fails the running test on an unhandled rejection, which Node reports
+  // only after a macrotask, hence the wait. (A process.on('unhandledRejection')
+  // listener here would never fire: each test file gets its own copy of `process`.)
   it('absorbs a verdict that arrives after unmount', async () => {
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on('unhandledRejection', onUnhandled);
-    try {
-      // Rejecting, not resolving: a resolving fixture cannot produce an unhandled
-      // rejection no matter what the hook does, so the assertion below would hold
-      // even with the rejection handler deleted.
-      const rejecters = deferredRejectingPings();
-      const endpoint = 'https://gone.example.com';
-      const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
+    // Rejecting, not resolving: a resolving fixture cannot produce an unhandled
+    // rejection no matter what the hook does, so this would pass even with the
+    // rejection handler deleted.
+    const rejecters = deferredRejectingPings();
+    const endpoint = 'https://gone.example.com';
+    const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
+    // The probe is in flight, so the rejection below reaches the hook's own chain.
+    expect(mockPing).toHaveBeenCalledWith(endpoint);
 
-      unmount();
+    unmount();
 
-      await act(async () => rejecters.get(endpoint)!(new Error('probe failed after unmount')));
-      await Promise.resolve();
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off('unhandledRejection', onUnhandled);
-    }
+    await act(async () => rejecters.get(endpoint)!(new Error('probe failed after unmount')));
+    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   // Regression: the effect used to key on array IDENTITY, so a caller passing
