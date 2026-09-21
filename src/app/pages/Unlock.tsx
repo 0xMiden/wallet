@@ -185,13 +185,29 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [errorCount, setErrorCount] = useState(0);
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
-  // The time left when the lockout started or this screen mounted: captured, never ticking (see
-  // `announcement`). Only the number is memoised - `t` stays out, so its identity cannot re-read
-  // the clock.
+  // The time left, captured whenever the announcement is re-derived: when the lockout starts, when
+  // this screen mounts, and when a failed biometric attempt during the lockout clears again. Never
+  // on a clock tick (see `announcement`). `biometricError` is read here, not just listed: the
+  // announcement shows the failure instead of a duration while it is set, and a dependency the body
+  // ignores is an unnecessary-dependency warning under `yarn lint`. `t` stays out, so its identity
+  // cannot re-read the clock.
   const lockoutLeftMs = useMemo(
-    () => (isDisabled ? timelock + lockLevel - Date.now() : 0),
-    [isDisabled, timelock, lockLevel]
+    () => (isDisabled && !biometricError ? timelock + lockLevel - Date.now() : 0),
+    [isDisabled, biometricError, timelock, lockLevel]
   );
+
+  // A failure from before or during a lockout is not what the screen means once the lockout ends:
+  // the line would read "incorrect passcode" (or, on the password form, "incorrect password") at the
+  // moment the wallet becomes usable again, and the live region would announce it. Cleared on the
+  // transition, not on the interval's tick: that branch is also true every second when nothing is
+  // locked, and `timelock` outlives its lockout (no success path resets it). No errorCount bump, so
+  // nothing shakes. The mount run is a no-op: both flags start false.
+  useEffect(() => {
+    if (!isDisabled) {
+      setIsError(false);
+      setBiometricError(false);
+    }
+  }, [isDisabled]);
 
   const submitPasscode = useCallback(
     async (passcode: string) => {

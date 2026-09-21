@@ -325,6 +325,24 @@ describe('Unlock — extension password form', () => {
     expect(screen.queryByText('incorrectPassword')).not.toBeInTheDocument();
   });
 
+  // The same clear reaches this arm: the password form's error line derives from the same isError
+  // the passcode screen's does, and the lockout interval is shared.
+  it('empties the error line once a lockout ends', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('bad'));
+    const { container } = await renderUnlock();
+
+    const input = container.querySelector('#unlock-password') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'wrong' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(500);
+    expect(screen.getByTestId('unlock-error')).toHaveTextContent('unlockPasswordErrorDelay');
+
+    await advance(61_000);
+
+    expect(screen.getByTestId('unlock-error')).toBeEmptyDOMElement();
+  });
+
   it('toggles password visibility via the eye button', async () => {
     const { container } = await renderUnlock();
 
@@ -544,6 +562,50 @@ describe('Unlock — mobile passcode numpad', () => {
     await advance(1100);
     expect(screen.getByTestId('passcode-message')).not.toHaveTextContent('01:00');
     expect(status).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+  });
+
+  // A lockout that ends is not the moment to repeat the failure that started it: the line and the
+  // live region both read the instruction again.
+  it('drops the failure that started a lockout once the lockout ends', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+
+    await advance(61_000);
+    expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
+    expect(screen.getByRole('status')).not.toHaveClass('text-negative-ink');
+  });
+
+  // THE TRAP: the interval's "lockout is over" branch is true every second when nothing is locked,
+  // so a clear hung off it would wipe this error a second after it appears.
+  it('keeps an error from a failure that started no lockout', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: 0 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    await advance(2000);
+
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+  });
+
+  // The same trap with a stale stamp: a lockout that expired while this screen was unmounted, or a
+  // biometric unlock taken during one, leaves TimeLock set with no lockout on screen.
+  it('keeps that error when a stale expired lockout stamp is still stored', async () => {
+    mockLsStore = { PasswordAttempts: 1, TimeLock: BASE - 10 * 60_000 };
+    mockUnlock.mockRejectedValueOnce(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    type(container, '111111');
+    await advance(600);
+    await advance(2000);
+
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
   });
 
   it('draws the shared passcode screen with the keypad docked at the bottom', async () => {
@@ -944,6 +1006,58 @@ describe('an unlock attempt in flight holds every input, and the latest failure 
       expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
       expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
       expect(screen.getByTestId('passcode-message')).toHaveTextContent('unlockPasswordErrorDelay');
+    });
+
+    // The announcement is captured, so every time it is re-derived it must capture again: otherwise
+    // the tap after a failed attempt announces the time the screen was opened with.
+    it('recaptures the time left when the announcement returns after a failed biometric', async () => {
+      mockLsStore = { PasswordAttempts: 30, TimeLock: BASE }; // a 10-minute lockout, from now
+      await renderUnlock();
+      await advance(5 * 60_000);
+
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+
+      mockUnlock.mockImplementationOnce(() => new Promise(() => {})); // the next attempt stays pending
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay 05:00');
+    });
+
+    it('drops a biometric failure from during a lockout once the lockout ends', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE }; // a 60-second lockout
+      await renderUnlock();
+      mockUnlock.mockRejectedValueOnce(new Error('cancelled again'));
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
+
+      await advance(61_000);
+
+      expect(screen.getByRole('status')).toHaveTextContent('enterYour6DigitCode');
+    });
+
+    it('still reports a retry that fails after the lockout lifted under it', async () => {
+      mockLsStore = { PasswordAttempts: 3, TimeLock: BASE };
+      await renderUnlock();
+      let rejectRetry: (error: Error) => void = () => undefined;
+      mockUnlock.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectRetry = reject;
+          })
+      );
+      fireEvent.click(screen.getByTestId('numpad-biometric'));
+      await flushMicro();
+
+      await advance(61_000); // the lockout lifts while the retry is still in flight
+      await act(async () => rejectRetry(new Error('cancelled again')));
+      await flushMicro();
+
+      expect(screen.getByRole('status')).toHaveTextContent('biometricFailed');
     });
   });
 });
