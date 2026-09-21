@@ -27,6 +27,10 @@ export interface EndpointOverride {
   allowNoGuardian: boolean; // dev-only: expose a "No guardian" card in onboarding
   networkName: MIDEN_NETWORK_NAME; // the "network id": drives NetworkId + endpoint-default seeding
   presetName: string; // 'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
+  // 0.17 moved the fee asset out of the block header. A client cannot be created
+  // without naming the chain's fee faucet. Optional so a stored 1.16 override still
+  // loads; production and E2E must fill it.
+  feeFaucetId?: string;
 }
 
 // Build-time NTL env override (mirrors the precedence in constants.getNoteTransportUrl).
@@ -133,6 +137,43 @@ export function getEffectiveAllowNoGuardian(): boolean {
   return overrideCache?.allowNoGuardian ?? false;
 }
 
+const FEE_FAUCET_ENV = process.env.MIDEN_FEE_FAUCET_ID || '';
+export const FEE_FAUCET_STORAGE_KEY = 'fee_faucet_id';
+let e2eFeeFaucetId: string | undefined;
+let feeFaucetCache: string | undefined;
+
+/** E2E-only: genesis faucet id is random, so the harness injects it before client create. */
+export function setFeeFaucetIdForTest(id: string | undefined): void {
+  e2eFeeFaucetId = id;
+  feeFaucetCache = id;
+  if (id) {
+    void getStorageProvider().set({ [FEE_FAUCET_STORAGE_KEY]: id });
+  }
+}
+
+/**
+ * Fee faucet the 0.17 client executes under. Required for every non-mock client:
+ * the node does not serve protocol config yet, and KNOWN_FEE_FAUCETS in the SDK
+ * is empty until a public 0.17 genesis publishes one.
+ */
+export function getEffectiveFeeFaucetId(): string | undefined {
+  if (e2eFeeFaucetId) return e2eFeeFaucetId;
+  if (feeFaucetCache) return feeFaucetCache;
+  if (overrideCache?.feeFaucetId) return overrideCache.feeFaucetId;
+  if (FEE_FAUCET_ENV) return FEE_FAUCET_ENV;
+  return undefined;
+}
+
+async function loadFeeFaucetId(): Promise<void> {
+  try {
+    const items = await getStorageProvider().get([FEE_FAUCET_STORAGE_KEY]);
+    const raw = items[FEE_FAUCET_STORAGE_KEY];
+    feeFaucetCache = typeof raw === 'string' && raw ? raw : feeFaucetCache;
+  } catch {
+    // Keep whatever the in-memory cache already holds.
+  }
+}
+
 /**
  * Effective-network default guardian endpoint (custom override first), or '' if
  * none. Non-throwing (mirrors the old `DEFAULT_GUARDIAN_ENDPOINT` const's
@@ -195,6 +236,7 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
+  await loadFeeFaucetId();
   if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
     overrideCache = null;
     return;

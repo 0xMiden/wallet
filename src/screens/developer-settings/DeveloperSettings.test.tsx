@@ -73,7 +73,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
       guardianUrl: `https://guardian.${n}`,
       allowNoGuardian: false,
       networkName: n,
-      presetName: n
+      presetName: n,
+      feeFaucetId: ''
     })
   };
 });

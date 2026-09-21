@@ -257,6 +257,18 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
           </div>
         ))}
 
+        <Input
+          label={t('devEndpointFeeFaucet')}
+          data-testid="dev-endpoint-feeFaucetId"
+          value={form.feeFaucetId ?? ''}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          disabled={readOnly}
+          inputClassName="font-mono text-xs select-text"
+          onChange={e => setForm(prev => ({ ...prev, feeFaucetId: e.target.value, presetName: CUSTOM_PRESET }))}
+        />
+
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-heading-gray">{t('devEndpointNetworkId')}</span>
           <TabPicker

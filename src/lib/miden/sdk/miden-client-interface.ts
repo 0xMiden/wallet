@@ -36,6 +36,7 @@ import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
+  getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
@@ -434,7 +435,16 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
   const entry: RealmReader = {
     generation,
     rpcUrl,
-    client: WasmWebClient.createClient(rpcUrl, undefined, undefined, undefined, undefined, false),
+    client: WasmWebClient.createClient(
+      rpcUrl,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      getEffectiveFeeFaucetId()
+    ),
     failures: cached && sameKey ? cached.failures : 0
   };
   realmReader = entry;
@@ -507,6 +517,7 @@ export class MidenClientInterface {
               : refuseKeystoreMember('sign')
           }
         : undefined,
+      feeFaucetId: getEffectiveFeeFaucetId(),
       proverUrl: getEffectiveProverUrl(),
       // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
       // of the SDK's Web-Worker shim. Two independent reasons:
@@ -1565,7 +1576,7 @@ export class MidenClientInterface {
               notes.push(inputNoteRecord.toNote());
             }
             recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-            const request: TransactionRequest = await inner.newConsumeTransactionRequest(notes);
+            const request: TransactionRequest = await inner.newConsumeTransactionRequest(notes, accountId);
             recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
             const acctId = resolveAccountId(wasm, accountId);
             recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');

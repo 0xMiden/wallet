@@ -1069,6 +1069,10 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     const { setEarnCollateralFaucetForTest } = await import('lib/epoch/earn');
     setEarnCollateralFaucetForTest(faucetHex);
   };
+  (globalThis as any).__TEST_SET_FEE_FAUCET__ = async (faucetId: string): Promise<void> => {
+    const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');
+    setFeeFaucetIdForTest(faucetId);
+  };
   // Earn WITHDRAW read hooks live in the PAGE realm (here), NOT the SW-side
   // earn-test-hooks: the `earn-withdraw` tracking row is created AND advanced
   // page-side (gaslessEarnWithdrawalToMiden runs in EarnWithdrawReview, and the

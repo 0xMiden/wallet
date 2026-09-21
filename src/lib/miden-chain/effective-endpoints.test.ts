@@ -61,6 +61,7 @@ beforeEach(() => {
   mockThrows = false;
   delete process.env.MIDEN_E2E_TEST;
   delete process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES;
+  delete process.env.MIDEN_FEE_FAUCET_ID;
 });
 
 describe('effective-endpoints resolver', () => {
@@ -308,6 +309,34 @@ describe('getEffectiveAllowNoGuardian', () => {
 
   it('buildDefaultOverrideFor includes allowNoGuardian:false', () => {
     expect(buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET).allowNoGuardian).toBe(false);
+  });
+});
+
+describe('getEffectiveFeeFaucetId', () => {
+  it('is unset when nothing is configured', () => {
+    const m = loadModule();
+    expect(m.getEffectiveFeeFaucetId()).toBeUndefined();
+  });
+
+  it('prefers the E2E injector over an override', async () => {
+    const m = loadModule();
+    const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+    override.feeFaucetId = '0xoverride';
+    await m.applyEndpointOverride(override);
+    m.setFeeFaucetIdForTest('0xe2e');
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xe2e');
+    m.setFeeFaucetIdForTest(undefined);
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xoverride');
+  });
+
+  it('loads a stored override that includes feeFaucetId', async () => {
+    const m = loadModule();
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = {
+      ...m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      feeFaucetId: '0xstored'
+    };
+    await m.loadEndpointOverrides();
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xstored');
   });
 });
 

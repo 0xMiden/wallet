@@ -4627,6 +4627,10 @@
     "message": "Custom guardian URL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Fee faucet account ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Allow 'No guardian' option in onboarding",
     "englishSource": "Allow 'No guardian' option in onboarding"

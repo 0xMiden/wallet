@@ -299,6 +299,11 @@ export class MidenCli {
    */
   private funderIds: string[] = [];
   private nativeFaucetId?: string;
+
+  async ensureNativeFaucetId(): Promise<string | undefined> {
+    await this.importFunders();
+    return this.nativeFaucetId;
+  }
   /** Set once a deployment has failed for want of a fee, which is how the chain reveals it charges. */
   private chainChargesFees = false;
   private readonly fundedForFees = new Set<string>();

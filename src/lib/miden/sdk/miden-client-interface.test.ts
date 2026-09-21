@@ -139,7 +139,8 @@ describe('MidenClientInterface', () => {
       getEffectiveNetworkName: () => 'localnet',
       getEffectiveRpcUrl: () => 'rpc-local',
       getEffectiveProverUrl: () => undefined,
-      getEffectiveNoteTransportUrl: () => undefined
+      getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
     }));
     jest.doMock('./constants', () => ({ NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
@@ -1073,7 +1074,8 @@ describe('MidenClientInterface', () => {
         getEffectiveNetworkName: () => 'localnet',
         getEffectiveRpcUrl: () => 'rpc',
         getEffectiveProverUrl: () => undefined,
-        getEffectiveNoteTransportUrl: () => undefined
+        getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1118,7 +1120,8 @@ describe('MidenClientInterface', () => {
         getEffectiveNetworkName: () => 'localnet',
         getEffectiveRpcUrl: () => 'rpc',
         getEffectiveProverUrl: () => undefined,
-        getEffectiveNoteTransportUrl: () => undefined
+        getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1161,7 +1164,8 @@ describe('MidenClientInterface', () => {
         getEffectiveNetworkName: () => 'localnet',
         getEffectiveRpcUrl: () => 'rpc',
         getEffectiveProverUrl: () => undefined,
-        getEffectiveNoteTransportUrl: () => undefined
+        getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1314,7 +1318,8 @@ describe('MidenClientInterface', () => {
         getEffectiveNetworkName: () => 'testnet',
         getEffectiveRpcUrl: () => 'https://rpc.example',
         getEffectiveProverUrl: () => undefined,
-        getEffectiveNoteTransportUrl: () => undefined
+        getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
@@ -1393,7 +1398,8 @@ describe('MidenClientInterface', () => {
         getEffectiveNetworkName: () => 'testnet',
         getEffectiveRpcUrl: () => 'https://rpc.example',
         getEffectiveProverUrl: () => undefined,
-        getEffectiveNoteTransportUrl: () => undefined
+        getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
@@ -2092,7 +2098,7 @@ describe('MidenClientInterface', () => {
       expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
       expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
       // Plain JS array, NOT wasm.NoteArray.
-      expect(inner.newConsumeTransactionRequest).toHaveBeenCalledWith([note]);
+      expect(inner.newConsumeTransactionRequest).toHaveBeenCalledWith([note], expect.anything());
       // Then through the offscreen pipeline.
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
@@ -2242,7 +2248,8 @@ describe('MidenClientInterface', () => {
         getEffectiveNetworkName: () => 'localnet',
         getEffectiveRpcUrl: () => 'rpc-local',
         getEffectiveProverUrl: () => undefined,
-        getEffectiveNoteTransportUrl: () => undefined
+        getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./constants', () => ({ NoteExportType: {} }));
       jest.doMock('./helpers', () => ({
@@ -2412,7 +2419,8 @@ describe('MidenClientInterface', () => {
       getEffectiveNetworkName: () => 'testnet',
       getEffectiveRpcUrl: () => getRpcUrl(),
       getEffectiveProverUrl: () => undefined,
-      getEffectiveNoteTransportUrl: () => undefined
+      getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
     }));
     readerDoMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -2465,7 +2473,16 @@ describe('MidenClientInterface', () => {
     // defaults to TRUE). Only an MV3 service worker lacks `Worker`; the offscreen
     // document, mobile WebViews and the desktop webview would otherwise spawn a Web
     // Worker plus a second WASM instance for the reader.
-    expect(createClient).toHaveBeenCalledWith('https://rpc.example', undefined, undefined, undefined, undefined, false);
+    expect(createClient).toHaveBeenCalledWith(
+      'https://rpc.example',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      '0xfee'
+    );
     expect(fromBech32).toHaveBeenCalledWith('mtst1account');
     expect(getConsumableNotes).toHaveBeenCalledWith({ accountId: 'mtst1account' });
     // One build line for the realm, however many interfaces read through it.
@@ -2511,7 +2528,9 @@ describe('MidenClientInterface', () => {
       undefined,
       undefined,
       undefined,
-      false
+      false,
+      undefined,
+      '0xfee'
     );
     const builds = readerLines(log, 'building');
     expect(builds).toHaveLength(2);
