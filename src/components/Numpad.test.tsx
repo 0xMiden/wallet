@@ -171,10 +171,10 @@ describe('Numpad', () => {
 
   it('draws a Face ID key in the bottom-left slot when a biometric handler is given', () => {
     const onBiometric = jest.fn();
-    renderNumpad({ onBiometric, biometricLabel: 'Unlock with Face ID' });
+    renderNumpad({ onBiometric });
 
     expect(screen.queryByTestId('numpad-spacer')).not.toBeInTheDocument();
-    const key = screen.getByRole('button', { name: 'Unlock with Face ID' });
+    const key = screen.getByRole('button', { name: 'useFaceIdOrBiometric' });
     expect(key).toBe(screen.getByTestId('numpad-biometric'));
     expect(key.querySelector('[data-name="face-id"]')).toBeInTheDocument();
     // Still twelve slots, the biometric key in the tenth.

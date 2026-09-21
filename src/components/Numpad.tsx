@@ -16,8 +16,6 @@ export interface NumpadProps {
    * biometric unlock is available and enabled; without it the slot stays empty.
    */
   onBiometric?: () => void;
-  /** Accessible name of the biometric key. */
-  biometricLabel?: string;
   /** Layout only (margins). */
   className?: string;
 }
@@ -88,7 +86,7 @@ const Key: React.FC<KeyProps> = ({ label, testId, className, onPress, children }
  * sheets. Twelve slots in a 3 × 4 grid: 1–9, then the biometric key (or an empty slot), 0 and
  * backspace. Every key fires the light tap haptic.
  */
-export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, onBiometric, biometricLabel, className }) => {
+export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, onBiometric, className }) => {
   const { t } = useTranslation();
 
   return (
@@ -99,12 +97,7 @@ export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, onBiometric, 
         </Key>
       ))}
       {onBiometric ? (
-        <Key
-          label={biometricLabel ?? t('useFaceIdOrBiometric')}
-          testId="numpad-biometric"
-          className={bareKeyClass}
-          onPress={onBiometric}
-        >
+        <Key label={t('useFaceIdOrBiometric')} testId="numpad-biometric" className={bareKeyClass} onPress={onBiometric}>
           <Icon name={IconName.FaceId} size="lg" />
         </Key>
       ) : (
