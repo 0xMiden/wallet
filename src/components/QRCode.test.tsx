@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render } from '@testing-library/react';
 
+import { QR_SOURCE_SIZE } from 'lib/qr/share-card';
+
 import { QRCode, type QRCodeHandle } from './QRCode';
 
 // ---------------------------------------------------------------------------
@@ -43,8 +45,19 @@ jest.mock('qr-code-styling', () => ({
 // distinct, assertable value.
 jest.mock('../../public/misc/brand/new-bread.svg?url', () => 'miden-logo-url-stub', { virtual: true });
 
+// Drawing the share card is `lib/qr/share-card`'s job and has its own suite; what matters here is
+// the delegation. The rest of that module stays real — the component reads the QR's margin ratio
+// from it.
+const mockComposeCard = jest.fn();
+jest.mock('lib/qr/share-card', () => ({
+  ...jest.requireActual('lib/qr/share-card'),
+  composeQrShareCard: (...args: unknown[]) => mockComposeCard(...args)
+}));
+
 const ACCENT_FALLBACK = '#e77537';
 const ADDRESS = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+const SHARE = { brand: 'Bread', hint: 'Scan to send to this wallet' };
+const CARD = new Blob(['card'], { type: 'image/png' });
 
 /** Options object passed to the (single) QRCodeStyling constructor call. */
 const ctorOptions = () => mockConstructor.mock.calls[0][0] as Record<string, any>;
@@ -94,13 +107,14 @@ describe('QRCode', () => {
     });
 
     it('builds the full styling options for scan-reliable rendering', () => {
-      render(<QRCode address={ADDRESS} size={256} />);
+      render(<QRCode address={ADDRESS} size={300} />);
 
       const opts = ctorOptions();
       expect(opts).toMatchObject({
         type: 'svg',
-        width: 256,
-        height: 256,
+        width: 300,
+        height: 300,
+        // The quiet zone and the logo cutout's gap: 6px at 300, as a ratio of the size.
         margin: 6,
         data: `miden:${ADDRESS}`,
         image: 'miden-logo-url-stub',
@@ -111,6 +125,16 @@ describe('QRCode', () => {
         cornersDotOptions: { type: 'dot' },
         backgroundOptions: { color: '#FFFFFF' }
       });
+    });
+
+    it('scales the quiet zone with the rendered size', () => {
+      // A higher export resolution must not shrink the zone the scanner reads the code out of,
+      // on screen (the SVG scales through its viewBox) or in the shared card.
+      render(<QRCode address={ADDRESS} size={QR_SOURCE_SIZE} />);
+
+      const opts = ctorOptions();
+      expect(opts.margin).toBe(20);
+      expect(opts.imageOptions.margin).toBe(20);
     });
 
     it('appends the styled QR into the inner container on mount', () => {
@@ -214,32 +238,6 @@ describe('QRCode', () => {
         gcs.mockRestore();
       }
     });
-
-    it('paints the shared image caption in the treatment color', async () => {
-      const gcs = stubTokens();
-      mockGetRawData.mockResolvedValue(new Blob(['png-bytes'], { type: 'image/png' }));
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      const ctx = { fillText: jest.fn(), drawImage: jest.fn(), fillRect: jest.fn(), fillStyle: '' };
-      const getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as any);
-      (globalThis as any).createImageBitmap = jest.fn().mockResolvedValue({ close: jest.fn() });
-      const toBlob = HTMLCanvasElement.prototype.toBlob;
-      HTMLCanvasElement.prototype.toBlob = function (callback: BlobCallback) {
-        callback(new Blob(['captioned'], { type: 'image/png' }));
-      };
-      try {
-        const ref = React.createRef<QRCodeHandle>();
-        render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Devnet" palette="slate" />);
-
-        await ref.current!.getImageBlob();
-        expect(ctx.fillStyle).toBe('resolved(--qr-slate)');
-      } finally {
-        HTMLCanvasElement.prototype.toBlob = toBlob;
-        delete (globalThis as any).createImageBitmap;
-        getContext.mockRestore();
-        warn.mockRestore();
-        gcs.mockRestore();
-      }
-    });
   });
 
   describe('reactivity', () => {
@@ -292,125 +290,80 @@ describe('QRCode', () => {
       expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
     });
 
-    it('keeps the caption off screen when showCaption is false, but still captions the export', async () => {
-      mockGetRawData.mockResolvedValue(new Blob(['png-bytes'], { type: 'image/png' }));
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      try {
-        const ref = React.createRef<QRCodeHandle>();
-        const { container } = render(
-          <QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" showCaption={false} />
-        );
-
-        expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
-        // The export still tries to paint the caption strip (jsdom has no canvas to finish it).
-        await ref.current!.getImageBlob();
-        expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
-      } finally {
-        warn.mockRestore();
-      }
-    });
-
-    it('falls back to the raw PNG when the realm has no createImageBitmap', async () => {
-      // jsdom has no createImageBitmap, so composeCaptionedPng returns null at its
-      // first guard and the share still gets the plain QR instead of nothing.
-      const blob = new Blob(['png-bytes'], { type: 'image/png' });
-      mockGetRawData.mockResolvedValue(blob);
-      const getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext');
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      try {
-        const ref = React.createRef<QRCodeHandle>();
-        render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" />);
-
-        expect(await ref.current!.getImageBlob()).toBe(blob);
-        expect(getContext).not.toHaveBeenCalled();
-        expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
-      } finally {
-        getContext.mockRestore();
-        warn.mockRestore();
-      }
-    });
-
-    describe('composing the captioned PNG', () => {
-      const SIZE = 200;
-      const STRIP = Math.round(SIZE * 0.14);
+    it('keeps the caption off screen when showCaption is false, but still names the network on the card', async () => {
       const raw = new Blob(['png-bytes'], { type: 'image/png' });
-      const composed = new Blob(['captioned'], { type: 'image/png' });
-      const close = jest.fn();
-      const originalGetContext = HTMLCanvasElement.prototype.getContext;
-      const originalToBlob = HTMLCanvasElement.prototype.toBlob;
-      let ctx: { fillText: jest.Mock; drawImage: jest.Mock; fillRect: jest.Mock };
-      let canvasSize: { width: number; height: number } | null;
+      mockGetRawData.mockResolvedValue(raw);
+      mockComposeCard.mockResolvedValue(CARD);
+      const ref = React.createRef<QRCodeHandle>();
+      const { container } = render(
+        <QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" showCaption={false} share={SHARE} />
+      );
 
-      beforeEach(() => {
-        close.mockClear();
-        canvasSize = null;
-        ctx = { fillText: jest.fn(), drawImage: jest.fn(), fillRect: jest.fn() };
-        mockGetRawData.mockResolvedValue(raw);
-        (globalThis as any).createImageBitmap = jest.fn().mockResolvedValue({ close });
-        HTMLCanvasElement.prototype.getContext = jest.fn(() => ctx) as any;
-        HTMLCanvasElement.prototype.toBlob = function (this: HTMLCanvasElement, callback: BlobCallback) {
-          canvasSize = { width: this.width, height: this.height };
-          callback(composed);
-        };
+      expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
+      expect(await ref.current!.getImageBlob()).toBe(CARD);
+      expect(mockComposeCard).toHaveBeenCalledWith(expect.objectContaining({ network: 'Miden Testnet' }));
+    });
+  });
+
+  describe('the shared image (#875)', () => {
+    const raw = new Blob(['png-bytes'], { type: 'image/png' });
+
+    beforeEach(() => {
+      mockGetRawData.mockResolvedValue(raw);
+      mockComposeCard.mockReset().mockResolvedValue(CARD);
+    });
+
+    it('hands the card everything it draws: the code, the mark, the copy and the address', async () => {
+      const ref = React.createRef<QRCodeHandle>();
+      render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Devnet" share={SHARE} />);
+
+      expect(await ref.current!.getImageBlob()).toBe(CARD);
+      expect(mockComposeCard).toHaveBeenCalledWith({
+        qr: raw,
+        logoUrl: 'miden-logo-url-stub',
+        brand: 'Bread',
+        hint: 'Scan to send to this wallet',
+        network: 'Miden Devnet',
+        address: ADDRESS
       });
+    });
 
-      afterEach(() => {
-        delete (globalThis as any).createImageBitmap;
-        HTMLCanvasElement.prototype.getContext = originalGetContext;
-        HTMLCanvasElement.prototype.toBlob = originalToBlob;
-      });
+    it('shares the bare code when the page asks for no card', async () => {
+      const ref = React.createRef<QRCodeHandle>();
+      render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Devnet" />);
 
-      const imageBlob = async () => {
+      expect(await ref.current!.getImageBlob()).toBe(raw);
+      expect(mockComposeCard).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the raw PNG when the realm cannot draw the card, and says so', async () => {
+      // jsdom, and any WebView whose canvas will not encode: the share still goes out.
+      mockComposeCard.mockResolvedValue(null);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
         const ref = React.createRef<QRCodeHandle>();
-        render(<QRCode ref={ref} address={ADDRESS} size={SIZE} caption="Miden Devnet" />);
-        return ref.current!.getImageBlob();
-      };
+        render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Devnet" share={SHARE} />);
 
-      it('paints the upper-cased caption into a strip under the QR', async () => {
-        expect(await imageBlob()).toBe(composed);
-        expect(canvasSize).toEqual({ width: SIZE, height: SIZE + STRIP });
-        expect(ctx.drawImage).toHaveBeenCalledWith({ close }, 0, 0, SIZE, SIZE);
-        expect(ctx.fillText).toHaveBeenCalledWith('MIDEN DEVNET', SIZE / 2, SIZE + STRIP / 2);
-        expect(close).toHaveBeenCalledTimes(1);
-      });
+        expect(await ref.current!.getImageBlob()).toBe(raw);
+        expect(warn).toHaveBeenCalledWith('[QRCode] share card unavailable, sharing the raw QR');
+      } finally {
+        warn.mockRestore();
+      }
+    });
 
-      it('shares the raw PNG when composing throws, and says so', async () => {
-        const failure = new Error('decode failed');
-        (globalThis as any).createImageBitmap = jest.fn().mockRejectedValue(failure);
-        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-        try {
-          expect(await imageBlob()).toBe(raw);
-          expect(warn).toHaveBeenCalledWith('[QRCode] caption compose failed, sharing the raw QR:', failure);
-        } finally {
-          warn.mockRestore();
-        }
-      });
+    it('falls back to the raw PNG when composing throws, and says so', async () => {
+      const failure = new Error('decode failed');
+      mockComposeCard.mockRejectedValue(failure);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const ref = React.createRef<QRCodeHandle>();
+        render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Devnet" share={SHARE} />);
 
-      it('shares the raw PNG when the canvas has no 2d context', async () => {
-        HTMLCanvasElement.prototype.getContext = jest.fn(() => null) as any;
-        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-        try {
-          expect(await imageBlob()).toBe(raw);
-          expect((globalThis as any).createImageBitmap).not.toHaveBeenCalled();
-          expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
-        } finally {
-          warn.mockRestore();
-        }
-      });
-
-      it('shares the raw PNG when the canvas cannot encode', async () => {
-        HTMLCanvasElement.prototype.toBlob = function (callback: BlobCallback) {
-          callback(null);
-        };
-        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-        try {
-          expect(await imageBlob()).toBe(raw);
-          expect(close).toHaveBeenCalledTimes(1);
-          expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
-        } finally {
-          warn.mockRestore();
-        }
-      });
+        expect(await ref.current!.getImageBlob()).toBe(raw);
+        expect(warn).toHaveBeenCalledWith('[QRCode] share card failed, sharing the raw QR:', failure);
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 

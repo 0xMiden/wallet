@@ -3,9 +3,17 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, use
 import QRCodeStyling, { type Options } from 'qr-code-styling';
 
 import { encodeAddress } from 'lib/qr/format';
+import { composeQrShareCard, QR_MARGIN_RATIO } from 'lib/qr/share-card';
 import { cn } from 'lib/ui/util';
 
 import midenLogoUrl from '../../public/misc/brand/new-bread.svg?url';
+
+export interface QRShareCopy {
+  /** The wallet's name, drawn beside the mark at the top of the card. */
+  brand: string;
+  /** One line under the address saying what the code is for. */
+  hint: string;
+}
 
 export interface QRCodeProps {
   /** The Miden address to encode in the QR code */
@@ -16,13 +24,18 @@ export interface QRCodeProps {
    */
   size: number;
   /**
-   * Short label painted into the exported PNG, so a shared QR image says which
-   * network it belongs to (#875). Also drawn under the modules on screen unless
-   * `showCaption` is false (a page that names the network itself).
+   * Short label naming the network the code belongs to (#875), e.g. "Miden Testnet". The shared
+   * card always carries it; it is also drawn under the modules on screen unless `showCaption` is
+   * false (a page that names the network itself).
    */
   caption?: string;
-  /** Draw `caption` on screen too. Defaults to true; the exported PNG always carries it. */
+  /** Draw `caption` on screen too. Defaults to true; the shared card always carries it. */
   showCaption?: boolean;
+  /**
+   * The copy the shared PNG carries besides the code. With it `getImageBlob` returns the designed
+   * share card (see `lib/qr/share-card`); without it, the bare QR.
+   */
+  share?: QRShareCopy;
   /**
    * Fill the parent's width as a square instead of drawing at `size`, so the
    * caller sizes the QR from its layout (e.g. the height left on screen).
@@ -57,20 +70,15 @@ const PALETTE_STOPS: Record<QRPalette, { from: string; to: string; rotation: num
 
 export interface QRCodeHandle {
   /**
-   * Returns the rendered QR (with logo) as a PNG Blob, or null if unavailable. With a
-   * `caption` it is the captioned image (a strip under the modules, so taller than
-   * `size`); if composing that fails it falls back to the plain QR.
+   * Returns the shareable PNG Blob, or null if unavailable. With `share` it is the designed
+   * card — brand, code on its tile, network and address (`lib/qr/share-card`), so taller and
+   * wider than `size`; if composing that fails it falls back to the plain QR.
    */
   getImageBlob: () => Promise<Blob | null>;
 }
 
 /** Fallback accent color when the CSS variable can't be resolved (matches --accent-primary). */
 const ACCENT_FALLBACK = '#e77537';
-
-/** Height of the caption strip added to the exported PNG, as a fraction of the QR size. */
-const CAPTION_STRIP_RATIO = 0.14;
-/** Caption font size in the exported PNG, as a fraction of the QR size. */
-const CAPTION_FONT_RATIO = 0.055;
 
 const readToken = (name: string): string => {
   if (typeof window === 'undefined') return ACCENT_FALLBACK;
@@ -104,57 +112,31 @@ const paletteOptions = (palette: QRPalette): { color: string; gradient?: DotsOpt
 };
 
 /**
- * Paint the caption under the raw QR PNG. Returns null when the realm has no
- * usable canvas (jsdom, some WebViews) so the caller can fall back to the raw
- * image rather than lose the share.
- */
-async function composeCaptionedPng(qrPng: Blob, size: number, caption: string, color: string): Promise<Blob | null> {
-  if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') return null;
-  const canvas = document.createElement('canvas');
-  const strip = Math.round(size * CAPTION_STRIP_RATIO);
-  canvas.width = size;
-  canvas.height = size + strip;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  const bitmap = await createImageBitmap(qrPng);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bitmap, 0, 0, size, size);
-  bitmap.close();
-
-  ctx.fillStyle = color;
-  ctx.font = `700 ${Math.round(size * CAPTION_FONT_RATIO)}px Nunito, Inter, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(caption.toUpperCase(), size / 2, size + strip / 2);
-
-  return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'));
-}
-
-/**
  * QR code display component for Miden addresses.
  * Renders a styled QR (circular dots in the `palette` treatment, Miden logo centered)
  * encoding the address in miden:<address> format via qr-code-styling.
  */
 export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
-  ({ address, size, caption, showCaption, fluid, palette = 'brand' }, ref) => {
+  ({ address, size, caption, showCaption, fluid, palette = 'brand', share }, ref) => {
     const qrValue = encodeAddress(address);
     const containerRef = useRef<HTMLDivElement>(null);
 
     const options = useMemo<Options>(() => {
       const colors = paletteOptions(palette);
+      // Quiet zone around the modules, and the gap around the logo cutout. Both are in the
+      // rendered size's own units, so they scale with it: raising `size` for a crisper export
+      // must not shrink the quiet zone the on-screen code is drawn with.
+      const margin = Math.round(size * QR_MARGIN_RATIO);
       return {
         type: 'svg',
         width: size,
         height: size,
-        // Quiet zone around the modules for reliable scanning.
-        margin: 6,
+        margin,
         data: qrValue,
         image: midenLogoUrl,
         // Higher error correction compensates for the centered logo cutout.
         qrOptions: { errorCorrectionLevel: 'H' },
-        imageOptions: { crossOrigin: 'anonymous', margin: 6, imageSize: 0.35, hideBackgroundDots: true },
+        imageOptions: { crossOrigin: 'anonymous', margin, imageSize: 0.35, hideBackgroundDots: true },
         dotsOptions: { type: 'dots', ...colors },
         cornersSquareOptions: { type: 'extra-rounded', ...colors },
         cornersDotOptions: { type: 'dot', ...colors },
@@ -190,22 +172,27 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
           const data = await qrCode.getRawData('png');
           // In the browser getRawData resolves to a Blob; guard for the node Buffer path.
           if (!(data instanceof Blob)) return null;
-          if (!caption) return data;
+          if (!share) return data;
           try {
-            // The caption is painted in the treatment's own leading colour, so a shared image
-            // matches the QR the sender is looking at.
-            const composed = await composeCaptionedPng(data, size, caption, paletteOptions(palette).color);
-            if (composed) return composed;
-            // The shared image loses its network caption here; leave a trace.
-            console.warn('[QRCode] caption compose unavailable, sharing the raw QR');
+            const card = await composeQrShareCard({
+              qr: data,
+              logoUrl: midenLogoUrl,
+              brand: share.brand,
+              hint: share.hint,
+              network: caption,
+              address
+            });
+            if (card) return card;
+            // The share falls back to the bare code; leave a trace.
+            console.warn('[QRCode] share card unavailable, sharing the raw QR');
             return data;
           } catch (e) {
-            console.warn('[QRCode] caption compose failed, sharing the raw QR:', e);
+            console.warn('[QRCode] share card failed, sharing the raw QR:', e);
             return data;
           }
         }
       }),
-      [caption, palette, qrCode, size]
+      [address, caption, qrCode, share]
     );
 
     return (
