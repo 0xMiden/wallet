@@ -8,7 +8,6 @@
 - [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
 ### Changes
 
-- [CHANGE][mobile] The passcode keypad sits in thumb reach at the bottom of the screen, with larger keys and a Face ID key.
 - [CHANGE][all] Receive fits on one screen with aligned QR, address, notice and actions.
 - [CHANGE][mobile] The passcode keypad sits in thumb reach at the bottom of the screen, with larger keys and a biometric key that shows Face ID or a fingerprint to match the device.
 - [CHANGE][all] Transaction details close with the back button only; the extra X and Close button are gone.

@@ -4764,10 +4764,6 @@
     "message": "Une réinitialisation efface les soldes et l'historique. Les soldes de test ne sont jamais reportés sur le Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "Jetons de test uniquement",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "Vérification de votre retrait. Gardez le portefeuille ouvert jusqu’à la confirmation de la livraison.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

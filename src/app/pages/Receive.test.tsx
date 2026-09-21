@@ -127,8 +127,6 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-// One copy spy for every render, so a test can see the fallback fire.
-
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
 }));
@@ -501,6 +499,7 @@ describe('Receive - Address', () => {
         await clickShare(container);
 
         await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
         expect(warn.mock.calls).toEqual(warns ? dismissed : []);
       } finally {
         warn.mockRestore();
@@ -509,26 +508,22 @@ describe('Receive - Address', () => {
 
     // The fallback used to write to the clipboard unawaited and uncaught, so a rejected write was an
     // unhandled promise rejection. It now goes through the hook the page's copy control uses, which
-    // catches - silently, by design: the address stays on screen to copy by hand.
+    // catches - silently, by design: the address stays on screen to copy by hand. If the write goes
+    // uncaught again, Jest itself fails this test on the unhandled rejection; Node reports one only
+    // after a macrotask, hence the wait. (A process.on('unhandledRejection') listener here would
+    // never fire: each test file gets its own copy of `process`.)
     it('handles a rejected clipboard write in the fallback', async () => {
       mockIsMobile.mockReturnValue(false);
       delete (navigator as { share?: unknown }).share;
       mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
-      const unhandled = jest.fn();
-      process.on('unhandledRejection', unhandled);
-      try {
-        const container = await renderReceive();
-        await clickShare(container);
-        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
-        // Give an unhandled rejection a macrotask to surface.
-        await act(async () => {
-          await new Promise(resolve => setTimeout(resolve, 20));
-        });
+      const container = await renderReceive();
+      await clickShare(container);
 
-        expect(unhandled).not.toHaveBeenCalled();
-      } finally {
-        process.off('unhandledRejection', unhandled);
-      }
+      await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      });
     });
 
     it('copies the address when reading the QR image fails on native', async () => {
@@ -544,6 +539,7 @@ describe('Receive - Address', () => {
         await clickShare(container);
 
         await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
         expect(warn).toHaveBeenCalledWith('[Receive] share dismissed:', expect.any(Error));
       } finally {

@@ -78,6 +78,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // which is a one-shot latch against Strict Mode double-running the mount effect and is never
   // released - reusing it here would make every later attempt a no-op.
   const unlockInFlightRef = useRef(false);
+  // The ref is the synchronous check-and-set; this is what the screen reads. Every path sets it
+  // with the guard and clears it on every exit that does not navigate away, so the keypad, the
+  // auto-submit and the password form all wait for the attempt in flight instead of starting one
+  // the guard would silently refuse.
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const beginUnlock = useCallback(() => {
     if (unlockInFlightRef.current) return false;
     unlockInFlightRef.current = true;
@@ -104,6 +109,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
       setHardwareUnlockAttempted(true);
       beginUnlock();
+      setIsSubmitting(true);
+      let navigated = false;
 
       try {
         if (isDesktop()) {
@@ -116,6 +123,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             await unlock();
             setAttempt(1);
             navigate('/');
+            navigated = true;
             return;
           }
         } else if (isMobile()) {
@@ -138,6 +146,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             await unlock();
             setAttempt(1);
             navigate('/');
+            navigated = true;
             return;
           }
         }
@@ -155,6 +164,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         }
       } finally {
         endUnlock();
+        if (!navigated) setIsSubmitting(false);
       }
 
       setHardwareUnlockChecked(true);
@@ -170,11 +180,35 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isError, setIsError] = useState(false);
-  // Counts rejected passcodes; each new value shakes the dots once.
+  // Counts failed attempts (a rejected passcode, a failed biometric retry); each new value shakes
+  // the dots once.
   const [errorCount, setErrorCount] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
+  // What the live region says while a lockout runs, captured whenever it is re-derived: when the
+  // lockout starts, when this screen mounts, and on each biometric failure or retry during it.
+  // Never on a clock tick (see `announcement`). Synchronous by design: an effect writing this into
+  // state would leave the transition render announcing the previous capture. `afterFailure` records
+  // what the transition was, which is also why reading `biometricError` here is real work rather
+  // than a dependency the body ignores (which `yarn lint` rejects). `t` stays out, so its identity
+  // cannot re-read the clock.
+  const lockout = useMemo(
+    () => (isDisabled ? { leftMs: timelock + lockLevel - Date.now(), afterFailure: biometricError } : null),
+    [isDisabled, biometricError, timelock, lockLevel]
+  );
+
+  // A failure from before or during a lockout is not what the screen means once the lockout ends:
+  // the line would read "incorrect passcode" (or, on the password form, "incorrect password") at the
+  // moment the wallet becomes usable again, and the live region would announce it. Cleared on the
+  // transition, not on the interval's tick: that branch is also true every second when nothing is
+  // locked, and `timelock` outlives its lockout (no success path resets it). No errorCount bump, so
+  // nothing shakes. The mount run is a no-op: both flags start false.
+  useEffect(() => {
+    if (!isDisabled) {
+      setIsError(false);
+      setBiometricError(false);
+    }
+  }, [isDisabled]);
 
   const submitPasscode = useCallback(
     async (passcode: string) => {
@@ -182,9 +216,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       setIsSubmitting(true);
       setIsError(false);
       setBiometricError(false);
-      formAnalytics.trackSubmit();
 
+      // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
+        formAnalytics.trackSubmit();
         if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
         await unlock(passcode);
 
@@ -276,18 +311,27 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const onRetryHardwareUnlock = useCallback(async () => {
     if (!beginUnlock()) return;
+    setIsSubmitting(true);
+    // The latest failure is what the screen shows, whichever path it came from.
+    setIsError(false);
     setBiometricError(false);
+    let navigated = false;
     try {
       await unlock();
       setAttempt(1);
       navigate('/');
+      navigated = true;
     } catch (err) {
       console.log('[Unlock] Hardware unlock retry failed:', err);
       // A cancelled prompt lands here too. Say so on screen: the key is tappable on every unlock
-      // now, and a retry that fails silently reads as a key that does nothing.
+      // now, and a retry that fails silently reads as a key that does nothing. Like a rejected
+      // passcode it clears the code and shakes the dots once.
       setBiometricError(true);
+      setErrorCount(count => count + 1);
+      setCode('');
     } finally {
       endUnlock();
+      if (!navigated) setIsSubmitting(false);
     }
   }, [unlock, setAttempt, beginUnlock, endUnlock]);
 
@@ -332,6 +376,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             title={t('tryAgain')}
             variant={ButtonVariant.Primary}
             onClick={onRetryHardwareUnlock}
+            isLoading={isSubmitting}
+            disabled={isSubmitting}
             className="w-full mb-3"
           />
           <Button
@@ -412,9 +458,17 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   // What a screen reader hears. It changes only when the STATE does, never on a clock tick: the
   // visible countdown below re-renders every second, and inside a live region that re-announced
-  // the remaining time sixty times a minute. The lockout's total length goes here once instead -
-  // the sentence ends where the duration goes, so dropping it would announce "...blocked for".
-  const announcement = isDisabled ? `${t('unlockPasswordErrorDelay')} ${formatDuration(lockLevel)}` : undefined;
+  // the remaining time sixty times a minute. So it carries the time left as captured at the last
+  // transition - the sentence ends where the duration goes, so dropping it would announce
+  // "...blocked for". A failed biometric attempt is announced WITH the lockout, never instead of
+  // it: the countdown is aria-hidden, so a region naming only the failure would leave a screen
+  // reader with no way to learn the wallet is locked or for how long.
+  const announcement =
+    lockout === null
+      ? undefined
+      : lockout.afterFailure
+        ? `${t('biometricFailed')} ${t('unlockPasswordErrorDelay')} ${formatDuration(lockout.leftMs)}`
+        : `${t('unlockPasswordErrorDelay')} ${formatDuration(lockout.leftMs)}`;
   const subtitle = isDisabled
     ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
     : isError
@@ -437,6 +491,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       onDelete={handleDelete}
       onBiometric={hasBiometricKey ? onRetryHardwareUnlock : undefined}
       biometryType={biometryType}
+      // A press that will be dropped must not look accepted. Entry is refused through a lockout and
+      // while any attempt runs; the biometric key only while one runs - it stays usable in a lockout.
+      disabled={isDisabled || isSubmitting}
+      biometricDisabled={isSubmitting}
       action={
         // Centred under the keypad, where the iOS lock screen keeps its secondary action: in reach,
         // but past the last key row, so it is not hit while a code is typed.
