@@ -165,6 +165,7 @@ describe('initiateB2AggBridge', () => {
     const call = mockInitiateBridgedSendTransaction.mock.calls[0]!;
     expect(call[0]).toBe('mlcl1sender');
     expect(call[1]).toBe(250n);
+    expect(call[2]).toBe(`mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`);
     expect(call[5]).toBe('agglayer');
     expect(call[6]).toEqual(new Uint8Array([1, 2, 3]));
     expect(call[7]).toBe(true);
@@ -172,10 +173,10 @@ describe('initiateB2AggBridge', () => {
 
   it('threads the exact spending-limit authorization to atomic row insertion', async () => {
     const spendingLimitAuthorization = {
+      kind: 'usd' as const,
       id: 'authorization-1',
       accountId: 'mlcl1sender',
-      faucetId: `mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`,
-      amount: 250n,
+      usdAmount: 250n,
       revision: 'revision-1',
       issuedAt: 100,
       expiresAt: 220
@@ -190,7 +191,6 @@ describe('initiateB2AggBridge', () => {
       spendingLimitAuthorization
     });
 
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![2]).toBe(spendingLimitAuthorization.faucetId);
     expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(spendingLimitAuthorization);
   });
 

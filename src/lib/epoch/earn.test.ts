@@ -495,10 +495,10 @@ describe('openEarnPosition guards', () => {
 
   it('threads the exact authorization through intent preparation and preserves final rejection', async () => {
     const spendingLimitAuthorization = {
+      kind: 'usd' as const,
       id: 'authorization-1',
       accountId: 'mtst1sender',
-      faucetId: '0x2458e5446128e6b150b75b8ebd9ce1',
-      amount: 1_000_000n,
+      usdAmount: 1_000_000n,
       revision: 'revision-1',
       issuedAt: 100,
       expiresAt: 220

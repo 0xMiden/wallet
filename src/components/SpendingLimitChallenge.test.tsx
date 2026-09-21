@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 
-import { SpendingLimitChallenge } from './SpendingLimitChallenge';
+import { formatUsdMicroAmount, SpendingLimitChallenge } from './SpendingLimitChallenge';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } })
@@ -171,5 +171,24 @@ describe('SpendingLimitChallenge', () => {
     fireEvent.click(screen.getByRole('button', { name: 'dismiss' }));
 
     expect(onResult).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe('formatUsdMicroAmount', () => {
+  it.each([
+    [0n, '$0.00'],
+    [1n, '$0.00'],
+    [10_000n, '$0.01'],
+    [1_000_000n, '$1.00'],
+    [1_500_000n, '$1.50'],
+    [1_234_567n, '$1.23'],
+    [123_456_789n, '$123.45']
+  ])('formats %s as %s', (value, expected) => {
+    expect(formatUsdMicroAmount(value)).toBe(expected);
+  });
+
+  it('throws RangeError for negative values', () => {
+    expect(() => formatUsdMicroAmount(-1n)).toThrow(RangeError);
+    expect(() => formatUsdMicroAmount(-1_000_000n)).toThrow(RangeError);
   });
 });

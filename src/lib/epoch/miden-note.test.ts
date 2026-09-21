@@ -130,10 +130,10 @@ describe('epoch id encoding (ifHextoBech32)', () => {
 
   it('threads exact spending-limit authorizations to both atomic row insertions', async () => {
     const authorization = {
+      kind: 'usd' as const,
       id: 'authorization-1',
       accountId: 'mlcl1sender',
-      faucetId: 'mlcl1faucet',
-      amount: 250n,
+      usdAmount: 250n,
       revision: 'revision-1',
       issuedAt: 100,
       expiresAt: 220

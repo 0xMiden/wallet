@@ -38,10 +38,10 @@ jest.mock('lib/i18n/numbers', () => ({ toAdaptiveFixed: (value: string) => value
 import { bridgeEpochSend } from './epoch-send';
 
 const authorization = {
+  kind: 'usd' as const,
   id: 'authorization-1',
   accountId: 'mtst1sender',
-  faucetId: 'mtst1faucet',
-  amount: 250n,
+  usdAmount: 250n,
   revision: 'revision-1',
   issuedAt: 100,
   expiresAt: 220

@@ -520,10 +520,10 @@ describe('transactions utilities', () => {
 
   describe('spending-limit queue routing', () => {
     const authorization: SpendingLimitAuthorization = {
+      kind: 'usd',
       id: 'authorization-1',
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      amount: 10n,
+      usdAmount: 10n,
       revision: 'revision-1',
       issuedAt: 1,
       expiresAt: 2
