@@ -66,6 +66,12 @@ describe('toPriceMicro', () => {
     expect(toPriceMicro(Number.NaN)).toBeUndefined();
     expect(toPriceMicro(Number.POSITIVE_INFINITY)).toBeUndefined();
   });
+
+  it('rejects a positive price that rounds down to zero micro-dollars', () => {
+    // Passes the `price <= 0` guard (0.0000001 is positive) but scales to 0.1 micro-dollars,
+    // which rounds to 0 - the ternary's other branch, distinct from the guard above.
+    expect(toPriceMicro(0.0000001)).toBeUndefined();
+  });
 });
 
 describe('getPriceMicro', () => {
@@ -141,6 +147,51 @@ describe('getPriceMicro', () => {
 
   it('leaves the fixture symbol unpriced outside an E2E build', async () => {
     await expect(getPriceMicro('TST', 1_000)).resolves.toBeUndefined();
+  });
+
+  it('treats a cache read failure as empty rather than letting it crash the lookup', async () => {
+    mockedRead.mockRejectedValue(new Error('storage offline'));
+    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+
+    await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
+  });
+
+  it('drops a covered symbol whose feed price cannot be converted, rather than caching garbage', async () => {
+    mockedFetch.mockResolvedValue({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } });
+
+    await expect(getPriceMicro('ETH', 1_000)).resolves.toBeUndefined();
+    expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {});
+  });
+
+  it('treats a cache write failure as a slower next read, not a broken refresh', async () => {
+    mockedWrite.mockRejectedValue(new Error('storage full'));
+    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+
+    await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
+  });
+
+  it('rejects a cached entry whose fetchedAt is not a safe integer', async () => {
+    // 999.5 is inside the freshness window and not future-dated relative to now=1_000, so only the
+    // safe-integer guard - not the staleness or future-dated checks - can be why this is discarded.
+    mockedRead.mockResolvedValue({ ETH: { priceMicro: '4000000000', fetchedAt: 999.5 } });
+
+    await expect(getPriceMicro('ETH', 1_000)).resolves.toBeUndefined();
+  });
+
+  it('rejects a cached entry with a negative fetchedAt even inside the freshness window', async () => {
+    // now=-1 keeps the entry inside the 600s window and not future-dated (fetchedAt < now), so only
+    // the explicit `< 0` guard can be why this is discarded.
+    mockedRead.mockResolvedValue({ ETH: { priceMicro: '4000000000', fetchedAt: -2 } });
+
+    await expect(getPriceMicro('ETH', -1)).resolves.toBeUndefined();
+  });
+
+  it('rejects a cached entry whose price decodes to zero, refreshing instead of trusting it', async () => {
+    mockedRead.mockResolvedValue({ ETH: { priceMicro: '0', fetchedAt: 1_000 } });
+    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+
+    await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
   });
 });
 

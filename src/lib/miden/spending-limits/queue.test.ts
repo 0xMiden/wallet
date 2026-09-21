@@ -299,6 +299,44 @@ describe('queueOutgoingTransaction', () => {
     await expect(transactions.get('tx-1')).resolves.toBeUndefined();
   });
 
+  it('lets an unrelated valuation failure propagate unchanged, rather than mapping it to price-unavailable', async () => {
+    // Only `SpendingLimitPriceUnavailableError` is a recoverable "no price right now" refusal; any
+    // other failure resolving the spend is a genuine bug or storage fault and must surface as
+    // itself, not be silently absorbed into the price-unavailable retry story.
+    const valuationBug = new TypeError('faucet metadata missing decimals');
+    mockedResolve.mockRejectedValue(valuationBug);
+    await saveConfig({ limit: '50000000', revision: 'rev-1' });
+
+    await expect(queueOutgoingTransaction(sendRow(), [{ faucetId: 'eth', amount: 1n }], undefined, NOW)).rejects.toBe(
+      valuationBug
+    );
+    await expect(transactions.get('tx-1')).resolves.toBeUndefined();
+  });
+
+  it('falls through to the no-limit path when the policy is removed between the probe and the lock', async () => {
+    // The account had a cap when `queueOutgoingTransaction` made its first (unlocked) policy read,
+    // so the pre-check at the top of the function does not take the fast "no limit" path. By the
+    // time the write-locked transaction re-reads it, the cap is gone - the same race the top-level
+    // probe already guards against, one level deeper.
+    await saveConfig();
+    mockedResolve.mockResolvedValue(30_000_000n);
+    const originalGet = spendingLimits.get.bind(spendingLimits);
+    const read = jest.spyOn(spendingLimits, 'get').mockImplementationOnce(originalGet).mockResolvedValueOnce(undefined);
+
+    try {
+      await queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), undefined, NOW);
+
+      const inserted = await transactions.get('tx-1');
+      expect(inserted).toBeDefined();
+      // Not stamped or assessed at all: the row takes the same shape as any other no-limit insert,
+      // proving the assessed/breach path never ran even though a price WAS already resolved above.
+      expect(inserted).not.toHaveProperty('spentUsd');
+      expect(inserted).not.toHaveProperty('spendingLimitAuthorizationId');
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it('accepts an unpriced-kind authorization bound to exactly these spends', async () => {
     mockedResolve.mockRejectedValue(new SpendingLimitPriceUnavailableError('ETH'));
     await saveConfig({ limit: '50000000', revision: 'rev-1' });
