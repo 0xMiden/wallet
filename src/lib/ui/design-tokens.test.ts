@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
+import { escapeForRegExp, RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
 
 const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
 const config = fs.readFileSync(path.join(__dirname, '../../../tailwind.config.ts'), 'utf8');
@@ -87,7 +87,13 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
 });
 
 it('maps every token to a Tailwind color', () => {
-  for (const name of TOKENS) expect(config).toMatch(new RegExp(`'?${name}'?: 'var\\(--ds-${name}\\)'`));
+  for (const name of TOKENS) {
+    // Escaped through the shared helper like every other regex built from a token name: a future
+    // dotted name would otherwise make `.` match any character and this would PASS against a typo'd
+    // config key, which is the silent direction.
+    const escaped = escapeForRegExp(name);
+    expect(config).toMatch(new RegExp(`'?${escaped}'?: 'var\\(--ds-${escaped}\\)'`));
+  }
 });
 
 describe.each([':root', '.dark'] as const)('legacy muted text in %s', selector => {

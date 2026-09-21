@@ -70,7 +70,7 @@ function buildPattern(retired: Record<string, string>): RegExp {
     // Escape every metacharacter, not just the hyphen (which needs none outside a class). A
     // future key like `grey.400` would otherwise make `.` match anything, and one containing
     // `(` would add a second group and shift hit[1] - the failure the capture exists to avoid.
-    .map(n => n.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&'))
+    .map(escapeForRegExp)
     .join('|');
   return new RegExp(`(?<![\\w-])${prefix}-(${names})(?![\\w-])`, 'g');
 }
@@ -131,6 +131,32 @@ describe('retired colour tokens', () => {
   it('every retired name really is absent from tailwind.config.ts', () => {
     const config = fs.readFileSync(path.join(ROOT, 'tailwind.config.ts'), 'utf8');
     expect(stillDeclared(RETIRED, config)).toEqual([]);
+  });
+
+  // A metacharacter case proves escaping HAPPENS; it cannot prove buildPattern calls the shared
+  // helper rather than keeping a byte-identical copy, because both compute the same string. Only a
+  // spy can see the wiring, which is the defect this fix is actually named after.
+  it('builds its pattern through the one shared escape helper, not a copy of it', () => {
+    // A spy cannot see this: a direct named import is not interceptable through the module
+    // namespace. And a metacharacter case cannot see it either, because a byte-identical inline
+    // copy computes the same string - which is exactly how the duplicate survived. Reading the
+    // source is the only thing that distinguishes "calls the helper" from "re-implements it".
+    const source = buildPattern.toString();
+    expect(source).toContain('escapeForRegExp');
+    expect(source).not.toMatch(/replace\(\/\[\.\*/);
+  });
+
+  it('escapes a metacharacter in a retired name when building the scan pattern', () => {
+    // Separate from the wiring check above: this is the mutation guard for the escaping itself.
+    // Unescaped, `(a(b))` demands a literal `ab` and the match fails entirely.
+    expect(buildPattern({ 'a(b)': 'x' }).exec('bg-a(b)')?.[1]).toBe('a(b)');
+    // And the direction that matters more: an unescaped `.` would match a LIVE class and report an
+    // innocent file as an offence, which is what makes an over-broad pattern worse than useless.
+    const dotted = buildPattern({ 'grey.400': 'x' });
+    dotted.lastIndex = 0;
+    expect(dotted.test('bg-greyX400')).toBe(false);
+    dotted.lastIndex = 0;
+    expect(dotted.test('bg-grey.400')).toBe(true);
   });
 
   // The two shared maps must describe the same set of tokens, or a retired token gets a
