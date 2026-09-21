@@ -43,7 +43,16 @@ jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 jest.mock('lib/animation', () => ({
   springs: { standard: {} },
   durations: { extraSlow: 0 },
-  useMotion: () => ({ duration: 0 })
+  useMotion: () => ({ duration: 0 }),
+  // The pending card takes its disclosure motion from the `reveal` preset, and falls back to the
+  // instant transition whenever the open or close did not come from a tap.
+  usePreset: () => ({
+    initial: { height: 0, opacity: 0 },
+    animate: { height: 'auto', opacity: 1 },
+    exit: { height: 0, opacity: 0 },
+    transition: { duration: 0 }
+  }),
+  reducedMotionTransition: { duration: 0.001 }
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: mockPathname }) }));

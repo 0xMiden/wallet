@@ -4,16 +4,50 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 
-import { PendingActivityCard, type PendingActivityItem, type PendingActivityStatus } from './PendingActivityCard';
+import {
+  CLOSED_DISCLOSURE,
+  disclosureAnimates,
+  PendingActivityCard,
+  toggleDisclosure,
+  type PendingActivityItem,
+  type PendingActivityStatus
+} from './PendingActivityCard';
 
 const mockNavigate = jest.fn();
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+// The presets, with the transition of each tagged so the card's CHOICE of transition is readable.
+// `reducedMotionTransition` keeps its real shape: it is what the card falls back to, and the tests
+// below tell the two apart by name, not by duration.
+const MOCK_REVEAL_TRANSITION = { type: 'spring', preset: 'reveal' };
 jest.mock('lib/animation', () => ({
   springs: { standard: {}, settle: {} },
   useMotion: () => ({ duration: 0 }),
-  usePreset: () => ({ transition: { duration: 0 } })
+  usePreset: (name: string) => ({
+    initial: { height: 0, opacity: 0 },
+    animate: { height: 'auto', opacity: 1 },
+    exit: { height: 0, opacity: 0 },
+    transition: name === 'reveal' ? MOCK_REVEAL_TRANSITION : { duration: 0 }
+  }),
+  reducedMotionTransition: { duration: 0.001 }
 }));
+// framer-motion, real, with `motion.div` wrapped so the disclosure's props can be read. A
+// transition is handed to Framer, never written to the DOM, and WHICH transition the card picked
+// is the whole subject of these tests. The disclosure is the only `motion.div` here carrying an
+// `id` (it is the target of the toggle's `aria-controls`).
+const mockDisclosure: { props: Record<string, unknown> | null } = { props: null };
+jest.mock('framer-motion', () => {
+  const actual = jest.requireActual<typeof import('framer-motion')>('framer-motion');
+  const react: typeof import('react') = require('react');
+  const Div = react.forwardRef<HTMLDivElement, Record<string, unknown>>(function MockMotionDiv(props, ref) {
+    if (props.id !== undefined) mockDisclosure.props = props;
+    return react.createElement(actual.motion.div, { ...props, ref });
+  });
+  const motion = new Proxy(actual.motion, {
+    get: (target, key) => (key === 'div' ? Div : Reflect.get(target, key))
+  });
+  return { ...actual, motion };
+});
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: (path: string) => mockNavigate(path) }));
 jest.mock('app/icons/v2', () => ({
@@ -38,7 +72,39 @@ const renderCard = (status: PendingActivityStatus, over: Partial<PendingActivity
 };
 
 describe('PendingActivityCard', () => {
+  // Resolving a `height: auto` keyframe makes Framer measure the element, which calls
+  // `window.scrollTo` — unimplemented in jsdom, and noisy rather than fatal. Stub it away.
+  beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));
   beforeEach(() => jest.clearAllMocks());
+
+  // The rule the disclosure's motion turns on, tested as a rule. It cannot be reached through the
+  // rendered card from both sides: `expanded` starts false and only the toggle ever changes it, so
+  // there is no way to render a card whose section is open without a tap — which is precisely the
+  // property being claimed. Asserting it here states it once, in the terms the component uses.
+  describe('what earns the disclosure its motion', () => {
+    it('is a tap, and nothing else', () => {
+      // The value a fresh mount starts on — a card the Activity filter has just rebuilt included.
+      expect(CLOSED_DISCLOSURE).toEqual({ open: false, byTap: false });
+      expect(disclosureAnimates(CLOSED_DISCLOSURE, false)).toBe(false);
+
+      const opened = toggleDisclosure(CLOSED_DISCLOSURE);
+      expect(opened).toEqual({ open: true, byTap: true });
+      expect(disclosureAnimates(opened, false)).toBe(true);
+
+      // Closing is a tap too: the fold away animates like the unfold.
+      const closed = toggleDisclosure(opened);
+      expect(closed).toEqual({ open: false, byTap: true });
+      expect(disclosureAnimates(closed, false)).toBe(true);
+
+      // An open section reached any other way — a remount, a future programmatic expand — is not
+      // a tap, so it draws instantly.
+      expect(disclosureAnimates({ open: true, byTap: false }, false)).toBe(false);
+    });
+
+    it('is withdrawn again while a claim is in flight', () => {
+      expect(disclosureAnimates(toggleDisclosure(CLOSED_DISCLOSURE), true)).toBe(false);
+    });
+  });
 
   it('keeps the row a named control whatever its status', () => {
     for (const status of ['pending', 'claimed'] as const) {
@@ -61,50 +127,73 @@ describe('PendingActivityCard', () => {
       expect(screen.getByText('activityNotYetAccepted')).toBeInTheDocument();
     });
 
-    it('draws the detail section at once, with no transition wrapper around it', () => {
-      // The section used to be an `AnimatePresence` child tweening height 0 → auto and back, which
-      // fought the list's own layout springs around it. It now simply renders: the rows are in the
-      // document on the same tick as the click, and the collapse removes them on the same tick too
-      // — an exit animation would keep the node mounted past the second click.
+    it('unfolds and folds the section on the reveal preset when the toggle is pressed', () => {
+      // Brian's ask: tapping the chevron animates, both ways. The motion is the design system's
+      // `reveal` — height 0 ↔ auto plus opacity — taken from `usePreset`, so no duration is written
+      // at the call site and reduced motion is already handled. `exit` is asserted alongside
+      // `initial`/`animate`: the fold away is half of what was asked for, and it is configured at
+      // the same moment as the unfold rather than on the click that closes it.
       renderCard('pending');
       const toggle = screen.getByRole('button', { expanded: false });
-      const detailsId = toggle.getAttribute('aria-controls') ?? '';
 
       fireEvent.click(toggle);
 
-      const details = document.getElementById(detailsId);
+      const details = document.getElementById(toggle.getAttribute('aria-controls') ?? '');
       expect(details).not.toBeNull();
       expect(details).toContainElement(screen.getByText('amount'));
-      expect(details).toContainElement(screen.getByText('activityNotYetAccepted'));
-      // A height or opacity tween writes those onto the element as inline style; a clip wrapper
-      // carries `overflow-hidden`. Neither is here: the section is a plain box in the card.
-      expect(details).not.toHaveAttribute('style');
-      expect(details?.className ?? '').not.toContain('overflow-hidden');
-      expect(details?.parentElement).toBe(screen.getByRole('article'));
+      expect(details?.className ?? '').toContain('overflow-hidden');
+      expect(mockDisclosure.props?.transition).toEqual(MOCK_REVEAL_TRANSITION);
+      expect(mockDisclosure.props?.initial).toEqual({ height: 0, opacity: 0 });
+      expect(mockDisclosure.props?.animate).toEqual({ height: 'auto', opacity: 1 });
+      expect(mockDisclosure.props?.exit).toEqual({ height: 0, opacity: 0 });
 
+      // Closing keeps the spring: a fold away is a tap too.
       fireEvent.click(toggle);
-      expect(document.getElementById(detailsId)).toBeNull();
+      expect(screen.getByRole('button', { expanded: false })).toBe(toggle);
+      expect(mockDisclosure.props?.transition).toEqual(MOCK_REVEAL_TRANSITION);
     });
 
-    it('draws no entry animation on a card rebuilt by a filter change', () => {
-      // Switching the Activity filter renders a different list, so a card can come back as a FRESH
-      // mount. Nothing may be in flight when it does: the disclosure is closed and drawn instantly,
-      // and the chevron sits at its resting transform because `initial={false}` mounts it at its
-      // `animate` value instead of tweening to it.
+    it('does not animate a card the list rebuilt, only one the user pressed', () => {
+      // Switching the Activity filter renders a different list, so a card comes back as a FRESH
+      // mount — the case `AnimatePresence initial={false}` could not cover, because it suppresses
+      // the entry animation only for children present when it first mounts. The gate is per-mount
+      // state instead: a rebuilt card gets `{ open: false, byTap: false }`, so it draws no section
+      // at all and cannot inherit the tap that opened the card it replaced.
       const first = renderCard('pending');
       fireEvent.click(screen.getByRole('button', { expanded: false }));
-      expect(screen.getByText('activityNotYetAccepted')).toBeInTheDocument();
+      expect(mockDisclosure.props?.transition).toEqual(MOCK_REVEAL_TRANSITION);
       first.unmount();
 
+      mockDisclosure.props = null;
       const { container } = renderCard('pending');
 
       expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
       expect(screen.queryByText('activityNotYetAccepted')).toBeNull();
+      // Nothing for an entry animation to act on, and nothing mid-flight: no disclosure was
+      // rendered, and the chevron mounts at its resting transform rather than tweening to it.
+      expect(mockDisclosure.props).toBeNull();
       const chevron = screen.getByTestId('icon-chevron-down').parentElement;
       expect(chevron).toHaveStyle({ transform: 'none' });
       for (const styled of Array.from(container.querySelectorAll('[style]'))) {
         expect(styled.getAttribute('style')).not.toMatch(/height|opacity/);
       }
+    });
+
+    it('drops the motion while a claim is in flight, mid-tween if need be', () => {
+      // "Just not when loading". A claim re-renders the card as its status walks checking →
+      // claiming, and the transition is re-read on every one of those renders rather than latched
+      // when the animation started — so an open section that was unfolding when the claim landed
+      // finishes instantly instead of riding the spring out under a changing card.
+      const item: PendingActivityItem = { note, status: 'pending' };
+      const { rerender } = render(<PendingActivityCard item={item} onAccept={jest.fn()} onReject={jest.fn()} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      expect(mockDisclosure.props?.transition).toEqual(MOCK_REVEAL_TRANSITION);
+
+      rerender(<PendingActivityCard item={{ note, status: 'claiming' }} onAccept={jest.fn()} onReject={jest.fn()} />);
+
+      expect(mockDisclosure.props?.transition).toEqual({ duration: 0.001 });
+      // The section itself is untouched — only how it moves changes.
+      expect(screen.getByText('amount')).toBeInTheDocument();
     });
 
     it('draws Decline and Accept as the app own pill buttons, with nothing overridden', () => {
