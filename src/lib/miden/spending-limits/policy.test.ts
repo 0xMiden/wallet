@@ -123,6 +123,21 @@ describe('assessSpendingLimit', () => {
     expect(assessment.breach).toBeUndefined();
   });
 
+  it.each<ITransactionType>(['send', 'swap', 'bridged-send', 'earn-deposit', 'execute'])(
+    'counts %s as outgoing spend',
+    type => {
+      const rows = [row({ type, initiatedAt: NOW - 20, spentUsd: 90_000_000n })];
+
+      const assessment = assessSpendingLimit(config(100_000_000n), rows, {
+        accountId: ACCOUNT,
+        usdAmount: 20_000_000n,
+        now: NOW
+      });
+
+      expect(assessment.breach).toMatchObject({ spent: 90_000_000n, proposedTotal: 110_000_000n });
+    }
+  );
+
   it.each<ITransactionType>(['consume', 'earn-withdraw', 'switch-guardian'])(
     'excludes incoming and structural type %s',
     type => {

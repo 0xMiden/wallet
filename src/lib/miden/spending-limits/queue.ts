@@ -129,11 +129,18 @@ export const queueOutgoingTransaction = async (
   authorization?: SpendingLimitAuthorization,
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<void> => {
-  // An account with no cap must pay for neither a price lookup nor a window scan. This read is a
-  // fast path only; the authoritative one happens inside the write transaction below.
+  // An account with no cap must pay for neither a price lookup nor a window scan - but the insert
+  // itself still has to happen inside a write lock, or a saveSpendingLimit committing between this
+  // probe and the add admits a row that is never assessed and never stamped with spentUsd.
   if ((await readPolicy(transaction.accountId)) === undefined) {
-    await Repo.transactions.add(transaction);
-    return;
+    const inserted = await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
+      if ((await readPolicy(transaction.accountId)) !== undefined) return false;
+      await Repo.transactions.add(transaction);
+      return true;
+    });
+    if (inserted) return;
+    // A cap was created between the probe and the lock. Fall through to the full path, which
+    // resolves the price outside the lock and assesses under it.
   }
 
   // Outside the lock on purpose: resolution can reach the network, and a Dexie write transaction

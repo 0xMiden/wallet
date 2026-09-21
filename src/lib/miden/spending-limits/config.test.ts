@@ -10,7 +10,7 @@ import {
   saveSpendingLimit
 } from './config';
 import { queueOutgoingTransaction, spendsOf } from './queue';
-import { SpendingLimitConfiguration } from './types';
+import { SpendingLimitAuthorizationRequiredError, SpendingLimitConfiguration } from './types';
 import { resolveSpendsUsd } from './valuation';
 
 jest.mock('./valuation', () => ({ resolveSpendsUsd: jest.fn() }));
@@ -221,6 +221,36 @@ describe('spending-limit configuration', () => {
     await queueOutgoingTransaction(transaction, spendsOf(transaction), undefined, NOW);
 
     await expect(transactions.get('candidate')).resolves.toMatchObject({ spentUsd: 80n });
+  });
+
+  it('assesses a row under a cap created between the fast-path probe and the write lock', async () => {
+    // The record already exists - representing a concurrent saveSpendingLimit that committed
+    // between the fast-path probe and the write lock queueOutgoingTransaction takes to recheck it.
+    // The FIRST `spendingLimits.get` call is faked to answer undefined so the probe still sees "no
+    // cap", exactly as it would have if it had run a moment earlier; every later call sees the real
+    // row, because it never stopped being there.
+    await spendingLimits.put({
+      accountId: ACCOUNT,
+      limit: '50',
+      revision: 'revision-1',
+      createdAt: NOW,
+      updatedAt: NOW
+    });
+    const read = jest.spyOn(spendingLimits, 'get').mockResolvedValueOnce(undefined);
+    const transaction = new SendTransaction(ACCOUNT, 60n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
+    transaction.id = 'candidate';
+    transaction.initiatedAt = NOW;
+
+    try {
+      // 60 breaches the 50 cap and no authorization was supplied, so a row that is genuinely
+      // assessed must be refused - never admitted bare because the fast path won the race.
+      await expect(queueOutgoingTransaction(transaction, spendsOf(transaction), undefined, NOW)).rejects.toBeInstanceOf(
+        SpendingLimitAuthorizationRequiredError
+      );
+    } finally {
+      read.mockRestore();
+    }
+    await expect(transactions.get('candidate')).resolves.toBeUndefined();
   });
 });
 
