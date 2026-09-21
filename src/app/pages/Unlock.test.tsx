@@ -511,7 +511,8 @@ describe('Unlock — mobile passcode numpad', () => {
     mockLsStore = { PasswordAttempts: 30, TimeLock: BASE };
     const { container } = await renderUnlock();
 
-    // Announced once, with the lockout's full length; shown separately as a ticking countdown.
+    // Announced once, with the time left (all of it, as the lockout starts here); shown separately as
+    // a ticking countdown.
     const status = screen.getByRole('status');
     const visible = screen.getByTestId('passcode-message');
     expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
@@ -530,6 +531,19 @@ describe('Unlock — mobile passcode numpad', () => {
     // re-announced once a second for the whole lockout.
     expect(visible).not.toHaveTextContent('10:00');
     expect(status).toHaveTextContent('unlockPasswordErrorDelay 10:00');
+  });
+
+  it('announces the time LEFT on a screen opened mid-lockout, and still never ticks', async () => {
+    // A 10-minute lockout that started 9 minutes ago: one minute left, not ten.
+    mockLsStore = { PasswordAttempts: 30, TimeLock: BASE - 9 * 60_000 };
+    await renderUnlock();
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 01:00');
+
+    await advance(1100);
+    expect(screen.getByTestId('passcode-message')).not.toHaveTextContent('01:00');
+    expect(status).toHaveTextContent('unlockPasswordErrorDelay 01:00');
   });
 
   it('draws the shared passcode screen with the keypad docked at the bottom', async () => {

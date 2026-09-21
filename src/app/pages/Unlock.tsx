@@ -175,6 +175,13 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
+  // The time left when the lockout started or this screen mounted: captured, never ticking (see
+  // `announcement`). Only the number is memoised - `t` stays out, so its identity cannot re-read
+  // the clock.
+  const lockoutLeftMs = useMemo(
+    () => (isDisabled ? timelock + lockLevel - Date.now() : 0),
+    [isDisabled, timelock, lockLevel]
+  );
 
   const submitPasscode = useCallback(
     async (passcode: string) => {
@@ -412,9 +419,15 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   // What a screen reader hears. It changes only when the STATE does, never on a clock tick: the
   // visible countdown below re-renders every second, and inside a live region that re-announced
-  // the remaining time sixty times a minute. The lockout's total length goes here once instead -
-  // the sentence ends where the duration goes, so dropping it would announce "...blocked for".
-  const announcement = isDisabled ? `${t('unlockPasswordErrorDelay')} ${formatDuration(lockLevel)}` : undefined;
+  // the remaining time sixty times a minute. So it carries the time left as captured when the
+  // lockout started or the screen mounted - the sentence ends where the duration goes, so dropping
+  // it would announce "...blocked for" - or, after a failed biometric attempt during the lockout,
+  // that failure: the live region shows `announcement ?? message`, so it must branch here.
+  const announcement = !isDisabled
+    ? undefined
+    : biometricError
+      ? t('biometricFailed')
+      : `${t('unlockPasswordErrorDelay')} ${formatDuration(lockoutLeftMs)}`;
   const subtitle = isDisabled
     ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
     : isError
