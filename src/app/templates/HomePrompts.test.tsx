@@ -34,7 +34,10 @@ let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { amount?: string }) => (values?.amount === undefined ? key : `${key}:${values.amount}`)
+    t: (key: string, values?: { amount?: string; count?: number }) => {
+      const value = values?.amount ?? values?.count;
+      return value === undefined ? key : `${key}:${value}`;
+    }
   })
 }));
 
@@ -183,6 +186,11 @@ const makePromptState = ({ storage, ...overrides }: { storage?: object } & Recor
 describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The hidden (declined) set is module-scoped state, so a test that declines something must
+    // not leave it declined for the next one.
+    mockHiddenNotes.ids = new Set<string>();
+    mockHiddenNotes.loaded = true;
+    mockHiddenNotes.failed = false;
     mockFaucet.mockResolvedValue(undefined);
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
