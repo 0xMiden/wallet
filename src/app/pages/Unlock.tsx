@@ -33,13 +33,12 @@ const LAST_ATTEMPT = 3;
 
 const checkTime = (i: number) => (i < 10 ? '0' + i : i);
 
-const getTimeLeft = (start: number, end: number) => {
-  const isPositiveTime = start + end - Date.now() < 0 ? 0 : start + end - Date.now();
-  const diff = isPositiveTime / 1000;
-  const seconds = Math.floor(diff % 60);
-  const minutes = Math.floor(diff / 60);
-  return `${checkTime(minutes)}:${checkTime(seconds)}`;
+const formatDuration = (ms: number) => {
+  const diff = Math.max(ms, 0) / 1000;
+  return `${checkTime(Math.floor(diff / 60))}:${checkTime(Math.floor(diff % 60))}`;
 };
+
+const getTimeLeft = (start: number, end: number) => formatDuration(start + end - Date.now());
 
 interface UnlockProps {
   openForgotPasswordInFullPage?: boolean;
@@ -411,6 +410,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     );
   }
 
+  // What a screen reader hears. It changes only when the STATE does, never on a clock tick: the
+  // visible countdown below re-renders every second, and inside a live region that re-announced
+  // the remaining time sixty times a minute. The lockout's total length goes here once instead -
+  // the sentence ends where the duration goes, so dropping it would announce "...blocked for".
+  const announcement = isDisabled ? `${t('unlockPasswordErrorDelay')} ${formatDuration(lockLevel)}` : undefined;
   const subtitle = isDisabled
     ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
     : isError
@@ -424,6 +428,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       data-testid="unlock-passcode"
       title={t('enterYourPasscode')}
       message={subtitle}
+      announcement={announcement}
       isError={isDisabled || isError || biometricError}
       filled={code.length}
       length={PASSCODE_LENGTH}
