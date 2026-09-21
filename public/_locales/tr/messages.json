@@ -5260,6 +5260,10 @@
     "message": "Şu adrese al",
     "englishSource": "Receive at"
   },
+  "earnTitle": {
+    "message": "Kazançlarınız",
+    "englishSource": "Your Earnings"
+  },
   "durationUnitSeconds": {
     "message": "Sn.",
     "englishSource": "Sec"

@@ -5260,6 +5260,10 @@
     "message": "받는 주소",
     "englishSource": "Receive at"
   },
+  "earnTitle": {
+    "message": "내 수익",
+    "englishSource": "Your Earnings"
+  },
   "durationUnitSeconds": {
     "message": "초",
     "englishSource": "Sec"
