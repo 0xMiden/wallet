@@ -8,8 +8,6 @@
 
 **Tech Stack:** TypeScript, React, Dexie (IndexedDB), Zustand, Jest + React Testing Library, Playwright.
 
-**Spec:** `docs/superpowers/specs/2026-09-21-usd-spending-limits-design.md`
-
 ## Global Constraints
 
 - All user-facing text goes through `t('key')` or `<T id="key" />`; new keys land in `public/_locales/en/en.json` (flat). `yarn lint:i18n` blocks literals.
@@ -582,7 +580,7 @@ Expected: PASS, 13 tests.
 
 - [ ] **Step 6: Pin that the one-dollar default is not on this path**
 
-The spec calls for this assertion directly, because the defect it prevents is silent: `getTokenPrice`
+Assert this directly, because the defect it prevents is silent: `getTokenPrice`
 returns `DEFAULT_PRICE` of one dollar for any symbol it does not know, so a valuation routed through
 it would charge arbitrary assets at a dollar a unit and nothing would look wrong. Add to
 `valuation.test.ts`:
@@ -1056,7 +1054,7 @@ const authorizationMatches = async (
 };
 ```
 
-`queueOutgoingTransaction` gets the ordering the spec requires - policy first, then valuation outside the lock, then assess and insert inside it:
+`queueOutgoingTransaction` gets this ordering - policy first, then valuation outside the lock, then assess and insert inside it:
 
 ```typescript
 export const queueOutgoingTransaction = async (
