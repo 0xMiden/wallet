@@ -63,6 +63,10 @@ const FIELDS: FieldSpec[] = [
   { key: 'guardianUrl', labelKey: 'devEndpointGuardian', health: 'reachability' }
 ];
 
+/** Just the URL fields of an override, which are the only ones "custom" is about. */
+const pickUrls = (o: EndpointOverride): Partial<Record<UrlFieldKey, string>> =>
+  Object.fromEntries(FIELDS.map(field => [field.key, o[field.key]]));
+
 interface HealthNoteProps {
   url: string;
   kind: EndpointHealthKind;
@@ -150,9 +154,17 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       setForm(presetToOverride(network));
       return;
     }
-    // Back to Custom: the typed endpoints over whatever the other controls have set since, so the
-    // network id and the no-guardian choice survive the round trip.
-    setForm(prev => ({ ...prev, ...(customUrlsRef.current ?? {}), presetName: CUSTOM_PRESET }));
+    // Back to Custom: the endpoints the user authored, over whatever the other controls have set
+    // since, so the network id and the no-guardian choice survive the round trip. Authored covers
+    // both sources, in precedence order - the ones this screen OPENED on, when it opened on a saved
+    // custom override, under the ones typed since. Without the first, a screen opened on saved
+    // endpoints remembered nothing and one hop to a preset replaced them.
+    setForm(prev => ({
+      ...prev,
+      ...(initial.presetName === CUSTOM_PRESET ? pickUrls(initial) : null),
+      ...customUrlsRef.current,
+      presetName: CUSTOM_PRESET
+    }));
   };
 
   const setField = (key: UrlFieldKey, value: string) => {

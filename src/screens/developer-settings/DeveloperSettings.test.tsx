@@ -66,10 +66,14 @@ const confirm = jest.fn();
 
 const applyEndpointOverride = jest.fn().mockResolvedValue(undefined);
 const clearEndpointOverride = jest.fn().mockResolvedValue(undefined);
+// The override the screen OPENS on. Null is the fresh-install case the rest of the suite wants;
+// opening on a SAVED custom override is a real entry path, and the one the mount-time half of the
+// restore is about, so it has to be settable.
+let activeOverride: unknown = null;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const { MIDEN_NETWORK_NAME } = jest.requireActual('lib/miden-chain/constants');
   return {
-    getActiveOverride: () => null,
+    getActiveOverride: () => activeOverride,
     applyEndpointOverride: (o: unknown) => applyEndpointOverride(o),
     clearEndpointOverride: () => clearEndpointOverride(),
     getEffectiveNetworkName: () => MIDEN_NETWORK_NAME.TESTNET,
@@ -169,12 +173,26 @@ jest.mock('components/Button', () => ({
 
 beforeEach(() => {
   mockHistoryPosition = 1;
+  activeOverride = null;
   jest.clearAllMocks();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
+});
+
+/** A stored override: testnet's defaults with one endpoint the user authored. */
+const saved = (rpcUrl: string) => ({
+  rpcUrl,
+  proverUrl: 'https://prover.testnet',
+  noteTransportUrl: 'https://ntl.testnet',
+  faucetUrl: 'https://faucet.testnet',
+  faucetApiUrl: 'https://faucet-api.testnet',
+  explorerUrl: 'https://scan.testnet',
+  guardianUrl: 'https://guardian.testnet',
+  allowNoGuardian: false,
+  networkName: 'testnet'
 });
 
 describe('DeveloperSettings', () => {
@@ -324,6 +342,45 @@ describe('DeveloperSettings', () => {
     // Likewise: the toggle reads what the last preset set, not the `true` a whole-form capture
     // would have restored alongside the URLs.
     expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+  });
+
+  // The screen is most often opened ON a saved custom override, and those endpoints are remembered
+  // exactly like ones typed here: the restore reads them from the form it opened with.
+  it('gives back endpoints saved in an earlier session, after a hop through a preset', () => {
+    activeOverride = { ...saved('https://saved.example'), presetName: 'custom' };
+    render(<DeveloperSettings />);
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://saved.example');
+  });
+
+  // The other side of the same rule, and what pins the guard: a screen opened on a PRESET has
+  // nothing authored to remember, so Custom must show the form as it stands - the LAST preset's
+  // URLs, not the one it opened on.
+  it('remembers nothing when it opened on a preset, so Custom keeps the last preset chosen', () => {
+    render(<DeveloperSettings />);
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.devnet');
+  });
+
+  // Reset to defaults shows the defaults; tapping Custom afterwards is an explicit request for the
+  // user's own endpoints, so they come back. Reset is not a discard.
+  it('brings saved endpoints back after Reset to defaults, when Custom is chosen again', () => {
+    activeOverride = { ...saved('https://saved.example'), presetName: 'custom' };
+    render(<DeveloperSettings />);
+
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset-defaults'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.testnet');
+
+    fireEvent.click(within(screen.getByTestId('dev-endpoint-preset')).getByTestId('dev-endpoint-preset-custom'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://saved.example');
   });
 
   it('editing a field value flips the preset picker to custom', () => {
