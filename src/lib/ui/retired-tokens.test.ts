@@ -78,15 +78,22 @@ function buildPattern(retired: Record<string, string>): RegExp {
   const prefix = `(?:${COLOUR_PREFIXES.join('|')}|border(?:-[trblxyse])?|ring(?:-offset)?)`;
   const names = Object.keys(retired)
     .sort((a, b) => b.length - a.length)
-    .map(n => n.replace(/-/g, '\\-'))
+    // Escape every metacharacter, not just the hyphen (which needs none outside a class). A
+    // future key like `grey.400` would otherwise make `.` match anything, and one containing
+    // `(` would add a second group and shift hit[1] - the failure the capture exists to avoid.
+    .map(n => n.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&'))
     .join('|');
   return new RegExp(`(?<![\\w-])${prefix}-(${names})(?![\\w-])`, 'g');
 }
 
 /**
- * The realms Tailwind actually compiles classes from, per the `@source` declarations in
- * `src/main.css`. Scanning only the src tree with a tsx-only filter left the public html files
- * unscanned, and `public/confirm.html` carries a live colour utility on its body tag.
+ * The realms Tailwind compiles classes from. TWO declarations describe them and they differ:
+ * `content` in `tailwind.config.ts`, which reaches a v4 build through the `@config` line in
+ * `src/main.css`, and the narrower `@source` lines just below it (public is html-only there).
+ * This scan is deliberately a SUPERSET of their union, so narrowing either one cannot open a hole -
+ * and the assertions below pin the surface, rather than trusting this comment to stay true.
+ * Scanning only the src tree with a tsx-only filter left the public html files unscanned, and
+ * `public/confirm.html` carries a live colour utility on its body tag.
  * Deliberately NOT scanning css: there is no `@apply` anywhere under src, so it would add no
  * coverage, and a css file is where the false-positive declarations live.
  */
@@ -149,6 +156,54 @@ describe('retired colour tokens', () => {
       expect(RETIRED[hit?.[1] ?? '']).toBeDefined();
     });
 
+    // The prefix list is HAND-WRITTEN here and compared to the shipped constant, which is the half
+    // that deriving the cases cannot supply: `it.each(COLOUR_PREFIXES)` runs one case per entry, so
+    // deleting an entry deletes its own case and the suite shrinks from 48 to 47 and stays green.
+    // Mutation-checked: without this assertion, removing `divide` or `decoration` passes.
+    it('carries exactly the colour prefixes this guard claims to cover', () => {
+      expect([...COLOUR_PREFIXES].sort()).toEqual(
+        [
+          'accent',
+          'bg',
+          'caret',
+          'decoration',
+          'divide',
+          'fill',
+          'from',
+          'inset-ring',
+          'inset-shadow',
+          'outline',
+          'placeholder',
+          'shadow',
+          'stroke',
+          'text',
+          'text-shadow',
+          'to',
+          'via'
+        ].sort()
+      );
+    });
+
+    // Derived from the shipped constant, so every arm is exercised and the cases cannot drift from
+    // the list. Pairs with the hand-written set above: derived enumeration, hand-written expectation.
+    it.each(COLOUR_PREFIXES)('%s is a live prefix arm', prefix => {
+      const hit = firstMatch(`${prefix}-surface-input`);
+      expect(hit?.[1]).toBe('surface-input');
+    });
+
+    it.each([...'trblxyse'])('border-%s- is a live side arm', side => {
+      const hit = firstMatch(`border-${side}-surface-input`);
+      expect(hit?.[1]).toBe('surface-input');
+    });
+
+    it.each([
+      ['border-surface-input', 'the bare border arm'],
+      ['ring-surface-input', 'the bare ring arm']
+    ])('%s matches (%s)', cls => {
+      const hit = firstMatch(cls);
+      expect(hit?.[1]).toBe('surface-input');
+    });
+
     it.each([
       'bg-gray-250', // live scale entry
       'text-gray-500', // live scale entry
@@ -164,6 +219,21 @@ describe('retired colour tokens', () => {
       pattern.lastIndex = 0;
       expect(pattern.test(cls)).toBe(false);
     });
+
+    // These two pin the LEADING boundary specifically. The tail has to be a real retired name, or
+    // the case is rejected by the name alternation and passes whatever the boundary is - which is
+    // how the previous round shipped a boundary negative that proved nothing.
+    it.each(['  --text-heading-gray: #6b6b6b;', '  --bg-surface-input: var(--fill);'])(
+      'leaves the declaration %s alone, and would not under a loose boundary',
+      decl => {
+        pattern.lastIndex = 0;
+        expect(pattern.test(decl)).toBe(false);
+        // Same string, same names, only the leading boundary relaxed: it must match, which is what
+        // makes the negative above evidence rather than decoration.
+        const loose = new RegExp(pattern.source.replace('(?<![\\w-])', '\\b'), 'g');
+        expect(loose.test(decl)).toBe(true);
+      }
+    );
 
     it('does not let a retired name swallow a longer live one', () => {
       // `fill` and `fill-pressed` sit in exactly this relationship today, so retiring one while the
