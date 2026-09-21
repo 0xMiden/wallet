@@ -443,7 +443,10 @@ const HistoryView = memo<HistoryViewProps>(
         {/* Each row is a layout-animated Framer element (`ActivityRow`), and
             `layout` on the date group moves the groups below into the space a
             removed row leaves. Rows and groups slide; nothing fades, so a
-            filter change behaves like a native list update. */}
+            filter change behaves like a native list update. A layout animation
+            cannot play on a fresh mount — the node's first measurement IS the
+            mount — so this does not replay when a filter change rebuilds the
+            list; only the rows that survive the change move. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
           <motion.div
             layout
@@ -460,9 +463,26 @@ const HistoryView = memo<HistoryViewProps>(
               {dateEntries.map(entry => {
                 if (entry.pendingActivity && renderPendingItem) {
                   return (
-                    <div key={entry.key} data-pending-note-id={entry.pendingActivity.note.id}>
+                    // `layout="position"`, so a pending card travels the list the way the settled
+                    // rows beside it do. Every other child of this group is a Framer projection
+                    // node (a `Card asChild` renders onto `ActivityRow`, which is one) and the
+                    // pending card was the single exception: a plain div. It therefore JUMPED to
+                    // its new place while the `ActivityRow` inside it — a projection node of its
+                    // own — slid there, tearing the header row out of its own card for the length
+                    // of a filter change; and it was the one child the group's `layout` squashed
+                    // instead of scale-correcting while the group resized.
+                    // POSITION, never full `layout`: the card's height changes when its disclosure
+                    // opens, and full `layout` would animate that box — putting back, one level up,
+                    // the height tween `PendingActivityCard` just dropped. Position-only snaps the
+                    // size and animates the move alone.
+                    <motion.div
+                      layout="position"
+                      transition={layoutTransition}
+                      key={entry.key}
+                      data-pending-note-id={entry.pendingActivity.note.id}
+                    >
                       {renderPendingItem(entry.pendingActivity)}
-                    </div>
+                    </motion.div>
                   );
                 }
                 const props = buildRowProps(entry, t, tokenId);

@@ -15,6 +15,24 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// framer-motion: the real module, with `motion.div` wrapped so the pending card
+// wrapper's props are readable. A layout animation is measured, never written to
+// markup, so its mode cannot be asserted from the DOM — and the mode is exactly
+// what must not drift here.
+const mockPendingWrapper: { props: Record<string, unknown> | null } = { props: null };
+jest.mock('framer-motion', () => {
+  const actual = jest.requireActual<typeof import('framer-motion')>('framer-motion');
+  const react: typeof import('react') = require('react');
+  const Div = react.forwardRef<HTMLDivElement, Record<string, unknown>>(function MockMotionDiv(props, ref) {
+    if (props['data-pending-note-id'] !== undefined) mockPendingWrapper.props = props;
+    return react.createElement(actual.motion.div, { ...props, ref });
+  });
+  const motion = new Proxy(actual.motion, {
+    get: (target, key) => (key === 'div' ? Div : Reflect.get(target, key))
+  });
+  return { ...actual, motion };
+});
+
 // Icon: expose the requested glyph name + size + className so buildRowProps'
 // icon selection (the white-fill classes, and that every row asks for the
 // same glyph size) can be asserted.
@@ -1144,6 +1162,44 @@ it('places pending notes between transactions by inclusion date in the same date
   ]);
   expect(screen.getAllByText('January 15, 2024')).toHaveLength(1);
   expect(screen.getAllByText('January 16, 2024')).toHaveLength(1);
+});
+
+it('moves a pending card with the rows beside it, and never animates its height', () => {
+  // The card is the only child of a date group that is not a row, and it used to be the only one
+  // that was not a Framer projection node either: it jumped to its new place on a filter change
+  // while the `ActivityRow` inside it slid there. `layout="position"` puts it in the projection
+  // tree with its neighbours. Position-only is load-bearing: the card's box grows when its
+  // disclosure opens, and full `layout` would animate that — the height tween the card itself
+  // just lost, moved one level up.
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'moving-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span data-testid="pending-moving-row">Pending note</span>}
+    />
+  );
+
+  const wrapperProps = mockPendingWrapper.props;
+  expect(wrapperProps).not.toBeNull();
+  expect(wrapperProps?.layout).toBe('position');
+  expect(wrapperProps?.['data-pending-note-id']).toBe('moving-note');
 });
 
 it('keeps an undated note visible without assigning a false date', () => {
