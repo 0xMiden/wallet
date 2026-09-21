@@ -60,7 +60,7 @@ const COLOUR_PREFIXES = [
 ];
 
 /**
- * Exported shape so the pattern itself can be asserted, rather than only exercised through whatever
+ * Factored out so the pattern itself can be asserted, rather than only exercised through whatever
  * the repo happens to contain today. Two things here are load-bearing and easy to get wrong:
  *
  *   - the token is CAPTURED. Deriving it by slicing at the first hyphen only works while every
@@ -74,7 +74,7 @@ const COLOUR_PREFIXES = [
  * engine to backtrack into the longer alternative. Keep both, but do not credit the sort with the
  * behaviour.
  */
-export function buildPattern(retired: Record<string, string>): RegExp {
+function buildPattern(retired: Record<string, string>): RegExp {
   const prefix = `(?:${COLOUR_PREFIXES.join('|')}|border(?:-[trblxyse])?|ring(?:-offset)?)`;
   const names = Object.keys(retired)
     .sort((a, b) => b.length - a.length)
