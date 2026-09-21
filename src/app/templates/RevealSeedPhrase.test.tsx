@@ -561,23 +561,57 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed failure path -> auth-error view.
   // -------------------------------------------------------------------------
-  it('shows the auth-error view and leaves the page exactly once when hardware unlock rejects', async () => {
+  it('stands on the auth-error view instead of navigating away from it', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockRejectedValue(new Error('biometric failed'));
     const container = await renderAndView();
 
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
     expect(container.querySelector('[data-testid="alert"]')!.textContent).toBe('biometric failed');
-    // The catch and the auto-close effect both want out; `history.go(-1)` settles on
-    // a later task, so two calls popped two pages (Settings as well as this one).
-    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    // BOTH at zero is the discriminating assertion. A count of 1 could not tell the
+    // fix from the bug: the catch and the auto-close effect each wanted out, so
+    // removing one merely promoted the other and the total stayed 1.
+    expect(mockGoBack).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
 
-    // The page has already left: its back button must not queue a second pop.
+    // And the view must be usable, not just present: Close leaves, Retry re-reveals.
+    expect(buttonWithText(container, 'retry')).toBeTruthy();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-testid="nh-back"]')!.click();
+      buttonWithText(container, 'close')!.click();
     });
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the reveal from the error view and clears the error on success', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockRejectedValue(new Error('biometric failed'));
+    const container = await renderAndView();
+
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+    await act(async () => {
+      buttonWithText(container, 'retry')!.click();
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+    expect(container.textContent).toContain('Alpha');
+    expect(mockGoBack).not.toHaveBeenCalled();
+
+    // The words branch renders ahead of the error branch, so a stale authError is
+    // INVISIBLE while a secret exists - asserting here alone would pass either way.
+    // It only bites once the 20s auto-hide clears the secret: the auto-close effect
+    // is now gated on authError, so an uncleared one makes it refuse to leave and
+    // the user lands back on a stale "biometric failed" screen with no way out.
+    mockSecret = null;
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="alert"]')).toBeNull();
   });
 
   it('leaves to the Settings root exactly once when a cold-opened biometric reveal fails', async () => {
@@ -586,9 +620,10 @@ describe('RevealSeedPhrase', () => {
     mockRevealMnemonic.mockRejectedValue(new Error('biometric failed'));
     await renderAndView();
 
+    // Cold open: nothing to pop. The error still stands rather than replacing the
+    // route out from under it.
     expect(mockGoBack).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

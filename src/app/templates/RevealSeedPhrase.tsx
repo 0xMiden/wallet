@@ -142,6 +142,10 @@ const RevealSeedPhrase: FC = () => {
     revealMnemonic(undefined)
       .then(mnemonic => {
         if (generation !== secretGeneration.current) return;
+        // Clear on success, not on Retry: a retry that leaves this set would be
+        // caught by the auto-close gate below after the 20s auto-hide and drop the
+        // user back onto a stale error instead of letting the page close.
+        setAuthError(null);
         setSecret(mnemonic);
         setStep('reveal');
       })
@@ -152,10 +156,9 @@ const RevealSeedPhrase: FC = () => {
         if (generation !== secretGeneration.current) return;
         setAuthError(err instanceof Error ? err.message : String(err));
         setStep('reveal');
-        leave();
       })
       .finally(() => setIsSubmitting(false));
-  }, [hasHardwareProtector, isSubmitting, revealMnemonic, setSecret, leave]);
+  }, [hasHardwareProtector, isSubmitting, revealMnemonic, setSecret]);
 
   useEffect(() => {
     return () => setSecret(null);
@@ -164,10 +167,21 @@ const RevealSeedPhrase: FC = () => {
   // When secret is cleared (auto-hide after 20s), go back. Not on the warning,
   // where no secret has been asked for yet.
   useEffect(() => {
-    if (step === 'reveal' && secret === null && hasHardwareProtector !== null && !isSubmitting && !showPasswordDrawer) {
+    // `authError === null` is load-bearing, not defensive: the catch above leaves
+    // exactly this state once `finally` clears isSubmitting, so without it this
+    // effect simply becomes the caller that navigates away from the error view and
+    // the user is bounced with no explanation - the same outcome by another route.
+    if (
+      step === 'reveal' &&
+      authError === null &&
+      secret === null &&
+      hasHardwareProtector !== null &&
+      !isSubmitting &&
+      !showPasswordDrawer
+    ) {
       leave();
     }
-  }, [step, secret, hasHardwareProtector, isSubmitting, showPasswordDrawer, leave]);
+  }, [step, authError, secret, hasHardwareProtector, isSubmitting, showPasswordDrawer, leave]);
 
   const words = secret ? secret.split(' ') : [];
 
@@ -263,7 +277,9 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  if (hasHardwareProtector === null || (!secret && isSubmitting)) {
+  // The error view is exempt: a Retry sets isSubmitting again, and blanking here
+  // would take the Alert and the Retry button off screen for the whole prompt.
+  if (!authError && (hasHardwareProtector === null || (!secret && isSubmitting))) {
     return null;
   }
 
@@ -326,13 +342,27 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  // Auth error fallback
+  // Auth error fallback. It has to offer a way out AND a way on: the catch no longer
+  // navigates, and the back arrow alone is dead here - `leave` is latched once per
+  // location, so the first press that claimed it has already been spent.
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
         <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
         <div className="px-4 pt-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
+        </div>
+
+        <div className="mt-auto flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
+          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
+          <Button
+            className="flex-1"
+            variant={ButtonVariant.Primary}
+            title={t('retry')}
+            onClick={handleView}
+            disabled={isSubmitting}
+            isLoading={isSubmitting}
+          />
         </div>
       </div>
     );
