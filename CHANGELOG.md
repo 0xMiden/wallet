@@ -38,6 +38,8 @@
 - [CHANGE][all] Screen header back and close buttons share the nav button surface (#F9F9F9 in light mode) with a grey glyph; back is no longer an outlined orange arrow.
 - [FIX][ios] With a hardware keyboard attached (the simulator's Mac keyboard, or a Bluetooth keyboard), focusing a field no longer lifts the page by a full on-screen keyboard that is not showing; the layout clears only the visible accessory bar.
 - [CHANGE][ci] Pull request CI cancels old runs, uses smaller 2 vCPU runners for Docker E2E jobs, skips Earn and Guardian systems for unrelated changes while keeping their required checks, and moves metadata-only jobs to `ubuntu-slim`.
+- [CHANGE][ci] Pull request CI drops the local-e2e fast-blocks runner, runs Guardian stress and fault.smoke only on main, moves Swap and Earn E2E to main (required gates stay green on PRs), splits lint/unit from mock Playwright behind the `Test` gate, and runs the guardian-fault policy checks as Jest.
+- [CHANGE][ci] Coverage Check shards the Jest run three ways and merges before the 95% gate. Local E2E runs on 8 vCPU, records Playwright traces only on failure, and runs the node at 500ms blocks.
 
 ### Features
 

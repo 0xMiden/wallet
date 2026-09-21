@@ -8,30 +8,14 @@ permissions:
   contents: read
 jobs:
   chrome-local:
-    # Run the core suite under BOTH block cadences: the miden-node default (3s
-    # block / 1s batch, realistic timing) and fast 500ms blocks. Fast blocks
-    # guarantee a block lands in the wallet's commit->relay window, making
-    # send-private a deterministic guard for the private-note block-hint overshoot
-    # (web-sdk#262 / wallet#502). The fast leg is scoped to that one timing-critical
-    # spec to stay quick and stable; the default leg keeps full-suite coverage.
-    # The default leg's name stays exactly "local-e2e (chrome)" so any required-check
-    # mapping is unaffected.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name_suffix: ""
-            runner: warp-ubuntu-latest-x64-2x
-            block_interval: ""
-            specs: ""
-          - name_suffix: " [fast blocks]"
-            runner: warp-ubuntu-latest-arm64-2x
-            block_interval: "500ms"
-            specs: "playwright/e2e/tests/send-private.spec.ts playwright/e2e/tests/recall-reclaim.spec.ts"
-    name: local-e2e (chrome)${{ matrix.name_suffix }}
-    # The full suite imports the published Linux napi module, which has no ARM64 build.
-    # The fast-block specs do not use it and can stay on ARM64.
-    runs-on: ${{ matrix.runner }}
+    # Required-check name: keep this exact string.
+    name: local-e2e (chrome)
+    # The full suite imports the published Linux napi module, which has no ARM64
+    # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
+    # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x
+    # runs of the same suite were 22-24m. Sharding does not help: workers=1
+    # against one chain, so a shard is another full node compile.
+    runs-on: warp-ubuntu-latest-x64-8x
     # Cold-cache runs compile the local 0.16 node from source (~28m) + miden-client-cli
     # (~8m) + note-transport (~5m) before any spec runs; warm-cache runs are ~20m. The
     # node-build cache is warmed on `next` (warm-node-cache.yml) so PRs branch off a
@@ -49,10 +33,12 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
-      # Empty on the default leg -> docker-compose ${VAR:-<default>} falls back to
-      # the miden-node defaults; "500ms" on the fast leg.
-      MIDEN_NODE_BLOCK_INTERVAL: ${{ matrix.block_interval }}
-      MIDEN_NODE_BATCH_INTERVAL: ${{ matrix.block_interval }}
+      # One job, 500ms blocks: the deleted fast-blocks matrix existed so
+      # send-private saw a block in the commit-relay window. That cadence now
+      # lives here, and the rest of the suite spends less wall clock waiting
+      # on 3s blocks. run-local-node patches start-test-node.sh from this env.
+      MIDEN_NODE_BLOCK_INTERVAL: 500ms
+      MIDEN_NODE_BATCH_INTERVAL: 500ms
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -169,9 +155,7 @@ jobs:
         # E2E): a small margin for a rare balance->send-UI sync hiccup on a loaded
         # runner. Deliberately NOT 2 -- kept at 1 so a genuine regression still fails
         # the (to-be-required) gate rather than passing on a lucky third attempt.
-        # matrix.specs is empty for the default-timing leg (full core suite) and
-        # scoped to send-private for the fast-blocks leg.
-        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1 ${{ matrix.specs }}
+        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1
       - name: Report flaky (retried-then-passed) specs
         # A spec that failed once and passed on the retry above is reported as a
         # plain green run, so the flake it represents is invisible. Print one
