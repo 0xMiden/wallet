@@ -24,8 +24,8 @@ import {
  * consume/claim, execute, guardian ops, …). Shows a summary pill
  * ("amount → recipient") plus the recipient, total paid and transaction-id rows
  * where that data is available. Consume/claim rows relabel the receipt: the
- * address is the note sender ("From"), the amount is "Total Consumed", and the
- * claimed note ids get their own "Notes Consumed" row.
+ * address is the note sender ("From"), the amount is "Total Accepted", and the
+ * accepted note ids get their own "Transfer IDs" row.
  */
 export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, onDoneClick, onViewExplorer }) => {
   const { t } = useTranslation();
@@ -46,7 +46,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
         destinationAddress,
         destinationLabel: isConsume ? t('from') : undefined,
         amountText,
-        amountLabel: isConsume ? t('totalConsumed', { defaultValue: 'Total Consumed' }) : undefined,
+        amountLabel: isConsume ? t('totalConsumed', { defaultValue: 'Total Accepted' }) : undefined,
         noteIds,
         feeText,
         txHash,
@@ -76,7 +76,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
     >
       <SuccessSummaryPill
         lhs={amountText}
-        rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient}
+        rhs={isConsume ? t('accepted', { defaultValue: 'Accepted' }) : recipient}
         // A claim carries the accent its own icon carries in Activity and on its detail page,
         // not the Send blue: the received green, or the faucet's dusty rose when the note was
         // minted by the faucet.

@@ -104,8 +104,8 @@
     }
   },
   "noteReturnsToSenderBy": {
-    "message": "$date$ によって請求されない場合は、差出人に返送されます。",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "$date$ までに受け取られない場合、送信者に返却されます",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -628,24 +628,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "このトランザクションはオンチェーンで行われていますが、プライベートnoteをnoteトランスポートサービスに引き渡すことができませんでした。引き渡されるまでは、受取人はその資金を確認したり使用したりすることはできません。",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "この取引はチェーン上にありますが、プライベートな送金を配信サービスに引き渡せませんでした。引き渡されるまで、受取人は送金を確認も使用もできません。",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "この取引はオンチェーンで行われていますが、ウォレットは秘密鍵 note が note 転送サービスに到達したことを確認できませんでした。",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "この取引はチェーン上にありますが、プライベートな送金が配信サービスに届いたことをウォレットは確認できませんでした。",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "このウォレットを開いたまま接続状態を維持してください。送信後しばらくの間は自動的に再送信が行われ、正常に送信されればこの警告は消えます。1時間経っても受取人に何も届かない場合は、再送信しないでください。下のトランザクションIDを保存し、サポートに連絡してください。このIDからnoteを復元することができます。",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "このウォレットを開いたまま接続を維持してください。送信後しばらくは配信が自動で再試行され、成功するとこの警告は消えます。1 時間経っても受取人に届かない場合は、再送しないでください。下の取引 ID を保存してサポートにご連絡ください。その ID から送金を復旧できます。",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "受領確認済み",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "受取人はこのプライベートnoteを受け取り、すでに使用しているため、その送達はチェーン上で確認されています。",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "受取人がこのプライベートな送金を受け取って使用したため、配信がチェーン上で確認されました。",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -905,8 +905,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "noteの請求",
-    "englishSource": "Claiming note"
+    "message": "送金を受け取っています",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "トランザクションの実行",
@@ -997,12 +997,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "noteの提供",
-    "englishSource": "Delivering note"
+    "message": "送金を配信しています",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "noteを受信者に安全に送信します。",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "送金を受取人に安全に送信しています。",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "ステータス",
@@ -1682,8 +1682,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "自動消費",
-    "englishSource": "Auto consume"
+    "message": "自動で受け取る",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "交換する2つの異なるトークンを選んでください。",
@@ -1719,8 +1719,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "その時点で未請求の場合、$amount$をウォレットに戻すことができます。資金が失われることはありません。",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "それまでに受け取られなかった場合、$amount$ は保留中の送金として戻り、あなたが受け取ります。資金が失われることはありません。",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1835,20 +1835,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "プライベートnotesのスキャン中：noteトランスポートのデータを読み込み中…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "プライベートな送金を確認しています…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "プライベートnotesのスキャン中：保留中の提案からnotesをインポート中…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "プライベートな送金を確認しています：保留中の提案をインポート中…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "パブリックnotesの同期中…",
-    "englishSource": "Syncing public notes…"
+    "message": "公開送金を同期しています…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "パブリックnotesの同期：$latest$のブロック$current$",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "公開送金を同期しています：ブロック $current$ / $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1859,12 +1859,12 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "未決済のNotesがあります",
-    "englishSource": "You have Pending Notes"
+    "message": "受け取り待ちの送金があります",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "現在、$amount$相当のnotesが保留中です。",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$amount$ 相当の送金が受け取りを待っています。",
+    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2865,12 +2865,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "MIDEN の送金を自動で受け取る",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "受信したMIDEN（notes）を自動的に残高に反映します。これは「Claim」をタップするのと同じです。自分で「Claim」をタップする場合と比べて、請求の頻度が増えたり、手数料が高くなったりすることはありません。",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "受信した MIDEN の送金を自動で残高に受け取ります。「受け取る」をタップした場合と同じで、受け取る頻度が増えることも、手数料が高くなることもありません。",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "ウォレットファイルの作成中…",
@@ -3339,10 +3339,6 @@
     "message": "未処理の合計",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes 保留中",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "資産",
     "englishSource": "assets"
@@ -3391,65 +3387,16 @@
     }
   },
   "noteClaimFailedRetry": {
-    "message": "請求に失敗しました — 「再試行」をタップして再度お試しください",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "受け取れませんでした — 「再試行」をタップしてください",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "この「note」は、現在販売終了しております。",
-    "englishSource": "This note is no longer available"
+    "message": "この送金は利用できなくなりました",
+    "englishSource": "This transfer is no longer available"
   },
   "pendingNotes": {
     "message": "保留中のnotes",
     "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "「notes」とは何ですか？",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "notes を活用してください。",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "これらの保留中の資金を残高に追加して、利用を開始してください。",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "誰かから資金が送金されると、それは非公開の状態で届きます",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— あなただけが開封できる封印されたパッケージ。",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "使用上の注意点",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "noteを実行すると、資金が利用可能な残高として反映されます。それまでは、資金はあなたの所有物ですが、まだ使用することはできません。",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "以下の要件に従ってください：",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "待機中。いつでもご利用いただけます。急ぐ必要はなく、資金が危険にさらされることも一切ありません。",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "トークンを取得する",
@@ -3544,12 +3491,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "受信中のnotesは再試行が必要です",
-    "englishSource": "Incoming notes need a retry"
+    "message": "受信した送金の再試行が必要です",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "受信したnoteは再試行が必要です",
-    "englishSource": "An incoming note needs a retry"
+    "message": "受信した送金 1 件の再試行が必要です",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ を自動的にインポートできませんでした。",
@@ -3561,8 +3508,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note は自動的にインポートできませんでした。",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "1 件の送金を自動的にインポートできませんでした。",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "明日",
@@ -3939,8 +3886,8 @@
     "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
-    "message": "note を受信しました",
-    "englishSource": "You have received a note"
+    "message": "送金が届いています",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "取引に失敗しました",
@@ -3952,15 +3899,15 @@
   },
   "noteReceivedTapToClaim": {
     "message": "ここをタップして受け取る",
-    "englishSource": "Tap here to claim it"
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "クリックして確認し、受け取る",
-    "englishSource": "Click to view and claim it"
+    "message": "クリックして確認し、受け取ります",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes 請求する",
-    "englishSource": "$count$ notes to claim",
+    "message": "受け取り待ちの送金 $count$ 件",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4164,12 +4111,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "このスワップにバンドルされた Notes",
-    "englishSource": "Notes bundled into this swap"
+    "message": "このスワップにまとめられた約定",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "約定 Note $number$",
-    "englishSource": "Fill note $number$",
+    "message": "約定 $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4177,8 +4124,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "消費済み · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "受取済み · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4206,24 +4153,24 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "バンドルされた Notes はまだありません。",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "まだ約定はまとめられていません。",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Pending Notes へ",
-    "englishSource": "Go to Pending Notes"
+    "message": "保留中の送金へ",
+    "englishSource": "Go to pending transfers"
   },
   "trackingUnavailable": {
     "message": "利用不可",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "消費トランザクション ID",
-    "englishSource": "Consume TX ID"
+    "message": "受け取り TX ID",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "消費トランザクション ID $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "受け取り TX ID $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4603,12 +4550,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "総消費量",
-    "englishSource": "Total Consumed"
+    "message": "受取合計",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes 消費された",
-    "englishSource": "Notes Consumed"
+    "message": "送金 ID",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "消費された",
@@ -4816,8 +4763,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "請求日：",
-    "englishSource": "Claimed on"
+    "message": "受取日時",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "テスト用ウォレットのみを接続してください",
@@ -4837,8 +4784,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "このデバイス上の「アクティビティ」からこの送金を非表示にしますか？ これにより、送金者に資金が返還されたり、noteが削除されたりすることはありません。「アクティビティ」では、非表示にした送金を復元することができます。",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "この送金をこの端末のアクティビティから非表示にしますか？資金が送信者に返却されたり、送金が取り消されたりすることはありません。非表示にした送金はアクティビティから元に戻せます。",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "検索履歴",
@@ -4873,8 +4820,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "まだ承認されていません。確認して承認し、これらの資金を受け取ってください。",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "まだ受け取っていません — 確認して受け取ると、この資金が残高に加算されます。",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "ネットワークはリセットされる可能性があります",
@@ -5035,10 +4982,6 @@
         "content": "$1"
       }
     }
-  },
-  "activityTransferClaimed": {
-    "message": "請求済み",
-    "englishSource": "Claimed"
   },
   "receiveTestFundsBody": {
     "message": "このアドレスには、Miden $network$のトークンのみを送付してください。このアドレスに実資金を送金した場合、その資金は回収できません。",
@@ -5365,5 +5308,17 @@
         "content": "$1"
       }
     }
+  },
+  "accepted": {
+    "message": "受取済み",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "受け取り中…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "送金",
+    "englishSource": "Transfers"
   }
 }

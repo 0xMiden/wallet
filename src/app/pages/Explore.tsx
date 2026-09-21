@@ -87,7 +87,7 @@ const Explore: FC = () => {
     return midenNotes.length > 0;
   }, [midenNotes]);
 
-  // What the "You have Pending Notes" card may ask the user to act on: the notes this
+  // What the "You have transfers to accept" card may ask the user to act on: the notes this
   // page, the SW and NativeNoteAutoConsumeManager will NOT claim for them. Feeding it
   // the raw list surfaced a card, with a USD total, for native notes that were already
   // being auto-consumed (#811).

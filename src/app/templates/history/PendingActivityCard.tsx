@@ -65,7 +65,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
       actionLabel = t('activityCheckingTransfer');
       break;
     case 'claiming':
-      actionLabel = t('claiming');
+      actionLabel = t('activityAcceptingTransfer');
       break;
     case 'failed':
       actionLabel = t('retry');

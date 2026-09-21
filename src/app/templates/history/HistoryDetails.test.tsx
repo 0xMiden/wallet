@@ -1877,7 +1877,7 @@ describe('HistoryDetails', () => {
       // `reconcileSwapOrderNotes` only bundles an 'active' order's notes once it
       // expires - so this order is never auto-settled, no matter that
       // `autoConsume` is absent and therefore read as enabled. Trusting that
-      // flag alone hid "Go to Pending Notes" from precisely the orders whose
+      // flag alone hid "Go to pending transfers" from precisely the orders whose
       // funds nothing else will ever collect.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
