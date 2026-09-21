@@ -34,6 +34,32 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// The date group must animate position only: a full `layout` would scale it, and
+// the row inside passes its radius as a class, which Framer cannot counter-scale.
+// Surface the prop so a revert to bare `layout` fails here.
+// Spread the real module rather than listing exports - this file reaches
+// `useReducedMotion` indirectly via `useMotion(springs.settle)`, so a hand-listed
+// factory that misses one export throws on every render.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => false,
+    motion: {
+      div: ReactActual.forwardRef(
+        (
+          { children, layout, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLDivElement>
+        ) => (
+          <div ref={ref} data-layout={String(layout)} {...rest}>
+            {children}
+          </div>
+        )
+      )
+    }
+  };
+});
+
 // ActivityRow: flatten every visual prop buildRowProps produces onto data-*
 // attributes so each branch's output is directly assertable, and forward
 // onClick so the navigate wiring can be exercised.
@@ -451,6 +477,16 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   ];
 
   const renderFull = () => render(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+
+  it('animates each date group position only, so a removed row cannot scale the group', () => {
+    const { container } = renderFull();
+
+    const groups = container.querySelectorAll('[data-layout]');
+    expect(groups.length).toBeGreaterThan(0);
+    // Exact value on both sides: bare `layout` is `layout={true}` and stringifies
+    // to 'true', so a not-'position' check alone would prove nothing.
+    groups.forEach(group => expect(group).toHaveAttribute('data-layout', 'position'));
+  });
 
   it('renders the Smart Withdraw row with its phase chip and positive amount', () => {
     renderFull();

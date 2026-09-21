@@ -7,22 +7,32 @@
  * live React component and that the barrel does not leak anything unexpected.
  */
 
+import fs from 'fs';
+import path from 'path';
+
 import { AccountsDrawer } from './AccountsDrawer';
 import { ActivityRow } from './ActivityRow';
+import { AlertSheet } from './AlertSheet';
 import { AssetListItem } from './AssetListItem';
 import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
+import { Button, ButtonVariant } from './Button';
 import { Card, CardButton } from './Card';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
+import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
+import { Hero } from './Hero';
 import { IconButton } from './IconButton';
 import * as UI from './index';
+import { ListGroup } from './ListGroup';
+import { ListRow } from './ListRow';
 import { Pill } from './Pill';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
+import { SectionHeader } from './SectionHeader';
 import { SegmentedActionBar } from './SegmentedActionBar';
 import { Skeleton } from './Skeleton';
 import { Sparkline } from './Sparkline';
@@ -49,6 +59,7 @@ describe('components/ui barrel', () => {
   // compile-time only and never appear on the module object.
   const EXPECTED_COMPONENTS = {
     AccountsDrawer,
+    AlertSheet,
     Avatar,
     Pill,
     BalanceCard,
@@ -69,9 +80,21 @@ describe('components/ui barrel', () => {
     Spinner,
     Skeleton,
     TextField,
+    Button,
+    DetailCard,
+    DetailRow,
+    Hero,
+    ListGroup,
+    ListRow,
+    SectionHeader,
     Card,
     CardButton
   } as const;
+
+  // Runtime values the barrel forwards that are NOT components. `ButtonVariant` is a real `enum`,
+  // so it is an object on the module — it belongs in the key set but would fail the renderable
+  // check below.
+  const EXPECTED_NON_COMPONENT_VALUES = { ButtonVariant } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {
     (Object.keys(EXPECTED_COMPONENTS) as Array<keyof typeof EXPECTED_COMPONENTS>).forEach(name => {
@@ -104,9 +127,27 @@ describe('components/ui barrel', () => {
 
   it('forwards exactly the expected runtime bindings and nothing else', () => {
     // `export type` lines contribute no runtime keys, so the module object's
-    // own enumerable keys must be precisely the component set.
+    // own enumerable keys must be precisely the component set plus the non-component values.
     const runtimeKeys = Object.keys(UI).sort();
-    expect(runtimeKeys).toEqual(Object.keys(EXPECTED_COMPONENTS).sort());
+    const expected = [...Object.keys(EXPECTED_COMPONENTS), ...Object.keys(EXPECTED_NON_COMPONENT_VALUES)];
+    expect(runtimeKeys).toEqual(expected.sort());
+  });
+
+  // The assertions above pin what the barrel DOES export. They cannot see a primitive that is
+  // missing from both the barrel and the record, which is how Button, DetailCard, Hero, ListGroup,
+  // ListRow and SectionHeader all sat in this directory unexported without a test noticing.
+  // Deriving the expectation from the directory closes that direction. Secondary exports
+  // (DetailRow from DetailCard, TabHeaderAction from TabHeader) stay legal: this only requires
+  // that each module's OWN name is reachable, not that it is the module's only export.
+  it('exports every component module in this directory under its own name', () => {
+    const moduleNames = fs
+      .readdirSync(__dirname)
+      .filter(f => f.endsWith('.tsx') && !f.endsWith('.test.tsx'))
+      .map(f => path.basename(f, '.tsx'))
+      .sort();
+
+    expect(moduleNames.length).toBeGreaterThan(0);
+    expect(moduleNames.filter(name => !(name in UI))).toEqual([]);
   });
 
   it('does not forward any undefined bindings', () => {

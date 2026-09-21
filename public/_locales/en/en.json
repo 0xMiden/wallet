@@ -1156,5 +1156,6 @@
   "editContact": "Edit contact",
   "deleteContact": "Delete contact",
   "saveContact": "Save",
-  "contactAdded": "Added"
+  "contactAdded": "Added",
+  "couldNotCheckUnlockMethod": "Couldn't check this wallet's unlock method. Check your connection and try again."
 }
