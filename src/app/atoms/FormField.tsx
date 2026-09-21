@@ -72,7 +72,10 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
       onClean,
       className,
       spellCheck = false,
-      autoComplete = 'off',
+      // `off` is overridden by browsers on password-TYPE inputs, which are exactly the fields this
+      // default exists to protect, so a password field needs `new-password` specifically. Same
+      // rule and same shape in `TextField`, which replaces this component.
+      autoComplete = type === 'password' ? 'new-password' : 'off',
       fieldWrapperBottomMargin = true,
       labelPaddingClassName = '',
       labelClassName,

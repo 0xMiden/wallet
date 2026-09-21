@@ -180,11 +180,12 @@ describe('ChooseGuardianScreen', () => {
     const [ozBtn, gatewayBtn] = optionButtons(container);
 
     const ozSvgs = Array.from(ozBtn!.querySelectorAll('svg'));
-    // Light + dark wordmark variants, toggled by `dark:` rather than recolored.
-    expect(ozSvgs.length).toBeGreaterThanOrEqual(2);
-    ozSvgs.forEach(svg => expect(svg).not.toHaveClass('[&_path]:fill-ink'));
-    // Both roots carry the size class, so the constraint survives the theme toggle.
-    ozSvgs.forEach(svg => expect(svg).toHaveClass('h-auto'));
+    // ONE asset: its text paths are `currentColor`, so `text-ink` recolors it for
+    // both themes and there is no second file to toggle with `dark:`.
+    expect(ozSvgs).toHaveLength(1);
+    expect(ozSvgs[0]).not.toHaveClass('[&_path]:fill-ink');
+    expect(ozSvgs[0]).toHaveClass('text-ink');
+    expect(ozSvgs[0]).toHaveClass('h-auto');
 
     // The brand-kit tile behind it: pure white in light mode, a dark neutral
     // in dark mode.

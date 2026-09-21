@@ -22,6 +22,7 @@ import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
+import { TRANSACTION_COLORS } from './transactionUtils';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
@@ -301,7 +302,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
-  getTransactionIconBackgroundColor: () => '#91ACC1'
+  // Reads the shared constant so a future move of the activity hues carries this mock with it;
+  // it was left on the retired literal when they last moved.
+  getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
@@ -945,7 +948,7 @@ describe('HistoryDetails', () => {
       // Transfer details and Notes are separated using the transaction icon accent.
       const dividers = screen.getAllByTestId('history-section-divider');
       expect(dividers).toHaveLength(2);
-      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.send }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
