@@ -100,6 +100,14 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
     // a decline the user backed out of is no decision at all.
     markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
   };
+  // Accepting everything listed: reading them all, then the one batch-claim path. Both the row
+  // beside Restore and the pinned CTA call this, so there is one definition of "Accept All".
+  const acceptAll = () => {
+    for (const note of claimableNotes) {
+      markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
+    }
+    acceptMany(claimableNotes);
+  };
   const acceptRef = useRef(accept);
   acceptRef.current = accept;
   const rejectRef = useRef(reject);
@@ -140,14 +148,26 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
           </p>
         )}
         {filter === 'pending' && hiddenCount > 0 && (
-          <div className="flex items-center justify-between gap-2 px-4 pt-3 text-xs text-text-secondary-token">
-            <span>{t('activityHiddenTransfers', { count: hiddenCount })}</span>
+          <div className="flex items-center gap-2 px-4 pt-3 text-xs text-text-secondary-token">
+            {/* The count gives up its width first, so two buttons beside it cannot wrap the row on
+                a 360px phone; the labels themselves never break. */}
+            <span className="min-w-0 flex-1 truncate">{t('activityHiddenTransfers', { count: hiddenCount })}</span>
             <Button
               variant={ButtonVariant.Secondary}
               size="sm"
-              className="w-auto"
+              className="w-auto shrink-0"
               title={t('activityRestoreTransfers')}
               onClick={() => hidden.restore()}
+            />
+            {/* The same accept-everything action the pinned CTA below runs, in reach of the row a
+                user is already looking at. `acceptMany` is that handler — nothing is reimplemented. */}
+            <Button
+              size="sm"
+              className="w-auto shrink-0"
+              data-testid="pending-row-accept-all"
+              title={t('acceptAll')}
+              disabled={claimableNotes.length === 0}
+              onClick={() => acceptAll()}
             />
           </div>
         )}
@@ -173,12 +193,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             title={claimingCount > 0 && claimableNotes.length === 0 ? t('activityAcceptingTransfer') : t('acceptAll')}
             disabled={claimableNotes.length === 0}
             isLoading={claimingCount > 0 && claimableNotes.length === 0}
-            onClick={() => {
-              for (const note of claimableNotes) {
-                markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
-              }
-              acceptMany(claimableNotes);
-            }}
+            onClick={() => acceptAll()}
           />
         </div>
       )}
