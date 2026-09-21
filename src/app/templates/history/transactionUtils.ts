@@ -300,7 +300,7 @@ export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochSt
  * An `earn-deposit` row goes database-Completed the moment the Miden collateral
  * note lands, but the leg that actually opens the lending position is
  * solver-fulfilled and tracked separately — so an unstamped/pending leg must not
- * render as Confirmed. Mirrors `EarnDepositStatusPill` on the detail page.
+ * render as Confirmed. The detail page reads the same leg through its own badge.
  */
 export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
   entry.earnDepositStatus ?? 'pending';

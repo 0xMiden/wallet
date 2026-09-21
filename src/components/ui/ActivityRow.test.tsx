@@ -179,14 +179,17 @@ describe('ActivityRow', () => {
       expect(screen.queryByText('MIDEN')).toBeNull();
     });
 
-    it('applies the positive amount color', () => {
+    it('applies the positive amount color, never the raw status fill', () => {
       renderRow({ amount: { value: '+5', direction: 'positive' } });
+      // #90BA89, the old fill, was 2.19:1 on white.
       expect(screen.getByText('+5').className).toContain('text-positive-tint-ink');
+      expect(screen.getByText('+5').className).not.toMatch(/text-status-/);
     });
 
-    it('applies the negative amount color', () => {
+    it('applies the negative amount color, never the raw status fill', () => {
       renderRow({ amount: { value: '-5', direction: 'negative' } });
       expect(screen.getByText('-5').className).toContain('text-negative-tint-ink');
+      expect(screen.getByText('-5').className).not.toMatch(/text-status-/);
     });
 
     it('applies the explicit neutral amount color', () => {
@@ -198,16 +201,6 @@ describe('ActivityRow', () => {
       renderRow({ amount: { value: '7' } });
       expect(screen.getByText('7').className).toContain('text-ink');
     });
-
-    it.each(['positive', 'negative'] as const)(
-      'inks a %s amount with the badge palette ink, never the raw status fill (#90BA89 was 2.19:1)',
-      direction => {
-        renderRow({ amount: { value: '9', direction } });
-        const className = screen.getByText('9').className;
-        expect(className).toContain(`text-${direction}-tint-ink`);
-        expect(className).not.toMatch(/text-status-/);
-      }
-    );
   });
 
   // A batch claim reads "+20 A, +10 B" on one line. The line is finite and the
@@ -356,4 +349,14 @@ describe('ActivityRow', () => {
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
     });
   });
+});
+
+// The same guard through a real row: this suite renders the real ActivityRow and the real badge,
+// which the history list suites cannot (they stub the components/ui barrel).
+it('renders a status it does not know as the neutral badge, and the row survives', () => {
+  renderRow({ status: 'refunded' as never, testId: 'row' });
+
+  const badge = screen.getByTestId('row-status');
+  expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
+  expect(screen.getByText('Sent MIDEN')).toBeInTheDocument();
 });

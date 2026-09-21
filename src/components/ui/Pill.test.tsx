@@ -273,3 +273,22 @@ describe('variants', () => {
     expect(screen.getByTestId('glyph').parentElement).toHaveClass('shrink-0', ...iconClasses);
   });
 });
+
+// A status whose content changes on screen is a polite live region. The prop is a boolean rather
+// than an ARIA string: there was only ever one legal value, and StatusBadge is its only caller.
+it('becomes a polite live region when told it is live', () => {
+  const { rerender } = render(
+    <Pill data-testid="pill" tone="warning">
+      Pending
+    </Pill>
+  );
+  expect(screen.getByTestId('pill')).not.toHaveAttribute('role');
+
+  rerender(
+    <Pill data-testid="pill" tone="warning" live>
+      Pending
+    </Pill>
+  );
+  expect(screen.getByTestId('pill')).toHaveAttribute('role', 'status');
+  expect(screen.getByTestId('pill')).toHaveAttribute('aria-live', 'polite');
+});

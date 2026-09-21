@@ -95,7 +95,7 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     ['negative-tint-ink', 'fill'],
     ['positive-tint-ink', 'page'],
     ['negative-tint-ink', 'page'],
-    // StatusBadge's neutral tone (cancelled, reclaimed, checking).
+    // StatusBadge's neutral tone (cancelled, reclaimed, unavailable, not connected).
     ['ink', 'fill-pressed']
   ])('%s on %s reads at 4.5:1 or better', (text, surface) => {
     expect(contrast(vRequired(text), vRequired(surface))).toBeGreaterThanOrEqual(4.5);
