@@ -4835,10 +4835,6 @@
     "message": "重置會清除餘額與交易紀錄。測試網的餘額絕不會轉移至主網。",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "僅限測試代幣",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "正在檢查您的提領狀態。請保持錢包開啟，直到確認送達。",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

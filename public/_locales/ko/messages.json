@@ -4835,10 +4835,6 @@
     "message": "리셋은 잔액과 내역을 초기화합니다. 테스트망의 잔액은 메인넷으로 이월되지 않습니다.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "테스트 토큰 전용",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "인출 상태를 확인하고 있습니다. 전달이 확인될 때까지 지갑을 열어 두세요.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

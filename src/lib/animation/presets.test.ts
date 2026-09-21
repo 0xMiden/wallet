@@ -20,9 +20,9 @@ describe('lib/animation/presets', () => {
     mockReduce = false;
   });
 
-  it('exports the nine presets the design system names', () => {
+  it('exports the eight presets the design system names', () => {
     expect([...presetNames].sort()).toEqual(
-      ['fade', 'indicator', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
+      ['fade', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
     );
     expect(Object.keys(presets).sort()).toEqual([...presetNames].sort());
   });
@@ -78,12 +78,6 @@ describe('lib/animation/presets', () => {
       expect(presets.press.transition).toBe(springs.snappy);
       expect(presets.press.initial).toBeUndefined();
       expect(presets.press.animate).toBeUndefined();
-    });
-
-    it('indicator: springs.pill for a shared layoutId, no enter/exit of its own', () => {
-      expect(presets.indicator.transition).toBe(springs.pill);
-      expect(presets.indicator.initial).toBeUndefined();
-      expect(presets.indicator.animate).toBeUndefined();
     });
 
     it('shimmer: a 1.2s linear loop across the element', () => {

@@ -38,12 +38,15 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     onClick();
   };
 
+  // The status badge's sage and clay inks, the same pair ActivityRow uses: the raw status fills are
+  // 2.2-3.5:1 and never carry text (design-system Rule 3). Neutral keeps its muted token, which is
+  // not a fill.
   const deltaColor =
     delta?.direction === 'negative'
-      ? 'text-status-negative'
+      ? 'text-negative-tint-ink'
       : delta?.direction === 'neutral'
         ? 'text-text-tertiary-token'
-        : 'text-status-positive';
+        : 'text-positive-tint-ink';
 
   return (
     <div

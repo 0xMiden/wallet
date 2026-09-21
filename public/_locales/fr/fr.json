@@ -1097,7 +1097,6 @@
   "networkNoticeResetTitle": "Le réseau peut se réinitialiser",
   "activityCheckingTransfer": "Vérification en cours…",
   "networkNoticeResetBody": "Une réinitialisation efface les soldes et l'historique. Les soldes de test ne sont jamais reportés sur le Mainnet.",
-  "receiveTestFundsTitle": "Jetons de test uniquement",
   "withdrawalCheckingDescription": "Vérification de votre retrait. Gardez le portefeuille ouvert jusqu’à la confirmation de la livraison.",
   "retryEarnDelivery": "Réessayer la livraison",
   "activityTransferDetails": "Détails",

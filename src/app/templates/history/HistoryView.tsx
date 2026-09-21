@@ -310,8 +310,8 @@ function buildRowProps(
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
-    // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
-    // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
+    // the badge tracks that leg, as the details page does. Deliberately checked
+    // AFTER cancelled/failed/pending so a Miden-side
     // failure always wins over the lending leg's state.
     status = earnDepositSettlementOf(entry);
   } else if (isSwap && entry.swapSettlement === 'pending') {
@@ -422,12 +422,15 @@ const HistoryView = memo<HistoryViewProps>(
     const list = (
       <div data-testid="history-view" className="flex flex-col">
         {/* Each row is a layout-animated Framer element (`ActivityRow`), and
-            `layout` on the date group moves the groups below into the space a
-            removed row leaves. Rows and groups slide; nothing fades, so a
-            filter change behaves like a native list update. */}
+            `layout="position"` on the date group moves the groups below into the
+            space a removed row leaves. Rows and groups slide; nothing fades, so a
+            filter change behaves like a native list update. Position-only, because
+            a full `layout` would also scale this group and Framer cannot correct a
+            radius that lives in a class rather than `style` - the row below passes
+            exactly such a radius. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
           <motion.div
-            layout
+            layout="position"
             transition={layoutTransition}
             key={dateMs}
             className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
@@ -448,7 +451,7 @@ const HistoryView = memo<HistoryViewProps>(
                 }
                 const props = buildRowProps(entry, t, tokenId);
                 return (
-                  <Card key={entry.key} asChild padding="row" interactive={Boolean(entry.txId)}>
+                  <Card key={entry.key} asChild padding="row" pressable={Boolean(entry.txId)}>
                     <ActivityRow
                       entryKey={entry.key}
                       testId="activity-row"

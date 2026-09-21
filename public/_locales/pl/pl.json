@@ -1097,7 +1097,6 @@
   "networkNoticeResetTitle": "Sieć może się zresetować",
   "activityCheckingTransfer": "Sprawdzam…",
   "networkNoticeResetBody": "Resetowanie powoduje wyzerowanie sald i historii. Salda testowe nigdy nie są przenoszone do sieci Mainnet.",
-  "receiveTestFundsTitle": "Wyłącznie tokeny testowe",
   "withdrawalCheckingDescription": "Sprawdzamy Twoją wypłatę. Pozostaw portfel otwarty do czasu potwierdzenia dostarczenia środków.",
   "retryEarnDelivery": "Ponów dostarczenie",
   "activityTransferDetails": "Szczegóły",
