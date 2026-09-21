@@ -57,13 +57,9 @@ export { SegmentedActionBar } from './SegmentedActionBar';
 export type { SegmentedActionBarProps, SegmentedActionBarItem } from './SegmentedActionBar';
 
 export { SegmentedControl } from './SegmentedControl';
-export type {
-  SegmentedControlProps,
-  SegmentedControlItem,
-  SegmentedControlSize,
-  SegmentedControlLayout,
-  SegmentedControlRole
-} from './SegmentedControl';
+// Only what a caller imports: the size, layout and role vocabularies have no importer, so they
+// stay internal until one exists.
+export type { SegmentedControlProps, SegmentedControlItem } from './SegmentedControl';
 
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
