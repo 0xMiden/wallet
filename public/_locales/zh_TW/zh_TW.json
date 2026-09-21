@@ -1081,7 +1081,6 @@
   "networkNoticeResetTitle": "網路可重置",
   "activityCheckingTransfer": "正在檢查……",
   "networkNoticeResetBody": "重置會清除餘額與交易紀錄。測試網的餘額絕不會轉移至主網。",
-  "receiveTestFundsTitle": "僅限測試代幣",
   "withdrawalCheckingDescription": "正在檢查您的提領狀態。請保持錢包開啟，直到確認送達。",
   "retryEarnDelivery": "重試交付",
   "activityTransferDetails": "詳細說明",

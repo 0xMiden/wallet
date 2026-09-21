@@ -117,6 +117,21 @@ describe('FormField', () => {
   });
 
   describe('password handling', () => {
+    // `off` is the one value browsers override on a password-type input, which is exactly the
+    // field this default exists to protect, so a password field needs `new-password`. Same rule
+    // and same shape in `TextField`, which replaces this component.
+    it('suppresses the password manager with new-password, not off', () => {
+      const { container } = render(<FormField type="password" />);
+
+      expect(getInput(container)).toHaveAttribute('autocomplete', 'new-password');
+    });
+
+    it('lets a caller override it, for a field that wants the stored password', () => {
+      const { container } = render(<FormField type="password" autoComplete="current-password" />);
+
+      expect(getInput(container)).toHaveAttribute('autocomplete', 'current-password');
+    });
+
     it('shows the password toggle when a value is present and toggles the input type', () => {
       const { container } = render(<FormField type="password" defaultValue="secret" />);
 

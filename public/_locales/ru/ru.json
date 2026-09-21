@@ -1081,7 +1081,6 @@
   "networkNoticeResetTitle": "Сеть может сбросить настройки",
   "activityCheckingTransfer": "Проверка…",
   "networkNoticeResetBody": "Сброс очищает балансы и историю. Тестовые балансы никогда не переносятся в Mainnet.",
-  "receiveTestFundsTitle": "Только тестовые токены",
   "withdrawalCheckingDescription": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
   "retryEarnDelivery": "Повторить доставку",
   "activityTransferDetails": "Подробности",

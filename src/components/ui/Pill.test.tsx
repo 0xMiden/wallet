@@ -2,11 +2,11 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 
 import { Pill } from './Pill';
 
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -100,18 +100,7 @@ it('puts a status pill on its opaque tint, not a translucent wash of the status 
   expect(screen.getByTestId('pill').className).not.toMatch(/bg-status-negative\//);
 });
 
-it('renders a leading status dot in the tone’s own ink color', () => {
-  const { container } = render(
-    <Pill size="sm" tone="warning" dot>
-      Pending
-    </Pill>
-  );
-
-  const dot = container.querySelector('[aria-hidden="true"]');
-  expect(dot).toHaveClass('bg-current', 'rounded-full');
-});
-
-it('does not render a dot unless asked', () => {
+it('draws the status word alone, with no dot', () => {
   const { container } = render(<Pill tone="positive">Earning</Pill>);
   expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
 });
@@ -176,32 +165,6 @@ describe('haptic', () => {
     fireEvent.click(screen.getByTestId('pill'));
 
     expect(hapticLight).toHaveBeenCalledTimes(2);
-    expect(hapticSelection).not.toHaveBeenCalled();
-    expect(onClick).toHaveBeenCalledTimes(2);
-  });
-
-  it('fires hapticSelection only when the tap actually selects (haptic="selection")', () => {
-    const onClick = jest.fn();
-    const { rerender } = render(
-      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected={false}>
-        received
-      </Pill>
-    );
-
-    fireEvent.click(screen.getByTestId('pill'));
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(hapticLight).not.toHaveBeenCalled();
-
-    // Re-tapping an already-selected pill (the caller flips `selected` once it commits the
-    // change) is silent — the equivalent of tapping the already-active filter twice.
-    rerender(
-      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected>
-        received
-      </Pill>
-    );
-    fireEvent.click(screen.getByTestId('pill'));
-
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledTimes(2);
   });
 
@@ -216,7 +179,6 @@ describe('haptic', () => {
     fireEvent.click(screen.getByTestId('pill'));
 
     expect(hapticLight).not.toHaveBeenCalled();
-    expect(hapticSelection).not.toHaveBeenCalled();
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
@@ -282,4 +244,37 @@ it('draws an inverse pill as a darker well of the colored surface under it, in t
   );
 
   expect(screen.getByTestId('pill')).toHaveClass('bg-surface-balance-pill', 'text-surface-balance-fg');
+});
+
+// A status whose content changes on screen is a polite live region. The prop is a boolean rather
+// than an ARIA string: there was only ever one legal value, and StatusBadge is its only caller.
+it('becomes a polite live region when told it is live', () => {
+  const { rerender } = render(
+    <Pill data-testid="pill" tone="warning">
+      Pending
+    </Pill>
+  );
+  expect(screen.getByTestId('pill')).not.toHaveAttribute('role');
+
+  rerender(
+    <Pill data-testid="pill" tone="warning" live>
+      Pending
+    </Pill>
+  );
+  expect(screen.getByTestId('pill')).toHaveAttribute('role', 'status');
+  expect(screen.getByTestId('pill')).toHaveAttribute('aria-live', 'polite');
+});
+
+// Only the static branch renders the live region, so a tappable pill can never be one: the props
+// are mutually exclusive at the type level rather than silently dropped at runtime, and a
+// `role="status"` on the `<button>` would replace its button role. A compile-time assertion - if
+// the union stops rejecting the pair, the directive is unused and `yarn ts` fails on it.
+it('does not typecheck as both live and tappable - a live pill is never a button', () => {
+  const element = (
+    // @ts-expect-error `live` and `onClick` are mutually exclusive at the type level.
+    <Pill onClick={jest.fn()} live>
+      Pending
+    </Pill>
+  );
+  expect(element).toBeTruthy();
 });

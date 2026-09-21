@@ -210,6 +210,24 @@ describe('SetupPasscodeScreen', () => {
       expect(onSubmit).toHaveBeenCalledWith('123456');
     });
 
+    // The completion effect depends on `onSubmit`, so a parent re-rendering with a NEW function
+    // re-runs it with the same full, matching code. Without a record of what was already submitted
+    // that submits the passcode a second time. PasscodeEntry already guards this; setup did not.
+    it('submits a confirmed code once, even when the parent re-renders with a new onSubmit', () => {
+      const first = jest.fn();
+      const { rerender } = renderComponent({ onSubmit: first });
+      advanceToConfirm();
+      typeCode('123456');
+      flushTimers();
+      expect(first).toHaveBeenCalledTimes(1);
+
+      const second = jest.fn();
+      rerender(<SetupPasscodeScreen onSubmit={second} />);
+      flushTimers();
+
+      expect(second).not.toHaveBeenCalled();
+    });
+
     it('does not throw when the codes match but onSubmit is omitted', () => {
       renderComponent();
 

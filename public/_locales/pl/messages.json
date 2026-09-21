@@ -4771,10 +4771,6 @@
     "message": "Resetowanie powoduje wyzerowanie sald i historii. Salda testowe nigdy nie są przenoszone do sieci Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
-  "receiveTestFundsTitle": {
-    "message": "Wyłącznie tokeny testowe",
-    "englishSource": "Test tokens only"
-  },
   "withdrawalCheckingDescription": {
     "message": "Sprawdzamy Twoją wypłatę. Pozostaw portfel otwarty do czasu potwierdzenia dostarczenia środków.",
     "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."

@@ -1081,7 +1081,6 @@
   "networkNoticeResetTitle": "La red puede reiniciarse",
   "activityCheckingTransfer": "Comprobando…",
   "networkNoticeResetBody": "Un reinicio borra los saldos y el historial. Los saldos de prueba nunca se transfieren a Mainnet.",
-  "receiveTestFundsTitle": "Solo tokens de prueba",
   "withdrawalCheckingDescription": "Comprobando tu retirada. Mantén el monedero abierto hasta que se confirme la entrega.",
   "retryEarnDelivery": "Volver a intentar la entrega",
   "activityTransferDetails": "Detalles",

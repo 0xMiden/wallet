@@ -1,11 +1,10 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
-import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
@@ -16,14 +15,6 @@ import { placeholderPosition } from './earn-mapping';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
-type EarnTimeframe = '1D' | '1W' | '1M' | 'All';
-
-const TIMEFRAMES: EarnTimeframe[] = ['1D', '1W', '1M', 'All'];
-
-const TIMEFRAME_ITEMS: SegmentedControlItem<EarnTimeframe>[] = TIMEFRAMES.map(tf => ({
-  id: tf,
-  label: tf
-}));
 const CHART_GREEN = '#90BA89';
 
 interface EarnPositionDetailProps {
@@ -32,7 +23,6 @@ interface EarnPositionDetailProps {
 
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
   const { summary, positions } = useEarnPositions();
   const position = useMemo(
     () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
@@ -52,16 +42,6 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
           <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
 
           <PositionAreaChart position={position} />
-
-          <SegmentedControl
-            items={TIMEFRAME_ITEMS}
-            value={timeframe}
-            onChange={setTimeframe}
-            size="sm"
-            layout="fill"
-            aria-label={t('chartTimeframe')}
-            className="mt-3"
-          />
 
           <PositionHeading position={position} />
           <PositionStats position={position} />

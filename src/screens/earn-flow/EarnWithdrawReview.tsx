@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { Pill } from 'components/ui/Pill';
@@ -76,6 +77,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-withdraw-review-page">
+      <NetworkModeBanner />
       <PageHeader
         className="shrink-0 px-4"
         title={`${position.protocol} • ${position.asset}`}

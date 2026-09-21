@@ -1081,7 +1081,6 @@
   "networkNoticeResetTitle": "A rede pode ser reiniciada",
   "activityCheckingTransfer": "Verificando…",
   "networkNoticeResetBody": "Uma reinicialização apaga os saldos e o histórico. Os saldos de teste nunca são transferidos para a Mainnet.",
-  "receiveTestFundsTitle": "Apenas tokens de teste",
   "withdrawalCheckingDescription": "Verificando seu saque. Mantenha a carteira aberta até que a entrega seja confirmada.",
   "retryEarnDelivery": "Tentar a entrega novamente",
   "activityTransferDetails": "Detalhes",

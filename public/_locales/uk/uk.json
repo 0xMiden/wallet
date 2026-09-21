@@ -1081,7 +1081,6 @@
   "networkNoticeResetTitle": "Мережа може скинути налаштування",
   "activityCheckingTransfer": "Перевіряю…",
   "networkNoticeResetBody": "Скидання очищає залишки та історію. Тестові залишки ніколи не переносяться до Mainnet.",
-  "receiveTestFundsTitle": "Тільки тестові токени",
   "withdrawalCheckingDescription": "Перевіряємо ваше виведення коштів. Тримайте гаманець відкритим, доки доставку не буде підтверджено.",
   "retryEarnDelivery": "Повторити доставку",
   "activityTransferDetails": "Деталі",
