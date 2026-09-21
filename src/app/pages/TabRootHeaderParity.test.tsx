@@ -39,7 +39,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => 'https://rpc.example',
   getEffectiveNetworkName: () => 'testnet'
 }));
-jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
+jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ search: '' }) }));
 
 const catalog: ExploreCatalog = {
   items: [
