@@ -337,6 +337,7 @@
   "nothingToPaste": "Nothing to paste. Copy an address first.",
   "chooseRecipient": "Choose recipient",
   "sendTo": "Send to",
+  "sendRecipientPlaceholder": "Enter Miden or Ethereum Address",
   "selectAmount": "Select Amount",
   "enterAmount": "Enter amount",
   "calculatingQuote": "Calculating",

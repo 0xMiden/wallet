@@ -101,11 +101,10 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const showAddContact = canAddContact && !!onAddContact;
   const recentRecipients = hasAddress ? [] : (recents ?? []);
   const pillSet = !hasAddress ? 'empty' : showAddContact ? 'add' : 'book';
-  // eslint-disable-next-line i18next/no-literal-string -- Product-specified recipient placeholder copy.
-  const addressPlaceholder = 'Enter Miden or Ethereum Address';
-  // "Scan" rather than "Scan QR Code": the three pills have to fit one row on a 375pt phone
-  // without scrolling sideways, and the frame glyph beside it already says what it scans.
-  const scanQrCodeLabel = t('scan');
+  const addressPlaceholder = t('sendRecipientPlaceholder');
+  // The scanner's own key, already localised everywhere, rather than a second English literal:
+  // sentence case, as the design system asks of a label.
+  const scanQrCodeLabel = t('scanQrTitle');
 
   // Done label on the mobile keyboard. Set via the ref because this repo's
   // @types/react version types enterKeyHint on inputs but not textareas.

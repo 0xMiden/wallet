@@ -337,6 +337,7 @@
   "nothingToPaste": "Нема чого вставити. Спершу скопіюйте адресу.",
   "chooseRecipient": "Виберіть одержувача",
   "sendTo": "Кому",
+  "sendRecipientPlaceholder": "Введіть адресу Miden або Ethereum",
   "selectAmount": "Виберіть суму",
   "enterAmount": "Введіть суму",
   "calculatingQuote": "Обчислення",

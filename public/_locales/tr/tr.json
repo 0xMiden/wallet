@@ -337,6 +337,7 @@
   "nothingToPaste": "Yapıştırılacak bir şey yok. Önce bir adres kopyalayın.",
   "chooseRecipient": "Alıcıyı seçin",
   "sendTo": "Alıcı",
+  "sendRecipientPlaceholder": "Miden veya Ethereum adresi girin",
   "selectAmount": "Tutar Seç",
   "enterAmount": "Tutarı girin",
   "calculatingQuote": "Hesaplanıyor",
