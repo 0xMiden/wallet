@@ -21,7 +21,9 @@ export const durations = {
    */
   count: 0.6,
   /** One pass of a looping shimmer (`presets.shimmer`) */
-  shimmer: 1.2
+  shimmer: 1.2,
+  /** One breath of a looping pulse — an unread indicator asking to be looked at (`presets.pulse`) */
+  pulse: 2.4
 } as const;
 
 export type DurationName = keyof typeof durations;
