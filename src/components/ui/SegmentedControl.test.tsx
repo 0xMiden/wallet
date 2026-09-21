@@ -384,6 +384,32 @@ describe('SegmentedControl — layouts', () => {
     expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
   });
 
+  // A stored setting from another build, or a list that loads after the value: nothing is selected at
+  // mount, so the user's FIRST real selection is a move and has to be kept in view. A latch that
+  // armed itself on the first render WITH a match swallowed exactly this one.
+  it('scrolls the first real selection when it mounted with a value matching no item', () => {
+    const { rerender } = render(<SegmentedControl items={items} value={'nope' as Filter} onChange={jest.fn()} />);
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    rerender(<SegmentedControl items={items} value="received" onChange={jest.fn()} />);
+
+    const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(scrollSpy.mock.contexts[0]).toBe(getRadio('Received'));
+  });
+
+  // `reduceMotion` is a dep of the same effect, so a flip re-runs it with the selection unchanged.
+  // Nothing moved, so nothing scrolls.
+  it('does not scroll when only the reduced-motion preference changes', () => {
+    const { rerender } = renderControl({ value: 'received' });
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    mockReduce = true;
+    rerender(<SegmentedControl items={items} value="received" onChange={jest.fn()} aria-label="Filters" />);
+
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it('does not scroll in the fill layout', () => {
     renderControl({ layout: 'fill' });
 

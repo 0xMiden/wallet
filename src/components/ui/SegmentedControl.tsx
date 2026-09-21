@@ -159,12 +159,11 @@ export function SegmentedControl<T extends string>({
   const motionTokens = useTabBarMotion();
   const reduceMotion = useReducedMotion();
   const rowRef = useRef<HTMLDivElement>(null);
+  const selectedIndex = items.findIndex(item => item.id === value);
   // Mounting a page is not a selection change. scrollIntoView walks every scrollable ANCESTOR, so a
   // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
   // moves the page under it instead, sideways.
-  const scrolledOnce = useRef(false);
-
-  const selectedIndex = items.findIndex(item => item.id === value);
+  const lastSelectedIndex = useRef(selectedIndex);
   // The item Tab lands on: the selected one, or the first that can be chosen when none is.
   const focusIndex =
     selectedIndex >= 0 && !items[selectedIndex]?.disabled ? selectedIndex : items.findIndex(item => !item.disabled);
@@ -182,11 +181,13 @@ export function SegmentedControl<T extends string>({
   };
 
   useEffect(() => {
-    if (layout !== 'scroll' || selectedIndex < 0) return;
-    if (!scrolledOnce.current) {
-      scrolledOnce.current = true;
-      return;
-    }
+    // Scroll when the selection MOVED, not on the first render that happens to be scrollable with a
+    // match: a control mounted with a value matching no item would otherwise swallow the scroll for
+    // the user's first real selection, and a reduced-motion flip (a dep of this effect) would scroll
+    // with no selection change at all.
+    const previous = lastSelectedIndex.current;
+    lastSelectedIndex.current = selectedIndex;
+    if (layout !== 'scroll' || selectedIndex < 0 || selectedIndex === previous) return;
     const node = rowRef.current?.children[selectedIndex];
     if (!(node instanceof HTMLElement)) return;
     node.scrollIntoView({
