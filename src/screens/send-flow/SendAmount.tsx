@@ -8,7 +8,7 @@ import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
-import { Pill } from 'components/ui';
+import { AnimatedNumber, Pill } from 'components/ui';
 import { Card } from 'components/ui/Card';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
@@ -16,7 +16,7 @@ import { easings } from 'lib/animation/easings';
 import { hapticLight } from 'lib/mobile/haptics';
 import { truncateAddress } from 'utils/string';
 
-import { approxFiatAmount, formatBalance } from './amount-format';
+import { approxFiatAmount, balanceFormatterFor, formatBalance } from './amount-format';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
@@ -129,7 +129,14 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               </span>
               {token && (
                 <span className="text-sm text-text-muted" data-testid="send-amount-available">
-                  {scaleIsKnown ? `${t('available')} ${formatBalance(token.balance)}` : t('unknownTokenScale')}
+                  {scaleIsKnown ? (
+                    <AnimatedNumber
+                      value={token.balance}
+                      format={value => `${t('available')} ${balanceFormatterFor(token.balance)(value)}`}
+                    />
+                  ) : (
+                    t('unknownTokenScale')
+                  )}
                 </span>
               )}
             </span>
