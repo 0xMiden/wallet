@@ -106,10 +106,11 @@ describe('EarnPositions', () => {
     const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
     expect(cards).toHaveLength(EARN_DATA.positions.length);
-    // Each card is the shared fill card, never an outlined one.
+    // Each card is the shared outlined card, the same one the tab root draws for this position:
+    // Earn's cards stand on the page rather than reading as one grey block.
     cards.forEach(card => {
-      expect(card).toHaveClass('bg-fill', 'rounded-2xl');
-      expect(card.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+      expect(card).toHaveClass('bg-page', 'rounded-2xl', 'border', 'border-hairline');
+      expect(card).not.toHaveClass('bg-fill');
     });
 
     // ProviderLogo + trailing sr-only chevron Icon appear once per card.
