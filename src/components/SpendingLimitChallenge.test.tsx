@@ -122,6 +122,22 @@ describe('SpendingLimitChallenge', () => {
     });
   });
 
+  it('binds to an empty spends list when none were supplied', () => {
+    const onResult = jest.fn();
+    render(
+      <SpendingLimitChallenge
+        assessment={breachAssessment()}
+        onResult={onResult}
+        now={() => 1_000}
+        makeId={() => 'auth-1'}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
+
+    expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ spendsDigest: spendsDigest([]) }));
+  });
+
   it('uses the current time when no clock is injected', () => {
     const onResult = jest.fn();
     const clock = jest.spyOn(Date, 'now').mockReturnValue(120_000);

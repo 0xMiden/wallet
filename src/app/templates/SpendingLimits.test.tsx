@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { SpendingLimitConfiguration } from 'lib/miden/spending-limits/types';
 
@@ -270,6 +270,92 @@ describe('SpendingLimits', () => {
     reject(new Error('raw storage failure'));
     expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitLoadFailed');
     expect(screen.queryByText('raw storage failure')).not.toBeInTheDocument();
+  });
+
+  it('discards a load that resolves after a newer load has already started', async () => {
+    let resolveFirst!: (value: SpendingLimitConfiguration | undefined) => void;
+    mockReadSpendingLimit.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveFirst = resolve;
+        })
+    );
+    const view = renderScreen();
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+
+    mockWalletState.currentAccount = { publicKey: 'account-b' };
+    mockReadSpendingLimit.mockResolvedValue(
+      configuration({ accountId: 'account-b', limit: 5_000_000n, revision: 'revision-b' })
+    );
+    view.rerender(<SpendingLimits />);
+    expect(await screen.findByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+
+    // The abandoned first read for account-a finally settles. Its result must not clobber the
+    // field that already reflects the account the user is now looking at. Flushed explicitly,
+    // rather than through `waitFor` - `waitFor`'s first (synchronous) poll would pass trivially
+    // before the stale `.then` has even had a chance to run, proving nothing about the guard.
+    await act(async () => {
+      resolveFirst(configuration({ limit: 20_000_000n, revision: 'revision-1' }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+  });
+
+  it('discards a load failure that arrives after a newer load has already started', async () => {
+    let rejectFirst!: (error: Error) => void;
+    mockReadSpendingLimit.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectFirst = reject;
+        })
+    );
+    const view = renderScreen();
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+
+    mockWalletState.currentAccount = { publicKey: 'account-b' };
+    mockReadSpendingLimit.mockResolvedValue(
+      configuration({ accountId: 'account-b', limit: 5_000_000n, revision: 'revision-b' })
+    );
+    view.rerender(<SpendingLimits />);
+    expect(await screen.findByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+
+    // The abandoned first read fails late. It must not retroactively mark the now-loaded screen
+    // as failed. Flushed explicitly for the same reason as the sibling success case above.
+    await act(async () => {
+      rejectFirst(new Error('stale storage failure'));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+  });
+
+  it('ignores a second save while the first is still writing', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    let resolveSave!: (value: SpendingLimitConfiguration) => void;
+    mockSaveSpendingLimit.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSave = resolve;
+        })
+    );
+    renderScreen();
+
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '10' } });
+    const saveButton = screen.getByRole('button', { name: 'spendingLimitSave' });
+    // Both clicks inside one `act` so the first click's `saving` update has not yet re-rendered
+    // (and disabled the button) by the time the second is dispatched - the actual race a fast
+    // double-tap produces, not one artificially spaced out by an intervening flush.
+    act(() => {
+      fireEvent.click(saveButton);
+      fireEvent.click(saveButton);
+    });
+
+    resolveSave(configuration({ limit: 10_000_000n }));
+    await waitFor(() => expect(mockSaveSpendingLimit).toHaveBeenCalledTimes(1));
   });
 
   it('does not persist an authenticated draft after the account changes', async () => {
