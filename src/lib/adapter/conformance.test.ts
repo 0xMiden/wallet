@@ -40,7 +40,10 @@ import path from 'path';
 // the real interface, and `-miden` extends a class from `-base`, so the mock
 // turns the import into "Class extends value undefined".
 jest.unmock('@miden-sdk/miden-wallet-adapter-base');
-jest.unmock('@miden-sdk/miden-wallet-adapter-miden');
+// Do not unmock adapter-miden here: 0.17.0-rc.1 publishes only `module`
+// (no `main`), and jest.unmock of the package name throws "Cannot find module"
+// before loadConformance's try/catch can skip. The require inside
+// loadConformance still skips until a `main` or `exports` field lands.
 
 type Case = { name: string; run: () => void | Promise<void> };
 type ConformanceModule = {

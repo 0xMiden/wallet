@@ -542,10 +542,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account and faucet on schema version 1.7', () => {
+  it('keys spending limits by account and faucet on schema version 1.8', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(1.7);
+    expect(db.verno).toBe(1.8);
     expect(schema.primKey.keyPath).toEqual(['accountId', 'faucetId']);
     expect(schema.indexes.map(index => index.name)).toEqual(
       expect.arrayContaining(['accountId', 'faucetId', 'revision'])
