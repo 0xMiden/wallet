@@ -28,6 +28,7 @@ import { IconButton } from './IconButton';
 import * as UI from './index';
 import { ListGroup } from './ListGroup';
 import { ListRow } from './ListRow';
+import { Notice } from './Notice';
 import { Pill } from './Pill';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
@@ -87,6 +88,7 @@ describe('components/ui barrel', () => {
     Hero,
     ListGroup,
     ListRow,
+    Notice,
     SectionHeader,
     Card,
     CardButton,

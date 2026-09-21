@@ -18,6 +18,9 @@ export type { ListGroupProps } from './ListGroup';
 export { ListRow } from './ListRow';
 export type { ListRowProps } from './ListRow';
 
+export { Notice } from './Notice';
+export type { NoticeProps, NoticeTone } from './Notice';
+
 export { SectionHeader } from './SectionHeader';
 export type { SectionHeaderProps } from './SectionHeader';
 
