@@ -2795,6 +2795,54 @@ describe('HomePrompts', () => {
     });
   });
 
+  it('arms no timer when it unmounts while the clipboard write is still pending', async () => {
+    jest.useFakeTimers();
+    mockFetchHotKeyHardwareError.mockResolvedValue({ message: 'TEE unavailable (code 7)' });
+    let resolveWrite: () => void = () => undefined;
+    const writeText = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          resolveWrite = resolve;
+        })
+    );
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    const { unmount } = render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() => expect(mockFetchHotKeyHardwareError).toHaveBeenCalled());
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+
+    unmount();
+    // The feedback timer is armed only AFTER the awaited write, so at unmount there is nothing for
+    // the cleanup to clear. Without a liveness check the continuation arms one anyway.
+    await act(async () => {
+      resolveWrite();
+    });
+    expect(jest.getTimerCount()).toBe(0);
+    jest.useRealTimers();
+  });
+
   it('marks the copy action failed when the clipboard rejects', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const writeText = jest.fn().mockRejectedValue(new Error('denied'));

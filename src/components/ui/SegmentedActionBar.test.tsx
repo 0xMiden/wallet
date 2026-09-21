@@ -160,14 +160,14 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
 
     const activeTab = getTab('Send');
     expect(activeTab).toHaveClass('rounded-full', 'group');
-    expect(activeTab.style.borderRadius).toBe('');
+    expect(activeTab.style.borderRadius).toBe('9999px');
     // No clip on the segment, or it would cut the pill's shadow off.
     expect(activeTab).not.toHaveClass('overflow-hidden');
 
     const pill = pillIn(activeTab)!;
     expect(pill).toHaveClass('inset-0', 'rounded-full', 'bg-raised', 'shadow-raised');
     expect(pill).toHaveClass('group-active:shadow-raised-pressed');
-    expect(pill.style.borderRadius).toBe('');
+    expect(pill.style.borderRadius).toBe('9999px');
   });
 
   it('moves the pill and label when a different tab is active, on one shared layoutId', () => {

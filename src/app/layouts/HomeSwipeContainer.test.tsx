@@ -324,9 +324,12 @@ function release(idealX: number): number | undefined {
  * `pointerType` when it falls back to `Event` — which is the one field the
  * handler branches on, so it is set explicitly here.
  */
-function pointerDown(node: Element, pointerType: 'touch' | 'mouse'): Event {
+function pointerDown(node: Element, pointerType: 'touch' | 'mouse', isPrimary?: boolean): Event {
   const event = new Event('pointerdown', { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'pointerType', { value: pointerType });
+  // Left undefined unless a test asks, which is what a synthesized pointerdown carries and what
+  // every existing test here relies on.
+  if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
   act(() => {
     fireEvent(node, event);
   });
@@ -780,6 +783,30 @@ describe('HomeSwipeContainer', () => {
         { transform: 'translateX(-300px)' }
       ]);
       expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    // A second finger landing mid-swipe is not a new gesture. Without the guard the capture handler
+    // cleared the drag flag, so the swipe in flight was judged a tap and snapped back to where it
+    // started. This is the same setup as the test below, with the one difference that matters.
+    it('keeps an in-flight drag when a second, non-primary finger lands', () => {
+      mockPathname = '/send';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      act(() => {
+        mockLastDragStart?.();
+      });
+      settleAt(-120);
+
+      pointerDown(getByTestId('page-send'), 'touch', false);
+      act(() => {
+        mockLastModifyTarget?.(mockX);
+      });
+
+      expect(releaseInFlight().keyframes).not.toEqual([
+        { transform: 'translateX(-120px)' },
+        { transform: 'translateX(-300px)' }
+      ]);
     });
 
     it('judges a drag that follows an unfinished drag as a new gesture', () => {
