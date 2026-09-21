@@ -65,7 +65,18 @@ const buttonVariants = cva(
       },
       size: {
         // 48px, not 52: a pinned CTA (often with a secondary under it) was eating the page.
-        lg: 'h-12 w-full max-w-92.5 text-cta',
+        //
+        // The width is the row it sits in, up to `--container-cta` (370px: the 402px reference
+        // screen less the 16px page margin either side), CENTRED once the cap bites. Both halves
+        // are the size's job, not the caller's. The cap was here on its own before and was turned
+        // off by `max-w-none` in 65 files, because uncentred it left the button hard against the
+        // left of a wide row with all the slack on the right — worse than no cap, so every screen
+        // defeated it and the CTA went edge to edge instead. Split by `mx-auto` that slack is the
+        // same 16px the page margin gives, so the button lands on the page margin both in a
+        // footer that pads itself and in one that does not.
+        lg: 'h-12 w-full max-w-cta mx-auto text-cta',
+        // No cap and no centring: a compact button is sized by its own label and never reaches
+        // one, and it sits wherever the row it belongs to puts it.
         sm: 'h-9 text-cta-sm'
       }
     },
@@ -79,8 +90,13 @@ const buttonVariants = cva(
 /**
  * The design system's primary action (skills/miden-wallet-frontend/references/design-system.md,
  * "Primary action"): a pill in one of four variants and two sizes. `className` is for layout
- * (margins, width), not for restyling. Loading swaps the label for the spinner and keeps the
- * label's width, so the button never changes size.
+ * (margins, position in its row), not for restyling. Loading swaps the label for the spinner and
+ * keeps the label's width, so the button never changes size.
+ *
+ * A `lg` button's WIDTH is the component's, not the caller's: it fills its row up to the CTA cap
+ * and centres there (see the `size` variants). A caller pairs it (`flex-1` in a two-button row)
+ * or nudges it (`mx-0` for the few legacy buttons that set a width of their own); passing
+ * `max-w-none` to unpin the cap is what produced the edge-to-edge CTAs this contract replaces.
  */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {

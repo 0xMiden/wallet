@@ -141,6 +141,18 @@ button:disabled,
     'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-inter: 'Inter', system-ui, sans-serif;
   --default-font-family: var(--font-sans);
+
+  /**
+   * The widest a primary action is ever drawn (`max-w-cta`, `Button` size `lg`): the 402px
+   * reference screen less the 16px page margin on each side. It is a maximum, not a width — on a
+   * phone the CTA fills the row it is pinned in, and the cap bites only on the wider frames (the
+   * extension's full page, the side panel, the desktop window), where a pill the width of a 600px
+   * column reads as a banner rather than a button. Paired with `mx-auto` it also gives the CTA
+   * that same 16px on each side in a row that carries no gutter of its own, so the button lands
+   * on the page margin whichever frame pins it. Registered with tailwind-merge in `lib/ui/util.ts`
+   * so a caller's own `max-w-*` still replaces it rather than stacking with it.
+   */
+  --container-cta: 23.125rem;
 }
 
 /**

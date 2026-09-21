@@ -85,12 +85,37 @@ describe('Button', () => {
       expect(screen.getByRole('button')).toHaveClass('h-12', 'rounded-full', 'w-full', 'text-cta');
     });
 
-    it('is a 36px pill with a 15px label at size sm', () => {
+    it('caps the CTA at the page column and centres what is left over', () => {
+      render(<Button />);
+
+      // The pair is the contract, not the cap on its own: uncentred, the cap left the button hard
+      // against the left of a wide row with all the slack on the right, and 65 screens answered
+      // that with `max-w-none`, which is how the CTA came to touch both screen edges. Centred,
+      // the slack is the 16px page margin, so a footer that pads itself and one that does not
+      // put their button in the same place.
+      expect(screen.getByRole('button')).toHaveClass('max-w-cta', 'mx-auto');
+    });
+
+    it('is a 36px pill with a 15px label at size sm, uncapped and uncentred', () => {
       render(<Button size="sm" />);
 
       const button = screen.getByRole('button');
       expect(button).toHaveClass('h-9', 'rounded-full', 'text-cta-sm');
       expect(button).not.toHaveClass('h-12', 'w-full', 'text-cta');
+      // A compact button is sized by its own label and sits where its row puts it.
+      expect(button).not.toHaveClass('max-w-cta');
+      expect(button).not.toHaveClass('mx-auto');
+    });
+
+    it('lets a caller replace the cap rather than stack another max-width beside it', () => {
+      // `max-w-cta` is a theme key tailwind-merge does not ship, so `lib/ui/util` registers it in
+      // the `max-w` group. Without that both classes survive `cn()` and which one wins is a
+      // question about stylesheet order — the kind of thing that then gets "fixed" with a `!`.
+      render(<Button className="max-w-none" />);
+
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass('max-w-none');
+      expect(button).not.toHaveClass('max-w-cta');
     });
 
     it('lets className set layout on top of the size', () => {
