@@ -79,6 +79,7 @@ const RevealSeedPhrase: FC = () => {
   const [probeError, setProbeError] = useState<string | null>(null);
   const [probing, setProbing] = useState(false);
   const probeGeneration = useRef(0);
+  const probeTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -113,23 +114,11 @@ const RevealSeedPhrase: FC = () => {
   // unavailable - see `probeError`. Off desktop and mobile `hasHardwareProtector`
   // returns false without touching storage, so none of this runs there.
   const probe = useCallback(async () => {
-    const read = (async () => {
-      try {
-        return await Vault.hasHardwareProtector();
-      } catch {
-        return !(await Vault.hasPasswordProtector());
-      }
-    })();
-    // Bounded, because the recovery affordance is gated on this settling. A storage
-    // read that HANGS rather than rejects would otherwise leave `probing` true for
-    // good: the Retry stays disabled (the real Button also sets `pointer-events-none`
-    // while loading, so it is inert, not merely styled), View is still disabled
-    // because no answer ever arrived, and Close is the only live control. Timing out
-    // into the existing catch is what turns that dead end back into a retryable error.
-    return new Promise<boolean>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('protector probe timed out')), PROBE_TIMEOUT_MS);
-      read.then(resolve, reject).finally(() => clearTimeout(timer));
-    });
+    try {
+      return await Vault.hasHardwareProtector();
+    } catch {
+      return !(await Vault.hasPasswordProtector());
+    }
   }, []);
 
   // One runner for both entry points. The token is defence in depth, not the active
@@ -147,20 +136,38 @@ const RevealSeedPhrase: FC = () => {
   // Stores the message KEY, not the message: `t` is a fresh identity on every render
   // under the app's i18n provider, so depending on it here churns this callback and
   // the effect below re-runs forever. Translated at the render site instead.
+  // The deadline SURFACES a retryable banner; it does not abandon the read. Truncating
+  // would be worse than the hang it guards: these reads are a Capacitor bridge round
+  // trip on mobile, delivered into a WebView the OS suspends while backgrounded - and
+  // this page's whole message is "view this somewhere private", which invites the user
+  // to walk off and come back. An answer that arrives late is still the answer, so a
+  // settle that is still current adopts it and clears the banner. The token is what
+  // makes that safe; it is also why a stray timer firing after unmount is a no-op.
   const runProbe = useCallback(() => {
     const generation = (probeGeneration.current += 1);
     setProbing(true);
+    clearTimeout(probeTimer.current);
+    probeTimer.current = setTimeout(() => {
+      if (generation !== probeGeneration.current) return;
+      setProbeError('couldNotCheckUnlockMethod');
+      setProbing(false);
+    }, PROBE_TIMEOUT_MS);
     probe()
       .then(hasHw => {
         if (generation !== probeGeneration.current) return;
         setProbeError(null);
         setHasHardwareProtector(hasHw);
       })
-      .catch(() => {
+      .catch(err => {
         if (generation !== probeGeneration.current) return;
+        // Logged, not swallowed: three causes reach this banner - the hardware read
+        // failing, the complement failing, and the deadline - and the user-facing
+        // recovery is identical, so only a log can tell them apart in a report.
+        console.warn('[RevealSeedPhrase] protector probe failed:', err);
         setProbeError('couldNotCheckUnlockMethod');
       })
       .finally(() => {
+        clearTimeout(probeTimer.current);
         if (generation === probeGeneration.current) setProbing(false);
       });
   }, [probe]);
@@ -174,6 +181,10 @@ const RevealSeedPhrase: FC = () => {
     // asymmetry with its sibling is the kind that bites later.
     return () => {
       probeGeneration.current += 1;
+      // The generation bump invalidates the WRITE; this invalidates the TIMER. Round 3
+      // added the first and not the second, which left a live handle behind on exactly
+      // the hanging read the bound exists for.
+      clearTimeout(probeTimer.current);
     };
   }, [runProbe]); // eslint-disable-line react-hooks/exhaustive-deps
 

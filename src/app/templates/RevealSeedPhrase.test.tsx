@@ -491,6 +491,109 @@ describe('RevealSeedPhrase', () => {
     expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
   });
 
+  // The generation bump invalidates the WRITE; this pins that the cleanup also owns the
+  // TIMER. Leaving the page mid-probe otherwise leaves a live handle and a closure
+  // holding the read - on exactly the hanging case the bound exists for, where the
+  // settle path that would clear it never runs.
+  it('clears the probe deadline when the page is left mid-probe', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValue(new Promise<boolean>(() => {}));
+      renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(jest.getTimerCount()).toBe(1);
+
+      await act(async () => {
+        testRoot!.unmount();
+        testRoot = null;
+      });
+
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // The deadline must DEGRADE, not truncate. A slow read is the common case on mobile,
+  // where this is a native bridge call into a WebView the OS suspends when backgrounded -
+  // and this page invites the user to walk somewhere private and come back. Discarding
+  // the true answer because it arrived late would trade a rare hang for a routine failure.
+  it('adopts a slow answer that lands after the banner has appeared', async () => {
+    jest.useFakeTimers();
+    try {
+      let settleRead!: (v: boolean) => void;
+      mockHasHardwareProtector.mockReturnValue(
+        new Promise<boolean>(res => {
+          settleRead = res;
+        })
+      );
+      const container = renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+
+      // The read finally comes back, well past the deadline.
+      await act(async () => {
+        settleRead(true);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+      expect(buttonWithText(container, 'view')!.disabled).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // Pins the bound from BELOW: a probe that settles normally must never reach the
+  // deadline, and must leave no timer behind.
+  it('lets a normal probe settle without arming a lasting timer', async () => {
+    jest.useFakeTimers();
+    try {
+      // A read that is SLOW but well inside the bound. It has to be timer-driven: a
+      // mocked promise settles in a microtask, which beats any macrotask deadline, so
+      // an instantly-resolving mock would pass even with the bound set to zero.
+      mockHasHardwareProtector.mockReturnValue(
+        new Promise<boolean>(res => {
+          setTimeout(() => res(true), 4000);
+        })
+      );
+      const container = renderNoFlush();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Just inside the bound: no banner yet. This is the half a final-state assertion
+      // cannot see - because a late answer is now ADOPTED, the end state is the same
+      // whatever the bound is, so only the interim distinguishes them.
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+      expect(buttonWithText(container, 'view')!.disabled).toBe(false);
+      // And nothing is left armed once it settles.
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   // A storage read can HANG rather than reject, and the recovery affordance is gated on
   // the probe settling - so without a bound this is the worst state on the page: no
   // banner (nothing set it), a disabled View (no answer arrived) and only Close. The
