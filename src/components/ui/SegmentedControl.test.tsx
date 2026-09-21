@@ -368,13 +368,10 @@ describe('SegmentedControl — layouts', () => {
     expect(getRadio('All')).toHaveClass('h-10', 'px-4');
   });
 
-  it('scrolls the selected item into view in the scroll layout, instantly under reduced motion', () => {
+  it('scrolls the selected item into view on a change, but never on mount', () => {
     const { rerender } = renderControl({ value: 'all' });
-    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenLastCalledWith({
-      behavior: 'smooth',
-      block: 'nearest',
-      inline: 'nearest'
-    });
+    // Mounting a page is not a selection change, and this call would scroll the page, not the row.
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
 
     const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
     scrollSpy.mockClear();

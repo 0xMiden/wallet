@@ -159,6 +159,10 @@ export function SegmentedControl<T extends string>({
   const motionTokens = useTabBarMotion();
   const reduceMotion = useReducedMotion();
   const rowRef = useRef<HTMLDivElement>(null);
+  // Mounting a page is not a selection change. scrollIntoView walks every scrollable ANCESTOR, so a
+  // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
+  // moves the page under it instead, sideways.
+  const scrolledOnce = useRef(false);
 
   const selectedIndex = items.findIndex(item => item.id === value);
   // The item Tab lands on: the selected one, or the first that can be chosen when none is.
@@ -179,6 +183,10 @@ export function SegmentedControl<T extends string>({
 
   useEffect(() => {
     if (layout !== 'scroll' || selectedIndex < 0) return;
+    if (!scrolledOnce.current) {
+      scrolledOnce.current = true;
+      return;
+    }
     const node = rowRef.current?.children[selectedIndex];
     if (!(node instanceof HTMLElement)) return;
     node.scrollIntoView({
