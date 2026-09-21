@@ -1075,7 +1075,7 @@ describe('MidenClientInterface', () => {
         getEffectiveRpcUrl: () => 'rpc',
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+        getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1121,7 +1121,7 @@ describe('MidenClientInterface', () => {
         getEffectiveRpcUrl: () => 'rpc',
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+        getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1165,7 +1165,7 @@ describe('MidenClientInterface', () => {
         getEffectiveRpcUrl: () => 'rpc',
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+        getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1319,7 +1319,7 @@ describe('MidenClientInterface', () => {
         getEffectiveRpcUrl: () => 'https://rpc.example',
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+        getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
@@ -1399,7 +1399,7 @@ describe('MidenClientInterface', () => {
         getEffectiveRpcUrl: () => 'https://rpc.example',
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+        getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
@@ -2249,7 +2249,7 @@ describe('MidenClientInterface', () => {
         getEffectiveRpcUrl: () => 'rpc-local',
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+        getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('./constants', () => ({ NoteExportType: {} }));
       jest.doMock('./helpers', () => ({

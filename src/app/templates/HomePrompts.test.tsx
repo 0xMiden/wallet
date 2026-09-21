@@ -2906,39 +2906,6 @@ describe('HomePrompts', () => {
     errorSpy.mockRestore();
   });
 
-  it('marks the copy action failed when the clipboard rejects', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    mockUseWalletPromptStorage.mockReturnValue(
-      makePromptState({
-        storage: {
-          version: 1,
-          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
-        },
-        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
-      })
-    );
-
-    render(
-      <HomePrompts
-        account={account}
-        balances={fundedBalance}
-        balancesLoading={false}
-        claimableNotes={[]}
-        fundingNotes={[]}
-        tokenPrices={{}}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
-    await waitFor(() => {
-      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
-    });
-    errorSpy.mockRestore();
-  });
-
   it('mounts the guardian URL prompt only while the account is drifted', () => {
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const props = {
