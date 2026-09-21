@@ -337,6 +337,7 @@
   "nothingToPaste": "Rien à coller. Copiez d'abord une adresse.",
   "chooseRecipient": "Choisissez un destinataire",
   "sendTo": "Envoyer à",
+  "sendRecipientPlaceholder": "Saisissez une adresse Miden ou Ethereum",
   "selectAmount": "Sélectionnez un montant",
   "enterAmount": "Saisir le montant",
   "calculatingQuote": "Calcul en cours",

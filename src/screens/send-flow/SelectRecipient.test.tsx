@@ -80,23 +80,22 @@ describe('SelectRecipient', () => {
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
 
-    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute(
-      'placeholder',
-      'Enter Miden or Ethereum Address'
-    );
+    // Localised, like every other string on the page: the placeholder and the scan label used to
+    // be English literals held in a `const`, which `lint:i18n` cannot see (it only reads JSX).
+    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute('placeholder', 'sendRecipientPlaceholder');
     expect(screen.queryByTestId('send-recipient-avatar')).not.toBeInTheDocument();
-    expect(screen.queryByText('Scan QR Code')).not.toBeInTheDocument();
+    expect(screen.queryByText('scanQrTitle')).not.toBeInTheDocument();
   });
 
-  it('shows Scan QR Code with extracted icons and compact action pills while the address field is empty', () => {
+  it('shows Scan QR code with extracted icons and compact action pills while the address field is empty', () => {
     renderRecipient({ onScan: jest.fn() });
 
-    expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
+    expect(screen.getByText('scanQrTitle')).toBeInTheDocument();
     expect(screen.getByTestId('send-address-book-icon')).toBeInTheDocument();
     expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
     // Both pills are the app's shared Pill, so they are the same height, padding and type
     // scale as every other chip (the network chip beside them included).
-    for (const label of ['addressBook', 'Scan QR Code']) {
+    for (const label of ['addressBook', 'scanQrTitle']) {
       expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-pill');
     }
   });

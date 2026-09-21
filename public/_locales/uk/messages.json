@@ -1565,6 +1565,10 @@
     "message": "Кому",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Введіть адресу Miden або Ethereum",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Виберіть суму",
     "englishSource": "Select Amount"

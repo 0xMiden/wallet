@@ -337,6 +337,7 @@
   "nothingToPaste": "Nichts zum Einfügen. Kopieren Sie zuerst eine Adresse.",
   "chooseRecipient": "Empfänger auswählen",
   "sendTo": "Senden an",
+  "sendRecipientPlaceholder": "Miden- oder Ethereum-Adresse eingeben",
   "selectAmount": "Betrag auswählen",
   "enterAmount": "Betrag eingeben",
   "calculatingQuote": "Wird berechnet",

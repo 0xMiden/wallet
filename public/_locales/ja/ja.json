@@ -337,6 +337,7 @@
   "nothingToPaste": "貼り付けるものがありません。先にアドレスをコピーしてください。",
   "chooseRecipient": "受信者を選択してください",
   "sendTo": "送金先",
+  "sendRecipientPlaceholder": "Miden または Ethereum のアドレスを入力",
   "selectAmount": "金額を選択してください",
   "enterAmount": "金額を入力",
   "calculatingQuote": "計算中",

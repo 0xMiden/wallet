@@ -337,6 +337,7 @@
   "nothingToPaste": "没有可粘贴的内容。请先复制地址。",
   "chooseRecipient": "选择收件人",
   "sendTo": "发送至",
+  "sendRecipientPlaceholder": "输入 Miden 或 Ethereum 地址",
   "selectAmount": "选择金额",
   "enterAmount": "输入金额",
   "calculatingQuote": "计算中",
