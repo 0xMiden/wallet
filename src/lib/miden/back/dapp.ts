@@ -1620,11 +1620,12 @@ const spendingLimitRetryError = (): Error =>
 
 const authorizationForDappSend = (
   details: SpendingLimitAssessmentDetails | undefined,
-  strictlyAuthenticated: boolean | undefined
+  strictlyAuthenticated: boolean | undefined,
+  spends: readonly IConsumedAssetTotal[]
 ): SpendingLimitAuthorization | undefined => {
   if (details === undefined || details.assessment.breach === undefined) return undefined;
   if (strictlyAuthenticated !== true) throw new Error(MidenDAppErrorType.NotGranted);
-  return createSpendingLimitAuthorization(details.assessment);
+  return createSpendingLimitAuthorization(details.assessment, spends);
 };
 
 /**
@@ -1891,7 +1892,7 @@ const generatePromisifyTransaction = async (
           delegateFromConfirmation(result),
           recipientAddress || undefined,
           customLimit.totals,
-          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated)
+          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals)
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -1942,7 +1943,7 @@ const generatePromisifyTransaction = async (
                 confirmReq.delegate,
                 recipientAddress || undefined,
                 customLimit.totals,
-                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated)
+                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated, customLimit.totals)
               );
             });
             // The transaction is queued and will consume these notes —
@@ -2043,6 +2044,7 @@ const generatePromisifySendTransaction = async (
 
   let transactionMessages: string[] = [];
   let spendingLimitDetails: SpendingLimitAssessmentDetails | undefined;
+  let spends: IConsumedAssetTotal[] = [];
   try {
     // Normalize the note type ONCE, before anything reads it. It crosses
     // postMessage from an untrusted page, so its type is a claim rather than a
@@ -2065,9 +2067,10 @@ const generatePromisifySendTransaction = async (
     transactionMessages = await withUnlocked(async () => {
       return await formatSendTransactionPreview(req.transaction);
     });
+    spends = [{ faucetId: req.transaction.faucetId, amount: BigInt(req.transaction.amount) }];
     spendingLimitDetails = await assessOutgoingSpendingLimitDetails({
       accountId: senderAddress,
-      spends: [{ faucetId: req.transaction.faucetId, amount: BigInt(req.transaction.amount) }]
+      spends
     });
   } catch (e) {
     // Through the mapper: the assessment above can raise a policy error from a storage read or a
@@ -2109,7 +2112,8 @@ const generatePromisifySendTransaction = async (
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
         const spendingLimitAuthorization = authorizationForDappSend(
           spendingLimitDetails,
-          result.spendingLimitAuthenticated
+          result.spendingLimitAuthenticated,
+          spends
         );
         const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
         return await initiateSendTransaction(
@@ -2160,7 +2164,8 @@ const generatePromisifySendTransaction = async (
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
               const spendingLimitAuthorization = authorizationForDappSend(
                 spendingLimitDetails,
-                confirmReq.spendingLimitAuthenticated
+                confirmReq.spendingLimitAuthenticated,
+                spends
               );
               const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
               return await initiateSendTransaction(

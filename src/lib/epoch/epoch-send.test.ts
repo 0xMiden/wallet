@@ -42,6 +42,7 @@ const authorization = {
   id: 'authorization-1',
   accountId: 'mtst1sender',
   usdAmount: 250n,
+  spendsDigest: 'digest-1',
   revision: 'revision-1',
   issuedAt: 100,
   expiresAt: 220

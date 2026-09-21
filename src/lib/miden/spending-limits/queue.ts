@@ -84,13 +84,24 @@ const readHistory = async (now: number): Promise<ITransaction[]> => {
   }
 };
 
+/**
+ * Both authorization kinds bind to the exact spends (`spendsDigest`), not to a dollar figure: the
+ * user consented to move THESE assets in THESE amounts, and that consent should survive a price
+ * refresh between the challenge and this redemption. A `usd` authorization's `usdAmount` is a
+ * record of the figure the user was shown, not part of the match.
+ *
+ * `kind` still gates: a `usd` authorization was minted against a shown breach (amount, over-by,
+ * reset), an `unpriced` one against no numbers at all. Redeeming one as the other would let a
+ * "price unavailable, please confirm" authentication silently cover a dollar breach the user was
+ * never shown - matching spends is not the same consent as matching spends AND presentation.
+ */
 const authorizationMatches = async (
   authorization: SpendingLimitAuthorization | undefined,
-  expected: { accountId: string; usdAmount?: bigint; spendsDigest?: string },
+  expected: { accountId: string; spendsDigest: string; kind: SpendingLimitAuthorization['kind'] },
   revision: string,
   now: number
 ): Promise<boolean> => {
-  if (authorization === undefined) return false;
+  if (authorization === undefined || authorization.kind !== expected.kind) return false;
   if (
     authorization.id.trim().length === 0 ||
     !sameSpendingLimitIdentity(authorization.accountId, expected.accountId) ||
@@ -101,14 +112,10 @@ const authorizationMatches = async (
     authorization.issuedAt > now ||
     authorization.expiresAt <= now ||
     authorization.expiresAt <= authorization.issuedAt ||
-    authorization.expiresAt - authorization.issuedAt > MAX_AUTHORIZATION_LIFETIME_SECONDS
+    authorization.expiresAt - authorization.issuedAt > MAX_AUTHORIZATION_LIFETIME_SECONDS ||
+    authorization.spendsDigest !== expected.spendsDigest
   ) {
     return false;
-  }
-  if (authorization.kind === 'usd') {
-    if (expected.usdAmount === undefined || authorization.usdAmount !== expected.usdAmount) return false;
-  } else {
-    if (expected.spendsDigest === undefined || authorization.spendsDigest !== expected.spendsDigest) return false;
   }
   const uses = await Repo.transactions.where('spendingLimitAuthorizationId').equals(authorization.id).count();
   return uses === 0;
@@ -166,7 +173,7 @@ export const queueOutgoingTransaction = async (
       const digest = spendsDigest(spends);
       const matches = await authorizationMatches(
         authorization,
-        { accountId: transaction.accountId, spendsDigest: digest },
+        { accountId: transaction.accountId, spendsDigest: digest, kind: 'unpriced' },
         config.revision,
         now
       );
@@ -189,7 +196,7 @@ export const queueOutgoingTransaction = async (
     }
     const matches = await authorizationMatches(
       authorization,
-      { accountId: transaction.accountId, usdAmount: spentUsd! },
+      { accountId: transaction.accountId, spendsDigest: spendsDigest(spends), kind: 'usd' },
       config.revision,
       now
     );

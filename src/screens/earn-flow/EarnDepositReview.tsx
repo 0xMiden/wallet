@@ -58,7 +58,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
-    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'unpriced'>>();
+    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   const amountBaseUnits = useMemo(() => {
@@ -111,7 +111,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     } catch (e) {
       const assessment = spendingLimitAssessmentFromError(e);
       if (assessment !== undefined) {
-        setSpendingLimitChallenge({ assessment });
+        setSpendingLimitChallenge({ assessment, spends: [{ faucetId, amount: amountBaseUnits }] });
         return;
       }
       if (isSpendingLimitPriceUnavailable(e) && (await openUnpricedChallenge(amountBaseUnits))) {
@@ -137,9 +137,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const assessment = await assessSpendingLimit(account.publicKey, [{ faucetId, amount: amountBaseUnits }]);
+      const spends = [{ faucetId, amount: amountBaseUnits }];
+      const assessment = await assessSpendingLimit(account.publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
-        setSpendingLimitChallenge({ assessment });
+        setSpendingLimitChallenge({ assessment, spends });
         setIsSubmitting(false);
         return;
       }
@@ -201,6 +202,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge
           assessment={spendingLimitChallenge.assessment}
+          spends={spendingLimitChallenge.spends}
           unpriced={spendingLimitChallenge.unpriced}
           onResult={authorization => {
             setSpendingLimitChallenge(undefined);

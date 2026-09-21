@@ -524,6 +524,7 @@ describe('transactions utilities', () => {
       id: 'authorization-1',
       accountId: 'account-a',
       usdAmount: 10n,
+      spendsDigest: 'digest-1',
       revision: 'revision-1',
       issuedAt: 1,
       expiresAt: 2

@@ -63,11 +63,14 @@ export interface SerializedSpendingLimitAssessment {
 /**
  * One-time authority for exactly one transaction.
  *
- * Two kinds, because there are two reasons a transaction can be stopped. A `usd` authorization
- * binds to the dollar figure the user was shown. An `unpriced` one covers a transaction whose
- * value could not be established at all: there is no figure to bind to, so it binds to the exact
- * assets and amounts instead. Neither is a cryptographic authorization - both exist to stop a
- * stale, mismatched or reused approval at the trusted wallet boundary.
+ * Two kinds, because there are two reasons a transaction can be stopped, but both bind to the
+ * exact assets and amounts being sent (`spendsDigest`) - what the user actually consented to move
+ * - rather than to a dollar figure, which can drift with the market between the challenge and
+ * redemption. A `usd` authorization additionally records the dollar figure the user was shown, for
+ * display and audit only: nothing matches on it. An `unpriced` one has no figure to record at all,
+ * because the transaction's value could not be established. Neither is a cryptographic
+ * authorization - both exist to stop a stale, mismatched or reused approval at the trusted wallet
+ * boundary.
  */
 export type SpendingLimitAuthorization =
   | {
@@ -75,6 +78,7 @@ export type SpendingLimitAuthorization =
       id: string;
       accountId: string;
       usdAmount: bigint;
+      spendsDigest: string;
       revision: string;
       issuedAt: number;
       expiresAt: number;

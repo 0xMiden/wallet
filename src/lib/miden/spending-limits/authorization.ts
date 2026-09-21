@@ -10,9 +10,13 @@ import {
 
 const AUTHORIZATION_LIFETIME_SECONDS = 2 * 60;
 
-/** Binds a short-lived `usd` authorization to the exact dollar figure a breached assessment showed. */
+/**
+ * Binds a short-lived `usd` authorization to the exact spends of a breached assessment - what the
+ * user actually consented to move - recording the dollar figure shown but not matching on it.
+ */
 export const createSpendingLimitAuthorization = (
   assessment: SpendingLimitAssessment,
+  spends: readonly { faucetId: string; amount: bigint }[],
   issuedAt: number = Math.floor(Date.now() / 1000),
   makeId: () => string = uuid
 ): SpendingLimitAuthorization => {
@@ -29,6 +33,7 @@ export const createSpendingLimitAuthorization = (
     id,
     accountId: validated.accountId,
     usdAmount: validated.usdAmount,
+    spendsDigest: spendsDigest(spends),
     revision: validated.revision,
     issuedAt,
     expiresAt: issuedAt + AUTHORIZATION_LIFETIME_SECONDS

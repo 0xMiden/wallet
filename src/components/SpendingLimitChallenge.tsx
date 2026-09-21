@@ -34,6 +34,9 @@ export function formatUsdMicroAmount(value: bigint): string {
 
 export interface SpendingLimitChallengeProps {
   assessment?: SpendingLimitAssessment;
+  /** The exact spends `assessment` was computed from. Required together with `assessment`, since
+   * the resulting `usd` authorization binds to them, not to the assessed dollar figure. */
+  spends?: readonly IConsumedAssetTotal[];
   unpriced?: { accountId: string; spends: IConsumedAssetTotal[]; revision: string };
   onResult: (authorization: SpendingLimitAuthorization | undefined) => void;
   now?: () => number;
@@ -42,6 +45,7 @@ export interface SpendingLimitChallengeProps {
 
 export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
   assessment,
+  spends,
   unpriced,
   onResult,
   now = () => Math.floor(Date.now() / 1000),
@@ -66,7 +70,7 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
         return;
       }
       if (assessment !== undefined) {
-        onResult(createSpendingLimitAuthorization(assessment, now(), makeId));
+        onResult(createSpendingLimitAuthorization(assessment, spends ?? [], now(), makeId));
       } else if (unpriced !== undefined) {
         onResult(
           createUnpricedSpendingLimitAuthorization(
@@ -79,7 +83,7 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
         );
       }
     },
-    [assessment, unpriced, makeId, now, onResult]
+    [assessment, spends, unpriced, makeId, now, onResult]
   );
 
   return (

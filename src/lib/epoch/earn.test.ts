@@ -499,6 +499,7 @@ describe('openEarnPosition guards', () => {
       id: 'authorization-1',
       accountId: 'mtst1sender',
       usdAmount: 1_000_000n,
+      spendsDigest: 'digest-1',
       revision: 'revision-1',
       issuedAt: 100,
       expiresAt: 220

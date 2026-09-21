@@ -177,6 +177,7 @@ describe('initiateB2AggBridge', () => {
       id: 'authorization-1',
       accountId: 'mlcl1sender',
       usdAmount: 250n,
+      spendsDigest: 'digest-1',
       revision: 'revision-1',
       issuedAt: 100,
       expiresAt: 220

@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
+import { spendsDigest, type SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 
 import { formatUsdMicroAmount, SpendingLimitChallenge } from './SpendingLimitChallenge';
 
@@ -64,6 +64,9 @@ const unpricedContext = () => ({
   revision: 'revision-1'
 });
 
+// What `breachAssessment()` was computed from - the assessment carries no spends of its own.
+const breachSpends = [{ faucetId: 'faucet-a', amount: 20n }];
+
 describe('SpendingLimitChallenge', () => {
   it('renders the dollar figures of a breach', () => {
     render(<SpendingLimitChallenge assessment={breachAssessment()} onResult={jest.fn()} />);
@@ -93,11 +96,12 @@ describe('SpendingLimitChallenge', () => {
     expect(screen.getByText('spendingLimitTransactionAuthenticationReason')).toBeInTheDocument();
   });
 
-  it('mints a usd authorization from a breach', () => {
+  it('mints a usd authorization bound to the exact spends, recording the assessed dollar figure', () => {
     const onResult = jest.fn();
     render(
       <SpendingLimitChallenge
         assessment={breachAssessment()}
+        spends={breachSpends}
         onResult={onResult}
         now={() => 1_000}
         makeId={() => 'auth-1'}
@@ -111,6 +115,7 @@ describe('SpendingLimitChallenge', () => {
       id: 'auth-1',
       accountId: 'account-a',
       usdAmount: 110_000_000n,
+      spendsDigest: spendsDigest(breachSpends),
       revision: 'revision-1',
       issuedAt: 1_000,
       expiresAt: 1_120
@@ -121,7 +126,14 @@ describe('SpendingLimitChallenge', () => {
     const onResult = jest.fn();
     const clock = jest.spyOn(Date, 'now').mockReturnValue(120_000);
     try {
-      render(<SpendingLimitChallenge assessment={breachAssessment()} onResult={onResult} makeId={() => 'auth-1'} />);
+      render(
+        <SpendingLimitChallenge
+          assessment={breachAssessment()}
+          spends={breachSpends}
+          onResult={onResult}
+          makeId={() => 'auth-1'}
+        />
+      );
 
       fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
 

@@ -61,7 +61,7 @@ const SwapManager: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
-    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'unpriced'>>();
+    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   // The account's spending-limit revision never crosses the intercom port - `serializeError` /
@@ -280,16 +280,14 @@ const SwapManager: React.FC = () => {
         if (isExtension()) requestSWTransactionProcessing();
         navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
       } catch (error) {
+        const spends = [{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitChallenge({ assessment });
+          setSpendingLimitChallenge({ assessment, spends });
           setSubmitting(false);
           return;
         }
-        if (
-          isSpendingLimitPriceUnavailable(error) &&
-          (await openUnpricedChallenge([{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }]))
-        ) {
+        if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
           setSubmitting(false);
           return;
         }
@@ -336,11 +334,10 @@ const SwapManager: React.FC = () => {
     setSubmitting(true);
     try {
       if (offerAmountBaseUnits === undefined) throw new Error(t('swapInvalidAmounts'));
-      const assessment = await assessSpendingLimit(publicKey, [
-        { faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }
-      ]);
+      const spends = [{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }];
+      const assessment = await assessSpendingLimit(publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
-        setSpendingLimitChallenge({ assessment });
+        setSpendingLimitChallenge({ assessment, spends });
         setSubmitting(false);
         return;
       }
@@ -501,6 +498,7 @@ const SwapManager: React.FC = () => {
       {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge
           assessment={spendingLimitChallenge.assessment}
+          spends={spendingLimitChallenge.spends}
           unpriced={spendingLimitChallenge.unpriced}
           onResult={handleSpendingLimitResult}
         />

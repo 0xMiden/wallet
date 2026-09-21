@@ -9,13 +9,16 @@ const assessment: SpendingLimitAssessment = {
   breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
 };
 
+const assessedSpends = [{ faucetId: 'eth', amount: 1n }];
+
 describe('createSpendingLimitAuthorization', () => {
-  it('binds a short-lived usd authorization to the exact assessed proposal', () => {
-    expect(createSpendingLimitAuthorization(assessment, 120, () => 'authorization-1')).toEqual({
+  it('binds a short-lived usd authorization to the exact spends, recording the assessed dollar figure', () => {
+    expect(createSpendingLimitAuthorization(assessment, assessedSpends, 120, () => 'authorization-1')).toEqual({
       kind: 'usd',
       id: 'authorization-1',
       accountId: 'account-a',
       usdAmount: 20n,
+      spendsDigest: spendsDigest(assessedSpends),
       revision: 'revision-1',
       issuedAt: 120,
       expiresAt: 240
@@ -30,7 +33,7 @@ describe('createSpendingLimitAuthorization', () => {
   ];
 
   it.each(invalidCases)('fails closed for %s', (_label, now, makeId, candidate) => {
-    expect(() => createSpendingLimitAuthorization(candidate ?? assessment, now, makeId)).toThrow(
+    expect(() => createSpendingLimitAuthorization(candidate ?? assessment, assessedSpends, now, makeId)).toThrow(
       /spending limit policy is unavailable/i
     );
   });

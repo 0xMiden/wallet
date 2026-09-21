@@ -208,7 +208,7 @@ export const ReviewTransaction: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
-    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'unpriced'>>();
+    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   // The account's spending-limit revision never crosses the intercom port - `serializeError` /
@@ -277,16 +277,14 @@ export const ReviewTransaction: React.FC = () => {
         goToGeneratingTransaction(txId);
       } catch (error) {
         console.error(error);
+        const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitChallenge({ assessment });
+          setSpendingLimitChallenge({ assessment, spends });
           setIsSubmitting(false);
           return;
         }
-        if (
-          isSpendingLimitPriceUnavailable(error) &&
-          (await openUnpricedChallenge([{ faucetId: token.id, amount: amountBaseUnits }]))
-        ) {
+        if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
           setIsSubmitting(false);
           return;
         }
@@ -342,16 +340,14 @@ export const ReviewTransaction: React.FC = () => {
         }
       } catch (error) {
         console.error(error);
+        const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitChallenge({ assessment });
+          setSpendingLimitChallenge({ assessment, spends });
           setIsSubmitting(false);
           return;
         }
-        if (
-          isSpendingLimitPriceUnavailable(error) &&
-          (await openUnpricedChallenge([{ faucetId: token.id, amount: amountBaseUnits }]))
-        ) {
+        if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
           setIsSubmitting(false);
           return;
         }
@@ -368,12 +364,13 @@ export const ReviewTransaction: React.FC = () => {
       setSubmitError(t('unknownTokenScale'));
       return;
     }
+    const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
     setIsSubmitting(true);
     setSubmitError(undefined);
     try {
-      const assessment = await assessSpendingLimit(publicKey, [{ faucetId: token.id, amount: amountBaseUnits }]);
+      const assessment = await assessSpendingLimit(publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
-        setSpendingLimitChallenge({ assessment });
+        setSpendingLimitChallenge({ assessment, spends });
         setIsSubmitting(false);
         return;
       }
@@ -388,10 +385,7 @@ export const ReviewTransaction: React.FC = () => {
       }
     } catch (error) {
       console.error(error);
-      if (
-        isSpendingLimitPriceUnavailable(error) &&
-        (await openUnpricedChallenge([{ faucetId: token.id, amount: amountBaseUnits }]))
-      ) {
+      if (isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends))) {
         setIsSubmitting(false);
         return;
       }
@@ -587,6 +581,7 @@ export const ReviewTransaction: React.FC = () => {
       {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge
           assessment={spendingLimitChallenge.assessment}
+          spends={spendingLimitChallenge.spends}
           unpriced={spendingLimitChallenge.unpriced}
           onResult={handleSpendingLimitResult}
         />

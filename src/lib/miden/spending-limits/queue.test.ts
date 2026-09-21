@@ -43,10 +43,14 @@ const executeRow = (id = 'tx-1'): Transaction => {
   return transaction;
 };
 
+// What `spendsOf(sendRow())` states by default - the spends most tests below actually queue.
+const DEFAULT_AUTHORIZED_SPENDS = [{ faucetId: 'eth', amount: 1n }];
+
 const usdAuthorization = (
   overrides: Partial<{
     accountId: string;
     usdAmount: bigint;
+    spends: { faucetId: string; amount: bigint }[];
     revision: string;
     issuedAt: number;
     expiresAt: number;
@@ -57,6 +61,7 @@ const usdAuthorization = (
   id: overrides.id ?? 'authorization-1',
   accountId: overrides.accountId ?? ACCOUNT,
   usdAmount: overrides.usdAmount ?? 60_000_000n,
+  spendsDigest: spendsDigest(overrides.spends ?? DEFAULT_AUTHORIZED_SPENDS),
   revision: overrides.revision ?? 'revision-1',
   issuedAt: overrides.issuedAt ?? NOW - 1,
   expiresAt: overrides.expiresAt ?? NOW + 119
@@ -177,7 +182,7 @@ describe('queueOutgoingTransaction', () => {
 
   it.each([
     ['account mismatch', { accountId: 'account-b' }],
-    ['amount mismatch', { usdAmount: 60_000_001n }],
+    ['spends mismatch', { spends: [{ faucetId: 'eth', amount: 2n }] }],
     ['stale revision', { revision: 'revision-old' }],
     ['expired', { expiresAt: NOW }],
     ['issued in the future', { issuedAt: NOW + 1, expiresAt: NOW + 2 }],
@@ -211,6 +216,21 @@ describe('queueOutgoingTransaction', () => {
     await queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), usdAuthorization(), NOW);
 
     await expect(transactions.get('tx-1')).resolves.toMatchObject({ spendingLimitAuthorizationId: 'authorization-1' });
+  });
+
+  it('accepts a usd authorization whose dollar figure has drifted since it was minted', async () => {
+    // The authorization was minted at 60_000_000n (the pre-check's figure); a price refresh before
+    // queue time revalues the SAME spends at 70_000_000n. The user consented to these assets and
+    // amounts, not to a frozen dollar figure, so the mismatch must not re-challenge them.
+    await saveConfig();
+    mockedResolve.mockResolvedValue(70_000_000n);
+
+    await queueOutgoingTransaction(sendRow(), spendsOf(sendRow()), usdAuthorization({ usdAmount: 60_000_000n }), NOW);
+
+    await expect(transactions.get('tx-1')).resolves.toMatchObject({
+      spentUsd: 70_000_000n,
+      spendingLimitAuthorizationId: 'authorization-1'
+    });
   });
 
   it('rejects replay of an authorization already attached to a row', async () => {
@@ -254,14 +274,15 @@ describe('queueOutgoingTransaction', () => {
   it('sums several assets into one charge and accepts one authorization for the total', async () => {
     mockedResolve.mockResolvedValue(75_000_000n);
     await saveConfig({ limit: '50000000', revision: 'rev-1' });
+    const spends = [
+      { faucetId: 'eth', amount: 1n },
+      { faucetId: 'usdc', amount: 2n }
+    ];
 
     await queueOutgoingTransaction(
       executeRow(),
-      [
-        { faucetId: 'eth', amount: 1n },
-        { faucetId: 'usdc', amount: 2n }
-      ],
-      usdAuthorization({ accountId: ACCOUNT, usdAmount: 75_000_000n, revision: 'rev-1' }),
+      spends,
+      usdAuthorization({ accountId: ACCOUNT, usdAmount: 75_000_000n, spends, revision: 'rev-1' }),
       NOW
     );
 
