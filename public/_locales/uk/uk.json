@@ -1199,5 +1199,19 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Прийнято",
   "activityAcceptingTransfer": "Прийняття…",
-  "transfersSection": "Перекази"
+  "transfersSection": "Перекази",
+  "pendingNotesCount": "notes у процесі розгляду",
+  "whatArePendingNotes": "Що таке «notes, що очікують на обробку»?",
+  "consumeYourNotes": "Використовуйте свої «notes»",
+  "consumeYourNotesDescription": "Додайте ці кошти, що очікують на зарахування, до свого балансу, щоб почати ними користуватися.",
+  "pendingNotesDrawerP1a": "Коли хтось надсилає вам кошти, вони надходять як приватні",
+  "pendingNotesDrawerP1Bold": "notes",
+  "pendingNotesDrawerP1b": "— запечатані пакети, які можете відкрити лише ви.",
+  "pendingNotesDrawerP2Bold": "Використання",
+  "pendingNotesDrawerP2": "note розпаковує їх у ваш баланс, доступний для витрат. Доки ви цього не зробите, кошти належать вам, але їх ще не можна витратити.",
+  "pendingNotesDrawerP3a": "У вас є",
+  "pendingNotesDrawerP3Bold": "$count$ notes",
+  "pendingNotesDrawerP3b": "Очікування. Використовуйте їх у будь-який час — поспішати не потрібно, і ваші кошти ніколи не наражаються на ризик.",
+  "activityTransferClaimed": "Прийнято",
+  "activityUnread": "Непрочитане"
 }

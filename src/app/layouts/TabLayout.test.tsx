@@ -18,7 +18,7 @@ const mockLocation = { pathname: '/' };
 const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, isIOS: false };
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
-const mockHasUnclaimed = { value: false };
+const mockHasUnread = { value: false };
 const mockKeyboardVisible = { value: false };
 
 // `lib/woozie` pulls in the full location/history/analytics stack. Stub the two
@@ -51,8 +51,8 @@ jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: mockEnv.fullPage, sidePanel: mockEnv.sidePanel })
 }));
 
-jest.mock('app/hooks/useHasUnclaimedNotes', () => ({
-  useHasUnclaimedNotes: () => mockHasUnclaimed.value
+jest.mock('app/hooks/useHasUnreadActivity', () => ({
+  useHasUnreadActivity: () => mockHasUnread.value
 }));
 
 // Mobile soft-keyboard visibility. Driven by mock state so the hide-navbar
@@ -142,7 +142,8 @@ jest.mock('components/ui', () => ({
         <button
           key={it.id}
           data-testid={`nav-${it.id}`}
-          data-dot={String(!!it.showDot)}
+          data-dot={String(!!it.unread)}
+          data-dot-label={it.unread?.label}
           onClick={() => onChange(it.id)}
         >
           {it.label}
@@ -193,7 +194,7 @@ beforeEach(() => {
   mockEnv.fullPage = false;
   mockEnv.sidePanel = false;
   mockReturning.value = false;
-  mockHasUnclaimed.value = false;
+  mockHasUnread.value = false;
   mockKeyboardVisible.value = false;
 });
 
@@ -342,14 +343,15 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-settings')).toHaveTextContent('settings');
   });
 
-  it('shows the unclaimed-notes dot on the Activity tab when notes are pending', () => {
-    mockHasUnclaimed.value = true;
+  it('marks the Activity tab unread, and names it, when anything is unread', () => {
+    mockHasUnread.value = true;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'true');
+    expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot-label', 'activityUnread');
   });
 
-  it('hides the unclaimed-notes dot when there are no pending notes', () => {
-    mockHasUnclaimed.value = false;
+  it('leaves the Activity tab unmarked once nothing is unread', () => {
+    mockHasUnread.value = false;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
   });

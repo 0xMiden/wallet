@@ -5320,5 +5320,66 @@
   "transfersSection": {
     "message": "이체",
     "englishSource": "Transfers"
+  },
+  "pendingNotesCount": {
+    "message": "notes 보류 중",
+    "englishSource": "notes pending"
+  },
+  "whatArePendingNotes": {
+    "message": "보류 중인 지급 통지서(notes)란 무엇인가요?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes를 참고하세요.",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "이 보류 중인 자금을 잔액에 추가하면 사용을 시작할 수 있습니다.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "누군가 자금을 보내면, 해당 자금은 비공개 상태로 도착합니다.",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— 오직 본인만이 열 수 있는 봉인된 패키지입니다.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "사용",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note를 통해 자금이 사용 가능한 잔액으로 이체됩니다. 이체되기 전까지는 자금이 귀하의 소유이지만 아직 사용할 수는 없습니다.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "다음과 같이 작성해 주세요:",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "기다려 주세요. 서두를 필요는 없으며, 자금이 위험에 노출될 일도 없으니 언제든지 이용하시면 됩니다.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
+  "activityTransferClaimed": {
+    "message": "수락됨",
+    "englishSource": "Accepted"
+  },
+  "activityUnread": {
+    "message": "읽지 않음",
+    "englishSource": "Unread"
   }
 }

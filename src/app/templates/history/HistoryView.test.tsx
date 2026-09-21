@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { resetActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
 import HistoryView from './HistoryView';
@@ -64,7 +65,8 @@ jest.mock('components/ui', () => ({
     amount,
     status,
     onClick,
-    className
+    className,
+    leading
   }: {
     icon: React.ReactNode;
     iconBg?: string;
@@ -79,6 +81,7 @@ jest.mock('components/ui', () => ({
     status: string;
     onClick?: () => void;
     className?: string;
+    leading?: React.ReactNode;
   }) => (
     <div
       data-testid="activity-row"
@@ -96,6 +99,7 @@ jest.mock('components/ui', () => ({
       data-clickable={onClick ? 'yes' : 'no'}
       onClick={onClick}
     >
+      {leading}
       {icon}
     </div>
   ),
@@ -704,6 +708,37 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     fireEvent.click(rowByTitle('Received'));
     expect(navigate).toHaveBeenCalledWith('/history-details/tx-receive');
+  });
+
+  describe('unread', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      resetActivityReadState();
+      // Before every fixture's timestamp, so the whole list arrives unread.
+      jest.spyOn(Date, 'now').mockReturnValue(0);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('marks a row unread until its own detail is opened', () => {
+      const { rerender } = renderFull();
+      const row = rowByTitle('Received');
+      expect(within(row).getByTestId('activity-row-unread')).toHaveClass('bg-notification');
+
+      // Opening THAT row reads it. Opening the tab reads nothing, which is why the other rows
+      // keep their dots.
+      fireEvent.click(row);
+      rerender(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+      expect(within(rowByTitle('Received')).queryByTestId('activity-row-unread')).toBeNull();
+      expect(screen.getAllByTestId('activity-row-unread').length).toBeGreaterThan(0);
+    });
+
+    it('leaves an existing history read on first run', () => {
+      jest.spyOn(Date, 'now').mockReturnValue((DAY_B + 86_400) * 1000);
+      resetActivityReadState();
+      renderFull();
+
+      expect(screen.queryByTestId('activity-row-unread')).toBeNull();
+    });
   });
 });
 

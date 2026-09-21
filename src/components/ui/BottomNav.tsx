@@ -5,7 +5,8 @@ import { motion } from 'framer-motion';
 
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
-import { useTabBarMotion, useTabIconPop } from 'lib/animation';
+import { UnreadDot } from 'components/ui/UnreadDot';
+import { usePreset, useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
 export interface BottomNavItem {
@@ -13,8 +14,12 @@ export interface BottomNavItem {
   label: string;
   icon: ReactNode;
   iconActive?: ReactNode;
-  /** Renders a small notification dot on the icon (e.g. unclaimed notes). */
-  showDot?: boolean;
+  /**
+   * Marks the tab unread: the design system's `UnreadDot` on the icon's corner, and the icon
+   * breathing under it. `label` is what assistive tech hears after the tab's own name, so the tab
+   * is announced as unread rather than looking identical to a read one.
+   */
+  unread?: { label: string };
 }
 
 export interface BottomNavProps {
@@ -71,14 +76,18 @@ interface BottomNavTabProps {
 const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active);
+  const pulse = usePreset('pulse');
   const icon = active && item.iconActive ? item.iconActive : item.icon;
+  // The button's own `aria-label` wins over anything inside it, so the dot's text has to be
+  // composed in here rather than left to sit in the content.
+  const label = item.unread ? `${item.label}, ${item.unread.label}` : item.label;
 
   return (
     <HighlightItem value={item.id} asChild as="span" className="flex items-center justify-center">
       <motion.button
         type="button"
         aria-current={active ? 'page' : undefined}
-        aria-label={item.label}
+        aria-label={label}
         onClick={() => onSelect(item.id)}
         {...motionTokens.press}
         transition={motionTokens.highlight}
@@ -95,10 +104,23 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
           onAnimationComplete={pop.onAnimationComplete}
           className="relative flex size-6 items-center justify-center [&>svg]:size-6"
         >
-          {icon}
-          {item.showDot && (
-            <span aria-hidden className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-status-negative" />
-          )}
+          {/* The icon itself breathes while the tab is unread — the pulse Brian asked for, at a
+              third of a pixel, and gone entirely under reduced motion (`presets.pulse`). It
+              stops because the element stops being rendered with `unread`, not because a flag
+              was flipped: nothing is left looping behind a hidden badge. */}
+          <motion.span
+            className="flex size-6 items-center justify-center [&>svg]:size-6"
+            animate={item.unread ? pulse.animate : undefined}
+            transition={item.unread ? pulse.transition : undefined}
+          >
+            {icon}
+          </motion.span>
+          <UnreadDot
+            unread={Boolean(item.unread)}
+            placement="badge"
+            label={item.unread?.label ?? ''}
+            data-testid="bottom-nav-unread"
+          />
         </motion.span>
       </motion.button>
     </HighlightItem>

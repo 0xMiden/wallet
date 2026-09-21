@@ -12,9 +12,12 @@ import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
+import { UnreadDot } from 'components/ui/UnreadDot';
 import { springs, useMotion } from 'lib/animation';
+import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
+import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -361,6 +364,7 @@ const HistoryView = memo<HistoryViewProps>(
     // Same spring as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useMotion(springs.settle);
+    const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
       const pending: TimelineEntry[] = pendingItems.map(item => ({
@@ -486,8 +490,16 @@ const HistoryView = memo<HistoryViewProps>(
                   );
                 }
                 const props = buildRowProps(entry, t, tokenId);
+                const unread = isHistoryEntryUnread(readState, entry);
                 return (
-                  <Card key={entry.key} asChild surface="outline" padding="row" interactive={Boolean(entry.txId)}>
+                  <Card
+                    key={entry.key}
+                    asChild
+                    surface="outline"
+                    padding="row"
+                    interactive={Boolean(entry.txId)}
+                    className="relative"
+                  >
                     <ActivityRow
                       entryKey={entry.key}
                       testId="activity-row"
@@ -497,7 +509,23 @@ const HistoryView = memo<HistoryViewProps>(
                       subtitle={props.subtitle}
                       amount={props.amount}
                       status={props.status}
-                      onClick={entry.txId ? () => navigate(`/history-details/${entry.txId}`) : undefined}
+                      // The row is read the moment its detail is opened — not when the tab is,
+                      // the way an inbox does not read its messages when you open it.
+                      leading={
+                        <UnreadDot
+                          unread={unread}
+                          label={t('activityUnread')}
+                          data-testid={unread ? 'activity-row-unread' : undefined}
+                        />
+                      }
+                      onClick={
+                        entry.txId
+                          ? () => {
+                              markActivityRead(historyEntryUnreadKey(entry), entry.timestamp);
+                              navigate(`/history-details/${entry.txId}`);
+                            }
+                          : undefined
+                      }
                     />
                   </Card>
                 );

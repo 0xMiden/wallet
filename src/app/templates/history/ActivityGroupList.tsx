@@ -11,6 +11,7 @@ import { ListRow } from 'components/ui/ListRow';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
+import { useActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupAvatar } from './ActivityGroupAvatar';
 import {
@@ -20,6 +21,7 @@ import {
   activityGroupPath,
   groupActivityEntries
 } from './activityGroups';
+import { isActivityGroupUnread } from './activityUnread';
 import { shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
 
@@ -102,6 +104,7 @@ export interface ActivityGroupListProps {
 export const ActivityGroupList = memo<ActivityGroupListProps>(
   ({ entries, nameOf, initialLoading, hasMore, loadMore, scrollParentRef }) => {
     const { t } = useTranslation();
+    const readState = useActivityReadState();
     const groups = useMemo(() => groupActivityEntries(entries, nameOf), [entries, nameOf]);
 
     if (groups.length === 0) {
@@ -134,6 +137,10 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
             // Every kind takes the same 40px round mark, so the title column starts at one x
             // down the whole list. See `ActivityGroupAvatar`.
             avatar={<ActivityGroupAvatar kind={group.kind} id={group.id} name={group.name} />}
+            // Opening a group does not read what is inside it — the dot goes out when the last
+            // unread child has been opened. See `isActivityGroupUnread`.
+            unread={isActivityGroupUnread(readState, group)}
+            unreadLabel={t('activityUnread')}
             title={activityGroupTitle(group, t)}
             subtitle={activityGroupSubtitle(group, t)}
             trailing={

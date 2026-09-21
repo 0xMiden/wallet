@@ -5320,5 +5320,66 @@
   "transfersSection": {
     "message": "Перекази",
     "englishSource": "Transfers"
+  },
+  "pendingNotesCount": {
+    "message": "notes у процесі розгляду",
+    "englishSource": "notes pending"
+  },
+  "whatArePendingNotes": {
+    "message": "Що таке «notes, що очікують на обробку»?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Використовуйте свої «notes»",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Додайте ці кошти, що очікують на зарахування, до свого балансу, щоб почати ними користуватися.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Коли хтось надсилає вам кошти, вони надходять як приватні",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— запечатані пакети, які можете відкрити лише ви.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Використання",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note розпаковує їх у ваш баланс, доступний для витрат. Доки ви цього не зробите, кошти належать вам, але їх ще не можна витратити.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "У вас є",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "Очікування. Використовуйте їх у будь-який час — поспішати не потрібно, і ваші кошти ніколи не наражаються на ризик.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
+  "activityTransferClaimed": {
+    "message": "Прийнято",
+    "englishSource": "Accepted"
+  },
+  "activityUnread": {
+    "message": "Непрочитане",
+    "englishSource": "Unread"
   }
 }

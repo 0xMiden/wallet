@@ -5320,5 +5320,66 @@
   "transfersSection": {
     "message": "Transferler",
     "englishSource": "Transfers"
+  },
+  "pendingNotesCount": {
+    "message": "notes beklemede",
+    "englishSource": "notes pending"
+  },
+  "whatArePendingNotes": {
+    "message": "Bekleyen \"notes\" nedir?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes'ınızı kullanın",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Harcamaya başlamak için bu bekleyen fonları bakiyenize ekleyin.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Birisi size para gönderdiğinde, bu para \"private\" olarak gelir",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— Yalnızca sizin açabileceğiniz mühürlü paketler.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Tüketim",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "Bir \"note\" işlemi, bu tutarı harcayabileceğiniz bakiyenize aktarır. Bu işlemi gerçekleştirene kadar fonlar size aittir ancak henüz harcanamaz.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Elinizde",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "Bekliyor. Bunları istediğiniz zaman kullanabilirsiniz — aceleye gerek yok ve hiçbir zaman fonlarınız risk altında olmaz.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
+  "activityTransferClaimed": {
+    "message": "Kabul edildi",
+    "englishSource": "Accepted"
+  },
+  "activityUnread": {
+    "message": "Okunmadı",
+    "englishSource": "Unread"
   }
 }

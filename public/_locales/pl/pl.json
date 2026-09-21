@@ -1199,5 +1199,19 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Zaakceptowano",
   "activityAcceptingTransfer": "Akceptowanie…",
-  "transfersSection": "Transfery"
+  "transfersSection": "Transfery",
+  "pendingNotesCount": "notes w toku",
+  "whatArePendingNotes": "Czym są oczekujące „notes”?",
+  "consumeYourNotes": "Skorzystaj z przewodnika „notes”",
+  "consumeYourNotesDescription": "Dodaj te środki oczekujące do swojego salda, aby rozpocząć wydawanie.",
+  "pendingNotesDrawerP1a": "Gdy ktoś wysyła Ci środki, trafiają one jako prywatne",
+  "pendingNotesDrawerP1Bold": "notes",
+  "pendingNotesDrawerP1b": "— zapieczętowane pakiety, które tylko Ty możesz otworzyć.",
+  "pendingNotesDrawerP2Bold": "Korzystanie",
+  "pendingNotesDrawerP2": "note” (przelew) rozpakowuje je do salda, którym można dysponować. Dopóki tego nie zrobisz, środki należą do Ciebie, ale nie można ich jeszcze wydać.",
+  "pendingNotesDrawerP3a": "Masz",
+  "pendingNotesDrawerP3Bold": "$count$ notes",
+  "pendingNotesDrawerP3b": "Czekaj. Skorzystaj z nich w dowolnym momencie — nie ma pośpiechu, a Twoje środki nigdy nie są narażone na ryzyko.",
+  "activityTransferClaimed": "Zaakceptowano",
+  "activityUnread": "Nieprzeczytane"
 }

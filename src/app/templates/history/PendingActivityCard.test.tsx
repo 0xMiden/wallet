@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import {
   CLOSED_DISCLOSURE,
@@ -66,9 +67,13 @@ const note: NoteWithMetadata = {
   metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
 };
 
-const renderCard = (status: PendingActivityStatus, over: Partial<PendingActivityItem> = {}) => {
+const renderCard = (
+  status: PendingActivityStatus,
+  over: Partial<PendingActivityItem> = {},
+  onAccept: (note: NoteWithMetadata) => void = jest.fn()
+) => {
   const item: PendingActivityItem = { note, status, ...over };
-  return render(<PendingActivityCard item={item} onAccept={jest.fn()} onReject={jest.fn()} />);
+  return render(<PendingActivityCard item={item} onAccept={onAccept} onReject={jest.fn()} />);
 };
 
 describe('PendingActivityCard', () => {
@@ -76,6 +81,11 @@ describe('PendingActivityCard', () => {
   // `window.scrollTo` — unimplemented in jsdom, and noisy rather than fatal. Stub it away.
   beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));
   beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    localStorage.clear();
+    resetActivityReadState();
+  });
 
   // The rule the disclosure's motion turns on, tested as a rule. It cannot be reached through the
   // rendered card from both sides: `expanded` starts false and only the toggle ever changes it, so
@@ -230,12 +240,40 @@ describe('PendingActivityCard', () => {
     });
   });
 
+  describe('unread', () => {
+    it('arrives unread and says so, not by colour alone', () => {
+      renderCard('pending');
+
+      const dot = screen.getByTestId('pending-activity-unread');
+      expect(dot).toHaveClass('bg-notification');
+      expect(screen.getByRole('button', { expanded: false })).toHaveAccessibleName(/activityUnread/);
+    });
+
+    it('clears when the transfer is accepted — the decision, not a glance, settles it', () => {
+      const onAccept = jest.fn();
+      const { rerender } = renderCard('pending', {}, onAccept);
+
+      fireEvent.click(screen.getByRole('button', { name: /activityAcceptTransfer/ }));
+      expect(onAccept).toHaveBeenCalledWith(note);
+
+      rerender(<PendingActivityCard item={{ note, status: 'claiming' }} onAccept={onAccept} onReject={jest.fn()} />);
+      expect(screen.queryByTestId('pending-activity-unread')).toBeNull();
+    });
+
+    it('stays read once it has been declined elsewhere', () => {
+      markActivityRead('note:note-1', Number.NaN);
+      renderCard('pending');
+
+      expect(screen.queryByTestId('pending-activity-unread')).toBeNull();
+    });
+  });
+
   describe('an accepted transfer', () => {
     it('is not this component at all: the card has no accepted state', () => {
       // `ActivityPendingHistory` drops a claimed item from the card list and `History` stops
       // standing its consume row down, so an accepted transfer is drawn by the SAME row component
       // as every other settled transaction — which brings its own navigation to the detail page.
-      // Nothing here special-cases it.
+      // Nothing here special-cases it, and the unread mark travels with that row.
       const { container } = renderCard('claimed', { txId: 'tx-1' });
 
       expect(container.querySelector('[data-pending-status="claimed"]')).toBeTruthy();

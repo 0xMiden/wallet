@@ -5320,5 +5320,66 @@
   "transfersSection": {
     "message": "送金",
     "englishSource": "Transfers"
+  },
+  "pendingNotesCount": {
+    "message": "notes 保留中",
+    "englishSource": "notes pending"
+  },
+  "whatArePendingNotes": {
+    "message": "「notes」とは何ですか？",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes を活用してください。",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "これらの保留中の資金を残高に追加して、利用を開始してください。",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "誰かから資金が送金されると、それは非公開の状態で届きます",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— あなただけが開封できる封印されたパッケージ。",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "使用上の注意点",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "noteを実行すると、資金が利用可能な残高として反映されます。それまでは、資金はあなたの所有物ですが、まだ使用することはできません。",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "以下の要件に従ってください：",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "待機中。いつでもご利用いただけます。急ぐ必要はなく、資金が危険にさらされることも一切ありません。",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
+  "activityTransferClaimed": {
+    "message": "受領済み",
+    "englishSource": "Accepted"
+  },
+  "activityUnread": {
+    "message": "未読",
+    "englishSource": "Unread"
   }
 }

@@ -1199,5 +1199,19 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "受取済み",
   "activityAcceptingTransfer": "受け取り中…",
-  "transfersSection": "送金"
+  "transfersSection": "送金",
+  "pendingNotesCount": "notes 保留中",
+  "whatArePendingNotes": "「notes」とは何ですか？",
+  "consumeYourNotes": "notes を活用してください。",
+  "consumeYourNotesDescription": "これらの保留中の資金を残高に追加して、利用を開始してください。",
+  "pendingNotesDrawerP1a": "誰かから資金が送金されると、それは非公開の状態で届きます",
+  "pendingNotesDrawerP1Bold": "notes",
+  "pendingNotesDrawerP1b": "— あなただけが開封できる封印されたパッケージ。",
+  "pendingNotesDrawerP2Bold": "使用上の注意点",
+  "pendingNotesDrawerP2": "noteを実行すると、資金が利用可能な残高として反映されます。それまでは、資金はあなたの所有物ですが、まだ使用することはできません。",
+  "pendingNotesDrawerP3a": "以下の要件に従ってください：",
+  "pendingNotesDrawerP3Bold": "$count$ notes",
+  "pendingNotesDrawerP3b": "待機中。いつでもご利用いただけます。急ぐ必要はなく、資金が危険にさらされることも一切ありません。",
+  "activityTransferClaimed": "受領済み",
+  "activityUnread": "未読"
 }

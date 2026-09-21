@@ -1199,5 +1199,19 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Aceite",
   "activityAcceptingTransfer": "A aceitar…",
-  "transfersSection": "Transferências"
+  "transfersSection": "Transferências",
+  "pendingNotesCount": "notes pendente",
+  "whatArePendingNotes": "O que são “notes pendentes”?",
+  "consumeYourNotes": "Consulte o seu guia de terminologia do Miden em notes",
+  "consumeYourNotesDescription": "Adicione esses fundos pendentes ao seu saldo para começar a gastar.",
+  "pendingNotesDrawerP1a": "Quando alguém lhe envia fundos, eles chegam como privados",
+  "pendingNotesDrawerP1Bold": "notes",
+  "pendingNotesDrawerP1b": "— pacotes lacrados que só você pode abrir.",
+  "pendingNotesDrawerP2Bold": "Consumo",
+  "pendingNotesDrawerP2": "Um “note” libera os recursos para o seu saldo disponível. Até que você faça isso, os fundos são seus, mas ainda não podem ser gastos.",
+  "pendingNotesDrawerP3a": "Você tem",
+  "pendingNotesDrawerP3Bold": "$count$ notes",
+  "pendingNotesDrawerP3b": "Aguardando. Use-os quando quiser — não há pressa, e seus fundos nunca correm risco.",
+  "activityTransferClaimed": "Aceita",
+  "activityUnread": "Não lida"
 }

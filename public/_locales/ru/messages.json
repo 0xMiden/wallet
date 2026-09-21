@@ -5320,5 +5320,66 @@
   "transfersSection": {
     "message": "Переводы",
     "englishSource": "Transfers"
+  },
+  "pendingNotesCount": {
+    "message": "notes в процессе рассмотрения",
+    "englishSource": "notes pending"
+  },
+  "whatArePendingNotes": {
+    "message": "Что такое ожидающие платежные уведомления (notes)?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "Используйте свои «notes»",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Добавьте эти средства в ожидании зачисления на свой баланс, чтобы начать расходовать их.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Когда кто-то отправляет вам средства, они поступают в виде конфиденциальных",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— запечатанные пакеты, которые можете открыть только вы.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Использование",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "note» переводит их в ваш доступный для расходования баланс. До тех пор, пока вы этого не сделаете, средства принадлежат вам, но их пока нельзя потратить.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "У вас есть",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "В ожидании. Используйте их в любое время — спешить не нужно, и ваши средства никогда не подвергаются риску.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
+  "activityTransferClaimed": {
+    "message": "Принято",
+    "englishSource": "Accepted"
+  },
+  "activityUnread": {
+    "message": "Непрочитанное",
+    "englishSource": "Unread"
   }
 }

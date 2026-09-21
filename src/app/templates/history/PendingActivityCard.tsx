@@ -9,11 +9,15 @@ import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
+import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticLight } from 'lib/mobile/haptics';
+import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { truncateAddress } from 'utils/string';
+
+import { pendingNoteUnreadKey } from './activityUnread';
 
 export type PendingActivityStatus = 'pending' | 'checking' | 'claiming' | 'claimed' | 'failed' | 'unavailable';
 
@@ -92,6 +96,13 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
   const { note, status } = item;
   const transition = useMotion(springs.standard);
   const reveal = usePreset('reveal');
+  const readState = useActivityReadState();
+  // An incoming transfer stays unread until it is accepted or declined, whichever comes first —
+  // a decision, not a glance, is what settles it. `receivedAt` can be absent, and an unusable
+  // timestamp never falls under the high-water mark, so such a note simply stays unread until
+  // that decision is taken.
+  const unreadKey = pendingNoteUnreadKey(note.id);
+  const unread = !isActivityRead(readState, unreadKey, note.receivedAt ?? Number.NaN);
   const detailsId = useId();
   const [disclosure, setDisclosure] = useState(CLOSED_DISCLOSURE);
   const expanded = disclosure.open;
@@ -149,12 +160,21 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
     />
   );
 
+  // The dot belongs to the card's left margin, not to the row's content, so it hangs off whichever
+  // control the header currently is rather than shifting the avatar beside it.
+  const header = (
+    <>
+      <UnreadDot unread={unread} label={t('activityUnread')} data-testid="pending-activity-unread" />
+      {headerRow}
+    </>
+  );
+
   return (
     <Card asChild surface="outline" padding="none">
       <article className="flex flex-col overflow-hidden" data-pending-status={status}>
         <button
           type="button"
-          className="flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
+          className="relative flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={() => {
@@ -164,10 +184,11 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
             setDisclosure(toggleDisclosure);
           }}
         >
-          {headerRow}
-          {/* `initial={false}` mounts the glyph at its `animate` value instead of tweening to it,
-              and `expanded` starts false anyway, so a card rebuilt by a filter change draws an
-              unrotated chevron with nothing in flight. It turns only in answer to a tap. */}
+          {header}
+          {/* The only motion left on the card, and it cannot replay on a remount: `initial={false}`
+              mounts the glyph at its `animate` value instead of tweening to it, and `expanded`
+              starts false anyway, so a card rebuilt by a filter change draws an unrotated chevron
+              with nothing in flight. It turns only in answer to a tap. */}
           <motion.span
             aria-hidden
             className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
@@ -250,7 +271,12 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
             disabled={!canAccept && status !== 'claiming'}
             isLoading={status === 'claiming'}
             aria-busy={busy}
-            onClick={() => onAccept(note)}
+            onClick={() => {
+              // Accepting IS the decision, so the transfer is read from here on even though no
+              // detail page was opened.
+              markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
+              onAccept(note);
+            }}
           />
         </div>
       </article>

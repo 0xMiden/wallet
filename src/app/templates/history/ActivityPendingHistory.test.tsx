@@ -41,7 +41,7 @@ jest.mock('app/hooks/useActivityClaims', () => ({
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 jest.mock('lib/animation', () => ({
-  springs: { standard: {} },
+  springs: { standard: {}, settle: {} },
   durations: { extraSlow: 0 },
   useMotion: () => ({ duration: 0 }),
   // The pending card takes its disclosure motion from the `reveal` preset, and falls back to the

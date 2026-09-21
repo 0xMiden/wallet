@@ -1199,5 +1199,19 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Accepté",
   "activityAcceptingTransfer": "Acceptation…",
-  "transfersSection": "Transferts"
+  "transfersSection": "Transferts",
+  "pendingNotesCount": "notes en attente",
+  "whatArePendingNotes": "Que sont les «notes en attente» ?",
+  "consumeYourNotes": "Consultez l’notes",
+  "consumeYourNotesDescription": "Ajoutez ces fonds en attente à votre solde pour commencer à dépenser.",
+  "pendingNotesDrawerP1a": "Lorsqu’une personne vous envoie des fonds, ceux-ci arrivent sous forme de",
+  "pendingNotesDrawerP1Bold": "notes",
+  "pendingNotesDrawerP1b": "— des paquets scellés que vous seul pouvez ouvrir.",
+  "pendingNotesDrawerP2Bold": "Consommation",
+  "pendingNotesDrawerP2": "Un «note» (transfert) débloque les fonds sur votre solde disponible. Tant que vous n’effectuez pas cette opération, les fonds vous appartiennent mais ne peuvent pas encore être dépensés.",
+  "pendingNotesDrawerP3a": "Vous avez",
+  "pendingNotesDrawerP3Bold": "$count$ notes",
+  "pendingNotesDrawerP3b": "En attente. Utilisez-les quand vous le souhaitez : rien ne presse, et vos fonds ne courent aucun risque.",
+  "activityTransferClaimed": "Acceptée",
+  "activityUnread": "Non lu"
 }

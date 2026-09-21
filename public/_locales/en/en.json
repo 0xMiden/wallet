@@ -1199,5 +1199,19 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Accepted",
   "activityAcceptingTransfer": "Accepting…",
-  "transfersSection": "Transfers"
+  "transfersSection": "Transfers",
+  "pendingNotesCount": "notes pending",
+  "whatArePendingNotes": "What are pending notes?",
+  "consumeYourNotes": "Consume your notes",
+  "consumeYourNotesDescription": "Add these pending funds to your balance to start spending.",
+  "pendingNotesDrawerP1a": "When someone sends you funds, they arrive as private",
+  "pendingNotesDrawerP1Bold": "notes",
+  "pendingNotesDrawerP1b": "— sealed packages only you can open.",
+  "pendingNotesDrawerP2Bold": "Consuming",
+  "pendingNotesDrawerP2": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet.",
+  "pendingNotesDrawerP3a": "You have",
+  "pendingNotesDrawerP3Bold": "$count$ notes",
+  "pendingNotesDrawerP3b": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk.",
+  "activityTransferClaimed": "Accepted",
+  "activityUnread": "Unread"
 }

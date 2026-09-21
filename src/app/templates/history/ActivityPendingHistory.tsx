@@ -10,9 +10,11 @@ import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { markActivityRead } from 'lib/settings/activity-read';
 import { useConfirm } from 'lib/ui/dialog';
 import { useLocation } from 'lib/woozie';
 
+import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
 import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
 
@@ -94,6 +96,9 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
     const latest = currentItems.current.find(item => item.note.id === note.id);
     if (!latest || (latest.status !== 'pending' && latest.status !== 'failed')) return;
     await hidden.hide(note.id);
+    // Declining settles the transfer as surely as accepting it does. Only here, not at the tap:
+    // a decline the user backed out of is no decision at all.
+    markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
   };
   const acceptRef = useRef(accept);
   acceptRef.current = accept;
@@ -168,7 +173,12 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             title={claimingCount > 0 && claimableNotes.length === 0 ? t('activityAcceptingTransfer') : t('acceptAll')}
             disabled={claimableNotes.length === 0}
             isLoading={claimingCount > 0 && claimableNotes.length === 0}
-            onClick={() => acceptMany(claimableNotes)}
+            onClick={() => {
+              for (const note of claimableNotes) {
+                markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
+              }
+              acceptMany(claimableNotes);
+            }}
           />
         </div>
       )}

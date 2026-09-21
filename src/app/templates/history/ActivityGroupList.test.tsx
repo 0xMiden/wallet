@@ -1,8 +1,11 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+
+import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupList } from './ActivityGroupList';
+import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 
 const FAUCET = 'miden-native-faucet';
@@ -68,6 +71,68 @@ const renderList = (entries: IHistoryEntry[], over: Partial<React.ComponentProps
   );
 
 const rows = () => screen.getAllByTestId('activity-group-row');
+
+describe('ActivityGroupList — unread', () => {
+  // Everything in the fixtures is dated after the seed, so a fresh install sees it all as unread.
+  beforeEach(() => {
+    localStorage.clear();
+    resetActivityReadState();
+    jest.spyOn(Date, 'now').mockReturnValue(0);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const unreadRows = () => rows().filter(row => within(row).queryByTestId('list-row-unread'));
+
+  it('marks a group unread while any of its entries is, and names it', () => {
+    renderList([entry({ timestamp: 900, secondaryAddress: 'mtst1alice' })]);
+
+    const dot = screen.getByTestId('list-row-unread');
+    expect(dot).toHaveClass('bg-notification');
+    expect(dot).toHaveTextContent('activityUnread');
+  });
+
+  it('keeps the dot while ONE child is still unread, and drops it when the last one is read', () => {
+    const first = entry({ timestamp: 900, key: 'a', txId: 'a', secondaryAddress: 'mtst1alice' });
+    const second = entry({ timestamp: 800, key: 'b', txId: 'b', secondaryAddress: 'mtst1alice' });
+
+    const { rerender } = renderList([first, second]);
+    expect(unreadRows()).toHaveLength(1);
+
+    // Opening one child is not opening the group: the folder still holds something unread.
+    markActivityRead(historyEntryUnreadKey(first), first.timestamp);
+    rerender(
+      <ActivityGroupList
+        entries={[first, second]}
+        nameOf={() => undefined}
+        initialLoading={false}
+        hasMore={false}
+        loadMore={jest.fn()}
+      />
+    );
+    expect(unreadRows()).toHaveLength(1);
+
+    markActivityRead(historyEntryUnreadKey(second), second.timestamp);
+    rerender(
+      <ActivityGroupList
+        entries={[first, second]}
+        nameOf={() => undefined}
+        initialLoading={false}
+        hasMore={false}
+        loadMore={jest.fn()}
+      />
+    );
+    expect(unreadRows()).toHaveLength(0);
+  });
+
+  it('leaves an existing history read on first run, instead of a wall of dots', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(10_000_000);
+    resetActivityReadState();
+
+    renderList([entry({ timestamp: 900, secondaryAddress: 'mtst1alice' }), entry({ timestamp: 800, txType: 'swap' })]);
+
+    expect(screen.queryByTestId('list-row-unread')).toBeNull();
+  });
+});
 
 describe('ActivityGroupList', () => {
   it('spins while the first page is still loading', () => {
