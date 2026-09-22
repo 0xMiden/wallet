@@ -636,55 +636,15 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches OFFSCREEN_CALL to the realm that created the note, crossing the note as SERIALIZED bytes; the SW client is NEVER used', async () => {
+  it('flag ON → sendPrivateNote still relays on the SW client (offscreen fetch to 127.0.0.1 is CORS-blocked)', async () => {
     const { midenClientProxy } = await loadProxy(true);
-    const { isCriticalOpInFlight } = await import('./offscreen-prover');
-    // Sampled from inside the dispatch, the only point the in-flight bracket is
-    // observable — the counter is back to zero by the time the call resolves.
-    let criticalDuringRelay: boolean | undefined;
-    // The offscreen side relays and returns null (void discarded).
-    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
-      criticalDuringRelay = isCriticalOpInFlight();
-      return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 4 };
-    });
-
     const note = makeNote([0xde, 0xad, 0xbe, 0xef]);
-    const p = midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
-    await flush();
-    fireReady();
-    const result = await p;
+
+    const result = await midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
 
     expect(result).toBeUndefined();
-    // THE FIX: the relay crossed to the offscreen realm (which owns the note + the
-    // fresh sync height); the dormant SW client — whose stale height would overshoot
-    // the note's commitment — was NEVER used.
-    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
-    expect(G.__px.inlineSendPrivateNote).not.toHaveBeenCalled();
-    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
-    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
-    expect(env.type).toBe('OFFSCREEN_CALL');
-    expect(env.method).toBe('sendPrivateNote');
-    // A write-class deadline (45s), NOT a read's 15s, and dispatched as CRITICAL.
-    //
-    // This asserted 15s on the reasoning that a transport relay does no prove or
-    // sign — true of the work, but the stakes are a write's: the transaction has
-    // already landed, so an abort here does not undo a spend, it strands one. Two
-    // things follow from `critical`, and both are the point:
-    //   - `deadline_ms` is not armed at dispatch but at EXECUTION START, when the op
-    //     wins the offscreen WASM mutex, so queue-wait behind other ops is
-    //     off-budget. Burning a 15s budget in that queue and aborting before the
-    //     first request is the reported OperationAbortedError.
-    //   - a coincident cheap read's deadline downgrades to a reject-without-kill
-    //     instead of tearing down the realm mid-relay.
-    expect(env.deadline_ms).toBe(45_000);
-    expect(criticalDuringRelay).toBe(true);
-    // ...and the bracket is released once the relay resolves.
-    expect(isCriticalOpInFlight()).toBe(false);
-    // The Note crossed as RAW serialized bytes (the 'b:' tag), never JSON/handle...
-    expect(env.argsB64[0].startsWith('b:')).toBe(true);
-    expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xde, 0xad, 0xbe, 0xef]);
-    // ...and the recipient id crossed as a JSON string.
-    expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+    expect(G.__px.inlineSendPrivateNote).toHaveBeenCalledWith(note, 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('flag ON → relayPrivateNoteById is dispatched as CRITICAL on the relay deadline, carrying only ids', async () => {

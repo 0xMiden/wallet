@@ -1019,80 +1019,20 @@ export const midenClientProxy = {
   },
 
   /**
-   * Relay a just-created PRIVATE note to the recipient via the transport layer
-   * (issue #260, slice 7b).
+   * Relay a just-created PRIVATE note via the transport layer.
    *
-   * This MUST run on the SAME client that created the note, mirroring the
-   * `waitForTransactionCommit` companion above — and for a funds-critical reason:
-   * under 0.16 `MidenClientInterface.sendPrivateNote` calls
-   * `notes.sendPrivateOutput({ noteId })`, which resolves the note BY ID from the
-   * calling client's store as an APPLIED OUTPUT note and derives the recipient's
-   * forward-scan hint from that stored `expected_height` (the chain tip when the
-   * note's transaction was submitted). Under the flag the send ran offscreen, so
-   * the note is an output note of the OFFSCREEN client's store only; relaying on
-   * the dormant SW client rejects outright with the SDK's `No output note found for
-   * the given id` and the recipient — whose copy of these bytes may be the only one
-   * — silently never receives it.
-   *
-   * (Under 0.15 this call was `notes.sendPrivate(note, to)` and the hint was the
-   * client's live sync height, which is why the realm-pinning was originally argued
-   * from sync-height staleness. The requirement is the same; the reason is not.)
-   *
-   *   Flag off (default): BYTE-IDENTICAL to the former inline relay — the exact
-   *   `getMidenClient().sendPrivateNote(note, to)` under the WASM lock (the caller's
-   *   relay block used to hold this lock; it is taken here now, exactly as
-   *   `waitForTransactionCommit` does, so the relay+wait stay a coherent unit — each
-   *   proxy call owns its own lock rather than the caller wrapping both). The live
-   *   `Note` is passed straight through (never serialized on this path).
-   *
-   *   Flag on: forward to the offscreen doc. The live `Note` cannot cross
-   *   postMessage, so it crosses as `note.serialize()` bytes (`encodeArg`'s raw-bytes
-   *   tag, never JSON) and is re-hydrated offscreen via `Note.deserialize`; only its
-   *   ID is then used, because `notes.sendPrivateOutput` looks the note back up in
-   *   the offscreen store — which is exactly where the write that created it applied
-   *   it. Every relay today is for an output note of a transaction the SAME realm
-   *   just executed, proved, submitted and applied; a note this realm did not apply
-   *   (an imported one, or one whose client DB `lib/miden/reset.ts` has since
-   *   cleared) does not satisfy that precondition. The offscreen side discards the
-   *   void result.
-   *
-   * Dispatched as a `criticalOp` on a write-class deadline
-   * ({@link RELAY_DEADLINE_MS}), despite doing no prove or sign. That looks like a
-   * category error and is not: `criticalOp` marks ops that must not be torn down
-   * mid-flight because they are moving value, and this one is the only step that
-   * makes a landed private note reachable at all. Two concrete consequences, both
-   * load-bearing:
-   *
-   *   - The budget arms at EXECUTION START (`markOpStarted`) instead of dispatch, so
-   *     time spent queued behind other ops on the single offscreen WASM mutex is
-   *     off-budget. Under the previous non-critical 15s read deadline a busy realm
-   *     could spend the whole budget waiting for the mutex and abort the relay
-   *     before it issued a single request.
-   *   - A coincident cheap READ's deadline DOWNGRADES to a reject-without-kill
-   *     rather than tearing down the realm this relay is running in.
-   *
-   * The old comment justified the short deadline by arguing a kill was safe because
-   * "the SDK persists the relay payload to its durable outbox BEFORE transport".
-   * That is the wrong way round: Rust writes the outbox entry INSIDE the relay,
-   * after resolving the transport API, so an abort during the window this deadline
-   * governs — including one that lands before `sendPrivateOutput` has even resolved
-   * the note — queues nothing at all.
+   * Always the SW client. 0.17 `notes.sendPrivate` takes the live Note and a
+   * scan-after hint, so it does not need the offscreen store. Offscreen fetch
+   * to localnet NTS (`127.0.0.1:57292`) is CORS-blocked; the SW fetch is not.
    */
   async sendPrivateNote(note: Note, recipientAccountId: string): Promise<void> {
-    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await midenClient.sendPrivateNote(note, recipientAccountId);
-      });
-      return;
-    }
-    const op_id = newOpId();
-    incrementCriticalOp();
-    try {
-      await dispatchOp(op_id, 'sendPrivateNote', [note.serialize(), recipientAccountId], RELAY_DEADLINE_MS, true);
-    } finally {
-      decrementCriticalOp();
-    }
+    // Always the SW client. `notes.sendPrivate` takes the live Note, so it does
+    // not need the offscreen store. Offscreen fetch to 127.0.0.1:57292 is
+    // CORS-blocked even with host_permissions; the SW fetch already works.
+    await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      await midenClient.sendPrivateNote(note, recipientAccountId);
+    });
   },
 
   /**
