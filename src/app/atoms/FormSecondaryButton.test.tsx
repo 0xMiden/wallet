@@ -2,16 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
-
 import FormSecondaryButton from './FormSecondaryButton';
-
-// Mock analytics so we can assert tracking behaviour without pulling in the
-// real hook + its providers. Mirrors the sibling CopyButton.test.tsx.
-jest.mock('lib/analytics', () => ({
-  AnalyticsEventCategory: { ButtonPress: 'ButtonPress' },
-  useAnalytics: jest.fn()
-}));
 
 // Passthrough mock of the design-system Button. It forwards every prop the
 // component computes (className, style, type, disabled, onClick and any rest
@@ -41,16 +32,11 @@ jest.mock('app/atoms/Spinner/Spinner', () => ({
   }
 }));
 
-const mockUseAnalytics = useAnalytics as jest.Mock;
-
 const getButton = () => screen.getByRole('button');
 
 describe('FormSecondaryButton', () => {
-  const trackEvent = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseAnalytics.mockReturnValue({ trackEvent });
   });
 
   it('renders children with the Ghost variant and the default button type', () => {
@@ -62,16 +48,13 @@ describe('FormSecondaryButton', () => {
     expect(button).toHaveAttribute('data-variant', 'ghost');
   });
 
-  it('does not track or throw on click when neither testID nor onClick are provided', () => {
+  it('does not throw on click when no onClick is provided', () => {
     render(<FormSecondaryButton>Click me</FormSecondaryButton>);
 
-    // No testID (skips trackEvent branch) and no onClick (exercises the
-    // optional-chaining short-circuit) — clicking must be a harmless no-op.
     expect(() => fireEvent.click(getButton())).not.toThrow();
-    expect(trackEvent).not.toHaveBeenCalled();
   });
 
-  it('tracks the button press and forwards the click when a testID is provided', () => {
+  it('forwards the click to onClick and does not leak testID/testIDProperties onto the DOM button', () => {
     const onClick = jest.fn();
     render(
       <FormSecondaryButton testID="secondary-cta" testIDProperties={{ surface: 'send' }} onClick={onClick}>
@@ -79,23 +62,13 @@ describe('FormSecondaryButton', () => {
       </FormSecondaryButton>
     );
 
-    fireEvent.click(getButton());
+    const button = getButton();
+    fireEvent.click(button);
 
-    expect(trackEvent).toHaveBeenCalledWith('secondary-cta', AnalyticsEventCategory.ButtonPress, {
-      surface: 'send'
-    });
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onClick.mock.calls[0][0]).toMatchObject({ type: 'click' });
-  });
-
-  it('calls onClick without tracking when onClick is set but testID is absent', () => {
-    const onClick = jest.fn();
-    render(<FormSecondaryButton onClick={onClick}>Go</FormSecondaryButton>);
-
-    fireEvent.click(getButton());
-
-    expect(onClick).toHaveBeenCalledTimes(1);
-    expect(trackEvent).not.toHaveBeenCalled();
+    expect(button).not.toHaveAttribute('testID');
+    expect(button).not.toHaveAttribute('testIDProperties');
   });
 
   it('applies the loading branch: renders the spinner and loading-only classes/padding', () => {

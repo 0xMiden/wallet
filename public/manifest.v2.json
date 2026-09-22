@@ -31,8 +31,14 @@
     "name": "Miden"
   },
 
-  "__firefox__applications": {
-    "gecko": { "id": "{34ac229e-1cf5-4e4c-8a77-988155c4360f}" }
+  "__firefox__browser_specific_settings": {
+    "gecko": {
+      "id": "{34ac229e-1cf5-4e4c-8a77-988155c4360f}",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": ["technicalAndInteraction"]
+      }
+    }
   },
 
   "__chrome__minimum_chrome_version": "49",

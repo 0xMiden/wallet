@@ -21,6 +21,8 @@ import {
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { classifyError } from 'lib/telemetry';
+import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { ChartContainer } from 'lib/ui/charts';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -70,6 +72,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   }, [amount]);
   const faucetId = getEarnCollateralFaucetId();
 
+  // Reaching review, and owning the terminal outcome. The amount screen began
+  // this flow and deliberately does not settle it on handoff, so every exit from
+  // here settles: leaving is abandonment at review, and the submit below reports
+  // its own outcome and clears the handle first.
+  useEffect(() => {
+    enterRouteFlow('earn');
+    reportRouteFlowStep('earn', 'review');
+    return () => settleRouteFlow('earn', flow => flow.cancel());
+  }, []);
+
   // The account's spending-limit revision never crosses the intercom port - `serializeError` /
   // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
@@ -99,19 +111,35 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     }
     setIsSubmitting(true);
     setSubmitError(null);
+    // A previous attempt that failed settled its flow errored and the user is
+    // still on this screen, so a retry needs a flow of its own. Otherwise the
+    // second attempt reports nothing at all and a deposit that failed once and
+    // then succeeded is recorded only as the failure. Same contract as
+    // `enterSendFlow` and the swap retry path.
+    enterRouteFlow('earn');
+    reportRouteFlowStep('earn', 'submitting');
     try {
       await openEarnPosition({
         amount: amountBaseUnits,
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
-        onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`),
+        onRowCreated: txId => {
+          // A position row exists, which is what "the user deposited" means
+          // here. Settled before navigating, since that unmounts this screen.
+          settleRouteFlow('earn', flow => flow.complete());
+          navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+        },
         spendingLimitAuthorization: authorization
       });
     } catch (e) {
       const assessment = spendingLimitAssessmentFromError(e);
       if (assessment !== undefined) {
-        setSpendingLimitChallenge({ assessment, spends: [{ faucetId, amount: amountBaseUnits }] });
+        // An assessment for another account can never authorize this deposit. Opening it and
+        // letting the effect below close it paints the drawer for one commit.
+        if (assessment.accountId === account.publicKey) {
+          setSpendingLimitChallenge({ assessment, spends: [{ faucetId, amount: amountBaseUnits }] });
+        }
         return;
       }
       // `openUnpricedChallenge` reads spending-limit config and can itself throw. The outer
@@ -124,6 +152,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       } catch (challengeError) {
         console.error(challengeError);
       }
+      settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
       setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
     } finally {
       setIsSubmitting(false);
@@ -147,7 +176,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       const spends = [{ faucetId, amount: amountBaseUnits }];
       const assessment = await assessSpendingLimit(account.publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
-        setSpendingLimitChallenge({ assessment, spends });
+        // Same as the submit catch: a mismatched assessment is not this deposit's challenge.
+        if (assessment.accountId === account.publicKey) {
+          setSpendingLimitChallenge({ assessment, spends });
+        }
         setIsSubmitting(false);
         return;
       }

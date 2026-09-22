@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
@@ -20,6 +20,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
+import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { navigate, useLocation } from 'lib/woozie';
 import {
   detectAddressChain,
@@ -36,6 +37,7 @@ import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendAmount } from './SendAmount';
 import { SendRoute } from './SendRoute';
 import {
@@ -209,6 +211,59 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       state.setLastCompletedTxHash(null);
     }
   }, [pathname]);
+
+  // Entering the send form begins the `send` flow. It deliberately outlives
+  // this component: navigating to /send/review is a handoff (a draft is left
+  // behind for back-restore), and the review page makes the terminal call. Any
+  // other unmount is the user leaving the flow, so it is recorded as cancelled
+  // rather than left as an unmatched `started`.
+  // Gated on the route, NOT on mount. TabLayout renders this screen inside a
+  // five-page carousel that mounts every page at once and keeps them mounted, so
+  // a mount-triggered flow fired on every single app open — reporting a send the
+  // user had not asked for, and then never ending it, since swiping away does
+  // not unmount either. Every wallet launch produced a phantom abandoned send.
+  // `pathname` is the carousel's own source of truth for which page is showing.
+  //
+  // Dwelled on rather than merely current, because a swipe from Overview to Swap
+  // commits /send on the way past — see `useRouteDwell`.
+  const onSendRoute = useRouteDwell(pathname === '/send' || pathname.startsWith('/send/'));
+  // Set when this screen navigates to review. That unmount is the handoff, not
+  // the user leaving, so the review page still owns the terminal call.
+  const reviewHandoffRef = useRef(false);
+  useEffect(() => {
+    if (!onSendRoute) return;
+    enterSendFlow();
+    return () => {
+      if (reviewHandoffRef.current) return;
+      settleSendFlow(flow => flow.cancel());
+    };
+  }, [onSendRoute]);
+
+  // Report the step the user reached, so an abandoned send says WHERE it was
+  // abandoned. Without it every drop-out arrives as one bare `send_started` and
+  // "people give up at the amount screen" is not a statement the data can make.
+  // Derived from the navigator rather than pushed at each transition, so a step
+  // reached by back-navigation or by draft restore counts the same as one
+  // reached by tapping forward.
+  //
+  // Keyed on the route gate as well as the step: the flow now begins when the
+  // user arrives at /send, which is AFTER this screen mounted inside the
+  // carousel. Without `onSendRoute` here, the first step would be reported into
+  // a flow that did not exist yet and every send would arrive stepless.
+  useEffect(() => {
+    if (!onSendRoute) return;
+    switch (currentStep) {
+      case SendFlowStep.SelectRecipient:
+        reportSendStep('select_recipient');
+        break;
+      case SendFlowStep.SelectAmount:
+        reportSendStep('select_amount');
+        break;
+      case SendFlowStep.Route:
+        reportSendStep('select_route');
+        break;
+    }
+  }, [currentStep, onSendRoute]);
 
   const {
     register,
@@ -453,6 +508,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
     if (!token || !amount || !recipientAddress) return;
+    reviewHandoffRef.current = true;
     setSendDraft({
       amount,
       recipientAddress,

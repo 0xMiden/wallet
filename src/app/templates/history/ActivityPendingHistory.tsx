@@ -20,6 +20,8 @@ interface ActivityPendingHistoryProps {
   search: string;
   filter: ActivityFilter;
   programId?: string | null;
+  /** Forwarded to the list below, which owns the loading state the caller reports on. */
+  onInitialLoad?: () => void;
 }
 
 function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boolean {
@@ -27,7 +29,7 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
   return !hiddenIds.has(item.note.id) || item.status === 'claimed' || item.status === 'claiming';
 }
 
-export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPendingHistoryProps) => {
+export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
   const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
   const reducedMotion = useReducedMotion();
@@ -149,6 +151,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             filter={filter}
             pendingItems={listItems}
             renderPendingItem={renderPendingItem}
+            onInitialLoad={onInitialLoad}
           />
         </div>
       </div>

@@ -4,7 +4,7 @@ import classNames from 'clsx';
 
 import Spinner from 'app/atoms/Spinner/Spinner';
 import { Button, ButtonVariant } from 'components/Button';
-import { AnalyticsEventCategory, TestIDProps, useAnalytics } from 'lib/analytics';
+import { TestIDProps } from 'lib/ui/test-id.props';
 import useTippy from 'lib/ui/useTippy';
 
 type FormSubmitButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
@@ -24,18 +24,12 @@ const FormSubmitButton: FC<FormSubmitButtonProps> = ({
   style,
   children,
   onClick,
-  testID,
-  testIDProperties,
+  testID: _testID,
+  testIDProperties: _testIDProperties,
   ...rest
 }) => {
-  const { trackEvent } = useAnalytics();
   const tippyProps = { ...tippyPropsMock, content: tooltip };
   const spanRef = useTippy<HTMLSpanElement>(tippyProps);
-
-  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    testID !== undefined && trackEvent(testID, AnalyticsEventCategory.ButtonPress, testIDProperties);
-    onClick?.(e);
-  };
 
   const button = (
     <Button
@@ -57,7 +51,7 @@ const FormSubmitButton: FC<FormSubmitButtonProps> = ({
       )}
       style={style}
       disabled={disabled}
-      onClick={handleClick}
+      onClick={onClick}
       {...rest}
     >
       {children}

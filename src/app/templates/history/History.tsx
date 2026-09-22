@@ -52,6 +52,12 @@ type HistoryProps = {
   tokenId?: string;
   searchQuery?: string;
   filter?: ActivityFilter;
+  /**
+   * Fired when the transaction query settles, i.e. when the list stops being a
+   * spinner. The hosting screen reports "the user can see their activity" from
+   * this; the loading state lives here, so nothing above can derive it.
+   */
+  onInitialLoad?: () => void;
 };
 
 // The chips above the activity list. `pending` shows only the notes that
@@ -69,6 +75,7 @@ const History = memo<HistoryProps>(
     tokenId,
     searchQuery,
     filter,
+    onInitialLoad,
     pendingItems,
     renderPendingItem
   }) => {
@@ -138,6 +145,11 @@ const History = memo<HistoryProps>(
         isPaused: () => !reading
       }
     );
+    useEffect(() => {
+      if (transactionsLoading) return;
+      onInitialLoad?.();
+    }, [transactionsLoading, onInitialLoad]);
+
     // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
     // screen, or a filter moved off Pending.
     const wasReading = useRef(reading);

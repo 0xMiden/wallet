@@ -4785,6 +4785,22 @@
     "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
   },
+  "helpImproveWallet": {
+    "message": "월렛 개선에 기여해 주세요",
+    "englishSource": "Help improve Wallet"
+  },
+  "helpImproveWalletDescription": {
+    "message": "월렛의 어떤 기능을 사용 중인지, 어디서 문제가 발생하는지, 대략적인 오류 유형, 앱 버전 및 사용 중인 플랫폼을 알려주시면 문제를 해결할 수 있습니다. 앱이 강제 종료될 경우, 오류 내용과 코드 내 발생 위치를 포함한 충돌 보고서가 전송되며, 전송 전 민감한 데이터는 제거됩니다. 절대 사용자의 키, 복구 문구, 비밀번호, 주소, 잔액, 금액 또는 거래 내용은 전송되지 않습니다. 다른 앱이나 사이트에 걸친 추적은 없으며, 광고 목적으로 사용되는 정보도 없고, 데이터 브로커에게 판매되거나 공유되는 정보도 없습니다. 이 설정은 언제든지 변경할 수 있습니다.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+  },
+  "helpImproveWalletAccept": {
+    "message": "사용 현황 데이터 공유",
+    "englishSource": "Share usage data"
+  },
+  "helpImproveWalletDecline": {
+    "message": "지금은 아닙니다",
+    "englishSource": "Not now"
+  },
   "activityAcceptTransfer": {
     "message": "이체 수락",
     "englishSource": "Accept Transfer"

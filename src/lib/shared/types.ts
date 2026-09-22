@@ -6,16 +6,8 @@ import type {
 } from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { TelemetryEvent } from 'lib/telemetry/types';
 import { WalletType } from 'screens/onboarding/types';
-
-import {
-  SendPageEventRequest,
-  SendPageEventResponse,
-  SendPerformanceEventRequest,
-  SendPerformanceEventResponse,
-  SendTrackEventRequest,
-  SendTrackEventResponse
-} from './analytics-types';
 
 export enum WalletMessageType {
   // Aknowledge
@@ -141,12 +133,6 @@ export enum WalletMessageType {
   DAppGetAllSessionsResponse = 'DAPP_GET_ALL_SESSIONS_RESPONSE',
   DAppRemoveSessionRequest = 'DAPP_REMOVE_SESSION_REQUEST',
   DAppRemoveSessionResponse = 'DAPP_REMOVE_SESSION_RESPONSE',
-  SendTrackEventRequest = 'SEND_TRACK_EVENT_REQUEST',
-  SendTrackEventResponse = 'SEND_TRACK_EVENT_RESPONSE',
-  SendPageEventRequest = 'SEND_PAGE_EVENT_REQUEST',
-  SendPageEventResponse = 'SEND_PAGE_EVENT_RESPONSE',
-  SendPerformanceEventRequest = 'SEND_PROOF_GENERATION_EVENT_REQUEST',
-  SendPerformanceEventResponse = 'SEND_PROOF_GENERATION_EVENT_RESPONSE',
   DecryptCiphertextsRequest = 'DECRYPT_CIPHERTEXTS_REQUEST',
   DecryptCiphertextsResponse = 'DECRYPT_CIPHERTEXTS_RESPONSE',
   GetOwnedRecordsRequest = 'GET_OWNED_RECORDS_REQUEST',
@@ -173,7 +159,9 @@ export enum WalletMessageType {
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
-  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
+  ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -349,6 +337,16 @@ export interface SerializedInputNoteDetail {
 export interface GetInputNoteDetailsRequest extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsRequest;
   noteIds: string[];
+}
+
+export interface ReportTelemetryEventRequest extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventRequest;
+  /** Only the event. Version and platform are derived in the background. */
+  event: TelemetryEvent;
+}
+
+export interface ReportTelemetryEventResponse extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventResponse;
 }
 
 export interface GetInputNoteDetailsResponse extends WalletMessageBase {
@@ -1254,9 +1252,6 @@ export type WalletRequest =
   | DAppDeployConfirmationRequest
   | GetAllDAppSessionsRequest
   | RemoveDAppSessionRequest
-  | SendTrackEventRequest
-  | SendPageEventRequest
-  | SendPerformanceEventRequest
   | DecryptCiphertextsRequest
   | GetOwnedRecordsRequest
   | ImportFromClientRequest
@@ -1267,7 +1262,8 @@ export type WalletRequest =
   | ImportNoteBytesRequest
   | RetryDeadletteredNotesRequest
   | ExportNoteRequest
-  | GetInputNoteDetailsRequest;
+  | GetInputNoteDetailsRequest
+  | ReportTelemetryEventRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1329,9 +1325,6 @@ export type WalletResponse =
   | DAppDeployConfirmationResponse
   //   | GetAllDAppSessionsResponse
   // | RemoveDAppSessionResponse
-  | SendTrackEventResponse
-  | SendPageEventResponse
-  | SendPerformanceEventResponse
   | DecryptCiphertextsResponse
   | GetOwnedRecordsResponse
   | ImportFromClientResponse
@@ -1342,4 +1335,5 @@ export type WalletResponse =
   | ImportNoteBytesResponse
   | RetryDeadletteredNotesResponse
   | ExportNoteResponse
-  | GetInputNoteDetailsResponse;
+  | GetInputNoteDetailsResponse
+  | ReportTelemetryEventResponse;

@@ -30,6 +30,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { classifyError } from 'lib/telemetry';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
@@ -38,6 +39,7 @@ import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from '.
 import { NetworkChip } from './NetworkChip';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
+import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
@@ -205,6 +207,22 @@ export const ReviewTransaction: React.FC = () => {
     setRecallBlocks(undefined);
   }, []);
 
+  // Leaving review without submitting ends the `send` flow the form began.
+  // Without this the handle would stay open past the send flow entirely and the
+  // next send would adopt it, inheriting a duration that is not its own.
+  // Already-settled flows are untouched, so a completed submit is not
+  // re-reported by the navigation away from this page.
+  useEffect(() => {
+    // Reaching review is the most informative single fact about an abandoned
+    // send: the user had chosen a recipient, a token and an amount, and stopped
+    // at the last screen before committing. That is a very different problem
+    // from giving up on the amount field, and only `step` distinguishes them.
+    reportSendStep('review');
+    return () => {
+      settleSendFlow(flow => flow.cancel());
+    };
+  }, []);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
@@ -239,6 +257,10 @@ export const ReviewTransaction: React.FC = () => {
   // back from the progress page skips the now-stale review params.
   const goToGeneratingTransaction = useCallback(
     (txId: string) => {
+      // The single success funnel for all three submit paths (Miden, Agglayer,
+      // Epoch): a transaction row now exists, which is what "the user sent"
+      // means here. Its later on-chain fate belongs to the progress screen.
+      settleSendFlow(flow => flow.complete());
       clearSendDraft();
       navigate(
         `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
@@ -258,6 +280,10 @@ export const ReviewTransaction: React.FC = () => {
       setIsSubmitting(true);
       setSubmitError(undefined);
       setSpendingLimitChallenge(undefined);
+      // Biometrics already passed, or this is the spending-limit authorization
+      // that actually submits. Re-open a flow a previous error already settled.
+      enterSendFlow();
+      reportSendStep('submitting');
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         const commonArguments = [
@@ -297,6 +323,7 @@ export const ReviewTransaction: React.FC = () => {
           setIsSubmitting(false);
           return;
         }
+        settleSendFlow(flow => flow.fail(classifyError(error)));
         setSubmitError(error instanceof Error ? error.message : String(error));
         setIsSubmitting(false);
       }
@@ -323,6 +350,10 @@ export const ReviewTransaction: React.FC = () => {
       setIsSubmitting(true);
       setSubmitError(undefined);
       setSpendingLimitChallenge(undefined);
+      // Biometrics already passed, or this is the spending-limit authorization
+      // that actually submits. Re-open a flow a previous error already settled.
+      enterSendFlow();
+      reportSendStep('submitting');
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         if (route === 'agglayer') {
@@ -368,6 +399,7 @@ export const ReviewTransaction: React.FC = () => {
           setIsSubmitting(false);
           return;
         }
+        settleSendFlow(flow => flow.fail(classifyError(error)));
         setSubmitError(error instanceof Error ? error.message : String(error));
         setIsSubmitting(false);
       }

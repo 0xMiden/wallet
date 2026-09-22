@@ -4785,6 +4785,22 @@
     "message": "Bu köprü, Ethereum Sepolia üzerinde çalışır. Gerçek fon içeren bir cüzdanı bağlamayınız. Yeni bir cüzdan oluşturun ve içine yalnızca Sepolia ETH yatırın.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
   },
+  "helpImproveWallet": {
+    "message": "Cüzdanın geliştirilmesine yardımcı olun",
+    "englishSource": "Help improve Wallet"
+  },
+  "helpImproveWalletDescription": {
+    "message": "Cüzdanın hangi bölümlerini kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve kullandığınız platformu paylaşın, böylece sorunları giderebilelim. Uygulama çökerse, hatayı ve kodda nerede meydana geldiğini içeren bir çökme raporu da gönderir; bu rapor, gönderilmeden önce hassas verilerin kaldırılması için temizlenir. Asla anahtarlarınız, kurtarma ifadesi, şifreniz, adresleriniz, bakiyeleriniz, tutarlarınız veya işlem içeriklerinizi paylaşmayız. Diğer uygulamalar veya siteler üzerinden izleme yapılmaz, hiçbir bilgi reklam amaçlı kullanılmaz ve hiçbir bilgi veri brokerlerine satılmaz veya paylaşılmaz. Bu ayarları istediğiniz zaman değiştirebilirsiniz.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+  },
+  "helpImproveWalletAccept": {
+    "message": "Kullanım verilerini paylaşın",
+    "englishSource": "Share usage data"
+  },
+  "helpImproveWalletDecline": {
+    "message": "Şu anda değil",
+    "englishSource": "Not now"
+  },
   "activityAcceptTransfer": {
     "message": "Aktarımı Kabul Et",
     "englishSource": "Accept Transfer"

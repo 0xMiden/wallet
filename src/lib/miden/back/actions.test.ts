@@ -4,7 +4,8 @@ import { spendingLimits, transactions } from 'lib/miden/repo';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { WalletStatus } from 'lib/shared/types';
+import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -45,6 +46,7 @@ import {
   importMnemonicAccount,
   importFundraiserAccount,
   importWatchOnlyAccount,
+  handleReportTelemetryEvent,
   getSpendingLimit,
   saveSpendingLimit,
   assessOutgoingSpendingLimit,
@@ -1764,6 +1766,24 @@ describe('actions', () => {
       } finally {
         delete (globalThis as any).init_vault;
       }
+    });
+  });
+});
+
+jest.mock('lib/telemetry/sink', () => ({ sendEvent: jest.fn() }));
+
+describe('handleReportTelemetryEvent', () => {
+  afterEach(() => jest.resetAllMocks());
+
+  it('forwards the event with a background-derived context', async () => {
+    const response = await handleReportTelemetryEvent({
+      type: WalletMessageType.ReportTelemetryEventRequest,
+      event: { phase: 'started', flow: 'send', flowId: 'f1', runId: 'r1' }
+    });
+    expect(response.type).toBe(WalletMessageType.ReportTelemetryEventResponse);
+    expect(jest.mocked(sendEvent).mock.calls[0]?.[1]).toEqual({
+      appVersion: expect.stringMatching(/^\d+\.\d+\.\d+$/),
+      platform: expect.any(String)
     });
   });
 });

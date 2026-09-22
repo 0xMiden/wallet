@@ -1,124 +1,117 @@
 import { logger } from './logger';
 
+/**
+ * The server path is gone, so these tests are deliberately narrow: the logger's
+ * whole contract is now "the right console sink, the message, and the caller's
+ * meta when there is any".
+ *
+ * The removed assertions covered `censorKeys` (an Aleo `APrivateKey`/`AViewKey`
+ * scrubber, formats Miden does not have), `sendLog`/`sendLogToServer`, and the
+ * `localStorage['analytics']` consent gate. One of them asserted the fail-open
+ * behaviour outright — "handles empty analytics localStorage … Should still call
+ * since analytics is not explicitly disabled" — which is the property the
+ * removal exists to eliminate, so it is not carried forward. Consent now lives
+ * in `lib/settings/helpers` and is enforced in `lib/telemetry`.
+ */
 describe('logger', () => {
-  const originalEnv = process.env.MODE_ENV;
   let infoSpy: jest.SpyInstance;
   let warnSpy: jest.SpyInstance;
   let errorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     localStorage.clear();
-    (logger as any).sendLogToServer = jest.fn();
     infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    process.env.MODE_ENV = originalEnv;
     infoSpy.mockRestore();
     warnSpy.mockRestore();
     errorSpy.mockRestore();
+    localStorage.clear();
   });
 
-  it('censors private and view keys', () => {
-    const str = `APrivateKey${'x'.repeat(48)} AViewKey${'y'.repeat(45)}`;
-    const result = (logger as any).censorKeys(str);
-    expect(result).toBe('APrivateKey**** AViewKey****');
+  it('routes info to console.info', () => {
+    logger.info('an info message');
+
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith('an info message');
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('sends logs in production when analytics enabled', async () => {
-    process.env.MODE_ENV = 'production';
-    localStorage.setItem('analytics', JSON.stringify({ enabled: true }));
+  it('routes warning to console.warn', () => {
+    logger.warning('a warning message');
 
-    await logger.info('message', { foo: 'bar' });
-
-    expect((logger as any).sendLogToServer).toHaveBeenCalledTimes(1);
-    const logArg = (logger as any).sendLogToServer.mock.calls[0][0];
-    expect(logArg.level).toBe('info');
-    expect(logArg.meta.walletVersion).toBeDefined();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith('a warning message');
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('skips sending logs when not production', async () => {
-    process.env.MODE_ENV = 'development';
-    await logger.info('message');
-    expect((logger as any).sendLogToServer).not.toHaveBeenCalled();
+  it('routes error to console.error', () => {
+    logger.error('an error message');
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith('an error message');
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('logs warning messages', async () => {
-    process.env.MODE_ENV = 'production';
-    localStorage.setItem('analytics', JSON.stringify({ enabled: true }));
+  it('forwards the caller-supplied meta to each sink', () => {
+    const cause = new Error('boom');
 
-    await logger.warning('warning message', { context: 'test' });
+    logger.info('info', { foo: 'bar' });
+    logger.warning('warn', cause);
+    logger.error('error', { errorCode: 500 });
 
-    expect(warnSpy).toHaveBeenCalledWith('warning message');
-    expect((logger as any).sendLogToServer).toHaveBeenCalledTimes(1);
-    const logArg = (logger as any).sendLogToServer.mock.calls[0][0];
-    expect(logArg.level).toBe('warn');
-    expect(logArg.message).toBe('warning message');
+    expect(infoSpy).toHaveBeenCalledWith('info', { foo: 'bar' });
+    expect(warnSpy).toHaveBeenCalledWith('warn', cause);
+    expect(errorSpy).toHaveBeenCalledWith('error', { errorCode: 500 });
   });
 
-  it('logs error messages', async () => {
-    process.env.MODE_ENV = 'production';
-    localStorage.setItem('analytics', JSON.stringify({ enabled: true }));
+  it('omits the meta argument entirely when none is given', () => {
+    logger.info('no meta');
 
-    await logger.error('error message', { errorCode: 500 });
-
-    expect(errorSpy).toHaveBeenCalledWith('error message', { errorCode: 500 });
-    expect((logger as any).sendLogToServer).toHaveBeenCalledTimes(1);
-    const logArg = (logger as any).sendLogToServer.mock.calls[0][0];
-    expect(logArg.level).toBe('error');
-    expect(logArg.message).toBe('error message');
+    // Not `('no meta', undefined)` — that would print a bare "undefined"
+    // alongside every message that has no context to add.
+    expect(infoSpy.mock.calls[0]).toEqual(['no meta']);
   });
 
-  it('skips sending when analytics disabled', async () => {
-    process.env.MODE_ENV = 'production';
-    localStorage.setItem('analytics', JSON.stringify({ enabled: false }));
+  it('forwards an explicitly null meta rather than treating it as absent', () => {
+    logger.error('null meta', null);
 
-    await logger.info('message');
-
-    expect((logger as any).sendLogToServer).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith('null meta', null);
   });
 
-  it('censors private keys in log meta', async () => {
-    process.env.MODE_ENV = 'production';
-    localStorage.setItem('analytics', JSON.stringify({ enabled: true }));
-
-    const privateKey = `APrivateKey${'x'.repeat(48)}`;
-    await logger.info('test', { key: privateKey });
-
-    const logArg = (logger as any).sendLogToServer.mock.calls[0][0];
-    expect(logArg.meta.key).toBe('APrivateKey****');
+  it('logs synchronously, with no promise for a caller to forget to await', () => {
+    // Every production call site is fire-and-forget (`logger.warning(msg, e)`),
+    // which the removed `async` methods made a floating promise at each one.
+    expect(logger.info('sync')).toBeUndefined();
+    expect(logger.warning('sync')).toBeUndefined();
+    expect(logger.error('sync')).toBeUndefined();
   });
 
-  it('censors message containing private keys', async () => {
-    process.env.MODE_ENV = 'production';
-    localStorage.setItem('analytics', JSON.stringify({ enabled: true }));
+  it('no longer exposes the removed server path', () => {
+    const surface = logger as unknown as Record<string, unknown>;
 
-    const privateKey = `APrivateKey${'x'.repeat(48)}`;
-    await logger.info(`User key: ${privateKey}`);
-
-    const logArg = (logger as any).sendLogToServer.mock.calls[0][0];
-    expect(logArg.message).toBe('User key: APrivateKey****');
+    for (const removed of ['sendLog', 'sendLogToServer', 'censorKeys']) {
+      expect(surface[removed]).toBeUndefined();
+    }
   });
 
-  it('handles empty analytics localStorage', async () => {
-    process.env.MODE_ENV = 'production';
-    // No analytics in localStorage
+  it('does not read the legacy analytics consent key', () => {
+    // The old gate keyed off this and failed open when it was absent. Nothing
+    // in the logger may consult it again — `clearLegacyAnalyticsStorage()`
+    // deletes it at startup, which under the old code turned the gate off.
+    const getItem = jest.spyOn(Storage.prototype, 'getItem');
 
-    await logger.info('message');
+    logger.info('message');
+    logger.warning('message');
+    logger.error('message');
 
-    // Should still call since analytics is not explicitly disabled
-    expect((logger as any).sendLogToServer).toHaveBeenCalled();
-  });
-
-  it('handles null meta gracefully', async () => {
-    process.env.MODE_ENV = 'production';
-    localStorage.setItem('analytics', JSON.stringify({ enabled: true }));
-
-    await logger.info('message', null);
-
-    const logArg = (logger as any).sendLogToServer.mock.calls[0][0];
-    expect(logArg.meta.walletVersion).toBeDefined();
+    expect(getItem).not.toHaveBeenCalledWith('analytics');
+    getItem.mockRestore();
   });
 });
