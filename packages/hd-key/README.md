@@ -37,7 +37,7 @@ The implementation follows MetaMask `key-tree` v10.1.1, audited by Cure53 in Feb
 ## Build
 
 ```bash
-yarn --cwd packages/hd-key build   # tsc -> dist/, also run by the root postinstall
+yarn build:hd-key   # from the repo root: tsc -> packages/hd-key/dist/, also run by the root postinstall
 ```
 
 The wallet consumes the package through a `link:` dependency and its built `dist/`. Jest maps `@miden/hd-key` to `src/` so unit tests need no build step. Do not run `yarn install` inside the package; its dependencies resolve from the root `node_modules`.

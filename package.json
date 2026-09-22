@@ -11,7 +11,8 @@
     "rev": "4e8407b9fa1e21e26eeb3040c915737a1293bde0"
   },
   "scripts": {
-    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package && yarn --cwd packages/hd-key build",
+    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package && yarn build:hd-key",
+    "build:hd-key": "tsc --project packages/hd-key/tsconfig.json",
     "start": "yarn watch:src",
     "dev": "rimraf ./dist && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:bg && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:cs && concurrently -n bg,ext -c blue,green \"cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development vite build --config vite.background.config.ts --watch\" \"cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 MODE_ENV=development NODE_ENV=development vite build --config vite.extension.config.ts --watch\"",
     "dev-clean": "rimraf node_modules && yarn cache clean && yarn install && yarn dev",
