@@ -149,6 +149,14 @@ describe('BalanceCard states, delta, and interactions', () => {
 
   // The pill is a darker well of the card's own color, never a status hue (the sage green clashed
   // with every card color and held white text at 2.2:1): direction is the arrow and the sign.
+  // The component keeps its delta support for when a real source lands; with none passed it simply
+  // shows no pill, which is what Home relies on.
+  it('renders no change pill when the caller passes no delta', () => {
+    render(<BalanceCard accountNumber="1" accountId="0xabc" amount="$100.00" />);
+
+    expect(screen.queryByTestId('balance-card-delta')).toBeNull();
+  });
+
   it('renders a positive change on the card-ink pill with an up arrow and its sign', () => {
     render(
       <BalanceCard
