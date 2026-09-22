@@ -93,7 +93,9 @@ jest.mock('components/ui/Pill', () => ({
 // because jsdom exposes none and unrelated code may reach for it.
 const mockWriteText = jest.fn();
 const mockClipboardWrite = jest.fn();
-jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) } }));
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
 Object.defineProperty(navigator, 'clipboard', {
   value: { writeText: mockWriteText },
   configurable: true

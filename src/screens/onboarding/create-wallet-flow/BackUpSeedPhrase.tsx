@@ -7,8 +7,8 @@ import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
 import { Pill } from 'components/ui/Pill';
-import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
