@@ -24,16 +24,31 @@ export default function useCopyToClipboard<T extends HTMLInputElement | HTMLText
     };
   }, [copied, setCopied, copyDelay]);
 
+  // `copied` cannot hold the second activation off any more: it is only set once the write
+  // RESOLVES, so a second click inside that window would re-focus, re-select and write again. This
+  // is set synchronously, before the write, and is what keeps that click a no-op.
+  const inFlightRef = useRef(false);
+
   const copy = useCallback(() => {
-    if (copied) return;
+    if (copied || inFlightRef.current) return;
 
     const textarea = fieldRef.current;
 
     if (textarea) {
       textarea.focus();
       textarea.select();
-      navigator.clipboard.writeText(textarea.value);
-      setCopied(true);
+      inFlightRef.current = true;
+      // The confirmation follows the WRITE. Reporting it beforehand told the user their secret was
+      // on the clipboard whenever the write was refused - the costliest place to be wrong. `copy`
+      // stays void-returning and owns the promise, so no caller's signature changes and it can
+      // never reject; on a failure the value stays selected, to be copied by hand.
+      void navigator.clipboard
+        .writeText(textarea.value)
+        .then(() => setCopied(true))
+        .catch(() => {})
+        .finally(() => {
+          inFlightRef.current = false;
+        });
     }
   }, [copied, setCopied]);
 
