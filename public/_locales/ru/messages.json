@@ -3635,14 +3635,6 @@
     "message": "Открыть",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "Смотреть все",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "Свернуть",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Скоро в Miden",
     "englishSource": "Coming soon to Miden"

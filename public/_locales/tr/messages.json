@@ -3635,14 +3635,6 @@
     "message": "Aç",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "Tümünü gör",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "Daha az göster",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Yakında Miden’de",
     "englishSource": "Coming soon to Miden"

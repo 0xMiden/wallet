@@ -3635,14 +3635,6 @@
     "message": "開啟",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "查看全部",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "收合",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "即將登陸 Miden",
     "englishSource": "Coming soon to Miden"
