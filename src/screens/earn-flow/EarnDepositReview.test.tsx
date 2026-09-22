@@ -312,9 +312,15 @@ describe('EarnDepositReview', () => {
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
-      // The staleness guard discards it on sight, so the challenge never reaches the user and no
-      // position is opened: a challenge for another account is not one this deposit may satisfy.
       await waitFor(() => expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalled());
+
+      // The drawer does render for the one commit before the guard's effect discards it. Let the
+      // assessment settle and React flush both that render and the effect, then assert the final
+      // state. Asserting earlier passes vacuously (the promise hasn't settled yet); asserting in
+      // between races the effect. A challenge for another account is not one this deposit may satisfy.
+      await act(async () => {
+        await mockWalletStoreState.assessSpendingLimit.mock.results[0]!.value;
+      });
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
