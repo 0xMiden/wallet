@@ -11,14 +11,14 @@ export type OnboardingStepDirection = 'forward' | 'backward';
 const offscreenX = presets.page.initial?.x ?? '100%';
 
 /** The step itself: in from the right going forward, uncovered from beneath going back. */
-export const onboardingStepVariants: Variants = {
+const onboardingStepVariants: Variants = {
   enter: (direction: OnboardingStepDirection) => ({ x: direction === 'forward' ? offscreenX : pageSlideParallax }),
   center: { x: 0 },
   exit: (direction: OnboardingStepDirection) => ({ x: direction === 'forward' ? pageSlideParallax : offscreenX })
 };
 
 /** The dim over a step while it sits beneath another, as over the page beneath a pushed page. */
-export const onboardingStepDimVariants: Variants = {
+const onboardingStepDimVariants: Variants = {
   enter: (direction: OnboardingStepDirection) => ({ opacity: direction === 'forward' ? 0 : pageSlideDim }),
   center: { opacity: 0 },
   exit: (direction: OnboardingStepDirection) => ({ opacity: direction === 'forward' ? pageSlideDim : 0 })
@@ -48,6 +48,11 @@ export const OnboardingStepLayer: React.FC<OnboardingStepLayerProps> = ({ direct
     <motion.div
       data-onboarding-step-layer={isPresent ? 'present' : 'leaving'}
       aria-hidden={isPresent ? undefined : true}
+      // `pointerEvents: none` and `aria-hidden` take the leaving step away from the pointer and
+      // from assistive tech, and left it in the TAB ORDER: mid-transition a keyboard user could
+      // land inside an aria-hidden subtree. `inert` closes the third route. The string form is
+      // deliberate - React 18 drops the boolean one, and it survives framer-motion's prop split.
+      {...(isPresent ? {} : { inert: '' })}
       className="relative col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col bg-app-bg"
       style={{ zIndex, pointerEvents: isPresent ? 'auto' : 'none' }}
       custom={direction}
@@ -71,5 +76,3 @@ export const OnboardingStepLayer: React.FC<OnboardingStepLayerProps> = ({ direct
     </motion.div>
   );
 };
-
-export default OnboardingStepLayer;

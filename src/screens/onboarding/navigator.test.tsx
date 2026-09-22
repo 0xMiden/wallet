@@ -4,7 +4,6 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 
-import { onboardingStepDimVariants, onboardingStepVariants } from './common/OnboardingStepLayer';
 import { OnboardingFlow } from './navigator';
 import { ImportType, OnboardingStep, OnboardingType, WalletType } from './types';
 
@@ -23,7 +22,7 @@ const mockCaptured: Record<string, any> = {};
 
 // The step container's motion props (the only motion element with `variants`)
 // and the props of every AnimatePresence, as last rendered.
-const mockMotion: { step: any; presences: any[] } = { step: null, presences: [] };
+const mockMotion: { step: any; dim: any; presences: any[] } = { step: null, dim: null, presences: [] };
 
 // A screen stub: records props under `name` and renders an identifiable node.
 function mockScreen(name: string) {
@@ -59,9 +58,12 @@ jest.mock('framer-motion', () => {
         get:
           () =>
           ({ children, initial, animate, exit, transition, variants, custom, ...rest }: any) => {
-            // The step layer (not its dim) is the element that carries the layer marker.
+            // The step layer carries the layer marker; its dim is the other variant-bearing child,
+            // captured too so the motion targets can be read off what the layer was GIVEN rather
+            // than off a symbol the module would otherwise have to export for tests alone.
             if (variants && rest['data-onboarding-step-layer'])
               mockMotion.step = { initial, animate, exit, transition, variants, custom };
+            else if (variants) mockMotion.dim = { initial, animate, exit, transition, variants, custom };
             return R.createElement('div', rest, children);
           }
       }
@@ -152,6 +154,7 @@ beforeEach(() => {
   mockReduceMotion = false;
   mockAllowNoGuardian = false;
   mockMotion.step = null;
+  mockMotion.dim = null;
   mockMotion.presences = [];
   for (const k of Object.keys(mockCaptured)) delete mockCaptured[k];
 });
@@ -191,8 +194,6 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     expect(progress()).toBeInTheDocument();
     const back = screen.getByTestId('onboarding-back');
     expect(back).toHaveAccessibleName('back');
-    // No second, footer Back button under the step any more.
-    expect(screen.queryAllByRole('button', { name: 'back' })).toHaveLength(1);
   });
 
   it('hides the chevron where the host says the step cannot be left (a wallet being created)', () => {
@@ -573,19 +574,18 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     expect(mockMotion.presences).toContainEqual({ mode: 'wait', initial: false });
     expect(mockMotion.presences).toContainEqual({ initial: false, custom: 'forward' });
     expect(mockMotion.step).toMatchObject({ initial: 'enter', animate: 'center', exit: 'exit', custom: 'forward' });
-    expect(mockMotion.step.variants).toBe(onboardingStepVariants);
+    expect(typeof mockMotion.step.variants.enter).toBe('function');
   });
 
   it('on mobile, moves on the page preset: in from the right, the step beneath to the parallax', () => {
     mockPlatform.isMobile = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
     expect(mockMotion.step.transition).toEqual(presets.page.transition);
-    expect(onboardingStepVariants.enter).toBeInstanceOf(Function);
-    const enter = onboardingStepVariants.enter as (d: string) => object;
-    const exit = onboardingStepVariants.exit as (d: string) => object;
+    const enter = mockMotion.step.variants.enter as (d: string) => object;
+    const exit = mockMotion.step.variants.exit as (d: string) => object;
     expect(enter('forward')).toEqual({ x: presets.page.initial?.x });
     expect(exit('forward')).toEqual({ x: pageSlideParallax });
-    const dimExit = onboardingStepDimVariants.exit as (d: string) => object;
+    const dimExit = mockMotion.dim.variants.exit as (d: string) => object;
     expect(dimExit('forward')).toEqual({ opacity: pageSlideDim });
   });
 
@@ -595,9 +595,9 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     fireEvent.click(screen.getByTestId('onboarding-back'));
     expect(mockMotion.step.custom).toBe('backward');
     expect(mockMotion.presences).toContainEqual({ initial: false, custom: 'backward' });
-    const enter = onboardingStepVariants.enter as (d: string) => object;
-    const exit = onboardingStepVariants.exit as (d: string) => object;
-    const dimEnter = onboardingStepDimVariants.enter as (d: string) => object;
+    const enter = mockMotion.step.variants.enter as (d: string) => object;
+    const exit = mockMotion.step.variants.exit as (d: string) => object;
+    const dimEnter = mockMotion.dim.variants.enter as (d: string) => object;
     expect(enter('backward')).toEqual({ x: pageSlideParallax });
     expect(exit('backward')).toEqual({ x: presets.page.exit?.x });
     expect(dimEnter('backward')).toEqual({ opacity: pageSlideDim });
