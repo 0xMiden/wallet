@@ -4,6 +4,7 @@ import { IConsumedAssetTotal } from '../db/types';
 import { fetchTokenMetadata } from '../metadata';
 import { SpendingLimitPriceUnavailableError } from './types';
 import { hasKnownScale } from '../metadata/scale';
+import { canonicalFaucetBech32Id } from '../sdk/helpers';
 
 /**
  * The micro-dollar value of `amount` base units, rounded UP.
@@ -43,7 +44,11 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     let decimals: number;
     let scaleKnown: boolean;
     try {
-      const { base } = await fetchTokenMetadata(spend.faucetId);
+      // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
+      // several spellings of this faucet into one canonical hex id (the dApp custom path's
+      // `netOutflowByFaucet`) would otherwise miss a cache entry that exists under its bech32
+      // spelling and fail identification for a faucet the wallet has already met.
+      const { base } = await fetchTokenMetadata(canonicalFaucetBech32Id(spend.faucetId));
       symbol = base.symbol;
       decimals = base.decimals;
       scaleKnown = hasKnownScale(base);
