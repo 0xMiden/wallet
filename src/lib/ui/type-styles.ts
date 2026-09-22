@@ -6,7 +6,6 @@
  */
 export const TYPE_STYLES = [
   'display',
-  'entry',
   'entry-unit',
   'title-tab',
   'hero-value',
@@ -22,6 +21,7 @@ export const TYPE_STYLES = [
   'badge',
   'body',
   'body-strong',
+  'explainer',
   'body-sm',
   'label',
   'caption'
