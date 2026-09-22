@@ -929,7 +929,8 @@ const Welcome: FC = () => {
   // Confirmation creates the wallet, so there is nothing to step back to, except a file restore the
   // user might want to retry with a different file - and only while no registration has landed. The
   // chevron and the hardware back read the SAME predicate: the hardware path used to consult only
-  // `isLoading`, so it stayed open exactly where the chevron was being closed.
+  // `isLoading`, so it stayed open exactly where the chevron was being closed. Back returns to the
+  // file choice; see the 'back' action.
   const canLeaveConfirmation =
     step !== OnboardingStep.Confirmation ||
     (importType === ImportType.WalletFile && !isLoading && !registrationCommitted);
@@ -967,9 +968,6 @@ const Welcome: FC = () => {
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
           importViaKey={Boolean(keyPairPayload)}
-          // Confirmation creates the wallet, so there is nothing to step back to, except when a file
-          // restore was rejected: back returns to the file choice (see the 'back' action), and never
-          // while an attempt is running.
           canGoBack={canLeaveConfirmation}
           onBiometricChange={setUseBiometric}
           onAction={onAction}

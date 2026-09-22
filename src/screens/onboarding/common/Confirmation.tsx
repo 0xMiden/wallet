@@ -70,7 +70,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
 
   return (
     <SubPageLayout
-      data-testid="onboarding-confirmation"
+      data-testid={dataTestId ?? 'onboarding-confirmation'}
       footerLayout="stack"
       footer={
         showPasswordFallback ? (

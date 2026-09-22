@@ -5,9 +5,10 @@ import { Clipboard } from '@capacitor/clipboard';
 import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 
 /**
- * Writes `text` to the clipboard via `@capacitor/clipboard` (which ships its own web
- * implementation, so the same call is correct on desktop, the extension and every mobile
- * webview) and flips `copied` true for a beat afterward. Shared by `CopyButton` (the text
+ * Writes `text` to the clipboard via `@capacitor/clipboard` - one call for every surface, backed by
+ * the native bridge on iOS and Android, and by `navigator.clipboard` on desktop and the extension,
+ * where it fails in the same places a direct call would - and flips `copied` true for a beat
+ * afterward, only once the write has resolved. Shared by `CopyButton` (the text
  * action) and `CopyChip` (the Pill with copy) so both read from one clipboard/feedback
  * implementation instead of two.
  *
