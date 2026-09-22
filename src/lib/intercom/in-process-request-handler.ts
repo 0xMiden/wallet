@@ -165,11 +165,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
         type: WalletMessageType.UpdateSettingsResponse
       };
 
-    case WalletMessageType.GetSpendingLimitsRequest:
+    case WalletMessageType.GetSpendingLimitRequest: {
+      const configuration = await Actions.getSpendingLimit(req.accountId);
       return {
-        type: WalletMessageType.GetSpendingLimitsResponse,
-        configurations: await Actions.listSpendingLimits(req.accountId)
+        type: WalletMessageType.GetSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
       };
+    }
 
     case WalletMessageType.SaveSpendingLimitRequest: {
       const configuration = await Actions.saveSpendingLimit(req.draft, req.observedRevision, req.strictlyAuthenticated);
@@ -180,7 +182,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     }
 
     case WalletMessageType.AssessSpendingLimitRequest: {
-      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.faucetId, req.amount);
+      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.spends);
       return {
         type: WalletMessageType.AssessSpendingLimitResponse,
         ...(assessment !== undefined && { assessment })
@@ -339,6 +341,11 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       const { requeued } = await Actions.retryDeadletteredNotes();
       return { type: WalletMessageType.RetryDeadletteredNotesResponse, requeued };
     }
+    // Both in-process adapters must route this: it is the only path telemetry has off
+    // mobile and desktop, and a missing arm here fails silently (`default:` returns
+    // undefined, no throw, no failing test). See back/main.ts for the SW's own routing.
+    case WalletMessageType.ReportTelemetryEventRequest:
+      return Actions.handleReportTelemetryEvent(req);
 
     default:
       console.warn(`${label}: Unknown request type`, req?.type);

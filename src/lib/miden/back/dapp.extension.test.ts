@@ -826,16 +826,12 @@ describe('Full confirmation cycles in extension mode', () => {
   it('serializes breach display data and passes a backend-created authorization only after strict confirmation', async () => {
     const assessment = {
       accountId: 'miden-account-1',
-      faucetId: 'faucet-1',
-      amount: 100n,
+      usdAmount: 100n,
       revision: 'revision-1',
       assessedAt: 100,
-      breaches: [{ period: '24h', spent: 90n, proposedTotal: 190n, limit: 100n, overBy: 90n, resetAt: 200 }]
+      breach: { spent: 90n, proposedTotal: 190n, limit: 100n, overBy: 90n, resetAt: 200 }
     };
-    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue({
-      assessment,
-      asset: { symbol: 'TOK', decimals: 6 }
-    });
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue({ assessment });
 
     await driveConfirmation(
       () =>
@@ -855,15 +851,15 @@ describe('Full confirmation cycles in extension mode', () => {
     );
 
     expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({
-      spendingLimitAssessment: { amount: '100', breaches: [{ spent: '90', overBy: '90' }] },
-      spendingLimitAsset: { symbol: 'TOK', decimals: 6 }
+      spendingLimitAssessment: { usdAmount: '100', breach: { spent: '90', overBy: '90' } }
     });
+    expect(_g.__dappExtTest.lastPayloadResponse.payload).not.toHaveProperty('spendingLimitAsset');
     expect(_g.__dappExtTest.lastPayloadResponse.payload).not.toHaveProperty('spendingLimitAuthorization');
     const transaction = require('lib/miden/transaction');
     expect(transaction.initiateSendTransaction.mock.calls[0]![7]).toMatchObject({
+      kind: 'usd',
       accountId: 'miden-account-1',
-      faucetId: 'faucet-1',
-      amount: 100n,
+      usdAmount: 100n,
       revision: 'revision-1'
     });
   });

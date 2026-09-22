@@ -64,19 +64,16 @@ describe('requestConfirmation / resolveConfirmation', () => {
       type: 'transaction',
       spendingLimitAssessment: {
         accountId: 'account-a',
-        faucetId: 'faucet-a',
-        amount: 5n,
+        usdAmount: 5_000_000n,
         revision: 'revision-1',
         assessedAt: 100,
-        breaches: [{ period: '24h', spent: 8n, proposedTotal: 13n, limit: 10n, overBy: 3n, resetAt: 200 }]
-      },
-      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+        breach: { spent: 8_000_000n, proposedTotal: 13_000_000n, limit: 10_000_000n, overBy: 3_000_000n, resetAt: 200 }
+      }
     });
     const promise = store.requestConfirmation(request);
 
     expect(store.getPendingRequest('s1')).toMatchObject({
-      spendingLimitAssessment: { amount: 5n, revision: 'revision-1' },
-      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+      spendingLimitAssessment: { usdAmount: 5_000_000n, revision: 'revision-1' }
     });
     store.resolveConfirmation('s1', { confirmed: true, spendingLimitAuthenticated: true });
 

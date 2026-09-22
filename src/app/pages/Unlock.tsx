@@ -9,7 +9,6 @@ import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { PasscodeScreen } from 'components/PasscodeScreen';
-import { useFormAnalytics } from 'lib/analytics';
 import type { BiometricAvailability } from 'lib/biometric';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
@@ -47,7 +46,6 @@ interface UnlockProps {
 const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { t } = useTranslation();
   const { unlock } = useMidenContext();
-  const formAnalytics = useFormAnalytics('UnlockWallet');
   const { compact } = useAppEnv();
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
@@ -219,11 +217,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
       // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
-        formAnalytics.trackSubmit();
         if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
         await unlock(passcode);
 
-        formAnalytics.trackSubmitSuccess();
         setAttempt(1);
 
         // On mobile/desktop, don't reload - the backend state is already updated in-process.
@@ -234,7 +230,6 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        formAnalytics.trackSubmitFail();
         if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
         setAttempt(attempt + 1);
         setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
@@ -250,7 +245,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         endUnlock();
       }
     },
-    [isSubmitting, unlock, formAnalytics, attempt, setAttempt, setTimeLock, beginUnlock, endUnlock]
+    [isSubmitting, unlock, attempt, setAttempt, setTimeLock, beginUnlock, endUnlock]
   );
 
   useEffect(() => {

@@ -202,7 +202,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
   function handleApprove() {
     if (!canApprove || resolvedRef.current) return;
-    if (request.spendingLimitAssessment !== undefined && request.spendingLimitAsset !== undefined) {
+    if (request.spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
     }
@@ -334,22 +334,19 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   return (
     <>
       {approvalModal}
-      {showSpendingLimitChallenge &&
-        request.spendingLimitAssessment !== undefined &&
-        request.spendingLimitAsset !== undefined && (
-          <SpendingLimitChallenge
-            assessment={request.spendingLimitAssessment}
-            asset={request.spendingLimitAsset}
-            onResult={authorization => {
-              setShowSpendingLimitChallenge(false);
-              if (authorization === undefined) {
-                handleDeny();
-              } else {
-                resolveApproval(true);
-              }
-            }}
-          />
-        )}
+      {showSpendingLimitChallenge && request.spendingLimitAssessment !== undefined && (
+        <SpendingLimitChallenge
+          assessment={request.spendingLimitAssessment}
+          onResult={authorization => {
+            setShowSpendingLimitChallenge(false);
+            if (authorization === undefined) {
+              handleDeny();
+            } else {
+              resolveApproval(true);
+            }
+          }}
+        />
+      )}
     </>
   );
 };

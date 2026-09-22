@@ -79,6 +79,7 @@ import {
   type SpendingLimitAssessmentDetails
 } from 'lib/miden/spending-limits/queue';
 import {
+  isSpendingLimitPriceUnavailable,
   spendingLimitAssessmentFromError,
   toSerializedSpendingLimitAssessment,
   type SpendingLimitAuthorization
@@ -1542,9 +1543,8 @@ export function buildCustomTxConfirmPayload(args: {
     transactionMessages: args.transactionMessages,
     preview: null,
     ...(args.spendingLimitDetails !== undefined &&
-      args.spendingLimitDetails.assessment.breaches.length > 0 && {
-        spendingLimitAssessment: toSerializedSpendingLimitAssessment(args.spendingLimitDetails.assessment),
-        spendingLimitAsset: args.spendingLimitDetails.asset
+      args.spendingLimitDetails.assessment.breach !== undefined && {
+        spendingLimitAssessment: toSerializedSpendingLimitAssessment(args.spendingLimitDetails.assessment)
       }),
     txKind: 'custom',
     requestBytes: tx.transactionRequest,
@@ -1609,13 +1609,23 @@ function delegateFromConfirmation(result: DAppConfirmationResult): boolean {
 
 const DAPP_SPENDING_LIMIT_RETRY = 'Spending limit changed. Review and retry the transaction.';
 
+/**
+ * The one message a dApp ever sees for a spending-limit refusal it can retry past (a policy or
+ * price read that failed, or a stale authorization). One place decides the text so every throw
+ * site - the send path's `dappSendFailure` and the custom path's own conversion below - says the
+ * same thing for the same underlying condition.
+ */
+const spendingLimitRetryError = (): Error =>
+  new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+
 const authorizationForDappSend = (
   details: SpendingLimitAssessmentDetails | undefined,
-  strictlyAuthenticated: boolean | undefined
+  strictlyAuthenticated: boolean | undefined,
+  spends: readonly IConsumedAssetTotal[]
 ): SpendingLimitAuthorization | undefined => {
-  if (details === undefined || details.assessment.breaches.length === 0) return undefined;
+  if (details === undefined || details.assessment.breach === undefined) return undefined;
   if (strictlyAuthenticated !== true) throw new Error(MidenDAppErrorType.NotGranted);
-  return createSpendingLimitAuthorization(details.assessment);
+  return createSpendingLimitAuthorization(details.assessment, spends);
 };
 
 /**
@@ -1623,8 +1633,9 @@ const authorizationForDappSend = (
  *
  * A custom request states its value only through the dry run, so an unknown `outgoing` is refused
  * whenever the account has any limit configured - otherwise "make the simulation fail" is the
- * bypass. More than one breached faucet is also refused: a one-time authorization binds to exactly
- * one (account, faucet, amount), so two breaches cannot be authorized in one step.
+ * bypass. A dollar figure sums across every asset the request moves, so there is exactly one
+ * charge and one authorization to bind it to - unlike the old per-asset caps, nothing here refuses
+ * a request for covering more than one asset.
  */
 const customSpendingLimitState = async (
   accountId: string,
@@ -1634,18 +1645,19 @@ const customSpendingLimitState = async (
     if (await hasSpendingLimits(accountId)) throw new Error(MidenDAppErrorType.NotGranted);
     return { totals: [] };
   }
-
-  const breaching: SpendingLimitAssessmentDetails[] = [];
-  for (const total of outgoing) {
-    const details = await assessOutgoingSpendingLimitDetails({
-      accountId,
-      faucetId: total.faucetId,
-      amount: total.amount
-    });
-    if (details !== undefined && details.assessment.breaches.length > 0) breaching.push(details);
+  try {
+    const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
+    return { totals: outgoing, details: details?.assessment.breach === undefined ? undefined : details };
+  } catch (error) {
+    // A value the wallet cannot establish is the same answer as a value it cannot see: an
+    // untrusted page does not get to spend against a cap nobody can check. Converted at this
+    // boundary - not left to propagate for `dappSendFailure` to map downstream - so no internal
+    // error text can ever reach an untrusted page even if some future caller's catch does not
+    // route through that mapper; `spendingLimitRetryError` keeps the wording identical to the
+    // send path's own mapping of the same condition.
+    if (isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
+    throw error;
   }
-  if (breaching.length > 1) throw new Error(MidenDAppErrorType.NotGranted);
-  return { totals: outgoing, details: breaching[0] };
 };
 
 const assertDappSendStillAuthorized = async (
@@ -1667,14 +1679,17 @@ const assertDappSendStillAuthorized = async (
 
 const dappSendFailure = (error: unknown): Error => {
   if (spendingLimitAssessmentFromError(error) !== undefined) {
-    return new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+    return spendingLimitRetryError();
   }
-  // A policy that cannot be evaluated is a refusal, not a malformed request. Without this the
-  // multi-breach refusal and every storage-read failure reached the dApp as
+  // A policy that cannot be evaluated, and a value the policy cannot see, are both refusals, not a
+  // malformed request. Without this a storage-read failure or an unpriced asset reached the dApp as
   // `InvalidParams: Error: Spending limit policy is unavailable: ...` - raw internal text on a
   // line the page renders, and the wrong error class for a permission decision.
-  if (isRecord(error) && Reflect.get(error, 'code') === 'SPENDING_LIMIT_POLICY_UNAVAILABLE') {
-    return new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+  if (
+    isSpendingLimitPriceUnavailable(error) ||
+    (isRecord(error) && Reflect.get(error, 'code') === 'SPENDING_LIMIT_POLICY_UNAVAILABLE')
+  ) {
+    return spendingLimitRetryError();
   }
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
   if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
@@ -1851,8 +1866,7 @@ const generatePromisifyTransaction = async (
       existingPermission: true,
       transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
       ...(customLimit.details !== undefined && {
-        spendingLimitAssessment: customLimit.details.assessment,
-        spendingLimitAsset: customLimit.details.asset
+        spendingLimitAssessment: customLimit.details.assessment
       }),
       sourcePublicKey: req.sourcePublicKey
     });
@@ -1878,7 +1892,7 @@ const generatePromisifyTransaction = async (
           delegateFromConfirmation(result),
           recipientAddress || undefined,
           customLimit.totals,
-          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated)
+          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals)
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -1929,7 +1943,7 @@ const generatePromisifyTransaction = async (
                 confirmReq.delegate,
                 recipientAddress || undefined,
                 customLimit.totals,
-                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated)
+                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated, customLimit.totals)
               );
             });
             // The transaction is queued and will consume these notes —
@@ -2030,6 +2044,7 @@ const generatePromisifySendTransaction = async (
 
   let transactionMessages: string[] = [];
   let spendingLimitDetails: SpendingLimitAssessmentDetails | undefined;
+  let spends: IConsumedAssetTotal[] = [];
   try {
     // Normalize the note type ONCE, before anything reads it. It crosses
     // postMessage from an untrusted page, so its type is a claim rather than a
@@ -2052,10 +2067,10 @@ const generatePromisifySendTransaction = async (
     transactionMessages = await withUnlocked(async () => {
       return await formatSendTransactionPreview(req.transaction);
     });
+    spends = [{ faucetId: req.transaction.faucetId, amount: BigInt(req.transaction.amount) }];
     spendingLimitDetails = await assessOutgoingSpendingLimitDetails({
       accountId: senderAddress,
-      faucetId: req.transaction.faucetId,
-      amount: BigInt(req.transaction.amount)
+      spends
     });
   } catch (e) {
     // Through the mapper: the assessment above can raise a policy error from a storage read or a
@@ -2082,9 +2097,8 @@ const generatePromisifySendTransaction = async (
       transactionMessages,
       sourcePublicKey: req.sourcePublicKey,
       ...(spendingLimitDetails !== undefined &&
-        spendingLimitDetails.assessment.breaches.length > 0 && {
-          spendingLimitAssessment: spendingLimitDetails.assessment,
-          spendingLimitAsset: spendingLimitDetails.asset
+        spendingLimitDetails.assessment.breach !== undefined && {
+          spendingLimitAssessment: spendingLimitDetails.assessment
         })
     });
 
@@ -2098,7 +2112,8 @@ const generatePromisifySendTransaction = async (
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
         const spendingLimitAuthorization = authorizationForDappSend(
           spendingLimitDetails,
-          result.spendingLimitAuthenticated
+          result.spendingLimitAuthenticated,
+          spends
         );
         const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
         return await initiateSendTransaction(
@@ -2134,9 +2149,8 @@ const generatePromisifySendTransaction = async (
       transactionMessages,
       preview: null,
       ...(spendingLimitDetails !== undefined &&
-        spendingLimitDetails.assessment.breaches.length > 0 && {
-          spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment),
-          spendingLimitAsset: spendingLimitDetails.asset
+        spendingLimitDetails.assessment.breach !== undefined && {
+          spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment)
         })
     },
     onDecline: () => {
@@ -2150,7 +2164,8 @@ const generatePromisifySendTransaction = async (
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
               const spendingLimitAuthorization = authorizationForDappSend(
                 spendingLimitDetails,
-                confirmReq.spendingLimitAuthenticated
+                confirmReq.spendingLimitAuthenticated,
+                spends
               );
               const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
               return await initiateSendTransaction(

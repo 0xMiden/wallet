@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,7 @@ import { TabHeader, TabHeaderAction } from 'components/ui';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { beginFlow, FlowHandle } from 'lib/telemetry';
 
 type AllHistoryProps = {
   programId?: string | null;
@@ -21,6 +22,32 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
+
+  /**
+   * `activity_view` is a view flow, so its terminal state is the user actually
+   * seeing their activity: it completes when the list's first load settles and
+   * is cancelled when they leave before that. There is no later moment worth
+   * calling "completed" — reading a list emits no such event, and inventing one
+   * (a tap on a row, say) would report every ordinary visit as abandoned.
+   * Held in a ref rather than state because settling must never re-render.
+   */
+  const flowRef = useRef<FlowHandle | null>(null);
+  useEffect(() => {
+    flowRef.current = beginFlow('activity_view');
+    return () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    };
+  }, []);
+
+  // Clearing the ref keeps this to one terminal call per visit, and keeps the
+  // unmount above from re-reporting a view that already completed.
+  const handleHistoryLoaded = useCallback(() => {
+    const flow = flowRef.current;
+    if (!flow) return;
+    flowRef.current = null;
+    flow.complete();
+  }, []);
 
   const filters = useMemo<SegmentedControlItem<ActivityFilter>[]>(
     () => [
@@ -77,6 +104,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         search={search}
         filter={filter}
         programId={programId}
+        onInitialLoad={handleHistoryLoaded}
       />
     </div>
   );

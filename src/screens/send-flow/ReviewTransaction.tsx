@@ -8,7 +8,7 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
-import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
@@ -19,13 +19,14 @@ import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
-  SpendingLimitAssessment,
+  isSpendingLimitPriceUnavailable,
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
@@ -33,6 +34,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { classifyError } from 'lib/telemetry';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
@@ -40,6 +42,7 @@ import { approxFiatAmount } from './amount-format';
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
+import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
@@ -207,10 +210,44 @@ export const ReviewTransaction: React.FC = () => {
     setRecallBlocks(undefined);
   }, []);
 
+  // Leaving review without submitting ends the `send` flow the form began.
+  // Without this the handle would stay open past the send flow entirely and the
+  // next send would adopt it, inheriting a duration that is not its own.
+  // Already-settled flows are untouched, so a completed submit is not
+  // re-reported by the navigation away from this page.
+  useEffect(() => {
+    // Reaching review is the most informative single fact about an abandoned
+    // send: the user had chosen a recipient, a token and an amount, and stopped
+    // at the last screen before committing. That is a very different problem
+    // from giving up on the amount field, and only `step` distinguishes them.
+    reportSendStep('review');
+    return () => {
+      settleSendFlow(flow => flow.cancel());
+    };
+  }, []);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
-  const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
+  const [spendingLimitChallenge, setSpendingLimitChallenge] =
+    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
+  const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  // The account's spending-limit revision never crosses the intercom port - `serializeError` /
+  // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
+  // - so the unpriced challenge reads the account's current revision fresh, the same value
+  // `authorizationMatches` re-reads server-side at redemption.
+  const openUnpricedChallenge = useCallback(
+    async (spends: readonly IConsumedAssetTotal[]): Promise<boolean> => {
+      if (!publicKey) return false;
+      const configuration = await readSpendingLimit(publicKey);
+      if (configuration === undefined) return false;
+      setSpendingLimitChallenge({
+        unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision }
+      });
+      return true;
+    },
+    [publicKey, readSpendingLimit]
+  );
   // `token` is undefined until balances load; an absent token is handled by the
   // deep-link guard below, so only a LOADED token with an unreadable scale
   // blocks the CTA.
@@ -223,6 +260,10 @@ export const ReviewTransaction: React.FC = () => {
   // back from the progress page skips the now-stale review params.
   const goToGeneratingTransaction = useCallback(
     (txId: string) => {
+      // The single success funnel for all three submit paths (Miden, Agglayer,
+      // Epoch): a transaction row now exists, which is what "the user sent"
+      // means here. Its later on-chain fate belongs to the progress screen.
+      settleSendFlow(flow => flow.complete());
       clearSendDraft();
       navigate(
         `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
@@ -235,18 +276,17 @@ export const ReviewTransaction: React.FC = () => {
   const runSameChainSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
       if (!token || !publicKey || amountBaseUnits === undefined) return;
-      if (
-        authorization !== undefined &&
-        (authorization.accountId !== publicKey ||
-          authorization.faucetId !== token.id ||
-          authorization.amount !== amountBaseUnits)
-      ) {
-        setSpendingLimitAssessment(undefined);
+      if (authorization !== undefined && authorization.accountId !== publicKey) {
+        setSpendingLimitChallenge(undefined);
         return;
       }
       setIsSubmitting(true);
       setSubmitError(undefined);
-      setSpendingLimitAssessment(undefined);
+      setSpendingLimitChallenge(undefined);
+      // Biometrics already passed, or this is the spending-limit authorization
+      // that actually submits. Re-open a flow a previous error already settled.
+      enterSendFlow();
+      reportSendStep('submitting');
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         const commonArguments = [
@@ -266,33 +306,57 @@ export const ReviewTransaction: React.FC = () => {
         goToGeneratingTransaction(txId);
       } catch (error) {
         console.error(error);
+        const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitAssessment(assessment);
-        } else {
-          setSubmitError(error instanceof Error ? error.message : String(error));
+          setSpendingLimitChallenge({ assessment, spends });
+          setIsSubmitting(false);
+          return;
         }
+        // `openUnpricedChallenge` reads spending-limit config and can itself throw. Caught here so
+        // that failure still lands on the fallback error message and a re-enabled button below,
+        // rather than skipping past both `setIsSubmitting(false)` calls and freezing the CTA.
+        let opened = false;
+        try {
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+        if (opened) {
+          setIsSubmitting(false);
+          return;
+        }
+        settleSendFlow(flow => flow.fail(classifyError(error)));
+        setSubmitError(error instanceof Error ? error.message : String(error));
         setIsSubmitting(false);
       }
     },
-    [amountBaseUnits, goToGeneratingTransaction, publicKey, recallBlocks, sharePrivately, to, token]
+    [
+      amountBaseUnits,
+      goToGeneratingTransaction,
+      openUnpricedChallenge,
+      publicKey,
+      recallBlocks,
+      sharePrivately,
+      to,
+      token
+    ]
   );
 
   const runBridgeSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
       if (!token || !publicKey || amountBaseUnits === undefined) return;
-      if (
-        authorization !== undefined &&
-        (authorization.accountId !== publicKey ||
-          authorization.faucetId !== token.id ||
-          authorization.amount !== amountBaseUnits)
-      ) {
-        setSpendingLimitAssessment(undefined);
+      if (authorization !== undefined && authorization.accountId !== publicKey) {
+        setSpendingLimitChallenge(undefined);
         return;
       }
       setIsSubmitting(true);
       setSubmitError(undefined);
-      setSpendingLimitAssessment(undefined);
+      setSpendingLimitChallenge(undefined);
+      // Biometrics already passed, or this is the spending-limit authorization
+      // that actually submits. Re-open a flow a previous error already settled.
+      enterSendFlow();
+      reportSendStep('submitting');
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         if (route === 'agglayer') {
@@ -319,16 +383,31 @@ export const ReviewTransaction: React.FC = () => {
         }
       } catch (error) {
         console.error(error);
+        const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitAssessment(assessment);
-        } else {
-          setSubmitError(error instanceof Error ? error.message : String(error));
+          setSpendingLimitChallenge({ assessment, spends });
+          setIsSubmitting(false);
+          return;
         }
+        // See `runSameChainSend`: guard against `openUnpricedChallenge` itself throwing, or a
+        // storage read failure here leaves the CTA disabled forever with no visible error.
+        let opened = false;
+        try {
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+        if (opened) {
+          setIsSubmitting(false);
+          return;
+        }
+        settleSendFlow(flow => flow.fail(classifyError(error)));
+        setSubmitError(error instanceof Error ? error.message : String(error));
         setIsSubmitting(false);
       }
     },
-    [amountBaseUnits, goToGeneratingTransaction, publicKey, route, signTransaction, to, token]
+    [amountBaseUnits, goToGeneratingTransaction, openUnpricedChallenge, publicKey, route, signTransaction, to, token]
   );
 
   const onSubmit = useCallback(async () => {
@@ -337,12 +416,13 @@ export const ReviewTransaction: React.FC = () => {
       setSubmitError(t('unknownTokenScale'));
       return;
     }
+    const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
     setIsSubmitting(true);
     setSubmitError(undefined);
     try {
-      const assessment = await assessSpendingLimit(publicKey, token.id, amountBaseUnits);
-      if (assessment !== undefined && assessment.breaches.length > 0) {
-        setSpendingLimitAssessment(assessment);
+      const assessment = await assessSpendingLimit(publicKey, spends);
+      if (assessment !== undefined && assessment.breach !== undefined) {
+        setSpendingLimitChallenge({ assessment, spends });
         setIsSubmitting(false);
         return;
       }
@@ -357,6 +437,18 @@ export const ReviewTransaction: React.FC = () => {
       }
     } catch (error) {
       console.error(error);
+      // See `runSameChainSend`: guard against `openUnpricedChallenge` itself throwing, or a
+      // storage read failure here leaves the CTA disabled forever with no visible error.
+      let opened = false;
+      try {
+        opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+      } catch (challengeError) {
+        console.error(challengeError);
+      }
+      if (opened) {
+        setIsSubmitting(false);
+        return;
+      }
       setSubmitError(error instanceof Error ? error.message : String(error));
       setIsSubmitting(false);
     }
@@ -365,6 +457,7 @@ export const ReviewTransaction: React.FC = () => {
     assessSpendingLimit,
     isBridge,
     isSubmitting,
+    openUnpricedChallenge,
     publicKey,
     runBridgeSend,
     runSameChainSend,
@@ -374,7 +467,7 @@ export const ReviewTransaction: React.FC = () => {
 
   const handleSpendingLimitResult = useCallback(
     (authorization: SpendingLimitAuthorization | undefined) => {
-      setSpendingLimitAssessment(undefined);
+      setSpendingLimitChallenge(undefined);
       if (authorization !== undefined) {
         if (isBridge) {
           void runBridgeSend(authorization);
@@ -386,16 +479,17 @@ export const ReviewTransaction: React.FC = () => {
     [isBridge, runBridgeSend, runSameChainSend]
   );
 
+  // The account is the only identity both the `assessment` and `unpriced` challenge shapes carry
+  // (usd/spends amounts don't survive as comparable fields on the domain types any more), so this
+  // guard closes the drawer if the active account changes while it's open; a stale credential for
+  // any other reason is still caught by the backend's own authorization re-check at redemption.
   useEffect(() => {
-    if (
-      spendingLimitAssessment !== undefined &&
-      (spendingLimitAssessment.accountId !== publicKey ||
-        spendingLimitAssessment.faucetId !== token?.id ||
-        spendingLimitAssessment.amount !== amountBaseUnits)
-    ) {
-      setSpendingLimitAssessment(undefined);
+    if (spendingLimitChallenge === undefined) return;
+    const accountId = spendingLimitChallenge.assessment?.accountId ?? spendingLimitChallenge.unpriced?.accountId;
+    if (accountId !== publicKey) {
+      setSpendingLimitChallenge(undefined);
     }
-  }, [amountBaseUnits, publicKey, spendingLimitAssessment, token?.id]);
+  }, [publicKey, spendingLimitChallenge]);
 
   // Deep-link guards — after all hooks. Address/amount are checkable
   // immediately; token existence and balance only once balances load. A 0x
@@ -542,10 +636,11 @@ export const ReviewTransaction: React.FC = () => {
           onRecallNever={handleRecallNever}
         />
       )}
-      {spendingLimitAssessment !== undefined && token !== undefined && (
+      {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge
-          assessment={spendingLimitAssessment}
-          asset={{ symbol: token.name, decimals: token.decimals }}
+          assessment={spendingLimitChallenge.assessment}
+          spends={spendingLimitChallenge.spends}
+          unpriced={spendingLimitChallenge.unpriced}
           onResult={handleSpendingLimitResult}
         />
       )}

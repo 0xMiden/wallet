@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { ReportClaim } from 'app/hooks/useReportNoteClaim';
 import { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import {
   getFailedTransactions,
@@ -45,8 +46,11 @@ export interface ClaimNotesState {
  * keeps failed notes visible until the user can act (#456).
  *
  * Extracted from Receive.tsx so any page can host the pending-notes UI.
+ *
+ * `reportClaim`, when the hosting page supplies one, wraps the queue attempt so
+ * the claim's outcome is reported. Optional: pages that don't report still claim.
  */
-export function useClaimNotes(): ClaimNotesState {
+export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
   const account = useAccount();
   const nativeFaucetId = useMidenFaucetId();
   const address = account.publicKey;
@@ -293,12 +297,12 @@ export function useClaimNotes(): ClaimNotesState {
           try {
             // User tapped Claim All — bypass the auto-consume backoff gate so
             // failed notes can be retried on demand.
-            const groupTxId = await initiateConsumeNotesTransaction(
-              account.publicKey,
-              groupNotes,
-              isDelegatedProvingEnabled,
-              true
-            );
+            // Reported around the consume call, not around the batch: the catch
+            // below absorbs a queue-time throw, so a wrapper any further out
+            // would see every failure as a success.
+            const queue = () =>
+              initiateConsumeNotesTransaction(account.publicKey, groupNotes, isDelegatedProvingEnabled, true);
+            const groupTxId = reportClaim ? await reportClaim(queue) : await queue();
             batchTxId = batchTxId ?? groupTxId;
           } catch (err) {
             console.error('Error queuing notes for claim:', groupNoteIds, err);
@@ -341,6 +345,7 @@ export function useClaimNotes(): ClaimNotesState {
       mutateClaimableNotes,
       claimingNoteIds,
       individualClaimingIds,
+      reportClaim,
       // Read by the native-first ordering above. Omitted, this callback captures the
       // faucet id from first render -- `null` until discovery resolves -- and the
       // ordering silently stops preferring the native asset, which is its whole

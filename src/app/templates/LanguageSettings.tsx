@@ -7,7 +7,6 @@ import { useOncePerLocation } from 'app/hooks/useOncePerLocation';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
-import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -40,7 +39,6 @@ export const LANGUAGES = [
 const LanguageSettings: FC = () => {
   const selectedLocale = getCurrentLocale();
   const { t } = useTranslation();
-  const { trackEvent } = useAnalytics();
   const goBackToSettings = useBackWithFallback('/settings');
 
   const currentCode = useMemo(() => {
@@ -75,24 +73,23 @@ const LanguageSettings: FC = () => {
   // `onClose`; as a route a second tap ran the whole handler again.
   //
   // NOT redundant with the latch inside `useBackWithFallback`: that one only makes
-  // the traversal idempotent, while this also stops a second haptic, a second
-  // analytics event and a second `updateLocale` for the row the user grazed. It
-  // re-arms when live history moves: reopening the screen within its slide-out
-  // brings back this same instance, and a latch that never reset left every row dead.
+  // the traversal idempotent, while this also stops a second haptic and a second
+  // `updateLocale` for the row the user grazed. It re-arms when live history moves:
+  // reopening the screen within its slide-out brings back this same instance, and a
+  // latch that never reset left every row dead.
   const claimPick = useOncePerLocation();
 
   const handleSelect = useCallback(
     (code: string) => {
       if (!claimPick()) return;
       hapticLight();
-      trackEvent(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, { code });
       updateLocale(code);
       // Picking a language finishes the task, so leave. As a drawer this screen was
       // handed an `onClose` by its host; as a route it owns its own exit, and
       // without one the selection silently stranded the user here.
       goBackToSettings();
     },
-    [claimPick, trackEvent, goBackToSettings]
+    [claimPick, goBackToSettings]
   );
 
   // Claiming `role="radiogroup"` promises arrow-key navigation, and thirteen rows

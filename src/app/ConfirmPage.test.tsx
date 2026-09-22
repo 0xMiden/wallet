@@ -106,7 +106,6 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => (
     <div data-testid="spending-limit-challenge">
       <span>{props.assessment.revision}</span>
-      <span>{props.asset.symbol}</span>
       <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
         authenticate-limit
       </button>
@@ -132,24 +131,6 @@ jest.mock('components/Button', () => ({
       {children}
     </button>
   )
-}));
-
-// `lib/analytics` itself is NOT mocked: `ConfirmSubmitButton`'s `useAnalytics()` call has to
-// really read `CustomRpsContext` via `useContext` to prove it sees the Provider value
-// `ConfirmDAppForm` renders around it (the bug this covers: a `useAnalytics()` call made
-// directly in `ConfirmDAppForm`'s own body runs before that Provider exists in the tree and
-// would silently read `rpc: undefined` instead). Only the lowest-level network call
-// (`sendTrackEvent`) and the local-storage-backed `useAnalyticsState` are stubbed, so the real
-// `useAnalytics` → `useAnalyticsNetwork` → `useContext(CustomRpsContext)` chain runs for real.
-const mockSendTrackEvent = jest.fn();
-jest.mock('lib/analytics/use-analytics-state.hook', () => ({
-  sendTrackEvent: (...args: unknown[]) => mockSendTrackEvent(...args),
-  sendPageEvent: jest.fn(),
-  sendPerformanceEvent: jest.fn(),
-  useAnalyticsState: () => ({
-    analyticsState: { enabled: true, userId: 'test-user' },
-    setAnalyticsState: jest.fn()
-  })
 }));
 
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
@@ -437,18 +418,6 @@ describe('connect payload', () => {
         'balance'
       ])
     );
-    // The analytics tracking Button itself used to own is now wired by hand in
-    // `ConfirmSubmitButton`, rendered inside `CustomRpsContext.Provider`: a click reports a
-    // ButtonPress against the confirm action's own testid, AND the real `useAnalyticsNetwork()`
-    // context read carries through as the `rpc` argument — 'TODO' (the Provider's value), not
-    // `undefined`, which is exactly what regresses if the hook call moves outside the Provider.
-    expect(mockSendTrackEvent).toHaveBeenCalledWith(
-      'test-user',
-      'TODO',
-      ConfirmPageSelectors.ConnectAction_ConnectButton,
-      'ButtonPress',
-      undefined
-    );
   });
 
   it('blocks confirmation and surfaces an error when the private-data checkbox is unchecked', async () => {
@@ -627,20 +596,17 @@ describe('transaction payload', () => {
       ...txPayload(),
       spendingLimitAssessment: {
         accountId: ACCOUNT.publicKey,
-        faucetId: 'mtst1faucet',
-        amount: '5',
+        usdAmount: '5000000',
         revision: 'revision-1',
         assessedAt: 100,
-        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
-      },
-      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+        breach: { spent: '8000000', proposedTotal: '13000000', limit: '10000000', overBy: '3000000', resetAt: 200 }
+      }
     });
     render(<ConfirmPage />);
 
     fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
 
     expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
-    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('MIDEN');
     expect(ctx.confirmDAppTransaction).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -659,13 +625,11 @@ describe('transaction payload', () => {
       ...txPayload(),
       spendingLimitAssessment: {
         accountId: ACCOUNT.publicKey,
-        faucetId: 'mtst1faucet',
-        amount: '5',
+        usdAmount: '5000000',
         revision: 'revision-1',
         assessedAt: 100,
-        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
-      },
-      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+        breach: { spent: '8000000', proposedTotal: '13000000', limit: '10000000', overBy: '3000000', resetAt: 200 }
+      }
     });
     render(<ConfirmPage />);
 

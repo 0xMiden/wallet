@@ -4,6 +4,7 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { fetchKlineData, fetchTokenPrices, Timeframe } from './binance';
+import { writeUsdPriceCache } from './usd';
 
 export { fetchKlineData, getTokenPrice } from './binance';
 export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
@@ -40,6 +41,9 @@ export function PriceProvider() {
     if (prices && Object.keys(prices).length > 0) {
       syncDone.current = true;
       setTokenPrices(prices);
+      // The enforcement path runs in the backend realm and cannot see this store. Writing through
+      // is what keeps the cache warm enough that the backend rarely fetches on the send path.
+      void writeUsdPriceCache(prices);
     }
   }, [prices, setTokenPrices]);
 

@@ -36,15 +36,14 @@ import {
   withWasmClientLock
 } from 'lib/miden/sdk/miden-client';
 import {
-  listSpendingLimits as listStoredSpendingLimits,
+  readSpendingLimit as readStoredSpendingLimit,
   saveSpendingLimit as saveStoredSpendingLimit
 } from 'lib/miden/spending-limits/config';
-import { assessOutgoingSpendingLimit as assessStoredOutgoingSpendingLimit } from 'lib/miden/spending-limits/queue';
+import { assessOutgoingSpendingLimitDetails } from 'lib/miden/spending-limits/queue';
 import {
   PersistedSpendingLimit,
   SerializedSpendingLimitAssessment,
   SerializedSpendingLimitDraft,
-  SpendingLimitPolicyUnavailableError,
   parseSerializedSpendingAmount,
   parseSerializedSpendingLimitDraft,
   toPersistedSpendingLimit,
@@ -56,12 +55,18 @@ import {
   GuardianRecoveryAction,
   GuardianSyncStatus,
   ImportedAccountBackup,
+  ReportTelemetryEventRequest,
+  ReportTelemetryEventResponse,
+  SerializedSpend,
   SignEvmOperation,
   WalletAccount,
+  WalletMessageType,
   WalletSettings,
   WalletState,
   WalletStatus
 } from 'lib/shared/types';
+import { resolveTelemetryContext } from 'lib/telemetry/context';
+import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
@@ -562,18 +567,9 @@ export function updateSettings(settings: Partial<WalletSettings>) {
   });
 }
 
-const serializeSpendingLimit = (
-  configuration: Awaited<ReturnType<typeof listStoredSpendingLimits>>[number]
-): PersistedSpendingLimit => {
-  const persisted = toPersistedSpendingLimit(configuration);
-  if (persisted === undefined) {
-    throw new SpendingLimitPolicyUnavailableError('A stored spending limit has no configured period');
-  }
-  return persisted;
-};
-
-export async function listSpendingLimits(accountId: string): Promise<PersistedSpendingLimit[]> {
-  return (await listStoredSpendingLimits(accountId)).map(serializeSpendingLimit);
+export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
+  const configuration = await readStoredSpendingLimit(accountId);
+  return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);
 }
 
 export async function saveSpendingLimit(
@@ -585,20 +581,18 @@ export async function saveSpendingLimit(
     observedRevision,
     strictlyAuthenticated
   });
-  return saved === undefined ? undefined : serializeSpendingLimit(saved);
+  return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
 }
 
 export async function assessOutgoingSpendingLimit(
   accountId: string,
-  faucetId: string,
-  serializedAmount: string
+  spends: readonly SerializedSpend[]
 ): Promise<SerializedSpendingLimitAssessment | undefined> {
-  const assessment = await assessStoredOutgoingSpendingLimit({
+  const details = await assessOutgoingSpendingLimitDetails({
     accountId,
-    faucetId,
-    amount: parseSerializedSpendingAmount(serializedAmount)
+    spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
   });
-  return assessment === undefined ? undefined : toSerializedSpendingLimitAssessment(assessment);
+  return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
 }
 
 export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {
@@ -884,6 +878,24 @@ export async function processDApp(
       return withInited(() => waitForTransaction(req));
   }
 }
+
+export async function handleReportTelemetryEvent(
+  req: ReportTelemetryEventRequest
+): Promise<ReportTelemetryEventResponse> {
+  // Defence in depth, and only that — `isNameableEvent` inside `sendEvent` is the
+  // control that actually holds. It refuses every case this would: a missing phase
+  // composes `open_undefined`, which has no phase suffix and fails the pattern.
+  // Kept because this is the boundary where an untyped message arrives (the
+  // offscreen document forwards over `chrome.runtime.sendMessage`, which is
+  // `unknown` at the wire) and refusing at the boundary costs one array lookup.
+  // Do not read it as the reason a malformed name cannot egress; that is the sink.
+  if (VALID_PHASES.includes((req.event as { phase?: string } | null)?.phase as string)) {
+    await sendEvent(req.event, resolveTelemetryContext());
+  }
+  return { type: WalletMessageType.ReportTelemetryEventResponse };
+}
+
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {

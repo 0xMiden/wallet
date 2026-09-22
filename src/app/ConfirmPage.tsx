@@ -8,14 +8,13 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import ErrorBoundary from 'app/ErrorBoundary';
+import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
-import { Card } from 'components/ui/Card';
 import { Spinner } from 'components/ui/Spinner';
-import { AnalyticsEventCategory, CustomRpsContext, useAnalytics } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -129,15 +128,21 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) =>
  * is asking, so it carries an E2E hook.
  */
 const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = ({ origin, children }) => (
-  <Card padding="tile" className="mb-4 flex w-full items-center gap-x-3">
-    <Icon name={IconName.Globe} fill="currentColor" size="md" className="text-ink" />
-    <div className="flex flex-col text-left text-sm text-ink">
+  <div
+    className={classNames(
+      'text-sm text-left text-ink',
+      'flex w-full gap-x-3 items-center p-4',
+      'border border-gray-100 rounded-2xl mb-4'
+    )}
+  >
+    <Icon name={IconName.Globe} fill="currentColor" size="md" />
+    <div className="flex flex-col">
       <Name className="font-semibold" data-testid="confirm-request-origin">
         {origin}
       </Name>
       {children}
     </div>
-  </Card>
+  </div>
 );
 
 /**
@@ -445,36 +450,6 @@ const CustomTransactionContent: React.FC<{
 
 export default ConfirmPage;
 
-// Rendered inside `CustomRpsContext.Provider` (see `ConfirmDAppForm`'s return), so its own
-// `useAnalytics()` call reads that Provider's value. Calling `useAnalytics()` in
-// `ConfirmDAppForm` itself would not: the Provider is created as part of what
-// `ConfirmDAppForm` returns, so a hook call in its own body runs before that Provider exists
-// in the tree and would instead see whatever context sits above `ConfirmDAppForm` — which is
-// exactly the bug this component exists to avoid.
-const ConfirmSubmitButton: FC<{
-  title: React.ReactNode;
-  testId: string;
-  isLoading: boolean;
-  onConfirmClick: () => void;
-}> = ({ title, testId, isLoading, onConfirmClick }) => {
-  const { trackEvent } = useAnalytics();
-  return (
-    <Button
-      type="button"
-      variant={ButtonVariant.Primary}
-      className="w-full"
-      isLoading={isLoading}
-      onClick={() => {
-        trackEvent(testId, AnalyticsEventCategory.ButtonPress, undefined);
-        onConfirmClick();
-      }}
-      data-testid={testId}
-    >
-      {title}
-    </Button>
-  );
-};
-
 const ConfirmDAppForm: FC = () => {
   const { t } = useTranslation();
   const {
@@ -515,10 +490,6 @@ const ConfirmDAppForm: FC = () => {
         : undefined,
     [payload]
   );
-  const spendingLimitAsset = payload.type === 'transaction' ? payload.spendingLimitAsset : undefined;
-  if ((spendingLimitAssessment === undefined) !== (spendingLimitAsset === undefined)) {
-    throw new Error('Incomplete spending limit confirmation payload');
-  }
   let requirePrivateDataCheckbox = false;
   let privateDataPermission = PrivateDataPermission.UponRequest;
   if (payload.type === 'connect') {
@@ -592,6 +563,15 @@ const ConfirmDAppForm: FC = () => {
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
+  // The extension's approval telemetry. The confirmation store the other
+  // platforms report from is unreachable here — see `useApprovalPrompt`.
+  //
+  // Suppressed for the auto-approved reconnect handled above, where the user is
+  // shown nothing and asked nothing: that path never reaches `confirm`, so a
+  // flow begun for it would never be settled.
+  const autoApproved = payload.type === 'connect' && Boolean(payload.existingPermission);
+  const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
+
   const confirm = useCallback(
     async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
       setError(null);
@@ -600,6 +580,10 @@ const ConfirmDAppForm: FC = () => {
           throw new Error(t('confirmError'));
         }
         await onConfirm(confirmed, spendingLimitAuthenticated);
+        // Settled only once the decision has actually been delivered: the
+        // private-data check above throws before that and the user is still
+        // being asked, so the flow stays open for their next attempt.
+        settleApproval(confirmed);
       } catch (err: any) {
         console.error(err);
 
@@ -608,12 +592,12 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, settleApproval, t]
   );
 
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
-    if (spendingLimitAssessment !== undefined && spendingLimitAsset !== undefined) {
+    if (spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
     }
@@ -623,7 +607,7 @@ const ConfirmDAppForm: FC = () => {
     await confirm(true);
     setConfirming(false);
     confirmationInFlightRef.current = false;
-  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment, spendingLimitAsset]);
+  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment]);
 
   const handleDeclineClick = useCallback(async () => {
     if (confirming || declining) return;
@@ -749,90 +733,91 @@ const ConfirmDAppForm: FC = () => {
   }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
   return (
-    <CustomRpsContext.Provider value={'TODO'}>
+    <div
+      className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
+      style={{
+        width: 380,
+        height: 610
+      }}
+    >
+      <div className="flex flex-col items-left px-4">
+        <h2 className="py-6 flex text-ink text-lg font-semibold">{content.title}</h2>
+
+        {payload.type === 'connect' && (
+          <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
+        )}
+
+        {content.want}
+
+        {error ? (
+          <Alert
+            closable
+            onClose={handleErrorAlertClose}
+            type="error"
+            title={t('error')}
+            description={error?.message ?? t('smthWentWrong')}
+            className="my-4"
+            autoFocus
+          />
+        ) : (
+          <>
+            {payload.type === 'connect' ? (
+              account && (
+                <AccountBanner
+                  account={account}
+                  networkRpc={payload.networkRpc}
+                  labelIndent="sm"
+                  className="w-full my-2"
+                />
+              )
+            ) : (
+              <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
+            )}
+          </>
+        )}
+
+        {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
+      </div>
+
+      <div className="flex-1" />
+
       <div
-        className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
-        style={{
-          width: 380,
-          height: 610
-        }}
+        className={classNames(
+          'sticky bottom-0 w-full',
+          'bg-surface-solid shadow-md',
+          'flex items-stretch',
+          'px-4 pt-2 pb-6'
+        )}
       >
-        <div className="flex flex-col items-left px-4">
-          <h2 className="py-6 flex text-ink text-lg font-semibold">{content.title}</h2>
-
-          {payload.type === 'connect' && (
-            <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
-          )}
-
-          {content.want}
-
-          {error ? (
-            <Alert
-              closable
-              onClose={handleErrorAlertClose}
-              type="error"
-              title={t('error')}
-              description={error?.message ?? t('smthWentWrong')}
-              className="my-4"
-              autoFocus
-            />
-          ) : (
-            <>
-              {payload.type === 'connect' ? (
-                account && (
-                  <AccountBanner
-                    account={account}
-                    networkRpc={payload.networkRpc}
-                    labelIndent="sm"
-                    className="w-full my-2"
-                  />
-                )
-              ) : (
-                <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
-              )}
-            </>
-          )}
-
-          {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
+        <div className="w-1/2 pr-2">
+          <Button
+            type="button"
+            variant={ButtonVariant.Secondary}
+            className="w-full"
+            isLoading={declining}
+            onClick={handleDeclineClick}
+            data-testid={content.declineActionTestID}
+          >
+            {content.declineActionTitle}
+          </Button>
         </div>
 
-        <div className="flex-1" />
-
-        <div
-          className={classNames(
-            'sticky bottom-0 w-full',
-            'bg-surface-solid shadow-md',
-            'flex items-stretch',
-            'px-4 pt-2 pb-6'
-          )}
-        >
-          <div className="w-1/2 pr-2">
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              className="w-full"
-              isLoading={declining}
-              onClick={handleDeclineClick}
-              data-testid={content.declineActionTestID}
-            >
-              {content.declineActionTitle}
-            </Button>
-          </div>
-
-          <div className="w-1/2 pl-2">
-            <ConfirmSubmitButton
-              title={content.confirmActionTitle}
-              testId={content.confirmActionTestID}
-              isLoading={confirming}
-              onConfirmClick={handleConfirmClick}
-            />
-          </div>
+        <div className="w-1/2 pl-2">
+          <Button
+            type="button"
+            variant={ButtonVariant.Primary}
+            className="w-full"
+            isLoading={confirming}
+            onClick={handleConfirmClick}
+            data-testid={content.confirmActionTestID}
+          >
+            {content.confirmActionTitle}
+          </Button>
         </div>
       </div>
-      {showSpendingLimitChallenge && spendingLimitAssessment !== undefined && spendingLimitAsset !== undefined && (
+      {showSpendingLimitChallenge && spendingLimitAssessment !== undefined && (
         <SpendingLimitChallenge
           assessment={spendingLimitAssessment}
-          asset={spendingLimitAsset}
           onResult={authorization => {
             setShowSpendingLimitChallenge(false);
             if (confirmationInFlightRef.current) return;
@@ -845,6 +830,6 @@ const ConfirmDAppForm: FC = () => {
           }}
         />
       )}
-    </CustomRpsContext.Provider>
+    </div>
   );
 };

@@ -10,13 +10,7 @@ import {
 } from '../helpers/balance-truth';
 import { inspectSentNote } from '../helpers/bridge';
 import { TOKEN, TOKEN_DECIMALS, fundAndClaim } from '../helpers/money-path';
-import {
-  IS_FAST_BLOCKS,
-  IS_LOCALNET,
-  armRecallBlocks,
-  recallBlocksForWindow,
-  waitForCompletedRow
-} from '../helpers/recall';
+import { IS_LOCALNET, armRecallBlocks, recallBlocksForWindow, waitForCompletedRow } from '../helpers/recall';
 
 /**
  * Recall / reclaim — the send half nothing else in this suite touches.
@@ -85,10 +79,10 @@ const NEVER_BASE_UNITS = toBaseUnits(NEVER_AMOUNT, TOKEN_DECIMALS);
  * How long the sent note stays unreclaimable, in WALL-CLOCK ms.
  *
  * Converted to a blocks offset against the cadence this run's node is actually
- * configured with — see `recallBlocksForWindow`, and the LOCALNET ONLY note
- * above. A hard-coded block count would be six times shorter on the fast leg,
- * short enough for prove+submit+commit to outrun it, which would fail a
- * perfectly healthy wallet.
+ * configured with - see `recallBlocksForWindow`, and the LOCALNET ONLY note
+ * above. A hard-coded block count would be the wrong length on any other
+ * cadence, short enough for prove+submit+commit to outrun it, which would fail
+ * a perfectly healthy wallet.
  *
  * The floor on this number is everything that must complete INSIDE the window —
  * see `PRE_GATE_BUDGET_MS` and the guard below.
@@ -153,16 +147,9 @@ if (EXPIRY_MS < RECALL_WINDOW_MS + 30_000) {
 
 test.describe('Recall and Reclaim', () => {
   test.describe.configure({ mode: 'serial' });
-  // Runs ONLY on the 500ms-block leg. On the default 3s leg this same window
-  // costs 6x the blocks and shares a 45-minute job with the entire core suite,
-  // so its budget could not fit; the fast leg runs almost nothing else.
-  test.skip(
-    !IS_FAST_BLOCKS,
-    'recall-reclaim needs the 500ms-block leg (MIDEN_NODE_BLOCK_INTERVAL=500ms) to bound the expiry wait'
-  );
   test.skip(
     !IS_LOCALNET,
-    'recall windows are sized in blocks against a cadence only the local stack configures — see the header'
+    'recall windows are sized in blocks against a cadence only the local stack configures - see the header'
   );
 
   test('A reclaims an unclaimed send once its recall window passes', async ({
@@ -197,15 +184,11 @@ test.describe('Recall and Reclaim', () => {
     // unlock-lockout.spec.ts: the two `createNewWallet` drives (60s + 120s of
     // explicit waits each) and the CLI's faucet deploy/mint/sync (180s/60s/60s
     // ceilings). Each of those carries its own bounded timeout and throws its
-    // own message, so a hang inside one reports what hung — the "bare Test
+    // own message, so a hang inside one reports what hung - the "bare Test
     // timeout instead of a diagnostic" failure this budget exists to prevent
     // needs the budget to be short of the waits that would otherwise print, and
-    // those print regardless. Expected runtime is ~7 min; the dominant real
-    // cost is waiting out the recall window itself.
-    // Fits its job because this spec now runs ONLY on the fast-blocks leg, which
-    // carries two specs — not the default leg, which shares `timeout-minutes: 45`
-    // with the entire core suite. A 38-minute ceiling there could not fit and
-    // would have cost the run its artifacts on a job timeout.
+    // those print regardless. Expected runtime is ~7 min on the 120-minute
+    // local-e2e job; the dominant real cost is waiting out the recall window.
     test.setTimeout(2_280_000);
 
     // Bound the helper chain. @playwright/test defaults actionTimeout and

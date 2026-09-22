@@ -62,7 +62,12 @@ jest.mock('components/ui', () => ({
 // Counts mounts, so a test can tell a remount from a re-render.
 const mockPendingMounts = { count: 0 };
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({
-  ActivityPendingHistory: (props: { programId?: string | null; search: string; filter: string }) => {
+  ActivityPendingHistory: (props: {
+    programId?: string | null;
+    search: string;
+    filter: string;
+    onInitialLoad?: () => void;
+  }) => {
     const [instance] = jest.requireActual<typeof import('react')>('react').useState(() => ++mockPendingMounts.count);
     return (
       <div
@@ -71,7 +76,10 @@ jest.mock('app/templates/history/ActivityPendingHistory', () => ({
         data-program-id={props.programId ?? ''}
         data-search-query={props.search}
         data-filter={props.filter}
-      />
+      >
+        {/* Stands in for the list finishing its first load. */}
+        <button data-testid="history-loaded" onClick={() => props.onInitialLoad?.()} />
+      </div>
     );
   }
 }));
@@ -93,6 +101,19 @@ jest.mock('lib/mobile/haptics', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
+}));
+
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+const telemetryHandles: TelemetryHandle[] = [];
+const beginFlowMock = jest.fn((_flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  telemetryHandles.push(handle);
+  return handle;
+});
+
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => beginFlowMock(flow),
+  classifyError: () => 'unknown'
 }));
 
 const getHistory = () => screen.getByTestId('history');
@@ -261,5 +282,98 @@ describe('AllHistory', () => {
 
     expect(getHistory().getAttribute('data-search-query')).toBe('usdc');
     expect((screen.getByTestId('search-input') as HTMLInputElement).value).toBe('usdc');
+  });
+
+  // The activity screen is a view, not a transaction: "completed" is the user
+  // actually seeing their activity, so the flow settles on the list's first
+  // load and is cancelled when they leave before it arrives.
+  describe('activity_view telemetry', () => {
+    /** Throwing accessor so a missing handle names how many flows were begun. */
+    const handleAt = (index: number): TelemetryHandle => {
+      const handle = telemetryHandles[index];
+      if (!handle) throw new Error(`no flow was begun at index ${index} (begun: ${telemetryHandles.length})`);
+      return handle;
+    };
+
+    /** Everything this suite handed to telemetry, for the privacy assertions. */
+    const telemetryPayload = () =>
+      JSON.stringify({
+        begun: beginFlowMock.mock.calls,
+        settled: telemetryHandles.map(handle => [
+          handle.complete.mock.calls,
+          handle.cancel.mock.calls,
+          handle.fail.mock.calls
+        ])
+      });
+
+    beforeEach(() => {
+      telemetryHandles.length = 0;
+    });
+
+    const reportLoaded = () => fireEvent.click(screen.getByTestId('history-loaded'));
+
+    it('begins one activity_view flow on entry', () => {
+      render(<AllHistory />);
+
+      expect(beginFlowMock).toHaveBeenCalledTimes(1);
+      expect(beginFlowMock).toHaveBeenCalledWith('activity_view');
+    });
+
+    it('does not begin a flow per render', () => {
+      render(<AllHistory />);
+
+      fireEvent.click(getFilterButton('sent'));
+      fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
+      fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'usdc' } });
+
+      expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('completes the flow when the activity list has loaded', () => {
+      render(<AllHistory />);
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+
+      reportLoaded();
+
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('completes once even if the list reports again', () => {
+      render(<AllHistory />);
+
+      reportLoaded();
+      reportLoaded();
+
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels the flow when the user leaves before the list loads', () => {
+      const { unmount } = render(<AllHistory />);
+
+      unmount();
+
+      expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+    });
+
+    it('does not re-report a completed view on unmount', () => {
+      const { unmount } = render(<AllHistory />);
+      reportLoaded();
+
+      unmount();
+
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    });
+
+    it('never passes the account address or the pending-notes count to telemetry', () => {
+      render(<AllHistory programId="prog-42" />);
+      reportLoaded();
+
+      expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
+      expect(telemetryPayload()).not.toContain('test-public-key');
+      expect(telemetryPayload()).not.toContain('prog-42');
+      expect(telemetryPayload()).not.toContain('3');
+    });
   });
 });

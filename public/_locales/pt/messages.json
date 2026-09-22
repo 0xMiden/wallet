@@ -4795,6 +4795,22 @@
     "message": "Esta ponte opera na Ethereum Sepolia. Não conecte uma carteira que contenha fundos reais. Crie uma carteira nova e deposite nela apenas ETH da Sepolia.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
   },
+  "helpImproveWallet": {
+    "message": "Ajude a melhorar a Wallet",
+    "englishSource": "Help improve Wallet"
+  },
+  "helpImproveWalletDescription": {
+    "message": "Informe quais partes da Wallet você usa, onde você encontra dificuldades, categorias gerais de erros, a versão do aplicativo e sua plataforma, para que possamos corrigir o que está dando problema. Se o aplicativo travar, ele também envia um relatório de falha com o erro e onde ele ocorreu no código, com dados confidenciais removidos antes do envio. Nunca suas chaves, frase de recuperação, senha, endereços, saldos, valores ou conteúdo das transações. Não há rastreamento em outros aplicativos ou sites, nada é usado para publicidade e nada é vendido ou compartilhado com corretores de dados. Você pode alterar essas configurações a qualquer momento.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+  },
+  "helpImproveWalletAccept": {
+    "message": "Compartilhe dados de uso",
+    "englishSource": "Share usage data"
+  },
+  "helpImproveWalletDecline": {
+    "message": "Não agora",
+    "englishSource": "Not now"
+  },
   "activityAcceptTransfer": {
     "message": "Aceitar transferência",
     "englishSource": "Accept Transfer"
@@ -5070,18 +5086,6 @@
     "message": "Limites de gastos",
     "englishSource": "Spending limits"
   },
-  "spendingLimitDaily": {
-    "message": "Limite móvel de 24 horas",
-    "englishSource": "Rolling 24-hour limit"
-  },
-  "spendingLimitWeekly": {
-    "message": "Limite móvel de 7 dias",
-    "englishSource": "Rolling 7-day limit"
-  },
-  "spendingLimitUnknownDecimals": {
-    "message": "Os limites ficam indisponíveis até que os metadados de casas decimais deste ativo sejam resolvidos.",
-    "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
-  },
   "spendingLimitAuthenticationReason": {
     "message": "Autentique-se para aplicar uma alteração que reduza a proteção deste limite de gastos.",
     "englishSource": "Authenticate to apply a change that weakens this spending limit."
@@ -5106,10 +5110,6 @@
     "message": "Estes limites são uma verificação de segurança local, não uma restrição on-chain. Qualquer pessoa com acesso direto às suas chaves pode ignorá-los.",
     "englishSource": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them."
   },
-  "spendingLimitNoAssets": {
-    "message": "Não há ativos disponíveis para configurar.",
-    "englishSource": "No assets are available to configure."
-  },
   "spendingLimitSave": {
     "message": "Salvar",
     "englishSource": "Save"
@@ -5118,17 +5118,21 @@
     "message": "Limite de gastos excedido",
     "englishSource": "Spending limit exceeded"
   },
-  "spendingLimitPeriod24h": {
-    "message": "Últimas 24 horas",
-    "englishSource": "Past 24 hours"
-  },
-  "spendingLimitPeriod7d": {
-    "message": "Últimos 7 dias",
-    "englishSource": "Past 7 days"
-  },
   "spendingLimitCap": {
     "message": "Limite",
     "englishSource": "Limit"
+  },
+  "spendingLimitUsdCap": {
+    "message": "Daily limit (USD)",
+    "englishSource": "Daily limit (USD)"
+  },
+  "spendingLimitCoverage": {
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+  },
+  "spendingLimitPriceUnavailable": {
+    "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
+    "englishSource": "This transaction's value cannot be checked right now. Authenticate to send it anyway."
   },
   "spendingLimitOverBy": {
     "message": "Excedido em",

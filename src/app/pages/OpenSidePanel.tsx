@@ -64,8 +64,16 @@ const OpenSidePanel: FC = () => {
 
   // Match the onboarding flow's centered, max-width container (this screen is
   // rendered directly by PageRouter, not inside OnboardingFlow's wrapper).
+  //
+  // `finish-side-panel` is the only unambiguous hook for this screen: both the
+  // `yourWalletIsReady` title and the `openWallet` button title are shared
+  // verbatim with `Confirmation.tsx`, so an E2E check for either of those alone
+  // also matches the screen the handoff was reached FROM.
   return (
-    <div className="mx-auto flex h-full w-full max-w-[420px] flex-col overflow-hidden bg-app-bg">
+    <div
+      data-testid="finish-side-panel"
+      className="mx-auto flex h-full w-full max-w-[420px] flex-col overflow-hidden bg-app-bg"
+    >
       {!ready ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-y-4 px-4 text-center">
           <Spinner />

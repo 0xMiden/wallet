@@ -1,5 +1,6 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
@@ -442,6 +443,17 @@ export class IosWalletPage implements WalletPage {
       readyTimeoutMs
     );
 
+    // Onboarding's last screen is now the one-time telemetry consent prompt, not
+    // the wallet home — decline it so the caller gets a wallet it can navigate.
+    // After the Ready poll deliberately (Ready is what proves `register()`
+    // finished), and raced against the home surface so the gap between Ready
+    // being published and `Welcome.tsx` navigating is waited out rather than
+    // assumed away. Mirrors the Android POM.
+    await dismissTelemetryConsent(this, {
+      nextSurface: '[data-testid="explore-page"]',
+      timeoutMs: 60_000
+    });
+
     const address = await this.cdp.eval<string>(
       `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
@@ -747,11 +759,13 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Save an E2E spending limit through the same store transport the settings UI uses.
+   *
+   * One account-scoped USD cap, not a per-asset native-unit one: `tokenSymbol` only picks which
+   * balance row to read the faucet id off, for callers that go on to spend that asset.
    */
   async configureSpendingLimitForTest(params: {
     tokenSymbol: string;
-    dailyLimitBaseUnits?: string;
-    weeklyLimitBaseUnits?: string;
+    dailyLimitUsdMicro?: string;
   }): Promise<{ accountId: string; faucetId: string; decimals: number }> {
     const input = JSON.stringify(params);
     return this.stashAndPoll(
@@ -765,16 +779,9 @@ export class IosWalletPage implements WalletPage {
         `  return row.metadata.symbol === input.tokenSymbol; ` +
         `}); ` +
         `if (!balance) throw new Error('configureSpendingLimitForTest found no ' + input.tokenSymbol + ' balance row'); ` +
-        // Matched by asset, not faucet id: saveSpendingLimit canonicalizes the faucet id before
-        // storing, so listSpendingLimits returns the canonical form while balance.tokenId is the
-        // raw one, and a raw compare sends observedRevision in as undefined on every save after
-        // the first - which the optimistic concurrency guard refuses as a conflict.
-        `var existing = (await state.listSpendingLimits(accountId)).find(function (row) { ` +
-        `  return row.asset.symbol === input.tokenSymbol; ` +
-        `}); ` +
-        `var draft = { accountId: accountId, faucetId: balance.tokenId, asset: balance.metadata }; ` +
-        `if (input.dailyLimitBaseUnits !== undefined) draft.dailyLimit = BigInt(input.dailyLimitBaseUnits); ` +
-        `if (input.weeklyLimitBaseUnits !== undefined) draft.weeklyLimit = BigInt(input.weeklyLimitBaseUnits); ` +
+        `var existing = await state.readSpendingLimit(accountId); ` +
+        `var draft = { accountId: accountId }; ` +
+        `if (input.dailyLimitUsdMicro !== undefined) draft.limit = BigInt(input.dailyLimitUsdMicro); ` +
         `await state.saveSpendingLimit(draft, existing && existing.revision, true); ` +
         `return { accountId: accountId, faucetId: balance.tokenId, decimals: balance.metadata.decimals }; ` +
         `})()`

@@ -6,6 +6,7 @@ import { useDebounce } from 'use-debounce';
 import { decodeFunctionResult, encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
 import { useWriteContract } from 'wagmi';
 
+import { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { NetworkModeBanner, NetworkNamedByShell } from 'components/NetworkModeBanner';
@@ -104,6 +105,8 @@ interface EvmBridgeDepositScreenProps {
   /** Reopens the wallet picker to switch to (connect) a different EVM wallet. */
   onConnectAnother: () => void;
   onClose: () => void;
+  /** Supplied by the hosting page to report the outcome of a deposit attempt. */
+  reportDeposit?: ReportDeposit;
 }
 
 interface RpcResponse {
@@ -209,7 +212,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   evmAddress,
   midenAccount,
   onConnectAnother,
-  onClose
+  onClose,
+  reportDeposit
 }) => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
@@ -615,19 +619,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           : BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
       // The row is born `submitting`; the submission keeps the app-root watcher
       // from resuming it as an orphan while this flow still signs and writes it.
+      // Reported around the tracked-transfer creation: that is the point the
+      // deposit is accepted, and the catch below absorbs its failure, so a
+      // wrapper any further out would read every failure as a success.
+      const createTransfer = () =>
+        initiateBridgedReceiveTransaction({
+          accountId: midenAccount.publicKey,
+          amount: expectedAmount,
+          faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
+          provider: route,
+          sourceAddress: evmAddress,
+          sourceAmount: depositAmount.trim(),
+          sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+          outputAmount,
+          outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
+        });
       const txId = await startBridgeReceiveSubmission(
-        () =>
-          initiateBridgedReceiveTransaction({
-            accountId: midenAccount.publicKey,
-            amount: expectedAmount,
-            faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
-            provider: route,
-            sourceAddress: evmAddress,
-            sourceAmount: depositAmount.trim(),
-            sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-            outputAmount,
-            outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
-          }),
+        () => (reportDeposit ? reportDeposit(createTransfer) : createTransfer()),
         id => (route === 'agglayer' ? handleSlowBridge(id) : executeEVMToMiden(id))
       );
       setBridgeTxId(txId);
@@ -651,6 +659,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     midenAccount.publicKey,
     navigateTo,
     outputAmount,
+    reportDeposit,
     requote,
     route,
     token
