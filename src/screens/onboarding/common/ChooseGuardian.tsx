@@ -298,9 +298,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         >
           {!hideHeader && (
             <div className="flex flex-col items-start gap-1 px-1">
-              <p className="font-sans text-[15px] leading-[22px] text-muted">
-                {description ?? t('chooseGuardianDescription')}
-              </p>
+              <p className="text-explainer text-muted">{description ?? t('chooseGuardianDescription')}</p>
               {learnMore}
             </div>
           )}

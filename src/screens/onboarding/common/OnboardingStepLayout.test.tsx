@@ -9,7 +9,7 @@ describe('OnboardingStepLayout', () => {
     expect(OnboardingStepLayoutDefault).toBe(OnboardingStepLayout);
   });
 
-  it('opens the body on a 28px title, a muted subtitle and the aside, with no page header', () => {
+  it('opens the body on the step title, its explainer line and the aside, with no page header', () => {
     render(
       <OnboardingStepLayout
         data-testid="step"
@@ -21,8 +21,8 @@ describe('OnboardingStepLayout', () => {
       </OnboardingStepLayout>
     );
     const title = screen.getByRole('heading', { level: 1, name: 'Choose your Guardian' });
-    expect(title).toHaveClass('text-[28px]', 'font-extrabold', 'text-ink');
-    expect(screen.getByText('Select an option below')).toHaveClass('text-[15px]', 'text-muted');
+    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    expect(screen.getByText('Select an option below')).toHaveClass('text-explainer', 'text-muted');
     expect(screen.getByRole('button', { name: 'Learn more' })).toBeInTheDocument();
     expect(screen.queryByTestId('page-back')).toBeNull();
 
