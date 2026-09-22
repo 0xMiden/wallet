@@ -1028,8 +1028,8 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "Özel anahtarınızın QR kodunu tarayın veya Miden hot anahtarınızı ve EVM özel anahtarınızı girin. Hot anahtarınız, Guardian hesabınızı bulur. Sağlanan EVM anahtarı, EVM adresini geri yükler; cüzdan, bu anahtarların birbirine ait olduğunu doğrulayamaz.",
-    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "message": "Özel anahtarınızın QR kodunu tarayın veya Miden günlük ve EVM özel anahtarlarınızı girin. Günlük anahtarınız, Guardian hesabınızı bulur. Sağlanan EVM anahtarı, EVM adresini geri yükler; cüzdan, bu anahtarların birbirine ait olduğunu doğrulayamaz.",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Günlük anahtar (hex)",
@@ -1040,8 +1040,8 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Miden sıcak özel anahtarı",
-    "englishSource": "Miden hot private key"
+    "message": "Miden günlük özel anahtarı",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM özel anahtarı",
@@ -1178,6 +1178,10 @@
   "recoveryPhrase": {
     "message": "Geri Yükleme İfadesi",
     "englishSource": "Recovery Phrase"
+  },
+  "revealRecoveryPhrase": {
+    "message": "Kurtarma ifadesini göster",
+    "englishSource": "Reveal recovery phrase"
   },
   "viewThisInPrivatePlace": {
     "message": "Bunu gözlerden uzak bir yerde görüntüle",
@@ -1867,12 +1871,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "Aygıt anahtarının yenilenmesi gerekiyor",
-    "englishSource": "Device key needs rotation"
+    "message": "Günlük anahtarların rotasyonu gereklidir",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "Bu cihaz artık cihazınızın (hızlı erişim) tuşunu kullanamaz. İmzalama işlevini geri yüklemek için tuşu çevirin — bakiyeniz bundan etkilenmez.",
-    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+    "message": "Bu cihaz artık günlük anahtarınızı kullanamaz. İmzalama işlevini geri yüklemek için anahtarı döndürün — fonlarınız bundan etkilenmez.",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "Döndür tuşu",
@@ -2352,8 +2356,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "seed phrase'ınız, kurtarma anahtarınızdır — bu anahtar, cihaz anahtarlarını değiştirmek için kullanılır; günlük işlemler için değildir.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+    "message": "seed phrase'ınız kurtarma anahtarınızdır — günlük anahtarınızı değiştirmek için kullanılır, günlük işlemler için değil.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "Seç",
@@ -2608,8 +2612,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "Cüzdan anahtarı (aktif)",
-    "englishSource": "Wallet key (hot)"
+    "message": "Günlük anahtar",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "Geri yükleme ifadesi (soğuk)",
@@ -2624,12 +2628,12 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "Cihaz tuşunu döndür",
-    "englishSource": "Rotate device key"
+    "message": "Günlük anahtarı değiştirin",
+    "englishSource": "Rotate everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "Yeni bir cihaz (hızlı erişim) tuşu oluşturun ve zincir üzerindeki mevcut tuşu bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu işlem yararlı olabilir.",
-    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "message": "Her gün yeni bir anahtar oluşturun ve zincir üzerindeki mevcut anahtarı bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu yöntem yararlı olabilir.",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
     "message": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanmıştır. seed phrase adresiniz gerekmemektedir; bakiyeniz ve hesabınız değişmez. Devam etmek istiyor musunuz?",
@@ -2640,20 +2644,20 @@
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "Cihaz anahtarınızı döndürme",
-    "englishSource": "Rotating your device key"
+    "message": "Günlük anahtarınızı değiştirme",
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "Cihazınızın (hızlı erişim) tuşu döndürülüyor. Bu işlem, kurtarılan bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",
-    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "message": "Günlük anahtarınız değiştiriliyor. Bu işlem, kurtarılan bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gereklidir.",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "Aygıt anahtarının döndürülmesi başarısız oldu",
-    "englishSource": "Device key rotation failed"
+    "message": "Günlük anahtar rotasyonu başarısız oldu",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Cihaz anahtarınızı döndürürken bir hata oluştu.",
-    "englishSource": "Something went wrong while rotating your device key."
+    "message": "Günlük anahtarınızı değiştirirken bir hata oluştu.",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "Tekrar dene",
@@ -2692,20 +2696,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "Cihaz anahtarını göster",
-    "englishSource": "Reveal device key"
+    "message": "Günlük anahtarı göster",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Cihazınızın (hızlı erişim) tuşu, Ayarlar → Cihaz Tuşunu Döndür seçeneğinden döndürülebilir; bu nedenle, bu tuşun görünür olması, “seed phrase” tuşuna kıyasla daha az risk taşır — ancak siz tuşu döndürene kadar, elinde tutan herhangi bir kişi işlemleri imzalayabilir.",
-    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+    "message": "Günlük anahtarınız Ayarlar → Günlük anahtarı değiştir seçeneğinden değiştirilebilir; bu nedenle, bu anahtarı ifşa etmenin riski, \"seed phrase\" anahtarınızı ifşa etmekten daha düşüktür — ancak anahtara sahip olan herhangi bir kişi, siz anahtarı değiştirene kadar işlemleri imzalayabilir.",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotPrivateKey": {
-    "message": "Cihaz Özel Anahtarı",
-    "englishSource": "Device Private Key"
+    "message": "Everyday Özel Anahtarı",
+    "englishSource": "Everyday Private Key"
   },
   "hotPublicKeyLabel": {
-    "message": "Cihazın Açık Anahtarı",
-    "englishSource": "Device Public Key"
+    "message": "Günlük Açık Anahtar",
+    "englishSource": "Everyday Public Key"
   },
   "coldPrivateKey": {
     "message": "Geri Yükleme (Soğuk) Özel Anahtarı",
@@ -2724,8 +2728,8 @@
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Bu anahtarlara sahip olan herhangi bir kişi, Miden ve EVM varlıklarınızı kontrol edebilir. Miden cihaz anahtarınızı değiştirmek, sızdırılmış bir EVM anahtarını değiştirmez veya korumaz.",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
+    "message": "Bu anahtarlara sahip olan herkes, Miden ve EVM varlıklarınızı kontrol edebilir. Miden günlük anahtarınızı değiştirmek, sızdırılmış bir EVM anahtarını değiştirmez veya korumaz.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "http:// veya https:// ile başlayan geçerli bir URL girin",
@@ -4650,8 +4654,8 @@
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
-    "message": "seed phrase ifadesini kaldırın",
-    "englishSource": "Remove seed phrase"
+    "message": "Kurtarma ifadesini kaldırın",
+    "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
     "message": "seed phrase'ınızı silmeden önce bir yere not edin. Günlük işlemler yine de devam edecektir. Guardian adresindeki değişiklikler ve günlük anahtar değiştirme işlemleri için seed phrase'ı girmeniz gerekecektir.",

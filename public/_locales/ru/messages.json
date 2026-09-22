@@ -1028,8 +1028,8 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "Отсканируйте QR-код вашего приватного ключа или введите ваши «горячий» ключ Miden и приватный ключ EVM. Ваш «горячий» ключ позволяет найти ваш аккаунт Guardian. Указанный ключ EVM восстанавливает соответствующий адрес EVM; кошелек не может проверить, принадлежат ли эти ключи друг другу.",
-    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "message": "Отсканируйте QR-код вашего приватного ключа или введите ваши повседневный ключ Miden и приватный ключ EVM. Ваш повседневный ключ позволяет найти ваш аккаунт Guardian. Указанный ключ EVM восстанавливает соответствующий адрес EVM; кошелек не может проверить, принадлежат ли эти ключи друг другу.",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Повседневный ключ (шестнадцатеричный)",
@@ -1040,8 +1040,8 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Горячий приватный ключ Miden",
-    "englishSource": "Miden hot private key"
+    "message": "Ежедневный личный ключ Miden",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "Личный ключ EVM",
@@ -1178,6 +1178,10 @@
   "recoveryPhrase": {
     "message": "Фраза для восстановления",
     "englishSource": "Recovery Phrase"
+  },
+  "revealRecoveryPhrase": {
+    "message": "Раскрыть фразу восстановления",
+    "englishSource": "Reveal recovery phrase"
   },
   "viewThisInPrivatePlace": {
     "message": "Посмотрите это в уединении",
@@ -1867,12 +1871,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "Ключ устройства требует ротации",
-    "englishSource": "Device key needs rotation"
+    "message": "Ежедневная ротация ключей необходима",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "Данное устройство больше не может использовать вашу (горячую) клавишу. Поверните её, чтобы восстановить подпись — ваши средства останутся нетронутыми.",
-    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+    "message": "Это устройство больше не может использовать ваш повседневный ключ. Поверните его, чтобы восстановить возможность подписи — ваши средства останутся нетронутыми.",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "Клавиша поворота",
@@ -2352,8 +2356,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "Ваш «seed phrase» — это ваш ключ восстановления, который используется для ротации ключей устройства, а не для повседневных транзакций.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+    "message": "Ваш ключ восстановления (seed phrase) — это ключ для смены вашего повседневного ключа, он не предназначен для повседневных транзакций.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "Выбрать",
@@ -2608,8 +2612,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "Ключ кошелька (активный)",
-    "englishSource": "Wallet key (hot)"
+    "message": "Повседневный словарь",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "Фраза восстановления (холодное хранение)",
@@ -2624,12 +2628,12 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "Повернуть клавишу устройства",
-    "englishSource": "Rotate device key"
+    "message": "Ежедневная смена ключа",
+    "englishSource": "Rotate everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "Сгенерируйте новую горячую клавишу устройства и замените текущую в цепочке блоков. Это полезно, если вы подозреваете, что ваше устройство скомпрометировано.",
-    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "message": "Генерируйте новый ежедневный ключ и замените им текущий в цепочке. Это полезно, если вы подозреваете, что ваше устройство скомпрометировано.",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
     "message": "Этот документ подписан с использованием вашего ключа восстановления (холодного ключа). Ваш ключ «seed phrase» не требуется, а ваши средства и счет останутся без изменений. Продолжить?",
@@ -2640,20 +2644,20 @@
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "Поворот ключа устройства",
-    "englishSource": "Rotating your device key"
+    "message": "Смена повседневного ключа",
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "Происходит поворот клавиши быстрого доступа вашего устройства. Это необходимо при настройке восстановленной учетной записи, чтобы она могла синхронизироваться и совершать транзакции.",
-    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "message": "Ваш повседневный ключ меняется. Это необходимо при настройке восстановленной учетной записи, чтобы она могла синхронизироваться и совершать транзакции.",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "Ошибка при смене ключа устройства",
-    "englishSource": "Device key rotation failed"
+    "message": "Сбой ежедневной смены ключей",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "При вращении ключа устройства произошла ошибка.",
-    "englishSource": "Something went wrong while rotating your device key."
+    "message": "Произошла ошибка при ротации вашего повседневного ключа.",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "Повторить попытку",
@@ -2692,20 +2696,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "Показать ключ устройства",
-    "englishSource": "Reveal device key"
+    "message": "Раскрытие повседневного ключа",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Направление клавиши (горячей клавиши) вашего устройства можно изменить в разделе «Настройки» → «Поворот клавиши устройства», поэтому раскрытие этой информации не так опасно, как в случае с «seed phrase» — однако любой, кто завладеет устройством, сможет подписывать транзакции, пока вы не измените направление клавиши.",
-    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+    "message": "Ваш повседневный ключ можно сменить в меню «Настройки» → «Сменить повседневный ключ», поэтому его раскрытие сопряжено с меньшим риском, чем раскрытие вашего ключа «seed phrase» — однако любой, кто его владеет, может подписывать транзакции до тех пор, пока вы не смените ключ.",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotPrivateKey": {
-    "message": "Частный ключ устройства",
-    "englishSource": "Device Private Key"
+    "message": "Everyday Private Key",
+    "englishSource": "Everyday Private Key"
   },
   "hotPublicKeyLabel": {
-    "message": "Открытый ключ устройства",
-    "englishSource": "Device Public Key"
+    "message": "Everyday Public Key",
+    "englishSource": "Everyday Public Key"
   },
   "coldPrivateKey": {
     "message": "Восстановление (холодного) закрытого ключа",
@@ -2724,8 +2728,8 @@
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Любой, у кого есть эти ключи, может контролировать ваши активы Miden и EVM. Смена ключа устройства Miden не изменяет и не защищает утечённый ключ EVM.",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
+    "message": "Любой, у кого есть эти ключи, может управлять вашими активами Miden и EVM. Ежедневная смена ключа Miden не изменяет и не защищает утечку ключа EVM.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Введите действительный URL-адрес, начинающийся с http:// или https://",
@@ -4650,8 +4654,8 @@
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
-    "message": "Удалите seed phrase",
-    "englishSource": "Remove seed phrase"
+    "message": "Удалить фразу восстановления",
+    "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
     "message": "Запишите свою seed phrase перед удалением. Ежедневные транзакции продолжат работать. Для изменений Guardian и замены ежедневного ключа вам потребуется ввести seed phrase.",

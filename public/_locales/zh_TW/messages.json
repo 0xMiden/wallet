@@ -1028,8 +1028,8 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "掃描您的私鑰 QR 碼，或輸入您的 Miden 熱私鑰及 EVM 私鑰。您的熱私鑰將定位您的 Guardian 帳戶；提供的 EVM 私鑰則會還原其 EVM 地址；錢包無法驗證這些私鑰是否屬於同一個帳戶。",
-    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "message": "掃描您的私鑰 QR 碼，或輸入您的 Miden 日常私鑰及 EVM 私鑰。您的日常私鑰用於定位您的 Guardian 帳戶；所提供的 EVM 私鑰則用於恢復其 EVM 地址；錢包無法驗證這些私鑰是否屬於同一組。",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "日常金鑰 (十六進位)",
@@ -1040,8 +1040,8 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Miden 熱私鑰",
-    "englishSource": "Miden hot private key"
+    "message": "Miden 日常私鑰",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM 私鑰",
@@ -1178,6 +1178,10 @@
   "recoveryPhrase": {
     "message": "恢復短語",
     "englishSource": "Recovery Phrase"
+  },
+  "revealRecoveryPhrase": {
+    "message": "顯示恢復短語",
+    "englishSource": "Reveal recovery phrase"
   },
   "viewThisInPrivatePlace": {
     "message": "請在私密處查看此內容",
@@ -1867,12 +1871,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "裝置金鑰需要輪替",
-    "englishSource": "Device key needs rotation"
+    "message": "日常金鑰需定期輪替",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "此裝置無法再使用您的裝置（熱）鍵。請將其旋轉以恢復簽署功能——您的資金不會受到影響。",
-    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+    "message": "此裝置無法再使用您的日常金鑰。請旋轉裝置以恢復簽署功能——您的資金不受影響。",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "旋轉鑰匙",
@@ -2352,8 +2356,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "您的「seed phrase」即是您的恢復金鑰——用於輪替裝置金鑰，而非用於日常交易。",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+    "message": "您的「seed phrase」即為您的恢復金鑰——用於輪替您的日常金鑰，而非用於日常交易。",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "選擇",
@@ -2608,8 +2612,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "錢包金鑰（熱）",
-    "englishSource": "Wallet key (hot)"
+    "message": "日常關鍵詞",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "恢復短語（冷儲存）",
@@ -2624,12 +2628,12 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "裝置旋轉鍵",
-    "englishSource": "Rotate device key"
+    "message": "每日輪替金鑰",
+    "englishSource": "Rotate everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "產生一個新的裝置（熱）鍵，並在區塊鏈上取代目前的裝置鍵。若您懷疑裝置已遭入侵，此功能將十分實用。",
-    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "message": "生成一個新的日常金鑰，並在鏈上替換當前的金鑰。若您懷疑裝置已遭入侵，此舉將十分有用。",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
     "message": "此操作將使用您的恢復（冷）金鑰進行簽名。無需提供您的 seed phrase，您的資金和帳戶將保持不變。要繼續嗎？",
@@ -2640,20 +2644,20 @@
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "旋轉裝置的鑰匙",
-    "englishSource": "Rotating your device key"
+    "message": "輪替您的日常金鑰",
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "您的裝置（熱）鍵正在進行輪替。這是設定已恢復帳戶時所需的步驟，以便該帳戶能進行同步與交易。",
-    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "message": "您的日常金鑰正在進行輪替。這是設定已恢復帳戶時所需的步驟，以便該帳戶能同步資料並進行交易。",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "裝置金鑰輪替失敗",
-    "englishSource": "Device key rotation failed"
+    "message": "日常金鑰輪替失敗",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "在旋轉裝置金鑰時發生了錯誤。",
-    "englishSource": "Something went wrong while rotating your device key."
+    "message": "在輪替您的日常金鑰時發生了錯誤。",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "重試",
@@ -2692,20 +2696,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "顯示裝置金鑰",
-    "englishSource": "Reveal device key"
+    "message": "揭示日常金鑰",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "您可透過「設定」→「旋轉裝置金鑰」來旋轉裝置（熱）金鑰，因此與您的「seed phrase」相比，揭露此金鑰的風險較低——但只要有人持有該金鑰，便能在您進行旋轉之前簽署交易。",
-    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+    "message": "您的日常金鑰可透過「設定」→「輪替日常金鑰」進行輪替，因此洩露此金鑰的風險低於您的「seed phrase」——但任何持有此金鑰的人，在您進行輪替前皆可簽署交易。",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotPrivateKey": {
-    "message": "裝置私密金鑰",
-    "englishSource": "Device Private Key"
+    "message": "日常私鑰",
+    "englishSource": "Everyday Private Key"
   },
   "hotPublicKeyLabel": {
-    "message": "裝置公開金鑰",
-    "englishSource": "Device Public Key"
+    "message": "日常公鑰",
+    "englishSource": "Everyday Public Key"
   },
   "coldPrivateKey": {
     "message": "復原（冷儲存）私鑰",
@@ -2724,8 +2728,8 @@
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。輪替您的 Miden 裝置金鑰並不會改變或保護已外洩的 EVM 金鑰。",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
+    "message": "任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。即使每天更換您的 Miden 日常金鑰，也不會改變或保護已外洩的 EVM 金鑰。",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "請輸入以 http:// 或 https:// 開頭的有效網址",
@@ -4650,8 +4654,8 @@
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
-    "message": "移除 seed phrase",
-    "englishSource": "Remove seed phrase"
+    "message": "移除恢復短語",
+    "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
     "message": "在移除您的 seed phrase 之前，請先將其記錄下來。日常交易仍可照常進行。若 Guardian 發生變更，或進行日常金鑰更換時，您將需要輸入 seed phrase。",
