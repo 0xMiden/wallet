@@ -138,6 +138,9 @@ const dispatchCopy = ({
 
 beforeEach(() => {
   mockWriteText.mockClear();
+  // Both clipboard mocks are module-level, so a call-count assertion reads every
+  // preceding case's clicks unless the count is reset per case.
+  mockClipboardWrite.mockClear();
 });
 
 afterEach(() => {
@@ -294,6 +297,7 @@ describe('BackUpSeedPhraseScreen', () => {
         fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
       });
 
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
       expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
     });
