@@ -38,8 +38,9 @@ export interface ChooseGuardianScreenProps {
   // Dev-gated (onboarding only): show a selectable "No guardian" card that
   // creates a private single-key account with no guardian co-signer.
   showNoGuardianOption?: boolean;
-  // Submission error from the caller, rendered above the Continue button so it
-  // stays inside this screen's scroll container.
+  // Submission error from the caller, rendered above the Continue button in the pinned
+  // footer - not in the scrolling body - so it is capped there and scrolls within its
+  // own box rather than growing the footer and pushing Continue off screen (#463).
   error?: string | null;
   // Renders the picker as a pushed page (Rotate Guardian): a header with this
   // back action and the title, instead of an onboarding step's 28px heading.
@@ -271,7 +272,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const footer = (
     <>
       {error && (
-        <Notice tone="negative" role="alert" className="select-text break-words">
+        <Notice tone="negative" role="alert" className="max-h-24 overflow-y-auto select-text break-words">
           {error}
         </Notice>
       )}
