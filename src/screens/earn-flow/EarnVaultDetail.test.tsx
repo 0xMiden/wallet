@@ -2,7 +2,6 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 // Imported after the mocks above are registered (jest hoists jest.mock).
@@ -51,11 +50,9 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-// Haptics wrap the Capacitor plugin. `EarnVaultDetail` calls `hapticSelection`
-// on timeframe taps; the real `Button` / `IconButton` we render call
-// `hapticLight`. Stub both so no native code is touched.
+// Haptics wrap the Capacitor plugin. The real `Button` / `IconButton` we render
+// call `hapticLight`; stub it so no native code is touched.
 jest.mock('lib/mobile/haptics', () => ({
-  hapticSelection: jest.fn(),
   hapticLight: jest.fn()
 }));
 
@@ -265,23 +262,11 @@ describe('EarnVaultDetail', () => {
     expect(navigate).toHaveBeenCalledWith('/earn/vaults/v-audited/deposit');
   });
 
-  it('renders the timeframes as the shared segmented control, 1M selected, one haptic per change', () => {
+  // No timeframe row: no chart on this screen reads a timeframe, so the control changed nothing.
+  it('draws the chart with no timeframe row', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
-    expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-    const radio = (name: string) => screen.getByRole('radio', { name });
-    ['1D', '1W', '1M', 'All'].forEach(label => expect(radio(label)).toBeInTheDocument());
-
-    expect(radio('1M')).toHaveAttribute('aria-checked', 'true');
-    expect(radio('1D')).toHaveAttribute('aria-checked', 'false');
-    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised');
-
-    fireEvent.click(radio('1D'));
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(radio('1D')).toHaveAttribute('aria-checked', 'true');
-    expect(radio('1M')).toHaveAttribute('aria-checked', 'false');
-
-    fireEvent.click(radio('1D'));
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument();
   });
 });

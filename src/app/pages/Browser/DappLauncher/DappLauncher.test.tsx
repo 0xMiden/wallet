@@ -6,7 +6,7 @@ import type { ExploreCatalog, RecentDapp } from 'lib/dapp-browser';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import { DappLauncher } from './index';
-import { resetRevealed } from './reveal-once';
+import { markRevealed, resetRevealed } from './reveal-once';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
@@ -35,7 +35,6 @@ const catalog: ExploreCatalog = {
   items: [
     {
       id: 'faucet',
-      type: 'tool',
       category: 'tools',
       name: 'Faucet',
       tagline: 'Get testnet MIDEN tokens',
@@ -45,19 +44,18 @@ const catalog: ExploreCatalog = {
     },
     {
       id: 'forkchoice',
-      type: 'tool',
       category: 'tools',
       name: 'Forkchoice Faucet',
       tagline: 'Get testnet tokens for swap',
       taglineKey: 'exploreForkchoiceFaucetTagline',
       url: 'https://forkchoice.example/'
     },
-    { id: 'quest', type: 'game', category: 'games', name: 'Quest', tagline: 'Play', url: 'https://quest.example/' }
+    { id: 'quest', category: 'games', name: 'Quest', tagline: 'Play', url: 'https://quest.example/' }
   ],
   sections: [
     { id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet'] },
-    { id: 'helper-tools', kind: 'list', titleKey: 'exploreHelperTools', itemIds: ['faucet', 'forkchoice'], limit: 1 },
-    { id: 'games', kind: 'row', titleKey: 'categoryGames', itemIds: ['quest'] },
+    { id: 'helper-tools', kind: 'list', titleKey: 'exploreHelperTools', itemIds: ['faucet', 'forkchoice'] },
+    { id: 'games', kind: 'list', titleKey: 'categoryGames', itemIds: ['quest'] },
     { id: 'recents', kind: 'recents', titleKey: 'recents' }
   ]
 };
@@ -97,8 +95,8 @@ describe('DappLauncher', () => {
     expect(screen.getByTestId('explore-section-featured')).toHaveAttribute('data-kind', 'featured');
     expect(screen.getByRole('heading', { level: 2, name: 'exploreFeatured' })).toHaveClass('text-title-page');
     expect(screen.getByTestId('explore-featured-card')).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
-    expect(within(screen.getByTestId('explore-section-helper-tools')).getAllByTestId('dapp-grid-card')).toHaveLength(1);
-    expect(within(screen.getByTestId('explore-section-games')).getByTestId('dapp-tile')).toHaveAttribute(
+    expect(within(screen.getByTestId('explore-section-helper-tools')).getAllByTestId('dapp-grid-card')).toHaveLength(2);
+    expect(within(screen.getByTestId('explore-section-games')).getByTestId('dapp-grid-card')).toHaveAttribute(
       'data-dapp-url',
       'https://quest.example/'
     );
@@ -146,18 +144,6 @@ describe('DappLauncher', () => {
     expect(hapticLight).toHaveBeenCalledTimes(4);
   });
 
-  it('shows every row of a list behind See all, and folds it back', async () => {
-    await renderLauncher();
-    const section = screen.getByTestId('explore-section-helper-tools');
-
-    fireEvent.click(within(section).getByRole('button', { name: 'exploreSeeAll' }));
-    expect(within(section).getAllByTestId('dapp-grid-card')).toHaveLength(2);
-    expect(within(section).getByRole('button', { name: 'exploreShowLess' })).toHaveAttribute('aria-expanded', 'true');
-
-    fireEvent.click(within(section).getByRole('button', { name: 'exploreShowLess' }));
-    expect(within(section).getAllByTestId('dapp-grid-card')).toHaveLength(1);
-  });
-
   it('filters the sections by category chip, with a selection haptic only when the choice changes', async () => {
     await renderLauncher();
 
@@ -188,6 +174,59 @@ describe('DappLauncher', () => {
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
   });
 
+  // The store decides how many recents exist (it keeps 12); the row renders what it is given. A
+  // second cap here silently dropped two of them, under the same name as the store's.
+  // Recents arrive from a promise that resolves after mount. If the first reveal ends on the first
+  // commit, the last section on the page rises at index 0 - ahead of every section above it.
+  it('gives a late-arriving section its place in the first reveal, not the front', async () => {
+    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    await act(async () => {});
+
+    const indexOf = (id: string) =>
+      Number(screen.getByTestId(`explore-section-${id}`).getAttribute('data-reveal-index'));
+
+    expect(indexOf('recents')).toBeGreaterThan(indexOf('featured'));
+    expect(indexOf('recents')).toBeGreaterThan(indexOf('helper-tools'));
+  });
+
+  // The launcher unmounts while a dApp is in the foreground and mounts again on the way back, so the
+  // reveal has already played this session. A section arriving late on that return is not part of a
+  // reveal that is not happening: it must not wait its turn behind sections that never animated.
+  it('gives a late-arriving section no stagger once the reveal has already played', async () => {
+    markRevealed();
+    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    await act(async () => {});
+
+    expect(screen.getByTestId('explore-section-recents')).toHaveAttribute('data-reveal-index', '0');
+    expect(screen.getByTestId('explore-section-featured')).toHaveAttribute('data-reveal-index', '0');
+  });
+
+  // A section entering because the user changed a chip is answering them, not being introduced.
+  it('drops the stagger once the user picks a filter', async () => {
+    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('explore-chip-tools'));
+    });
+
+    expect(screen.getByTestId('explore-section-helper-tools')).toHaveAttribute('data-reveal-index', '0');
+  });
+
+  it('renders every recent the store keeps', async () => {
+    mockRecents = Array.from({ length: 12 }, (_, i) => ({
+      url: `https://recent-${i}.example/`,
+      name: `Recent ${i}`,
+      origin: `https://recent-${i}.example`,
+      lastOpenedAt: i
+    }));
+
+    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    await act(async () => {});
+
+    expect(within(screen.getByTestId('explore-recents')).getAllByTestId('dapp-tile')).toHaveLength(12);
+  });
+
   it('reveals the page on its first mount only', async () => {
     const first = render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
     // Starts below its place, transparent.
@@ -215,7 +254,6 @@ describe('DappLauncher', () => {
   it("shows an item's translated tagline, like the swap faucet's", async () => {
     await renderLauncher();
     const section = screen.getByTestId('explore-section-helper-tools');
-    fireEvent.click(within(section).getByRole('button', { name: 'exploreSeeAll' }));
     const row = within(section).getByRole('button', { name: 'Forkchoice Faucet' });
     expect(row).toHaveTextContent('exploreForkchoiceFaucetTagline');
     expect(row).not.toHaveTextContent('Get testnet tokens for swap');

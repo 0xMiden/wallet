@@ -199,6 +199,9 @@ it('keeps the wordmark-tile hero layout for a provider with no Mark', () => {
   expect(logo.parentElement).not.toHaveClass('bg-pure-white');
 
   expect(screen.getByRole('heading', { name: 'Gateway One' })).toBeInTheDocument();
+  // The pill renders in both hero branches. Adding a Mark moved the default fixture onto the
+  // Hero branch, so without this the legacy branch's copy of it was no longer covered anywhere.
+  expect(screen.getByRole('status')).toHaveTextContent('guardianCheckingLabel');
 });
 
 it('shows the offline pill while the sync loop reports a guardian outage', () => {

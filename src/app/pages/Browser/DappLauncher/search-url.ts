@@ -23,9 +23,23 @@ export function looksLikeUrl(input: string): boolean {
   );
 }
 
+/**
+ * Where free text goes when nothing in the catalogue matches. It is a SEARCH, not a host: treating
+ * it as one built `https://<the words typed>` - malformed for any query with a space, since
+ * `looksLikeUrl` rejects whitespace - and the browser then opened that dead page and saved it as a
+ * recent dApp.
+ */
+const SEARCH_PREFIX = 'https://duckduckgo.com/?q=';
+
+/** Whether a URL is a web search this app produced, rather than a dApp the user chose. */
+export function isSearchUrl(url: string): boolean {
+  return url.startsWith(SEARCH_PREFIX);
+}
+
 /** The URL a submitted query opens, or `null` when there is nothing to open. */
 export function urlForQuery(query: string, firstMatchUrl: string | undefined): string | null {
-  if (!query.trim()) return null;
-  if (looksLikeUrl(query)) return normalizeUrl(query);
-  return firstMatchUrl ?? normalizeUrl(query);
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  if (looksLikeUrl(trimmed)) return normalizeUrl(trimmed);
+  return firstMatchUrl ?? `${SEARCH_PREFIX}${encodeURIComponent(trimmed)}`;
 }

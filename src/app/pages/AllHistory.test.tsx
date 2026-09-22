@@ -176,22 +176,15 @@ describe('AllHistory', () => {
       mockReducedMotion.value = true;
     });
 
-    it('scrolls the selection into view instantly instead of smoothly', () => {
+    it('scrolls a filter change into view instantly instead of smoothly', () => {
       render(<AllHistory />);
 
+      fireEvent.click(getFilterButton('pending'));
       expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
         behavior: 'auto',
         block: 'nearest',
         inline: 'nearest'
       });
-    });
-
-    it('drops the press scale', () => {
-      render(<AllHistory />);
-
-      fireEvent.click(getFilterButton('pending'));
-      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
-      expect(getFilterButton('pending').style.transform).toBe('');
     });
   });
 
@@ -217,14 +210,12 @@ describe('AllHistory', () => {
     });
   });
 
-  it('scrolls the initially-selected chip into view on mount', () => {
+  it('scrolls nothing on mount', () => {
     render(<AllHistory />);
 
-    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
-      behavior: 'smooth',
-      block: 'nearest',
-      inline: 'nearest'
-    });
+    // The row keeps its own selection in view on a CHANGE; a mount-time call would scroll whatever
+    // ancestor can scroll, which on a settings page is the page itself.
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('ignores a tap on the already-active filter (no haptic, no change)', () => {

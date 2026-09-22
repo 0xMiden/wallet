@@ -9,9 +9,6 @@ import { type RecentDapp } from 'lib/dapp-browser';
 
 import { DappTile, TileRow } from './DappTile';
 
-/** One screen and a bit: enough to show it scrolls. */
-export const MAX_RECENTS = 10;
-
 interface RecentsRowProps {
   recents: RecentDapp[];
   onOpen: (url: string) => void;
@@ -22,7 +19,7 @@ export const RecentsRow: FC<RecentsRowProps> = ({ recents, onOpen }) => {
 
   return (
     <TileRow data-testid="explore-recents">
-      {recents.slice(0, MAX_RECENTS).map(dapp => (
+      {recents.map(dapp => (
         <DappTile key={dapp.url} url={dapp.url} name={dapp.name} icon={dapp.favicon} onOpen={onOpen} />
       ))}
     </TileRow>

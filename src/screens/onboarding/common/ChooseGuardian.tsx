@@ -279,8 +279,14 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                       isOffline && 'opacity-50'
                     )}
                   >
+                    {/* `h-auto` so each wordmark's box hugs its artwork: a taller intrinsic height
+                        (OpenZeppelin ships 522x94) otherwise grows this flex-1 row past the card and
+                        drops the wordmark 4-6px below the centre the others sit on. They are already
+                        width-bound, so this moves only the transparent band around them. */}
                     {logoEntry ? (
-                      <logoEntry.Logo className={clsx(guardianLogoColorClass(logoEntry), logoEntry.paddingXClass)} />
+                      <logoEntry.Logo
+                        className={clsx('h-auto', guardianLogoColorClass(logoEntry), logoEntry.paddingXClass)}
+                      />
                     ) : (
                       <GuardianAvatar className="w-10 h-10" />
                     )}

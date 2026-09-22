@@ -1,12 +1,4 @@
-import {
-  FEATURED_DAPPS,
-  CAROUSEL_DAPPS,
-  EXPLORE_GRID_DAPPS,
-  getExploreGridDapps,
-  type FeaturedDapp,
-  type FeaturedDappBadge,
-  type FeaturedDappCategory
-} from './featured-dapps';
+import { FEATURED_DAPPS, CAROUSEL_DAPPS, type FeaturedDappBadge, type FeaturedDappCategory } from './featured-dapps';
 
 const mockSwapEnabled = { value: true };
 
@@ -137,46 +129,5 @@ describe('CAROUSEL_DAPPS', () => {
       expect(FEATURED_DAPPS).toContain(d);
     }
     expect(CAROUSEL_DAPPS.length).toBeLessThan(FEATURED_DAPPS.length);
-  });
-});
-
-describe('EXPLORE_GRID_DAPPS', () => {
-  it('contains the curated apps in explicit display order', () => {
-    // Exercises the `.flatMap` over the id list and the inner
-    // `.filter(d => d.id === id)` predicate (matching + non-matching ids).
-    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['faucet', 'forkchoice-faucet']);
-    expect(EXPLORE_GRID_DAPPS).toHaveLength(2);
-  });
-
-  it('resolves each id to the corresponding FEATURED_DAPPS entry by identity', () => {
-    for (const d of EXPLORE_GRID_DAPPS) {
-      const source = FEATURED_DAPPS.find(f => f.id === d.id);
-      expect(source).toBeDefined();
-      expect(d).toBe(source as FeaturedDapp);
-    }
-  });
-
-  it('contains only the two testnet faucets, and no exchange (DEX) tile', () => {
-    expect(EXPLORE_GRID_DAPPS.map(d => d.id)).toEqual(['faucet', 'forkchoice-faucet']);
-    expect(EXPLORE_GRID_DAPPS.some(d => d.isExchange)).toBe(false);
-  });
-});
-
-describe('getExploreGridDapps', () => {
-  afterEach(() => {
-    mockSwapEnabled.value = true;
-  });
-
-  it('returns the full grid unchanged when swap is enabled (off-iOS)', () => {
-    mockSwapEnabled.value = true;
-    expect(getExploreGridDapps()).toEqual(EXPLORE_GRID_DAPPS);
-  });
-
-  it('returns the faucet-only grid unchanged when swap is disabled (no exchange tile to drop)', () => {
-    mockSwapEnabled.value = false;
-    const grid = getExploreGridDapps();
-    // The grid holds only the two faucets, so the exchange filter is a no-op.
-    expect(grid.some(d => d.isExchange)).toBe(false);
-    expect(grid.map(d => d.id)).toEqual(['faucet', 'forkchoice-faucet']);
   });
 });

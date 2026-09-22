@@ -2,6 +2,7 @@ import React from 'react';
 
 import { Numpad } from 'components/Numpad';
 import { PasscodeDots } from 'components/PasscodeDots';
+import type { BiometricAvailability } from 'lib/biometric';
 import { cn } from 'lib/ui/util';
 
 export interface PasscodeScreenProps {
@@ -12,24 +13,34 @@ export interface PasscodeScreenProps {
   /** How many digits are entered. */
   filled: number;
   length: number;
-  /** Bumped on each rejected code; see `PasscodeDots`. */
+  /** Bumped on each failed attempt; see `PasscodeDots`. */
   errorKey?: number;
   onDigit: (digit: string) => void;
   onDelete: () => void;
+  /** Refuses the entry keys: they take the native disabled attribute (no press animation, no haptic). */
+  disabled?: boolean;
+  /** Refuses the biometric key alone; it has its own guard (see `Numpad`). */
+  biometricDisabled?: boolean;
   /** Biometric key in the keypad's bottom-left slot, where a biometric unlock is available. */
   onBiometric?: () => void;
-  biometricLabel?: string;
+  /** The device's biometric sensor, which picks the key's glyph. */
+  biometryType?: BiometricAvailability['biometryType'];
+  /**
+   * What a screen reader announces, when it must differ from `message`. Pass it when `message`
+   * changes on a clock rather than on a state change, so the live region stays quiet between.
+   */
+  announcement?: string;
   /** A text action centred under the keypad (unlock's "Forgot passcode?"). */
   action?: React.ReactNode;
   'data-testid'?: string;
 }
 
 /**
- * A full-screen passcode page, laid out for the thumb like the iOS lock screen: the title, the
- * message and the dots sit in the upper part, the keypad is anchored to the bottom with its last
- * row 20px above the safe area, and the free height goes between the two. An action goes under the
- * keypad, in the space that padding held: 8px below the last row, a 44px hit area, then 8px above
- * the safe area, so the keypad rises only 40px to make room for it. Unlock and onboarding's
+ * A full-screen passcode page, laid out for the thumb: the title, message and dots, then the keypad,
+ * sit as one group a little below centre - the leftover height splits 3:2 above the prompt and
+ * below the keypad, so the keys stay in thumb reach without a tall gap under the dots. An optional
+ * text action (unlock's "Forgot passcode?") sits 16px under the last key row, far enough that a
+ * thumb aimed at 0 does not land on an action that leaves the screen. Unlock and onboarding's
  * set-up/confirm steps both draw it, so both share one keypad and one layout.
  */
 export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
@@ -42,44 +53,63 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
   onDigit,
   onDelete,
   onBiometric,
-  biometricLabel,
+  biometryType,
+  disabled,
+  biometricDisabled,
+  announcement,
   action,
   'data-testid': dataTestId
-}) => (
-  <div className="bg-page h-full overflow-y-auto select-none" data-testid={dataTestId}>
-    <div
-      className={cn('min-h-full flex flex-col items-center px-4', action ? 'pb-2' : 'pb-5')}
-      data-testid="passcode-screen-layout"
-    >
-      {/* The leftover height splits 3:2 above the prompt and below the keypad, so prompt and keypad
+}) => {
+  const messageClass = cn(
+    'mt-2 min-h-6 text-base text-center wrap-break-word',
+    isError ? 'text-negative-ink' : 'text-muted'
+  );
+
+  return (
+    <div className="bg-page h-full overflow-y-auto select-none" data-testid={dataTestId}>
+      <div
+        className={cn('min-h-full flex flex-col items-center px-4', action ? 'pb-2' : 'pb-5')}
+        data-testid="passcode-screen-layout"
+      >
+        {/* The leftover height splits 3:2 above the prompt and below the keypad, so prompt and keypad
           sit as one group a little below centre: the keys stay in thumb reach without a tall gap
           under the dots. */}
-      <div className="flex-[3] min-h-6" data-testid="passcode-top-space" />
-      <div className="flex flex-col items-center w-full shrink-0" data-testid="passcode-header">
-        <h1 className="font-heading text-2xl leading-7 font-black text-ink text-center">{title}</h1>
-        <p
-          role="status"
-          aria-live="polite"
-          className={cn(
-            'mt-2 min-h-6 text-base text-center wrap-break-word',
-            isError ? 'text-negative-ink' : 'text-muted'
+        <div className="flex-[3] min-h-6" data-testid="passcode-top-space" />
+        <div className="flex flex-col items-center w-full shrink-0" data-testid="passcode-header">
+          <h1 className="font-heading text-2xl leading-7 font-black text-ink text-center">{title}</h1>
+          {/* The live region announces `announcement` when there is one and `message` otherwise. A
+            caller whose message ticks (the lockout countdown) passes a static announcement, and the
+            ticking text renders beside the region, hidden from assistive tech, so it is seen but
+            not re-read every second. */}
+          <p role="status" aria-live="polite" className={announcement === undefined ? messageClass : 'sr-only'}>
+            {announcement ?? message}
+          </p>
+          {announcement !== undefined && (
+            <p aria-hidden="true" className={messageClass} data-testid="passcode-message">
+              {message}
+            </p>
           )}
-        >
-          {message}
-        </p>
-        <PasscodeDots className="mt-7" filled={filled} length={length} errorKey={errorKey} />
+          <PasscodeDots className="mt-7" filled={filled} length={length} errorKey={errorKey} />
+        </div>
+        <div className="w-full shrink-0 pt-12 [@media(max-height:720px)]:pt-8" data-testid="passcode-keypad-dock">
+          <Numpad
+            onDigit={onDigit}
+            onDelete={onDelete}
+            onBiometric={onBiometric}
+            biometryType={biometryType}
+            disabled={disabled}
+            biometricDisabled={biometricDisabled}
+          />
+          {action && (
+            <div className="mt-4 flex justify-center" data-testid="passcode-screen-action">
+              {action}
+            </div>
+          )}
+        </div>
+        <div className="flex-[2]" data-testid="passcode-bottom-space" />
       </div>
-      <div className="w-full shrink-0 pt-12 [@media(max-height:720px)]:pt-8" data-testid="passcode-keypad-dock">
-        <Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} biometricLabel={biometricLabel} />
-        {action && (
-          <div className="mt-2 flex justify-center" data-testid="passcode-screen-action">
-            {action}
-          </div>
-        )}
-      </div>
-      <div className="flex-[2]" data-testid="passcode-bottom-space" />
     </div>
-  </div>
-);
+  );
+};
 
 export default PasscodeScreen;

@@ -34,11 +34,7 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
-
-// Matches the in-app browser's window title for every other Midenscan link in the wallet
-// (`generating-transaction/constants.ts`'s `EXPLORER_TITLE`) — chrome, not user-facing copy, so
-// it isn't translated.
-const EXPLORER_TITLE = 'Midenscan';
+import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -192,8 +188,8 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
 
   const change = priceChange(priceInfo.change24h);
 
-  // Sits on `page`, not a `Card`: a status pill's ink only clears 4.5:1 on `page` (see `Pill`), and
-  // the chart reads better at the full content width than inset in a card.
+  // Sits on `page`, not a `Card`: the chart reads better at the full content width than inset in a
+  // card, and a neutral `Pill` on a `fill` card would not show at all.
   return (
     <section data-testid="token-detail-price">
       <SectionHeader>{t('tokenPrice')}</SectionHeader>
