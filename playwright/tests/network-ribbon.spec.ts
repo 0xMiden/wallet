@@ -1,6 +1,7 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
 import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
 
 /**
@@ -37,6 +38,9 @@ async function importWallet(extensionContext: BrowserContext, extensionId: strin
   await page.getByText(/import public account/i).click();
   await page.getByRole('button', { name: /continue/i }).click();
   await page.getByTestId('onboarding-confirmation-submit').click({ timeout: 30_000 });
+  // Onboarding gained a consent screen between the confirmation and the handoff, so this
+  // driver has to clear it before waiting for a post-onboarding surface.
+  await dismissTelemetryConsent(page, { timeoutMs: 30_000 });
   // The wallet is Ready once the side-panel handoff offers to open it; this test drives the popup
   // instead, so it stops here.
   await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30_000 });

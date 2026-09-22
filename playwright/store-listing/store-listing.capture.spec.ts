@@ -12,6 +12,7 @@ import {
   type CapturePlanEntry,
   type StorePlatform
 } from './store-listing.capture';
+import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
 
 const repositoryRoot = path.resolve(__dirname, '../..');
 const mobileBaseUrl = 'http://127.0.0.1:4173/';
@@ -234,7 +235,7 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   await preparePage(onboarding);
   await onboarding.getByTestId('onboarding-welcome').waitFor({ state: 'visible' });
   await onboarding.getByRole('button', { name: 'Get started' }).click();
-  await onboarding.getByTestId('onboarding-network-notice-acknowledge').click();
+  await acknowledgeNetworkNotice(onboarding);
   await capture(onboarding, protection);
   await onboarding.evaluate(() => window.history.pushState(null, '', '/#/#choose-guardian'));
   await capture(onboarding, guardian);
@@ -304,7 +305,7 @@ async function captureChrome(): Promise<void> {
     await preparePage(guardianPage);
     await guardianPage.getByTestId('onboarding-welcome').waitFor({ state: 'visible' });
     await guardianPage.getByRole('button', { name: 'Get started' }).click();
-    await guardianPage.getByTestId('onboarding-network-notice-acknowledge').click();
+    await acknowledgeNetworkNotice(guardianPage);
     await guardianPage.getByTestId('create-password-input').fill(fixturePassword);
     await guardianPage.getByTestId('create-password-verify-input').fill(fixturePassword);
     await guardianPage.getByTestId('create-password-submit').click();
