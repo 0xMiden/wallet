@@ -573,8 +573,9 @@ it('renders through SubPageLayout: section labels, muted copy, details card, Rot
     screen.getByRole('button', { name: 'rotateGuardian' })
   );
   // Section labels are the shared SectionHeader, not grey chips; no rule between sections.
-  // No `bg-gray-25` assertion here: that token is retired, and the registry in lib/ui now forbids
-  // ANY source file from naming it, which is a stronger guarantee than one element's class list.
+  // The old grey-chip assertion is gone: that token is retired, and the registry in lib/ui now
+  // forbids ANY source file from naming it - a stronger guarantee than one element's class list,
+  // and one that also refuses the name in a comment, which is why it is not repeated here.
   expect(screen.getByText('about')).toHaveClass('text-label', 'text-muted');
   expect(page.querySelector('hr')).toBeNull();
   // The explanation is a muted body paragraph; the details sit in the shared DetailCard.
