@@ -1328,10 +1328,12 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    // 0.16: sendPrivate requires an explicit scan-after block hint. For one of this client's
-    // own output notes, sendPrivateOutput derives that hint from the note's stored expected
-    // height, so the recipient scans from at/below the note's commitment block.
-    await this.client.notes.sendPrivateOutput({ noteId: note.id().toString(), to });
+    // 0.17: `notes.sendPrivateOutput({ noteId, to })` is gone. `sendPrivateOutputNote`
+    // derives the scan-after hint from the output note's stored expected_height.
+    await this.client.sendPrivateOutputNote(
+      note.id().toString(),
+      Address.fromAccountId(accountRefToSdk(to), 'BasicWallet')
+    );
   }
 
   /**
@@ -1347,7 +1349,7 @@ export class MidenClientInterface {
    * however late it runs.
    */
   async relayPrivateNoteById(noteId: string, to: string): Promise<void> {
-    await this.client.notes.sendPrivateOutput({ noteId, to });
+    await this.client.sendPrivateOutputNote(noteId, Address.fromAccountId(accountRefToSdk(to), 'BasicWallet'));
   }
 
   /**
