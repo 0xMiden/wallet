@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { ReceiptRows, TransactionSuccessLayout } from './TransactionSuccessLayout';
+import { ReceiptRows, SuccessSummaryPill, TransactionSuccessLayout } from './TransactionSuccessLayout';
 
 /**
  * Covers the two props the Guardian receipt introduced to the shared layout:
@@ -155,4 +155,26 @@ it("invokes the caller's own handlers from both CTAs and the header close", () =
   expect(primary).toHaveBeenCalledTimes(1);
   expect(secondary).toHaveBeenCalledTimes(1);
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+// The receipt reuses the in-progress screen's badge, which falls back to the SEND hue when no
+// fill is given. Dropping the caller's `fillForArrow` therefore painted a swap's success receipt
+// in the send colour - the same "one transaction in two shades" the badge itself was fixed for,
+// one component further along.
+describe('SuccessSummaryPill', () => {
+  it("forwards the caller's arrow fill to the badge", () => {
+    const { container } = render(<SuccessSummaryPill lhs="1 ETH" rhs="2 USDC" fillForArrow="var(--tx-swap)" />);
+
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-swap)');
+  });
+
+  it('leaves the badge on its own default when the caller gives none', () => {
+    const { container } = render(<SuccessSummaryPill lhs="1 ETH" rhs="2 USDC" />);
+
+    // The rect has to EXIST for this to mean anything: an optional chain on a missing element
+    // yields undefined, which satisfies `.not.toBe` and passes on a badge that renders nothing.
+    const rect = container.querySelector('rect');
+    expect(rect).not.toBeNull();
+    expect(rect?.style.fill).not.toBe('var(--tx-swap)');
+  });
 });

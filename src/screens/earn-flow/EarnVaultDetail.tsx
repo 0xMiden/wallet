@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
@@ -6,7 +6,6 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Pill } from 'components/ui/Pill';
-import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -15,14 +14,6 @@ import { placeholderVault } from './earn-mapping';
 import { EarnVault } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
-type EarnTimeframe = '1D' | '1W' | '1M' | 'All';
-
-const TIMEFRAMES: EarnTimeframe[] = ['1D', '1W', '1M', 'All'];
-
-const TIMEFRAME_ITEMS: SegmentedControlItem<EarnTimeframe>[] = TIMEFRAMES.map(tf => ({
-  id: tf,
-  label: tf
-}));
 const CHART_GREEN = '#90BA89';
 
 interface EarnVaultDetailProps {
@@ -30,7 +21,6 @@ interface EarnVaultDetailProps {
 }
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
-  const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
   const { t } = useTranslation();
   const { vaults } = useEarnPositions();
   const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
@@ -62,16 +52,6 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           </section>
 
           <VaultAreaChart vault={vault} />
-
-          <SegmentedControl
-            items={TIMEFRAME_ITEMS}
-            value={timeframe}
-            onChange={setTimeframe}
-            size="sm"
-            layout="fill"
-            aria-label={t('chartTimeframe')}
-            className="mt-3"
-          />
 
           <VaultStats vault={vault} />
           <VaultAbout vault={vault} />

@@ -3635,14 +3635,6 @@
     "message": "Aç",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "Tümünü gör",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "Daha az göster",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Yakında Miden’de",
     "englishSource": "Coming soon to Miden"
@@ -4834,10 +4826,6 @@
   "networkNoticeResetBody": {
     "message": "Sıfırlama işlemi, bakiyeleri ve geçmişi temizler. Test bakiyeleri asla Mainnet’e aktarılmaz.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Yalnızca test token'ları",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Para çekme işleminiz kontrol ediliyor. Teslimat onaylanana kadar cüzdanı açık tutun.",

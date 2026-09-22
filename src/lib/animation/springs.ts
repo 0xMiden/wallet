@@ -15,7 +15,6 @@
  * - `magnetic`: bubble fly-to-corner with overshoot
  * - `settle`: bubble final landing (no bounce)
  * - `sheetPresent`: bottom sheet present/dismiss
- * - `pill`: footer tabbar pill (existing precedent)
  * - `dragRelease`: post-drag rebound
  * - `tabSwitch`: a tab bar's highlight sliding to the new tab — one visible
  *   overshoot (~7%), settled within ~340ms even across three tabs
@@ -39,7 +38,6 @@ export const springs = {
   magnetic: { type: 'spring', stiffness: 380, damping: 26, mass: 1 } as Transition,
   settle: { type: 'spring', stiffness: 260, damping: 30, mass: 1 } as Transition,
   sheetPresent: { type: 'spring', stiffness: 380, damping: 34, mass: 1 } as Transition,
-  pill: { type: 'spring', stiffness: 320, damping: 30 } as Transition,
   dragRelease: { type: 'spring', stiffness: 420, damping: 40, mass: 1 } as Transition,
   tabSwitch,
   tabIconPop

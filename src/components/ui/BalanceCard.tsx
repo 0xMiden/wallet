@@ -134,6 +134,9 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
   const deltaDirection = delta ? resolveDeltaDirection(delta) : 'neutral';
   // A neutral change carries no sign: the arrow and the sign are how the pill shows direction.
+  // TRAP for whoever wires a real price source: `deltaDirection` is neutral when the PERCENTAGE
+  // rounds to zero, and this strips the sign from BOTH values, so a real -$12.34 at 0.00% renders
+  // identically to a gain. Home passes no delta today, which is why nothing shows it.
   const deltaText = (value: string) => (deltaDirection === 'neutral' ? value.replace(LEADING_SIGN, '') : value);
 
   const handleMoreClick = () => {

@@ -307,7 +307,7 @@ describe('fontColorForType', () => {
 
   it('falls back to the faucet color for any other type', () => {
     expect(fontColorForType('faucet' as any)).toBe(TRANSACTION_COLORS.faucet);
-    expect(fontColorForType('anything-else' as any)).toBe('#CCA4B8');
+    expect(fontColorForType('anything-else' as any)).toBe('#BA839F');
   });
 });
 
@@ -316,18 +316,39 @@ describe('TRANSACTION_COLORS', () => {
     expect(TRANSACTION_COLORS).toEqual({
       send: 'var(--tx-sent)',
       receive: 'var(--tx-received)',
-      faucet: '#CCA4B8'
+      faucet: '#BA839F'
     });
   });
 
   // Regression guard for the mismatched-purple bug: TransactionIcon draws the
-  // faucet circle from this JS constant (not the `--tx-faucet` CSS var), so
-  // the two must stay byte-for-byte in sync or the Activity row and the
-  // detail hero drift apart again.
-  it('matches the --tx-faucet token in main.css', () => {
+  // send, receive and faucet circles from these JS constants (not from the CSS
+  // vars), so each must stay byte-for-byte in sync with main.css or the Activity
+  // row and the detail hero drift apart again. This covered the faucet alone
+  // while send and receive had the same exposure and no guard at all.
+  //
+  // What it does NOT cover: any OTHER file that copies one of these hues. It reads
+  // main.css and this module and nothing else, so a third copy elsewhere stays
+  // invisible here - which is exactly how TransactionSummaryBadge kept painting the
+  // retired send and swap colours. That file carries its own guard.
+  // Send and receive REFERENCE the token rather than copying its value, so they cannot drift by
+  // construction; what this pins is that they reference the right one and that it exists. The
+  // colour itself is pinned, resolved through the alias and in both themes, by
+  // `lib/ui/design-tokens.test.ts`'s "keeps the white activity glyph at 3:1" cases.
+  it.each([
+    ['send', '--tx-sent'],
+    ['receive', '--tx-received']
+  ] as const)('points %s at the %s token rather than copying it', (key, token) => {
+    const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
+    expect(TRANSACTION_COLORS[key]).toBe(`var(${token})`);
+    expect(css).toMatch(new RegExp(`${token}:`));
+  });
+
+  // The faucet has no action colour to alias (it is not one of Home's five), so it stays a literal
+  // and keeps the byte-for-byte guard: declared once for `:root` and once for `.dark`, both
+  // agreeing with the constant TransactionIcon draws from.
+  it('keeps faucet in sync with the --tx-faucet token in main.css', () => {
     const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
     const matches = [...css.matchAll(/--tx-faucet:\s*(#[0-9a-fA-F]{6});/g)].map(m => m[1]!.toUpperCase());
-    // Declared once for :root and once for .dark — both must exist and agree.
     expect(matches).toHaveLength(2);
     expect(matches[0]).toBe(TRANSACTION_COLORS.faucet);
     expect(matches[1]).toBe(TRANSACTION_COLORS.faucet);

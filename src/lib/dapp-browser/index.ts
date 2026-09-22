@@ -15,15 +15,14 @@ export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-
 export {
   FEATURED_DAPPS,
   CAROUSEL_DAPPS,
-  EXPLORE_GRID_DAPPS,
-  getExploreGridDapps,
   type FeaturedDapp,
   type FeaturedDappBadge,
   type FeaturedDappCategory
 } from './featured-dapps';
 export { CATEGORIES, type CategoryDescriptor } from './category-data';
 export {
-  EXPLORE_CATALOG,
+  // `EXPLORE_CATALOG` itself is deliberately NOT re-exported: `getExploreCatalog` is the platform
+  // gate, and a caller reaching past it would show items the gate exists to drop.
   EXPLORE_FILTERS,
   getExploreCatalog,
   resolveExploreSections,
@@ -33,7 +32,6 @@ export {
   type ExploreFilter,
   type ExploreFilterDescriptor,
   type ExploreItem,
-  type ExploreItemType,
   type ExploreSection,
   type ExploreSectionKind,
   type ResolvedExploreSection

@@ -206,6 +206,41 @@ describe('TextField — forwards native props, a ref, and events', () => {
     render(<TextField value="" onChange={jest.fn()} data-testid="address-input" />);
     expect(screen.getByTestId('address-input')).toBe(screen.getByRole('textbox'));
   });
+
+  // A vault secret must not reach the browser password manager. The wallet's password fields moved
+  // onto this component without carrying `autoComplete` across, so they silently reverted to the
+  // browser default; `FormField`, which this replaces, has defaulted it since it was written.
+  describe('autoComplete', () => {
+    it('suppresses the password manager on a password field', () => {
+      render(<TextField type="password" value="" onChange={jest.fn()} data-testid="secret" />);
+
+      // `off` is the one value browsers override on a password-type input, so it has to be
+      // `new-password` here specifically.
+      expect(screen.getByTestId('secret')).toHaveAttribute('autocomplete', 'new-password');
+    });
+
+    it('still suppresses it while the password is revealed', () => {
+      // Callers toggle visibility by flipping `type` to 'text'. Plain `off` IS honoured there, so
+      // the suppression survives the toggle rather than switching off with it.
+      render(<TextField type="text" value="" onChange={jest.fn()} data-testid="secret" />);
+
+      expect(screen.getByTestId('secret')).toHaveAttribute('autocomplete', 'off');
+    });
+
+    it('does not claim a non-secret field is a new password', () => {
+      // The file-name field next to the export password is a bare TextField with no type, and a
+      // blanket `new-password` default would have landed on it.
+      render(<TextField value="" onChange={jest.fn()} data-testid="file-name" />);
+
+      expect(screen.getByTestId('file-name')).toHaveAttribute('autocomplete', 'off');
+    });
+
+    it('lets a caller that wants autofill override it', () => {
+      render(<TextField autoComplete="username" value="" onChange={jest.fn()} data-testid="who" />);
+
+      expect(screen.getByTestId('who')).toHaveAttribute('autocomplete', 'username');
+    });
+  });
 });
 
 describe('TextField — leading prefix', () => {

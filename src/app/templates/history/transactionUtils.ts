@@ -300,7 +300,7 @@ export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochSt
  * An `earn-deposit` row goes database-Completed the moment the Miden collateral
  * note lands, but the leg that actually opens the lending position is
  * solver-fulfilled and tracked separately — so an unstamped/pending leg must not
- * render as Confirmed. Mirrors `EarnDepositStatusPill` on the detail page.
+ * render as Confirmed. The detail page reads the same leg through its own badge.
  */
 export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
   entry.earnDepositStatus ?? 'pending';
@@ -313,10 +313,11 @@ export const TRANSACTION_COLORS = {
   // The Send and Receive action colours, through the activity tokens in main.css.
   send: 'var(--tx-sent)',
   receive: 'var(--tx-received)',
-  // A dusty rose distinct from Received's green and Swap's purple, so a faucet
-  // mint reads as its own accent rather than the previous highly-saturated
-  // #891DB1. Mirrors --tx-faucet in main.css — keep both in sync.
-  faucet: '#CCA4B8'
+  // A dusty rose distinct from Received's green and Swap's purple. The square carries a white glyph
+  // (HistoryView paints `[&_path]:fill-pure-white`), so it owes WCAG 1.4.11's 3:1: the original
+  // #CCA4B8 sat at 2.19:1, and this is the same hue taken down in lightness until it clears.
+  // Mirrors --tx-faucet in main.css - keep both in sync; the test below is what enforces it.
+  faucet: '#BA839F'
 } as const;
 
 export const formatDate = (timestamp: number | string): string => {

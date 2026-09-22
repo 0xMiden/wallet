@@ -19,22 +19,26 @@ jest.mock('react-i18next', () => ({
 // haptics) with a lightweight keypad exposing a button per digit plus a delete
 // button, forwarding `onDigit` / `onDelete` so passcode entry can be driven.
 jest.mock('components/Numpad', () => ({
+  // `disabled` is forwarded onto the keys, as the real component does: a stub that dropped it would
+  // make any assertion about a refused press a statement about the stub.
   Numpad: ({
     onDigit,
     onDelete,
+    disabled,
     className
   }: {
     onDigit: (d: string) => void;
     onDelete: () => void;
+    disabled?: boolean;
     className?: string;
   }) => (
     <div data-testid="numpad" className={className}>
       {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
-        <button key={d} data-testid={`numpad-${d}`} onClick={() => onDigit(d)}>
+        <button key={d} data-testid={`numpad-${d}`} disabled={disabled} onClick={() => onDigit(d)}>
           {d}
         </button>
       ))}
-      <button data-testid="numpad-delete" onClick={onDelete}>
+      <button data-testid="numpad-delete" disabled={disabled} onClick={onDelete}>
         del
       </button>
     </div>
@@ -400,5 +404,18 @@ describe('PasscodeEntry', () => {
       rerender(<NamedPasscodeEntry onSubmit={onSubmit} error={null} />);
       expect(filledDotCount(container)).toBe(2);
     });
+  });
+});
+
+// The keys read the same guards the handlers do, so a press that would be dropped is refused by the
+// key itself rather than silently ignored.
+describe('refused keys', () => {
+  it('disables the keypad while it is disabled by its owner', () => {
+    const onChange = jest.fn();
+    render(<PasscodeEntry onChange={onChange} onSubmit={jest.fn()} disabled />);
+
+    expect(screen.getByTestId('numpad-1')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('numpad-1'));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

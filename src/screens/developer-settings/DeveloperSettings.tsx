@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Button, ButtonVariant } from 'components/Button';
 import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
@@ -25,7 +26,7 @@ import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 
 import { CUSTOM_PRESET, ENDPOINT_PRESETS, NETWORK_ID_OPTIONS, presetToOverride } from './preset';
 
@@ -62,6 +63,10 @@ const FIELDS: FieldSpec[] = [
   { key: 'guardianUrl', labelKey: 'devEndpointGuardian', health: 'reachability' }
 ];
 
+/** Just the URL fields of an override, which are the only ones "custom" is about. */
+const pickUrls = (o: EndpointOverride): Partial<Record<UrlFieldKey, string>> =>
+  Object.fromEntries(FIELDS.map(field => [field.key, o[field.key]]));
+
 interface HealthNoteProps {
   url: string;
   kind: EndpointHealthKind;
@@ -95,6 +100,10 @@ export interface DeveloperSettingsProps {
  * when an override is active).
  */
 const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false }) => {
+  // Both routes for this page are full-screen pages outside the Settings host, so neither inherits
+  // the host's fallback. A deep link or a reload lands at the first history entry, where goBack()
+  // does nothing. Read-only is the /settings sub-page; the standalone debug route belongs to home.
+  const handleBack = useBackWithFallback(readOnly ? '/settings' : '/');
   const { t } = useTranslation();
   const confirm = useConfirm();
   const initial = useMemo<EndpointOverride>(
@@ -130,18 +139,39 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     [readOnly]
   );
 
+  // The endpoints the user typed, kept while a preset is selected so choosing Custom again brings
+  // them back. The picker is a radio group, so arrow keys commit every item they pass over: without
+  // this, one keypress away from Custom replaced the fields and coming back kept the preset's URLs.
+  // ONLY a keystroke defines them. Two other controls flip the form to Custom without touching a
+  // URL - the Network ID picker and the no-guardian checkbox - and while a preset's URLs are in the
+  // fields, so capturing the whole form whenever it reads Custom would store a PRESET's URLs as
+  // what the user typed and lose them on the next hop.
+  const customUrlsRef = useRef<Partial<Record<UrlFieldKey, string>> | null>(null);
+
   const applyPreset = (id: string) => {
-    // Every known preset loads its endpoints; the trailing "Custom" keeps the fields as they are.
     const network = ENDPOINT_PRESETS.find(preset => preset === id);
     if (network) {
       setForm(presetToOverride(network));
       return;
     }
-    setForm(prev => ({ ...prev, presetName: CUSTOM_PRESET }));
+    // Back to Custom: the endpoints the user authored, over whatever the other controls have set
+    // since, so the network id and the no-guardian choice survive the round trip. Authored covers
+    // both sources, in precedence order - the ones this screen OPENED on, when it opened on a saved
+    // custom override, under the ones typed since. Without the first, a screen opened on saved
+    // endpoints remembered nothing and one hop to a preset replaced them.
+    setForm(prev => ({
+      ...prev,
+      ...(initial.presetName === CUSTOM_PRESET ? pickUrls(initial) : null),
+      ...customUrlsRef.current,
+      presetName: CUSTOM_PRESET
+    }));
   };
 
-  const setField = (key: UrlFieldKey, value: string) =>
+  const setField = (key: UrlFieldKey, value: string) => {
+    // Outside the updater, which must stay pure: this needs no previous form.
+    customUrlsRef.current = { ...customUrlsRef.current, [key]: value };
     setForm(prev => ({ ...prev, [key]: value, presetName: CUSTOM_PRESET }));
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -225,7 +255,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   return (
     <SubPageLayout
       title={t('developerSettingsTitle')}
-      onBack={() => goBack()}
+      onBack={handleBack}
       data-testid="developer-settings"
       footerLayout="stack"
       footer={

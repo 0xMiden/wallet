@@ -40,17 +40,21 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
     setIsWordsVisible(prev => !prev);
   }, []);
 
+  // The handler must be the SAME reference on the way out: the cleanup used to pass a freshly
+  // allocated arrow, which matches nothing, so this listener stayed on `document` for the life of
+  // the realm and one more was added per mount. Since it rewrites the clipboard payload to letters
+  // and spaces and calls preventDefault(), a leaked copy of it silently mangled every later
+  // select-and-copy in the app - an address or a transaction id included.
   useEffect(() => {
-    document.addEventListener('copy', event => {
+    const onDocumentCopy = (event: ClipboardEvent) => {
       const selectedText = window.getSelection()?.toString();
       const formattedText = selectedText?.replace(/[^a-zA-Z\s]/g, '').replace(/\s+/g, ' ');
       event.clipboardData?.setData('text/plain', formattedText || '');
       event.preventDefault(); // Prevent the default copy action
-    });
-
-    return () => {
-      document.removeEventListener('copy', () => {});
     };
+
+    document.addEventListener('copy', onDocumentCopy);
+    return () => document.removeEventListener('copy', onDocumentCopy);
   }, []);
 
   return (
@@ -106,7 +110,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
             className="flex-1"
             variant={ButtonVariant.Secondary}
             title={t('copyToClipboard')}
-            onClick={onCopyToClipboard}
+            onClick={() => void onCopyToClipboard()}
           >
             <AnimatedCopyIcon copied={isCopied} size="sm" />
             <CopyLabel copied={isCopied} copiedLabel={t('copied')}>
