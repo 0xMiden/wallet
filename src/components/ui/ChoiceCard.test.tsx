@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { tabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -273,6 +273,26 @@ describe('ChoiceCardGroup', () => {
     render(<Owner onChange={onChange} />);
     fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'a' });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  // The case above starts with a chosen option, so it never reaches the "no origin" path - where an
+  // unhandled key used to select the first option and swallow the event.
+  it('ignores other keys when nothing is chosen either', () => {
+    const onChange = jest.fn();
+    renderGroup({ value: null, onChange });
+    const event = createEvent.keyDown(screen.getByRole('radiogroup'), { key: 'a' });
+    fireEvent(screen.getByRole('radiogroup'), event);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  // G6b-01: with no origin, BOTH walks start at the first enabled option - ArrowUp must not wrap to
+  // the last one, which is what a naive mirror of the ArrowDown fallback would do.
+  it('starts either walk at the first enabled option when nothing is chosen', () => {
+    const onChange = jest.fn();
+    renderGroup({ value: null, onChange });
+    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenCalledWith('oz');
   });
 
   it('dips a pressed card on the tab-bar press and pops the check when a card becomes chosen', () => {

@@ -157,7 +157,10 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
  *
  * The chosen card takes an inset `accent` ring and the mark fills with a check. Not the raised
  * bubble: raised is for compact toggles, and cards stay flat (design-system.md, "Elevation"). The
- * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way:
+ * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way,
+ * with two deliberate exceptions: a `value` naming a disabled option reports nothing selected here
+ * (the twin still reports it checked), and with nothing selected the first arrow key lands on the
+ * first option rather than the second. Both are the twin's unfixed defects, not a design split:
  * a `radiogroup` of `radio`s, only the chosen (or first choosable) option in the tab order, arrow
  * keys and Home/End moving focus and the choice together, one selection haptic per real change and
  * none for a tap on the chosen card, a press that dips on the tab-bar spring and a check that pops
@@ -177,7 +180,8 @@ export function ChoiceCardGroup<T extends string>({
   // A disabled option can never be the answer, so it is not reported as one: `value` is normalised
   // against the options the user can actually choose, and that one value feeds the check, the tab
   // stop and the keyboard. Reading it raw let a disabled card render `aria-checked` while focus sat
-  // on a different card - a selection the user could neither see the reason for nor move off.
+  // on a different card - a selection with no visible reason, reported to assistive tech as the
+  // answer.
   const selectedIndex = items.findIndex(item => item.id === value && !item.disabled);
   const focusIndex = selectedIndex >= 0 ? selectedIndex : items.findIndex(item => !item.disabled);
 
@@ -200,18 +204,22 @@ export function ChoiceCardGroup<T extends string>({
     if (enabled.length === 0) return;
 
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
-    // With nothing focused and nothing selected there is no origin, so the first ArrowDown must land
+    // With nothing focused and nothing selected there is no origin, so the first arrow key must land
     // on the first enabled option. Clamping a -1 to 0 would make it land on the SECOND: 0 reads as
-    // "the first option is the origin", and the key then moves off it. `value: T | null` makes that
-    // a first-class state here, which is why it is fixed here and not in SegmentedControl, whose
-    // copy of this engine cannot reach it through its non-nullable prop.
+    // "the first option is the origin", and the key then moves off it. SegmentedControl's copy of
+    // this engine still clamps, and it IS reachable there - through a value naming a disabled
+    // segment, or one naming no item at all, since its prop is not constrained to its items. That is
+    // left alone deliberately: it belongs to a cluster already merged, and is recorded for a routing
+    // decision rather than fixed in passing.
     const selectedAmongEnabled = enabled.findIndex(({ item }) => item.id === value);
     const from = current >= 0 ? current : selectedAmongEnabled;
 
     let to: number;
-    if (from < 0) to = event.key === 'End' ? enabled.length - 1 : 0;
-    else if (NEXT_KEYS.has(event.key)) to = (from + 1) % enabled.length;
-    else if (PREV_KEYS.has(event.key)) to = (from - 1 + enabled.length) % enabled.length;
+    // The key filter runs FIRST: a key this group does not handle must fall through to `return`,
+    // untouched. Starting from "no origin" ahead of the filter made every key - a letter, Escape -
+    // select the first option. Home and End are absolute, so only the two walks need the fallback.
+    if (NEXT_KEYS.has(event.key)) to = from < 0 ? 0 : (from + 1) % enabled.length;
+    else if (PREV_KEYS.has(event.key)) to = from < 0 ? 0 : (from - 1 + enabled.length) % enabled.length;
     else if (event.key === 'Home') to = 0;
     else if (event.key === 'End') to = enabled.length - 1;
     else return;
