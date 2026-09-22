@@ -134,12 +134,6 @@ button:disabled,
   line-height: var(--tw-leading, 52px);
   font-weight: var(--tw-font-weight, 800);
 }
-@utility text-entry {
-  font-family: var(--font-heading);
-  font-size: 48px;
-  line-height: var(--tw-leading, 56px);
-  font-weight: var(--tw-font-weight, 800);
-}
 @utility text-entry-unit {
   font-family: var(--font-heading);
   font-size: 22px;
@@ -230,6 +224,12 @@ button:disabled,
   font-size: 16px;
   line-height: var(--tw-leading, 24px);
   font-weight: var(--tw-font-weight, 600);
+}
+@utility text-explainer {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: var(--tw-leading, 22px);
+  font-weight: var(--tw-font-weight, 400);
 }
 @utility text-body-sm {
   font-family: var(--font-sans);
