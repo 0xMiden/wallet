@@ -171,6 +171,10 @@ describe('SuccessSummaryPill', () => {
   it('leaves the badge on its own default when the caller gives none', () => {
     const { container } = render(<SuccessSummaryPill lhs="1 ETH" rhs="2 USDC" />);
 
-    expect(container.querySelector('rect')?.style.fill).not.toBe('var(--tx-swap)');
+    // The rect has to EXIST for this to mean anything: an optional chain on a missing element
+    // yields undefined, which satisfies `.not.toBe` and passes on a badge that renders nothing.
+    const rect = container.querySelector('rect');
+    expect(rect).not.toBeNull();
+    expect(rect?.style.fill).not.toBe('var(--tx-swap)');
   });
 });
