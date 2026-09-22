@@ -107,7 +107,9 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
   const [reveal] = useState(() => motionTokens.reveal && !hasRevealed());
   // The first reveal ends when the USER replaces what is on the page (a chip, a query), not on the
   // first commit. Recents arrive from a promise that resolves after mount, so ending it on the
-  // commit made the LAST section rise first, ahead of every section above it.
+  // commit made the LAST section rise first, ahead of every section above it. The stagger belongs
+  // to a reveal that is actually playing: on a return from a dApp `reveal` is already false, and a
+  // section arriving late then enters like one answering a chip, with no delay in front of it.
   const [settled, setSettled] = useState(false);
   useEffect(() => {
     markRevealed();
@@ -189,7 +191,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
             onOpen={onOpen}
             reveal={reveal}
             firstRevealIndex={FIRST_SECTION_REVEAL}
-            staggered={!settled}
+            staggered={reveal && !settled}
           />
         </div>
       </motion.main>
