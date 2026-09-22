@@ -10,6 +10,7 @@ export enum SettingsSelectors {
   SpendingLimitsButton = 'Settings/SpendingLimitsButton',
   GuardianSettingsButton = 'Settings/GuardianSettingsButton',
   RevealSeedPhraseButton = 'Settings/RevealSeedPhraseButton',
+  RecoveryPhraseButton = 'Settings/RecoveryPhraseButton',
   DAppsButton = 'Settings/DAppsButton',
   NetworksButton = 'Settings/NetworksButton',
   ActivateAccountButton = 'Settings/ActivateAccountButton',
@@ -18,7 +19,6 @@ export enum SettingsSelectors {
   FileSettingsButton = 'Settings/FileSettingsButton',
   AdvancedSettingsButton = 'Settings/AdvancedSettingsButton',
   EditMidenFaucetButton = 'Settings/EditMidenFaucetButton',
-  EncryptedWalletFile = 'Settings/EncryptedWalletFile',
   SendFeedbackButton = 'Settings/SendFeedbackButton',
   SupportButton = 'Settings/SupportButton'
 }

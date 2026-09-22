@@ -21,6 +21,7 @@ describe('SettingsSelectors', () => {
     SpendingLimitsButton: 'Settings/SpendingLimitsButton',
     GuardianSettingsButton: 'Settings/GuardianSettingsButton',
     RevealSeedPhraseButton: 'Settings/RevealSeedPhraseButton',
+    RecoveryPhraseButton: 'Settings/RecoveryPhraseButton',
     DAppsButton: 'Settings/DAppsButton',
     NetworksButton: 'Settings/NetworksButton',
     ActivateAccountButton: 'Settings/ActivateAccountButton',
@@ -29,7 +30,6 @@ describe('SettingsSelectors', () => {
     FileSettingsButton: 'Settings/FileSettingsButton',
     AdvancedSettingsButton: 'Settings/AdvancedSettingsButton',
     EditMidenFaucetButton: 'Settings/EditMidenFaucetButton',
-    EncryptedWalletFile: 'Settings/EncryptedWalletFile',
     SendFeedbackButton: 'Settings/SendFeedbackButton',
     SupportButton: 'Settings/SupportButton'
   };
@@ -45,6 +45,7 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.KeysButton).toBe('Settings/KeysButton');
     expect(SettingsSelectors.SpendingLimitsButton).toBe('Settings/SpendingLimitsButton');
     expect(SettingsSelectors.RevealSeedPhraseButton).toBe('Settings/RevealSeedPhraseButton');
+    expect(SettingsSelectors.RecoveryPhraseButton).toBe('Settings/RecoveryPhraseButton');
     expect(SettingsSelectors.DAppsButton).toBe('Settings/DAppsButton');
     expect(SettingsSelectors.NetworksButton).toBe('Settings/NetworksButton');
     expect(SettingsSelectors.ActivateAccountButton).toBe('Settings/ActivateAccountButton');
@@ -53,7 +54,6 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.FileSettingsButton).toBe('Settings/FileSettingsButton');
     expect(SettingsSelectors.AdvancedSettingsButton).toBe('Settings/AdvancedSettingsButton');
     expect(SettingsSelectors.EditMidenFaucetButton).toBe('Settings/EditMidenFaucetButton');
-    expect(SettingsSelectors.EncryptedWalletFile).toBe('Settings/EncryptedWalletFile');
     expect(SettingsSelectors.SendFeedbackButton).toBe('Settings/SendFeedbackButton');
     expect(SettingsSelectors.SupportButton).toBe('Settings/SupportButton');
   });
@@ -91,6 +91,6 @@ describe('SettingsSelectors', () => {
 
   it('is consistent across repeated accesses', () => {
     // Two reads of the same member must yield the identical string.
-    expect(SettingsSelectors.EncryptedWalletFile).toBe(SettingsSelectors.EncryptedWalletFile);
+    expect(SettingsSelectors.RecoveryPhraseButton).toBe(SettingsSelectors.RecoveryPhraseButton);
   });
 });

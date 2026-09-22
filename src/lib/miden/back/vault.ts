@@ -2317,7 +2317,7 @@ export class Vault {
         // `requiresHotKeyRotation`): there is no device key to sign a digest with yet.
         // Surface that clearly instead of the opaque keystore-miss this fix removes.
         throw new PublicError(
-          'This Guardian account has no active device key to sign with. Activate the device key in the wallet, then try again.'
+          'This Guardian account has no active everyday key to sign with. Activate the everyday key in the wallet, then try again.'
         );
       }
     }

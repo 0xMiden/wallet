@@ -11,6 +11,7 @@
 
 ### Changes
 
+- [CHANGE][all] Settings cleanup: the Encrypted Wallet File row is gone (a single Guardian account has nothing a file backup adds over the recovery phrase); Reveal and Remove recovery phrase now sit inside one Recovery Phrase section, like Keys; the Keys page no longer offers Rotate Guardian (it stays the Guardian Settings CTA) or the cold key reveal (nothing can import it); and the device (hot) key is called the "everyday key" everywhere, rotation included.
 - [CHANGE][all] Send's review page is quieter: the address in body text, the network as a plain value, no fee note, "Expires" with Edit, and the reclaim reassurance as one caption under the card.
 - [CHANGE][all] Send's first page is titled like the other tabs, its address field fits two lines on a small phone and Paste, Address Book and Scan stay on one row.
 - [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.

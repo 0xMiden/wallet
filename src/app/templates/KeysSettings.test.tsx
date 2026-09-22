@@ -84,7 +84,7 @@ describe('KeysSettings — row visibility', () => {
 
       expect(screen.getAllByText('revealPrivateKey')).toHaveLength(1);
       expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
-      expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+      expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
       expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
     }
   );
@@ -108,7 +108,7 @@ describe('KeysSettings — row visibility', () => {
     expect(buttons[0]!.querySelector('[data-slot="chevron"]')).not.toBeNull();
   });
 
-  it('renders one paired reveal row plus guardian rotation for an activated guardian', () => {
+  it('renders one paired reveal row and no guardian rotation for an activated guardian', () => {
     mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
@@ -116,18 +116,18 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.getByText('revealPrivateKey')).toBeInTheDocument();
     // `isGuardian && hasActivatedHotKey` → true.
     expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
-    // `isGuardian` → true.
-    expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+    // Rotation is the Guardian Settings CTA, not a keys row.
+    expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
 
     // Guardian block: GuardianReplaceHotKey rendered, with no rule above it.
     expect(document.querySelector('hr')).toBeNull();
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
 
-    // The paired reveal and rotation each have one row.
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    // The paired reveal is the only row.
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
-  it('hides the reveal-hot-key row for a guardian without an activated hot key but keeps rotate-guardian and the guardian section', () => {
+  it('hides the reveal-hot-key row for a guardian without an activated hot key but keeps the guardian section', () => {
     mockState.currentAccount = { type: WalletType.Guardian, coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
@@ -135,25 +135,24 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.queryByText('revealPrivateKey')).not.toBeInTheDocument();
     // hasActivatedHotKey === false → reveal-hot-key hidden.
     expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
-    // rotate-guardian only needs `isGuardian`.
-    expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+    expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
 
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
   // Hot-key-only import: a Guardian account with no coldPublicKey and no seed.
-  // The cold-signed recovery actions (rotate guardian, replace hot key) stay
-  // offered: the pipeline prompts for the seed phrase per transaction and
-  // derives the cold key against the on-chain signer without storing it.
-  it('keeps the recovery actions for a guardian without a cold key', () => {
+  // The cold-signed hot key replacement stays offered: the pipeline prompts for
+  // the seed phrase per transaction and derives the cold key against the
+  // on-chain signer without storing it.
+  it('keeps the hot key replacement for a guardian without a cold key', () => {
     mockState.seedPhraseStatus = 'unavailable';
     mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
 
     render(<KeysSettings />);
 
     expect(screen.getByText('revealPrivateKey')).toBeInTheDocument();
-    expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+    expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
     expect(screen.queryByText('recoveryActionsRequireRecoveryKey')).not.toBeInTheDocument();
   });
@@ -190,7 +189,7 @@ describe('KeysSettings — row visibility', () => {
 // Shared layout.
 // ---------------------------------------------------------------------------
 describe('KeysSettings — layout', () => {
-  it('renders through SubPageLayout: the rows as ListRows in one ListGroup, then the rotation section', () => {
+  it('renders through SubPageLayout: the row as a ListRow in one ListGroup, then the rotation section', () => {
     mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
@@ -200,13 +199,12 @@ describe('KeysSettings — layout', () => {
     expect(body).toHaveClass('px-4', 'gap-5', 'overflow-y-auto');
 
     const reveal = screen.getByTestId('keys-reveal-private-key');
-    const rotate = screen.getByTestId('keys-rotate-guardian');
-    // One ListGroup on the shared fill holds both rows.
-    expect(reveal.parentElement).toBe(rotate.parentElement);
+    expect(screen.queryByTestId('keys-rotate-guardian')).toBeNull();
+    // One ListGroup on the shared fill holds the row.
     expect(reveal.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     // Rows are ListRows: the shared 16px title and a trailing chevron.
     expect(reveal.querySelector('[data-slot="title"]')).toHaveTextContent('revealPrivateKey');
-    expect(rotate.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    expect(reveal.querySelector('[data-slot="chevron"]')).not.toBeNull();
     // The rotation section follows as a sibling section of the body, 20px below.
     expect(screen.getByTestId('guardian-replace-hot-key').parentElement).toBe(body);
     // No page footer: rotation is a section action, not the page's CTA.
@@ -240,7 +238,7 @@ describe('KeysSettings — openPage', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings/reveal-private-key');
   });
 
-  it('navigates to each guardian row path with its own target', () => {
+  it('navigates a guardian reveal row to the hot key page', () => {
     mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
@@ -248,9 +246,6 @@ describe('KeysSettings — openPage', () => {
     fireEvent.click(screen.getByText('revealPrivateKey'));
     expect(mockNavigate).toHaveBeenLastCalledWith('/settings/reveal-hot-key');
 
-    fireEvent.click(screen.getByText('rotateGuardian'));
-    expect(mockNavigate).toHaveBeenLastCalledWith('/rotate-guardian');
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(2);
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
   });
 });

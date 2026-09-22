@@ -12,7 +12,11 @@ const CHALLENGE_WORD = `0x${Array.from({ length: 32 }, (_, index) =>
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
-test('an encrypted wallet file restores an imported account that can sign', async ({ walletA, walletB }) => {
+// Skipped, not deleted: the export half of this flow drove Settings →
+// Encrypted Wallet File, and that row is gone while a wallet holds a single
+// Guardian account (see the security group in `app/pages/Settings.tsx`). The
+// export flow itself stays in the code base, so this spec comes back with the row.
+test.skip('an encrypted wallet file restores an imported account that can sign', async ({ walletA, walletB }) => {
   const privateKeySeed = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
   const privateKey = Buffer.from(AuthSecretKey.ecdsaWithRNG(privateKeySeed).serialize()).toString('hex');
 

@@ -15,6 +15,7 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
+import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import SpendingLimits from 'app/templates/SpendingLimits';
@@ -35,7 +36,6 @@ import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileO
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
-import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -50,11 +50,10 @@ type SettingsProps = {
   rootScrollTop?: React.MutableRefObject<number>;
 };
 
-const RevealPrivateKey: FC = () => {
-  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
-  const isGuardian = currentAccountType === WalletType.Guardian;
-  return <RevealSecret reveal={isGuardian ? 'guardian-keys' : 'private-key'} />;
-};
+// A Guardian account has no private-key reveal: its everyday (hot) key is revealed at
+// `reveal-hot-key`, and the cold key has no import path, so showing it gives the
+// user nothing they can do. The route is gated off Guardian accounts below.
+const RevealPrivateKey: FC = () => <RevealSecret reveal="private-key" />;
 
 const RemoveSeedPhrase: FC = () => <VerifySeedPhraseFlow remove />;
 
@@ -97,6 +96,8 @@ type Tab = {
   linksOutsideOfWallet?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
+  /** The page has no meaning for a Guardian account: blocks the route as well as the row. */
+  standardOnly?: boolean;
   requiresSeedPhrase?: boolean;
   /**
    * This tab's panel renders its OWN notice when the seed phrase is not 'stored'
@@ -178,21 +179,14 @@ const TAB_GROUPS: TabGroup[] = [
     Icon: GroupSecurityIcon,
     tabs: [
       {
-        slug: 'reveal-seed-phrase',
+        // One section for the phrase, like Keys: the reveal and the removal are
+        // its rows (HIDDEN_TABS below), so the root menu carries one row, not two.
+        slug: 'recovery-phrase',
         titleI18nKey: 'recoveryPhrase',
-        Component: RevealSeedPhraseFlow,
+        Component: RecoveryPhraseSettings,
         requiresSeedPhrase: true,
-        reportsSeedState: true,
-        testID: SettingsSelectors.RevealSeedPhraseButton,
-        hasOwnLayout: true
-      },
-      {
-        slug: 'remove-seed-phrase',
-        titleI18nKey: 'removeSeedPhrase',
-        Component: RemoveSeedPhrase,
-        requiresSeedPhrase: true,
-        reportsSeedState: true,
-        hasOwnLayout: true
+        testID: SettingsSelectors.RecoveryPhraseButton,
+        rendersSubPageLayout: true
       },
       {
         slug: 'keys',
@@ -201,13 +195,11 @@ const TAB_GROUPS: TabGroup[] = [
         testID: SettingsSelectors.KeysButton,
         rendersSubPageLayout: true
       },
-      {
-        slug: 'encrypted-wallet-file',
-        titleI18nKey: 'encryptedWalletFile',
-        Component: EncryptedFileFlow,
-        testID: SettingsSelectors.EncryptedWalletFile,
-        hasOwnLayout: true
-      },
+      // No `encrypted-wallet-file` row. The wallet file backs up the accounts of a
+      // multi-account wallet, but a wallet now holds a single Guardian account, so a
+      // file backup adds nothing the recovery phrase does not already give. The
+      // export flow (`screens/encrypted-file-flow`) and the onboarding import stay
+      // in the code base for the day the wallet holds more than one account again.
       {
         slug: 'spending-limits',
         titleI18nKey: 'spendingLimits',
@@ -302,11 +294,32 @@ const TAB_GROUPS: TabGroup[] = [
 
 // Hidden tabs that are routable but not shown in the menu
 const HIDDEN_TABS: Tab[] = [
+  // The two rows of the Recovery Phrase section. They keep `reportsSeedState`:
+  // their panels are the only surface for an interrupted or finished removal,
+  // so the routes resolve after the section row itself is hidden.
+  {
+    slug: 'reveal-seed-phrase',
+    titleI18nKey: 'recoveryPhrase',
+    Component: RevealSeedPhraseFlow,
+    requiresSeedPhrase: true,
+    reportsSeedState: true,
+    testID: SettingsSelectors.RevealSeedPhraseButton,
+    hasOwnLayout: true
+  },
+  {
+    slug: 'remove-seed-phrase',
+    titleI18nKey: 'removeSeedPhrase',
+    Component: RemoveSeedPhrase,
+    requiresSeedPhrase: true,
+    reportsSeedState: true,
+    hasOwnLayout: true
+  },
   {
     slug: 'reveal-private-key',
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
     requiresSeedPhrase: true,
+    standardOnly: true,
     testID: SettingsSelectors.RevealPrivateKeyButton,
     rendersSubPageLayout: true
   },
@@ -373,6 +386,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const tabIsRoutable = useCallback(
     (tab: Tab) => {
       if (tab.guardianOnly && !isGuardianAccount) return false;
+      if (tab.standardOnly && isGuardianAccount) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
