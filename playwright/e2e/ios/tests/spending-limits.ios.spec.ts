@@ -2,9 +2,16 @@ import { expect, test } from '../fixtures/two-simulators';
 import { SPENDING_LIMIT_CHALLENGE } from '../../helpers/wallet-page';
 
 const TOKEN = 'TST';
-const TOKEN_DECIMALS = 8;
 const MINT_BASE_UNITS = 100_000_000_000;
-const toBaseUnits = (amount: number): string => (BigInt(amount) * 10n ** BigInt(TOKEN_DECIMALS)).toString();
+
+/**
+ * The cap is one account-scoped figure in USD now, not a per-asset native-unit figure. The E2E
+ * build prices the harness's own `TST` fixture faucet at exactly $1.00 per whole unit (see
+ * `isE2eFixtureSymbol` in `src/lib/prices/usd.ts`), so the dollar figure below is numerically
+ * identical to the native-unit figure it replaces.
+ */
+const USD_MICRO_SCALE = 1_000_000n;
+const toUsdMicro = (dollars: number): string => (BigInt(dollars) * USD_MICRO_SCALE).toString();
 
 test.describe('Spending limits', () => {
   test.describe.configure({ mode: 'serial' });
@@ -34,7 +41,7 @@ test.describe('Spending limits', () => {
     await steps.step('over_limit_send_requires_exact_authentication', async () => {
       await walletA.configureSpendingLimitForTest({
         tokenSymbol: TOKEN,
-        dailyLimitBaseUnits: toBaseUnits(100)
+        dailyLimitUsdMicro: toUsdMicro(100)
       });
       await walletA.prepareSendReview({
         recipientAddress: addressB,
@@ -56,19 +63,20 @@ test.describe('Spending limits', () => {
       expect(cancelled).toBe(true);
     });
 
+    // One account-scoped USD cap now, not a per-asset input addressed by the token's own symbol.
     await steps.step('configured_policy_is_visible_in_settings', async () => {
       await walletA.navigateTo('/settings/spending-limits');
       await walletA.waitFor('[data-testid="spending-limits-settings"]', { timeoutMs: 30_000 });
       await expect
         .poll(() =>
           walletA.evalJs<string | null>(
-            `var input = document.querySelector('input[aria-label="TST Rolling 24-hour limit"]'); ` +
+            `var input = document.querySelector('input[aria-label="Daily limit (USD)"]'); ` +
               `return input ? input.value : null;`
           )
         )
         .toBe('100');
       await walletA.evalJs(
-        `document.querySelector('input[aria-label="TST Rolling 24-hour limit"]')?.scrollIntoView(); return null;`
+        `document.querySelector('input[aria-label="Daily limit (USD)"]')?.scrollIntoView(); return null;`
       );
       await walletA.screenshot({ path: testInfo.outputPath('spending-limit-settings-ios.png') });
     });

@@ -23,6 +23,7 @@ let mockWalletState: {
   closeTransactionModal: jest.Mock;
   setLastCompletedTxHash: jest.Mock;
   assessSpendingLimit: jest.Mock;
+  readSpendingLimit: jest.Mock;
 };
 let mockSwapEtaResult: { loading: boolean; eta?: Record<string, unknown>; error?: string };
 let mockBalanceData: Array<{ tokenId: string; balance: number }>;
@@ -141,20 +142,27 @@ jest.mock('./SelectSwapToken', () => ({
   }
 }));
 
+// Set by a test that needs the mock challenge to hand back an authorization for a DIFFERENT
+// account than the one the challenge itself was opened for - a stale/forged credential, which the
+// real `SpendingLimitChallenge` never produces (its authorization always carries the challenge's
+// own `source.accountId`) but which `runSwap` must independently refuse.
+let mockAuthorizationAccountOverride: string | undefined;
+
 jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => {
+    const source = props.assessment ?? props.unpriced;
     return (
       <div data-testid="spending-limit-challenge">
-        <span>{props.assessment.revision}</span>
+        <span>{source.revision}</span>
+        <span data-testid="challenge-kind">{props.assessment !== undefined ? 'assessment' : 'unpriced'}</span>
         <button
           type="button"
           onClick={() =>
             props.onResult({
+              kind: props.assessment !== undefined ? 'usd' : 'unpriced',
               id: 'authorization-1',
-              accountId: props.assessment.accountId,
-              faucetId: props.assessment.faucetId,
-              amount: props.assessment.amount,
-              revision: props.assessment.revision,
+              accountId: mockAuthorizationAccountOverride ?? source.accountId,
+              revision: source.revision,
               issuedAt: 120,
               expiresAt: 240
             })
@@ -248,12 +256,20 @@ beforeEach(() => {
   mockRenderedRoutes = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
   mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'SwapAmounts' }] };
   mockBackHandler = null;
+  mockAuthorizationAccountOverride = undefined;
   mockWalletState = {
     isTransactionModalOpen: false,
     lastCompletedTxHash: null,
     closeTransactionModal: jest.fn(),
     setLastCompletedTxHash: jest.fn(),
-    assessSpendingLimit: jest.fn().mockResolvedValue(undefined)
+    assessSpendingLimit: jest.fn().mockResolvedValue(undefined),
+    readSpendingLimit: jest.fn().mockResolvedValue({
+      accountId: 'pk-1',
+      limit: 100_000_000n,
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 2
+    })
   };
   mockSwapEtaResult = {
     loading: false,
@@ -282,6 +298,15 @@ afterEach(() => {
 
 const setOffer = (value: string) => fireEvent.change(screen.getByTestId('sa-offer-input'), { target: { value } });
 const setRequest = (value: string) => fireEvent.change(screen.getByTestId('sa-request-input'), { target: { value } });
+
+const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
+  accountId: 'pk-1',
+  usdAmount: 10n,
+  revision: 'revision-1',
+  assessedAt: 100,
+  breach: { spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: 200 },
+  ...overrides
+});
 
 describe('SwapFlow / SwapManager', () => {
   it('renders both flow steps with the default token pair and the auto-derived quote', () => {
@@ -600,21 +625,14 @@ describe('SwapFlow / SwapManager', () => {
       });
 
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 300, false);
-      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n);
+      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledWith('pk-1', [{ faucetId: 'faucet-A', amount: 10n }]);
     });
 
     it('discards a spending-limit assessment minted for another account', async () => {
       // The staleness guard exists because the account can change under an open challenge. An
       // assessment naming a different account can never authorize this swap, so it is dropped
       // before it reaches the user rather than being shown and then refused at the chokepoint.
-      mockWalletState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'pk-someone-else',
-        faucetId: 'faucet-A',
-        amount: 10n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [{ period: '24h', spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: 200 }]
-      });
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment({ accountId: 'pk-someone-else' }));
       renderFlow();
       setOffer('10');
 
@@ -627,14 +645,7 @@ describe('SwapFlow / SwapManager', () => {
     });
 
     it('uses strict authentication instead of ordinary confirmation for a spending-limit breach', async () => {
-      mockWalletState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'pk-1',
-        faucetId: 'faucet-A',
-        amount: 10n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [{ period: '24h', spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: 200 }]
-      });
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
       renderFlow();
       setOffer('10');
 
@@ -662,23 +673,140 @@ describe('SwapFlow / SwapManager', () => {
         expect.objectContaining({
           id: 'authorization-1',
           accountId: 'pk-1',
-          faucetId: 'faucet-A',
-          amount: 10n,
           revision: 'revision-1'
         })
       );
       expect(mockConfirmSensitive).not.toHaveBeenCalled();
     });
 
-    it('cancels a spending-limit challenge without queueing or losing the swap draft', async () => {
-      mockWalletState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'pk-1',
-        faucetId: 'faucet-A',
-        amount: 10n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [{ period: '7d', spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: null }]
+    it('discards an authorization for a different account instead of swapping against it', async () => {
+      // `SpendingLimitChallenge` always mints an authorization bound to the account its own
+      // assessment named; this plants a forged/stale one directly to prove `runSwap` refuses it on
+      // its own.
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockAuthorizationAccountOverride = 'pk-someone-else';
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
       });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    });
+
+    it('opens the unvalued challenge when the pre-check cannot price the swap', async () => {
+      mockWalletState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'AAA'
+      });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockWalletState.readSpendingLimit).toHaveBeenCalledWith('pk-1');
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the generic error when the pre-check itself cannot open the unpriced challenge', async () => {
+      // Distinct from the "no configured limit" fallback: `readSpendingLimit` fails outright (a
+      // storage fault), reached from `onSubmit`'s own catch before `runSwap` is ever entered.
+      mockWalletState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'AAA'
+      });
+      mockWalletState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).not.toHaveTextContent('');
+    });
+
+    it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
+      mockWalletState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'AAA'
+      });
+      mockWalletState.readSpendingLimit.mockResolvedValue(undefined);
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).not.toHaveTextContent('');
+    });
+
+    it('shows a real Error rejection from the pre-check by its own message', async () => {
+      // Not price-unavailable and not an authorization-required breach - a genuine failure of the
+      // pre-check itself, which must surface as its own reason rather than a swallowed string.
+      mockWalletState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('assessment backend down');
+    });
+
+    it('opens the unvalued challenge when the actual swap cannot be priced', async () => {
+      mockInitiateSwap.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'AAA' });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+    });
+
+    it('re-enables the swap button when the drawer authorize path cannot open the unpriced challenge', async () => {
+      // The `runSwap` catch's own `openUnpricedChallenge` attempt throws here, not the pre-check's
+      // - reached only once a breach already opened the challenge and the user re-authorizes into
+      // an actual swap that itself cannot be priced.
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockInitiateSwap.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'AAA' });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      mockWalletState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).not.toHaveTextContent('');
+    });
+
+    it('cancels a spending-limit challenge without queueing or losing the swap draft', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(
+        breachAssessment({ breach: { spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: null } })
+      );
       renderFlow();
       setOffer('10');
 
@@ -693,14 +821,7 @@ describe('SwapFlow / SwapManager', () => {
     });
 
     it('reopens the challenge with the final atomic assessment after an expiry or insertion race', async () => {
-      const firstAssessment = {
-        accountId: 'pk-1',
-        faucetId: 'faucet-A',
-        amount: 10n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [{ period: '24h', spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: 200 }]
-      };
+      const firstAssessment = breachAssessment();
       mockWalletState.assessSpendingLimit.mockResolvedValue(firstAssessment);
       mockInitiateSwap.mockRejectedValue({
         code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
@@ -708,7 +829,7 @@ describe('SwapFlow / SwapManager', () => {
           ...firstAssessment,
           revision: 'revision-2',
           assessedAt: 121,
-          breaches: [{ ...firstAssessment.breaches[0], spent: 99n, proposedTotal: 109n, overBy: 9n }]
+          breach: { ...firstAssessment.breach, spent: 99n, proposedTotal: 109n, overBy: 9n }
         }
       });
       renderFlow();
@@ -895,6 +1016,26 @@ describe('SwapFlow / SwapManager', () => {
   });
 
   describe('mobile back handler', () => {
+    it('closes an open spending-limit challenge before anything else', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      let handled: boolean | undefined;
+      act(() => {
+        handled = mockBackHandler!();
+      });
+
+      expect(handled).toBe(true);
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      // The swap draft is untouched - this is a dismissal, not a cancel-and-lose-state action.
+      expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+    });
+
     it('closes the token drawer first when it is open', () => {
       renderFlow();
       fireEvent.click(screen.getByTestId('sa-select-offer'));

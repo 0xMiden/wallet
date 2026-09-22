@@ -1,3 +1,4 @@
+import { SpendingLimitAssessmentDetails } from 'lib/miden/spending-limits/queue';
 import { MidenMessageType } from 'lib/miden/types';
 
 import { buildCustomTxConfirmPayload, makeSimulateHandler } from './dapp';
@@ -44,6 +45,58 @@ describe('buildCustomTxConfirmPayload', () => {
       customTransaction: { ...customTx, recipientAddress: '' } as any
     });
     expect(p.recipientAddress).toBeUndefined();
+  });
+
+  const breachDetails = (): SpendingLimitAssessmentDetails => ({
+    assessment: {
+      accountId: 'miden-account-1',
+      usdAmount: 60_000_000n,
+      revision: 'revision-1',
+      assessedAt: 1_000,
+      breach: { spent: 0n, proposedTotal: 60_000_000n, limit: 50_000_000n, overBy: 10_000_000n, resetAt: null }
+    }
+  });
+
+  it('carries a serialized spending-limit assessment when the details name a breach', () => {
+    const p = buildCustomTxConfirmPayload({
+      origin: 'https://dapp.test',
+      networkRpc: 'rpc',
+      appMeta: { name: 'DApp' },
+      sourcePublicKey: 'pk',
+      transactionMessages: ['a'],
+      customTransaction: customTx,
+      spendingLimitDetails: breachDetails()
+    });
+
+    expect(p).toMatchObject({
+      spendingLimitAssessment: {
+        accountId: 'miden-account-1',
+        usdAmount: '60000000',
+        revision: 'revision-1',
+        breach: { spent: '0', proposedTotal: '60000000', limit: '50000000', overBy: '10000000', resetAt: null }
+      }
+    });
+  });
+
+  it('omits the assessment when the details carry no breach', () => {
+    const p = buildCustomTxConfirmPayload({
+      origin: 'https://dapp.test',
+      networkRpc: 'rpc',
+      appMeta: { name: 'DApp' },
+      sourcePublicKey: 'pk',
+      transactionMessages: ['a'],
+      customTransaction: customTx,
+      spendingLimitDetails: {
+        assessment: {
+          accountId: 'miden-account-1',
+          usdAmount: 10_000_000n,
+          revision: 'revision-1',
+          assessedAt: 1_000
+        }
+      }
+    });
+
+    expect(p).not.toHaveProperty('spendingLimitAssessment');
   });
 });
 

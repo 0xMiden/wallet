@@ -6,6 +6,7 @@ import {
   parseSerializedSpendingLimitAssessment,
   parseSerializedSpendingLimitDraft,
   spendingLimitAssessmentFromError,
+  spendsDigest,
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment,
   toSerializedSpendingLimitDraft
@@ -14,41 +15,23 @@ import {
 describe('spending-limit persistence types', () => {
   const configured = {
     accountId: 'account-a',
-    faucetId: 'faucet-a',
-    dailyLimit: 123456789012345678901234567890n,
-    weeklyLimit: 999999999999999999999999999999n,
-    asset: { symbol: 'MIDEN', decimals: 8, name: 'Miden' },
+    limit: 123456789012345678901234567890n,
     revision: 'revision-1',
     createdAt: 100,
     updatedAt: 200
   };
 
-  it('round-trips limits through canonical decimal strings without losing bigint precision', () => {
+  it('round-trips a limit through a canonical decimal string without losing bigint precision', () => {
     const persisted = toPersistedSpendingLimit(configured);
 
-    expect(persisted).toEqual({
-      ...configured,
-      dailyLimit: '123456789012345678901234567890',
-      weeklyLimit: '999999999999999999999999999999'
-    });
+    expect(persisted).toEqual({ ...configured, limit: '123456789012345678901234567890' });
     expect(parsePersistedSpendingLimit(persisted)).toEqual(configured);
   });
 
-  it('returns no record when neither rolling period is configured', () => {
-    expect(toPersistedSpendingLimit({ ...configured, dailyLimit: undefined, weeklyLimit: undefined })).toBeUndefined();
-  });
-
   it.each([
-    ['negative daily domain amount', { ...configured, dailyLimit: -1n }],
-    ['negative weekly domain amount', { ...configured, weeklyLimit: -1n }],
+    ['negative domain limit', { ...configured, limit: -1n }],
     ['missing account id', { ...configured, accountId: '' }],
-    ['missing faucet id', { ...configured, faucetId: '' }],
     ['missing revision', { ...configured, revision: '' }],
-    ['invalid decimals', { ...configured, asset: { symbol: 'MIDEN', decimals: -1 } }],
-    ['excessive decimals', { ...configured, asset: { symbol: 'MIDEN', decimals: 256 } }],
-    ['fractional decimals', { ...configured, asset: { symbol: 'MIDEN', decimals: 1.5 } }],
-    ['non-number decimals', { ...configured, asset: { symbol: 'MIDEN', decimals: '8' } }],
-    ['invalid asset name', { ...configured, asset: { symbol: 'MIDEN', decimals: 8, name: ' ' } }],
     ['negative timestamp', { ...configured, createdAt: -1 }],
     ['fractional timestamp', { ...configured, createdAt: 1.5 }],
     ['invalid timestamp order', { ...configured, createdAt: 201, updatedAt: 200 }]
@@ -59,11 +42,10 @@ describe('spending-limit persistence types', () => {
   });
 
   it.each([
-    ['non-canonical leading zero', { ...configured, dailyLimit: '01', weeklyLimit: undefined }],
-    ['negative persisted amount', { ...configured, dailyLimit: '-1', weeklyLimit: undefined }],
-    ['missing periods', { ...configured, dailyLimit: undefined, weeklyLimit: undefined }],
-    ['number instead of decimal string', { ...configured, dailyLimit: 1, weeklyLimit: undefined }],
-    ['missing asset snapshot', { ...configured, dailyLimit: '1', weeklyLimit: undefined, asset: undefined }],
+    ['non-canonical leading zero', { ...configured, limit: '01' }],
+    ['negative persisted amount', { ...configured, limit: '-1' }],
+    ['missing limit', { ...configured, limit: undefined }],
+    ['number instead of decimal string', { ...configured, limit: 1 }],
     ['array record', []],
     ['malformed record', null]
   ])('rejects %s', (_label, value) => {
@@ -83,100 +65,84 @@ describe('spending-limit persistence types', () => {
     expect(() => parseSerializedSpendingAmount('01')).toThrow(SpendingLimitPolicyUnavailableError);
   });
 
-  it('round-trips transport drafts with optional periods and asset names', () => {
-    const draft = {
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      asset: { symbol: 'MIDEN', decimals: 8 },
-      dailyLimit: undefined,
-      weeklyLimit: 250n
-    };
+  it('round-trips transport drafts with an optional limit', () => {
+    const draft = { accountId: 'account-a', limit: 250n };
 
     const serialized = toSerializedSpendingLimitDraft(draft);
 
-    expect(serialized).toEqual({
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      asset: { symbol: 'MIDEN', decimals: 8 },
-      weeklyLimit: '250'
-    });
+    expect(serialized).toEqual({ accountId: 'account-a', limit: '250' });
     expect(parseSerializedSpendingLimitDraft(serialized)).toEqual(draft);
     expect(() => parseSerializedSpendingLimitDraft(null)).toThrow(SpendingLimitPolicyUnavailableError);
   });
 
-  it('round-trips a structured assessment without bigint transport values', () => {
+  it('round-trips a draft with no limit at all', () => {
+    const draft = { accountId: 'account-a' };
+
+    const serialized = toSerializedSpendingLimitDraft(draft);
+
+    expect(serialized).toEqual({ accountId: 'account-a' });
+    expect(parseSerializedSpendingLimitDraft(serialized)).toEqual(draft);
+  });
+
+  it('round-trips a structured assessment with a breach', () => {
     const assessment = {
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      amount: 20n,
+      usdAmount: 20n,
       revision: 'revision-1',
       assessedAt: 100,
-      breaches: [
-        {
-          period: '24h' as const,
-          spent: 90n,
-          proposedTotal: 110n,
-          limit: 100n,
-          overBy: 10n,
-          resetAt: 200
-        }
-      ]
+      breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
     };
 
     const serialized = toSerializedSpendingLimitAssessment(assessment);
 
     expect(serialized).toEqual({
       ...assessment,
-      amount: '20',
-      breaches: [
-        {
-          period: '24h',
-          spent: '90',
-          proposedTotal: '110',
-          limit: '100',
-          overBy: '10',
-          resetAt: 200
-        }
-      ]
+      usdAmount: '20',
+      breach: { spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }
     });
     expect(parseSerializedSpendingLimitAssessment(serialized)).toEqual(assessment);
     expect(parseSpendingLimitAssessment(assessment)).toEqual(assessment);
     expect(spendingLimitAssessmentFromError({ code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED', assessment })).toEqual(
       assessment
     );
+    // The domain form (bigints) is what an in-process rethrow (mobile/desktop) carries; the
+    // serialized form (decimal strings) is what survives an intercom port crossing on the
+    // extension. Both must resolve to the same assessment.
+    expect(
+      spendingLimitAssessmentFromError({ code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED', assessment: serialized })
+    ).toEqual(assessment);
+  });
+
+  it('round-trips an assessment with no breach at all', () => {
+    const assessment = { accountId: 'account-a', usdAmount: 20n, revision: 'revision-1', assessedAt: 100 };
+
+    const serialized = toSerializedSpendingLimitAssessment(assessment);
+
+    expect(serialized).toEqual({ ...assessment, usdAmount: '20' });
+    expect(parseSerializedSpendingLimitAssessment(serialized)).toEqual(assessment);
+    expect(parseSpendingLimitAssessment(assessment)).toEqual(assessment);
   });
 
   it.each([
-    ['non-canonical amount', { amount: '020' }],
-    ['invalid period', { breaches: [{ period: 'month' }] }],
-    ['negative overage', { breaches: [{ overBy: '-1' }] }],
-    ['inconsistent overage', { breaches: [{ overBy: '9' }] }],
-    ['inconsistent proposed total', { breaches: [{ proposedTotal: '109' }] }],
-    ['non-integer reset', { breaches: [{ resetAt: 1.5 }] }]
-  ] as Array<[string, { amount?: string; breaches?: Array<Record<string, unknown>> }]>)(
+    ['non-canonical amount', { usdAmount: '020' }],
+    ['negative overage', { breach: { overBy: '-1' } }],
+    ['inconsistent overage', { breach: { overBy: '9' } }],
+    ['inconsistent proposed total', { breach: { proposedTotal: '109' } }],
+    ['non-integer reset', { breach: { resetAt: 1.5 } }]
+  ] as Array<[string, { usdAmount?: string; breach?: Record<string, unknown> }]>)(
     'rejects a malformed serialized assessment with %s',
     (_label, overrides) => {
       const valid = {
         accountId: 'account-a',
-        faucetId: 'faucet-a',
-        amount: '20',
+        usdAmount: '20',
         revision: 'revision-1',
         assessedAt: 100,
-        breaches: [
-          {
-            period: '24h',
-            spent: '90',
-            proposedTotal: '110',
-            limit: '100',
-            overBy: '10',
-            resetAt: 200
-          }
-        ]
+        breach: { spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }
       };
       const value = {
         ...valid,
         ...overrides,
-        ...(overrides.breaches && { breaches: [{ ...valid.breaches[0], ...overrides.breaches[0] }] })
+        ...(overrides.breach && { breach: { ...valid.breach, ...overrides.breach } })
       };
 
       expect(() => parseSerializedSpendingLimitAssessment(value)).toThrow(SpendingLimitPolicyUnavailableError);
@@ -184,14 +150,7 @@ describe('spending-limit persistence types', () => {
   );
 
   it('rejects malformed domain assessments and unrelated errors', () => {
-    const malformed = {
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      amount: -1n,
-      revision: 'revision-1',
-      assessedAt: 100,
-      breaches: []
-    };
+    const malformed = { accountId: 'account-a', usdAmount: -1n, revision: 'revision-1', assessedAt: 100 };
 
     expect(() => parseSpendingLimitAssessment(malformed)).toThrow(SpendingLimitPolicyUnavailableError);
     expect(spendingLimitAssessmentFromError({ code: 'SOMETHING_ELSE', assessment: malformed })).toBeUndefined();
@@ -204,52 +163,16 @@ describe('spending-limit persistence types', () => {
   it.each([
     ['non-record assessment', null],
     ['array assessment', []],
-    ['non-array breaches', { breaches: null }],
-    ['missing amount', { amount: undefined }],
-    [
-      'too many breach periods',
-      {
-        breaches: [
-          { period: '24h', spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 },
-          { period: '7d', spent: 240n, proposedTotal: 260n, limit: 250n, overBy: 10n, resetAt: 200 },
-          { period: '24h', spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
-        ]
-      }
-    ],
-    [
-      'duplicate breach periods',
-      {
-        breaches: [
-          { period: '24h', spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 },
-          { period: '24h', spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
-        ]
-      }
-    ],
-    [
-      'non-breaching total',
-      { breaches: [{ period: '24h', spent: 80n, proposedTotal: 100n, limit: 100n, overBy: 0n, resetAt: 200 }] }
-    ],
-    [
-      'expired reset',
-      { breaches: [{ period: '24h', spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 100 }] }
-    ],
-    [
-      'out-of-order breach periods',
-      {
-        breaches: [
-          { period: '7d', spent: 240n, proposedTotal: 260n, limit: 250n, overBy: 10n, resetAt: 200 },
-          { period: '24h', spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
-        ]
-      }
-    ]
+    ['missing usdAmount', { usdAmount: undefined }],
+    ['non-breaching total', { breach: { spent: 80n, proposedTotal: 100n, limit: 100n, overBy: 0n, resetAt: 200 } }],
+    ['expired reset', { breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 100 } }]
   ] as Array<[string, unknown]>)('rejects a domain assessment with %s', (_label, overrides) => {
     const valid = {
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      amount: 20n,
+      usdAmount: 20n,
       revision: 'revision-1',
       assessedAt: 100,
-      breaches: [{ period: '24h', spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }]
+      breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
     };
     const value =
       overrides && typeof overrides === 'object' && !Array.isArray(overrides) ? { ...valid, ...overrides } : overrides;
@@ -259,16 +182,14 @@ describe('spending-limit persistence types', () => {
 
   it.each([
     ['non-record assessment', null],
-    ['non-array breaches', { breaches: null }],
-    ['missing amount', { amount: undefined }]
+    ['missing usdAmount', { usdAmount: undefined }]
   ] as Array<[string, unknown]>)('rejects a serialized assessment with %s', (_label, overrides) => {
     const valid = {
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      amount: '20',
+      usdAmount: '20',
       revision: 'revision-1',
       assessedAt: 100,
-      breaches: [{ period: '24h', spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }]
+      breach: { spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }
     };
     const value = overrides && typeof overrides === 'object' ? { ...valid, ...overrides } : overrides;
 
@@ -282,11 +203,10 @@ describe('breach parsing edges', () => {
     expect(() =>
       parseSerializedSpendingLimitAssessment({
         accountId: 'account-a',
-        faucetId: 'faucet-a',
-        amount: '20',
+        usdAmount: '20',
         revision: 'revision-1',
         assessedAt: 1_000,
-        breaches: ['not-a-breach']
+        breach: 'not-a-breach'
       })
     ).toThrow(/breach is invalid/i);
   });
@@ -296,13 +216,48 @@ describe('breach parsing edges', () => {
     // amount of waiting frees capacity. Only the non-null arm had a test.
     const parsed = parseSerializedSpendingLimitAssessment({
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      amount: '120',
+      usdAmount: '120',
       revision: 'revision-1',
       assessedAt: 1_000,
-      breaches: [{ period: '24h', spent: '0', proposedTotal: '120', limit: '100', overBy: '20', resetAt: null }]
+      breach: { spent: '0', proposedTotal: '120', limit: '100', overBy: '20', resetAt: null }
     });
 
-    expect(parsed.breaches[0]?.resetAt).toBeNull();
+    expect(parsed.breach?.resetAt).toBeNull();
+  });
+});
+
+describe('spendsDigest', () => {
+  it('is order-independent over the same spends', () => {
+    const left = spendsDigest([
+      { faucetId: 'eth', amount: 1n },
+      { faucetId: 'usdc', amount: 2n }
+    ]);
+    const right = spendsDigest([
+      { faucetId: 'usdc', amount: 2n },
+      { faucetId: 'eth', amount: 1n }
+    ]);
+
+    expect(left).toBe(right);
+  });
+
+  it('differs when an amount differs', () => {
+    const left = spendsDigest([{ faucetId: 'eth', amount: 1n }]);
+    const right = spendsDigest([{ faucetId: 'eth', amount: 2n }]);
+
+    expect(left).not.toBe(right);
+  });
+
+  it('differs when a faucet differs', () => {
+    const left = spendsDigest([{ faucetId: 'eth', amount: 1n }]);
+    const right = spendsDigest([{ faucetId: 'usdc', amount: 1n }]);
+
+    expect(left).not.toBe(right);
+  });
+
+  it('matches equivalent faucet identities spelled differently', () => {
+    const left = spendsDigest([{ faucetId: 'account-a', amount: 1n }]);
+    const right = spendsDigest([{ faucetId: 'account-a_route', amount: 1n }]);
+
+    expect(left).toBe(right);
   });
 });

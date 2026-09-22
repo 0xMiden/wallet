@@ -17,6 +17,15 @@ const TOKEN_DECIMALS = 8;
 const MINT_BASE_UNITS = 100_000_000_000n;
 const toBaseUnits = (amount: number): string => (BigInt(amount) * 10n ** BigInt(TOKEN_DECIMALS)).toString();
 
+/**
+ * The cap is one account-scoped figure in USD now, not a per-asset native-unit figure. The E2E
+ * build prices the harness's own `TST` fixture faucet at exactly $1.00 per whole unit (see
+ * `isE2eFixtureSymbol` in `src/lib/prices/usd.ts`), so every dollar figure below is numerically
+ * identical to the native-unit figure it replaces - only the unit changes, not the journey.
+ */
+const USD_MICRO_SCALE = 1_000_000n;
+const toUsdMicro = (dollars: number): string => (BigInt(dollars) * USD_MICRO_SCALE).toString();
+
 type CustomTransactionPayload = {
   address: string;
   transactionRequest: string;
@@ -153,7 +162,7 @@ test.describe('Spending limits', () => {
     await steps.step('wallet_send_below_limit', async () => {
       const configured = await walletA.configureSpendingLimitForTest({
         tokenSymbol: TOKEN,
-        dailyLimitBaseUnits: toBaseUnits(500)
+        dailyLimitUsdMicro: toUsdMicro(500)
       });
       faucetId = configured.faucetId;
       const before = await sendRows(walletA.page);
@@ -221,7 +230,7 @@ test.describe('Spending limits', () => {
     await steps.step('concurrent_outgoing_sends_cannot_both_cross_the_limit', async () => {
       await walletA.configureSpendingLimitForTest({
         tokenSymbol: TOKEN,
-        dailyLimitBaseUnits: toBaseUnits(700)
+        dailyLimitUsdMicro: toUsdMicro(700)
       });
       const before = await sendRows(walletA.page);
       const result = await walletA.runSpendingLimitRaceForTest({
@@ -239,8 +248,8 @@ test.describe('Spending limits', () => {
       await expect.poll(() => sendRows(walletA.page).then(rows => rows.length)).toBe(before.length);
     });
 
-    // 600 TST is spent against a 700 limit when these three steps start: the race step's rows are
-    // rolled back by its own hook, so the only value in the window is the 400 + 200 sent above.
+    // $600 is spent against a $700 limit when these three steps start: the race step's rows are
+    // rolled back by its own hook, so the only value in the window is the $400 + $200 sent above.
     await steps.step('dapp_custom_within_limit_is_approved_and_counted', async () => {
       const transactionRequest = await walletA.buildCustomTransactionRequestForTest({
         recipientAddress: addressB,
@@ -264,8 +273,9 @@ test.describe('Spending limits', () => {
     });
 
     await steps.step('dapp_custom_over_limit_requires_wallet_owned_authentication', async () => {
-      // 650 is now spent, so 100 breaches - and ONLY because the custom request above was counted.
-      // Uncounted, this would be 600 + 100 against a 700 limit and would go straight through.
+      // $650 is now spent, so $100 more breaches - and ONLY because the custom request above was
+      // counted. Uncounted, this would be $600 + $100 against a $700 limit and would go straight
+      // through.
       const before = new Set((await executeRows(walletA.page)).map(row => row.id));
       const transactionRequest = await walletA.buildCustomTransactionRequestForTest({
         recipientAddress: addressB,
@@ -323,10 +333,8 @@ test.describe('Spending limits', () => {
       await walletA.navigateTo('/settings/spending-limits');
       const settings = walletA.page.getByTestId('spending-limits-settings');
       await expect(settings).toBeVisible();
-      await expect(walletA.page.getByRole('heading', { name: TOKEN, exact: true })).toBeVisible();
-      const configuredDailyLimit = walletA.page.getByRole('textbox', {
-        name: `${TOKEN} Rolling 24-hour limit`
-      });
+      // One account-scoped USD cap now, not a per-asset heading + textbox pair.
+      const configuredDailyLimit = walletA.page.getByRole('textbox', { name: 'Daily limit (USD)' });
       await expect(configuredDailyLimit).toHaveValue('700');
       await expect
         .poll(async () => {

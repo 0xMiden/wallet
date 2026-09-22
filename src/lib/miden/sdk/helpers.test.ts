@@ -5,6 +5,7 @@ import {
   accountRefToSdk,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
+  canonicalFaucetBech32Id,
   getBech32AddressFromAccountId,
   sameWalletAccountId,
   walletAccountIdToSdk
@@ -151,6 +152,29 @@ describe('miden sdk helpers', () => {
       accountRefToSdk('mtst1qabc');
       expect(Address.fromBech32).toHaveBeenCalledWith('mtst1qabc');
       expect(AccountId.fromHex).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('canonicalFaucetBech32Id', () => {
+    it('round-trips a hex faucet id to the same bech32 form the metadata cache keys on', () => {
+      (AccountId.fromHex as jest.Mock).mockReturnValueOnce('accountId-0xABCDEF');
+      const res = canonicalFaucetBech32Id('0xABCDEF');
+      expect(AccountId.fromHex).toHaveBeenCalledWith('0xABCDEF');
+      expect(Address.fromAccountId).toHaveBeenCalledWith('accountId-0xABCDEF', 'BasicWallet');
+      expect(res).toBe('bech32-accountId-0xABCDEF');
+    });
+
+    it('is a no-op for an id already in bech32 form', () => {
+      const res = canonicalFaucetBech32Id('mtst1qabc');
+      expect(Address.fromBech32).toHaveBeenCalledWith('mtst1qabc');
+      expect(res).toBe('bech32-accountId-mtst1qabc');
+    });
+
+    it('falls back to the raw id when it cannot be parsed at all', () => {
+      (Address.fromBech32 as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('not bech32');
+      });
+      expect(canonicalFaucetBech32Id('not-an-id')).toBe('not-an-id');
     });
   });
 

@@ -246,42 +246,45 @@ describe('useWalletStore', () => {
   });
 
   describe('spending-limit actions', () => {
-    const draft = {
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      dailyLimit: 90n,
-      asset: { symbol: 'MIDEN', decimals: 8 }
-    };
+    const draft = { accountId: 'account-a', limit: 90n };
 
-    it('lists configurations through a serializable transport response', async () => {
+    it('reads the one configuration through a serializable transport response', async () => {
       mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.GetSpendingLimitsResponse,
-        configurations: [
-          {
-            ...draft,
-            dailyLimit: '90',
-            revision: 'revision-1',
-            createdAt: 1,
-            updatedAt: 2
-          }
-        ]
+        type: WalletMessageType.GetSpendingLimitResponse,
+        configuration: {
+          accountId: 'account-a',
+          limit: '90',
+          revision: 'revision-1',
+          createdAt: 1,
+          updatedAt: 2
+        }
       });
 
-      await expect(useWalletStore.getState().listSpendingLimits('account-a')).resolves.toEqual([
-        { ...draft, revision: 'revision-1', createdAt: 1, updatedAt: 2 }
-      ]);
+      await expect(useWalletStore.getState().readSpendingLimit('account-a')).resolves.toEqual({
+        accountId: 'account-a',
+        limit: 90n,
+        revision: 'revision-1',
+        createdAt: 1,
+        updatedAt: 2
+      });
       expect(mockRequest).toHaveBeenCalledWith({
-        type: WalletMessageType.GetSpendingLimitsRequest,
+        type: WalletMessageType.GetSpendingLimitRequest,
         accountId: 'account-a'
       });
     });
 
-    it('serializes bigint limits and parses the saved response', async () => {
+    it('reports no configuration for an account with none', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.GetSpendingLimitResponse });
+
+      await expect(useWalletStore.getState().readSpendingLimit('account-a')).resolves.toBeUndefined();
+    });
+
+    it('serializes a bigint limit and parses the saved response', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SaveSpendingLimitResponse,
         configuration: {
-          ...draft,
-          dailyLimit: '90',
+          accountId: 'account-a',
+          limit: '90',
           revision: 'revision-2',
           createdAt: 1,
           updatedAt: 2
@@ -289,48 +292,45 @@ describe('useWalletStore', () => {
       });
 
       await expect(useWalletStore.getState().saveSpendingLimit(draft, 'revision-1', false)).resolves.toMatchObject({
-        dailyLimit: 90n,
+        limit: 90n,
         revision: 'revision-2'
       });
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.SaveSpendingLimitRequest,
-        draft: { ...draft, dailyLimit: '90' },
+        draft: { accountId: 'account-a', limit: '90' },
         observedRevision: 'revision-1',
         strictlyAuthenticated: false
       });
     });
 
-    it('serializes a proposal and parses its structured preflight assessment', async () => {
+    it('serializes a spend list and parses its structured preflight assessment', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.AssessSpendingLimitResponse,
         assessment: {
           accountId: 'account-a',
-          faucetId: 'faucet-a',
-          amount: '20',
+          usdAmount: '20',
           revision: 'revision-1',
           assessedAt: 100,
-          breaches: [
-            {
-              period: '24h',
-              spent: '90',
-              proposedTotal: '110',
-              limit: '100',
-              overBy: '10',
-              resetAt: 200
-            }
-          ]
+          breach: {
+            spent: '90',
+            proposedTotal: '110',
+            limit: '100',
+            overBy: '10',
+            resetAt: 200
+          }
         }
       });
 
-      await expect(useWalletStore.getState().assessSpendingLimit('account-a', 'faucet-a', 20n)).resolves.toMatchObject({
-        amount: 20n,
-        breaches: [{ overBy: 10n }]
+      await expect(
+        useWalletStore.getState().assessSpendingLimit('account-a', [{ faucetId: 'faucet-a', amount: 20n }])
+      ).resolves.toMatchObject({
+        usdAmount: 20n,
+        breach: { overBy: 10n }
       });
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.AssessSpendingLimitRequest,
         accountId: 'account-a',
-        faucetId: 'faucet-a',
-        amount: '20'
+        spends: [{ faucetId: 'faucet-a', amount: '20' }]
       });
     });
   });
