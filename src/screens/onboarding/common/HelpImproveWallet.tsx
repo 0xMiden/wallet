@@ -46,7 +46,7 @@ export const HelpImproveWalletScreen: React.FC<HelpImproveWalletScreenProps> = (
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-help-improve-wallet">
       <div className="min-h-full flex flex-col items-center px-6">
         <div className="flex-1 flex flex-col items-center justify-center w-full pt-20 py-8">
-          <h1 className="text-[1.75rem] font-bold font-heading text-heading-gray text-center leading-[105%] tracking-tight">
+          <h1 className="text-[1.75rem] font-bold font-heading text-ink text-center leading-[105%] tracking-tight">
             {t('helpImproveWallet')}
           </h1>
           <p

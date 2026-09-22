@@ -85,6 +85,16 @@ const mockIsTelemetryEnabled = isTelemetryEnabled as jest.Mock;
 // Structural wrappers — render their children straight through so the inner
 // tree is preserved and assertable.
 // ---------------------------------------------------------------------------
+// MotionConfig surfaces its reducedMotion setting so the root wiring is assertable.
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual('framer-motion'),
+  MotionConfig: ({ children, reducedMotion }: { children?: React.ReactNode; reducedMotion?: string }) => (
+    <div data-testid="motion-config" data-reduced-motion={reducedMotion}>
+      {children}
+    </div>
+  )
+}));
+
 jest.mock('app/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }: { children?: React.ReactNode }) => <>{children}</>
@@ -246,6 +256,20 @@ describe('app/App', () => {
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
       expect(queryByTestId('confirm-page')).not.toBeInTheDocument();
       expect(queryByTestId('desktop-dapp-handler')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('motion config', () => {
+    it.each([
+      ['extension', { windowType: 'FullPage', confirmWindow: false }, 'page-router'],
+      ['confirm window', { windowType: 'Popup', confirmWindow: true }, 'confirm-page']
+    ])('follows the OS reduced-motion setting around the whole %s tree', (_label, env, leaf) => {
+      const { getByTestId } = renderApp(env);
+
+      const config = getByTestId('motion-config');
+      expect(config).toHaveAttribute('data-reduced-motion', 'user');
+      expect(config).toContainElement(getByTestId(leaf));
+      expect(config).toContainElement(getByTestId('dialogs'));
     });
   });
 

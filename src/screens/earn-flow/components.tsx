@@ -4,37 +4,29 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import aaveLogoUrl from 'app/icons/earn-provider-logos/aave.svg?url';
-import { IconName } from 'app/icons/v2';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { Pill } from 'components/ui/Pill';
 import { goBack } from 'lib/woozie';
 
 import { EarnSummary, EarnVault } from './types';
 
-/** Shared top bar for the vault deposit flow: back button, "{protocol} • {asset}"
- *  title and the "{asset} on {network}" pill. Used by the deposit-amount and
- *  deposit-review pages so their headers stay identical. */
+/** Shared top bar for the vault deposit flow: the `PageHeader` with back, a "{protocol} • {asset}"
+ *  title and the "{asset} on {network}" pill. Used by the deposit-amount and deposit-review pages
+ *  so their headers stay identical, and shaped like the vault and withdraw-review headers. Both
+ *  pages are unpadded, so the header brings the 16px page margin itself. */
 export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
   return (
-    <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-      <div className="flex min-w-0 items-center gap-3">
-        <CircleButton
-          icon={IconName.ChevronLeft}
-          onClick={goBack}
-          className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-          size="md"
-          aria-label={t('back')}
-        />
-        <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
-          {vault.protocol} &bull; {vault.asset}
-        </h1>
-        <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
-          {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
-        </span>
-      </div>
-    </header>
+    <PageHeader
+      className="shrink-0 px-4"
+      title={`${vault.protocol} • ${vault.asset}`}
+      onBack={goBack}
+      actions={
+        <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+      }
+    />
   );
 };
 
@@ -44,9 +36,9 @@ export const MetricCard: FC<{ label: string; value: string; valueClassName?: str
   valueClassName,
   className
 }) => (
-  <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-gray-25 px-10', className)}>
+  <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-fill px-10', className)}>
     <div className="text-center text-[10px] font-semibold uppercase leading-none text-gray-secondary">{label}</div>
-    <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-black', valueClassName)}>
+    <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-ink', valueClassName)}>
       {value}
     </div>
   </div>
@@ -66,9 +58,7 @@ export const EarnSummaryPanel: FC<{
         {t('earnTotalEarnedRewards')}
       </h1>
 
-      <div className="mt-0.5 font-heading text-[56px] font-bold leading-16 text-heading-gray">
-        {summary.totalRewards}
-      </div>
+      <div className="mt-0.5 font-heading text-[56px] font-bold leading-16 text-ink">{summary.totalRewards}</div>
 
       <div className="mt-0.5 text-base font-semibold text-status-positive">
         {t('earnEarningBlendedApy', { apy: summary.blendedApy })}

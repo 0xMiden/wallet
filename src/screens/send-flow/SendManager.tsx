@@ -32,7 +32,7 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -93,9 +93,17 @@ export interface SendManagerProps {
   preselectedTokenId?: string | null;
   /** Values restored when the user backs out of the full-screen review page. */
   draft?: SendDraft | null;
+  /** Recipient handed over by a contact's page, with its saved network for a `0x` contact. */
+  preselectedRecipient?: string | null;
+  preselectedNetwork?: string | null;
 }
 
-export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, draft }) => {
+export const SendManager: React.FC<SendManagerProps> = ({
+  preselectedTokenId,
+  draft,
+  preselectedRecipient,
+  preselectedNetwork
+}) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
@@ -110,6 +118,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // EVM destination networks are selected in a bottom sheet from the recipient step.
   // Saving an unknown-but-valid recipient to the address book, also a bottom sheet.
   const [showAddContactDrawer, setShowAddContactDrawer] = useState(false);
+  const [addContactSaving, setAddContactSaving] = useState(false);
   // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
   // step (mobile scans through its native plugin instead — see onScan below).
   const [showScanDrawer, setShowScanDrawer] = useState(false);
@@ -142,7 +151,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         id: contact.address,
         name: contact.name,
         isOwned: false,
-        contactType: 'external' as const
+        contactType: 'external' as const,
+        network: BRIDGE_NETWORKS.find(n => n.id === contact.network)?.id
       }));
 
     return [...walletContacts, ...externalContacts];
@@ -169,7 +179,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
     if (showAddContactDrawer) {
-      setShowAddContactDrawer(false);
+      // Consume the gesture either way, but do not tear the sheet down mid-write: SheetBody's
+      // error node is the only place a failed save can be reported, and this path does not go
+      // through the drawer's own dismiss guard.
+      if (!addContactSaving) setShowAddContactDrawer(false);
       return true;
     }
     if (showContactsDrawer) {
@@ -187,7 +200,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showAddContactDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+    // `addContactSaving` must stay in this list: the hook registers only when a dep changes, so a
+    // handler reading it without it here keeps the closure captured while the save had not started.
+  }, [showAddContactDrawer, addContactSaving, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on send-flow entry.
   //
@@ -651,13 +666,33 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     (contact: Contact) => {
       onAction({
         id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: contact.id }
+        payload: contact.network
+          ? { recipientAddress: contact.id, bridgeNetwork: contact.network }
+          : { recipientAddress: contact.id }
       });
+      // A `0x` contact carries its destination network, so the network chips come up chosen.
+      if (contact.network) setRecipientNetwork(contact.network);
       // A saved contact can be the account's own address — same guard as typed entry.
       applyRecipientValidation(contact.id);
     },
     [onAction, applyRecipientValidation]
   );
+
+  // Opened from a contact's page (`/send?to=…&network=…`): start with that contact as the recipient.
+  useEffect(() => {
+    if (!preselectedRecipient) return;
+    const network = BRIDGE_NETWORKS.find(n => n.id === preselectedNetwork)?.id;
+    onAction({
+      id: SendFlowActionId.SetFormValues,
+      payload: network
+        ? { recipientAddress: preselectedRecipient, bridgeNetwork: network }
+        : { recipientAddress: preselectedRecipient }
+    });
+    if (network) setRecipientNetwork(network);
+    applyRecipientValidation(preselectedRecipient);
+    // Once per contact opened, not on every change of the callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedRecipient, preselectedNetwork]);
 
   // A 0x recipient's destination network, picked from the chips on the recipient step.
   const onSelectNetwork = useCallback(
@@ -667,6 +702,13 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     },
     [onAction]
   );
+
+  // While there is a single bridge network there is nothing to choose, so a valid 0x recipient
+  // gets it selected; the recipient step shows it as a fact and Confirm is ready.
+  useEffect(() => {
+    const only = BRIDGE_NETWORKS.length === 1 ? BRIDGE_NETWORKS[0] : undefined;
+    if (only && isBridge && isValidRecipient && bridgeNetwork !== only.id) onSelectNetwork(only.id);
+  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -860,7 +902,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       <AddContactDrawer
         open={showAddContactDrawer}
         onOpenChange={setShowAddContactDrawer}
+        onBusyChange={setAddContactSaving}
         address={recipientAddress ?? ''}
+        network={isBridge ? bridgeNetwork : undefined}
       />
 
       <ScanQrDrawer
@@ -879,7 +923,11 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   // Restore their values and reopen on the Amount step; the token restores
   // through the preselect effect via its id.
   const [draft] = useState(consumeSendDraft);
-  const preselectedTokenId = draft?.tokenId ?? new URLSearchParams(search).get('tokenId');
+  const params = new URLSearchParams(search);
+  const preselectedTokenId = draft?.tokenId ?? params.get('tokenId');
+  // A restored draft already carries its recipient.
+  const preselectedRecipient = draft ? null : params.get('to');
+  const preselectedNetwork = draft ? null : params.get('network');
   // Otherwise start at recipient selection; a preselected token just pre-fills
   // the token for the Amount step (see the preselect effect in SendManager).
   // A restored draft reopens on Amount with Recipient beneath it, so back returns
@@ -892,7 +940,13 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
 
   return (
     <NavigatorProvider routes={ROUTES} initialRouteNames={initialRoutes}>
-      <SendManager {...props} preselectedTokenId={preselectedTokenId} draft={draft} />
+      <SendManager
+        {...props}
+        preselectedTokenId={preselectedTokenId}
+        draft={draft}
+        preselectedRecipient={preselectedRecipient}
+        preselectedNetwork={preselectedNetwork}
+      />
     </NavigatorProvider>
   );
 };

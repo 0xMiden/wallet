@@ -46,16 +46,26 @@ jest.mock('components/Button', () => ({
 
 jest.mock('../HashChip', () => ({
   __esModule: true,
-  default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
+  default: ({ hash, className }: { hash: string; className?: string }) => (
+    <span data-testid="hash-chip" className={className}>
+      {hash}
+    </span>
+  )
 }));
 
-jest.mock('./DetailCard', () => ({
-  DetailCard: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
+jest.mock('components/ui/DetailCard', () => ({
   DetailRow: ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div data-testid="detail-row" data-label={label}>
       {children}
     </div>
-  ),
+  )
+}));
+
+jest.mock('./DetailSection', () => ({
+  DetailSection: ({ children }: { children: React.ReactNode }) => <section>{children}</section>
+}));
+
+jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ displayValue, href }: { displayValue: React.ReactNode; href: string }) => (
     <a data-testid="external-link" href={href}>
       {displayValue}
@@ -115,7 +125,6 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       reclaimedTransactions={[]}
       fromAccount={<span>me</span>}
       showActions={false}
-      onDismiss={jest.fn()}
       {...over}
     />
   );
@@ -203,15 +212,15 @@ describe('SwapDetail status line', () => {
   const status = () => screen.getByTestId('swap-order-status');
 
   it.each([
-    ['active', 1000n, 0n, 'orderStatusActive', 'text-status-pending'],
-    ['active', 1000n, 400n, 'orderStatusPartiallyFilled', 'text-status-pending'],
-    ['filled', 1000n, 1000n, 'orderStatusFilled', 'text-status-positive'],
+    ['active', 1000n, 0n, 'orderStatusActive', 'bg-pending-tint'],
+    ['active', 1000n, 400n, 'orderStatusPartiallyFilled', 'bg-pending-tint'],
+    ['filled', 1000n, 1000n, 'orderStatusFilled', 'bg-positive-tint'],
     // A settle-tagged expiry bundle is how most partial fills end, so "Filled"
     // in green over a 40% fill is the single most misleading thing this line
     // could say.
-    ['filled', 1000n, 400n, 'orderStatusPartiallyFilled', 'text-status-pending'],
-    ['reclaimed', 1000n, 0n, 'orderStatusReclaimed', 'text-text-secondary-token'],
-    ['reclaimed', 1000n, 400n, 'orderStatusPartiallyFilledReclaimed', 'text-text-secondary-token']
+    ['filled', 1000n, 400n, 'orderStatusPartiallyFilled', 'bg-pending-tint'],
+    ['reclaimed', 1000n, 0n, 'orderStatusReclaimed', 'bg-fill-pressed'],
+    ['reclaimed', 1000n, 400n, 'orderStatusPartiallyFilledReclaimed', 'bg-fill-pressed']
   ])('labels %s with %s filled as %s in %s', (orderState, requested, filled, label, tone) => {
     renderDetail({
       orderState: orderState as 'active' | 'filled' | 'reclaimed',
@@ -228,7 +237,9 @@ describe('SwapDetail status line', () => {
   it('distinguishes a lineage still loading from one that never answered', () => {
     renderDetail({ orderState: null, trackingLoading: true });
     expect(status().textContent).toBe('loading');
-    expect(status()).toHaveClass('text-text-tertiary-token');
+    expect(status()).toHaveClass('bg-fill-pressed', 'text-ink');
+    // The order's state changes under the reader while the lineage resolves.
+    expect(status()).toHaveAttribute('role', 'status');
 
     renderDetail({ orderState: null, trackingLoading: false });
     expect(screen.getAllByTestId('swap-order-status')[1]!.textContent).toBe('trackingUnavailable');
@@ -268,10 +279,29 @@ describe('SwapDetail note rows', () => {
   it('shows a pending row only while the order can still be matched', () => {
     const { unmount } = renderDetail({ orderState: 'active' });
     expect(screen.getByText('swapOpenFill')).toBeInTheDocument();
+    // The open fill carries the compact pending badge, not bare orange text.
+    const openFill = screen.getByText('swapOpenFill').closest('[role="status"]');
+    const badge = openFill?.querySelector('.bg-pending-tint');
+    expect(badge).toHaveTextContent('pending');
+    expect(badge).toHaveClass('h-5', 'text-pending-tint-ink');
     unmount();
 
     renderDetail({ orderState: 'filled' });
     expect(screen.queryByText('swapOpenFill')).not.toBeInTheDocument();
+  });
+
+  it('shows fill and reclaim note ids in the muted ink that clears 4.5:1 on the chip fill', () => {
+    renderDetail({
+      settledTransactions: [consume()],
+      reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9'] })]
+    });
+
+    const chips = screen.getAllByTestId('hash-chip').filter(chip => /^0xnote[19]$/.test(chip.textContent ?? ''));
+    expect(chips).toHaveLength(2);
+    chips.forEach(chip => {
+      expect(chip).toHaveClass('text-muted');
+      expect(chip).not.toHaveClass('text-text-secondary-token');
+    });
   });
 
   it('only denies that anything was bundled when the fill is actually known', () => {
@@ -314,13 +344,13 @@ describe('SwapDetail explorer links', () => {
 });
 
 describe('SwapDetail actions', () => {
-  it('always offers a way off the screen when it owns the action bar', () => {
-    // An order that reached the DEX has no cancel path, so this must not borrow
-    // the destructive label - and there is no order state in which leaving the
-    // screen stops being available.
+  it('renders no dismiss control of its own - leaving the screen is the page back button', () => {
+    // An order that reached the DEX has no cancel path, but there is also no
+    // in-card way off the screen any more: the routed page's own back chevron
+    // is the only exit, in every order state.
     renderDetail({ showActions: true, orderState: 'filled' });
 
-    expect(screen.getByText('close')).toBeInTheDocument();
+    expect(screen.queryByText('close')).not.toBeInTheDocument();
     expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
   });
 

@@ -18,6 +18,7 @@ import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import useIsMounted from 'lib/ui/useIsMounted';
 import {
   fetchActiveBridgePrompts,
   faucet,
@@ -239,6 +240,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [hotKeyError, setHotKeyError] = useState<string | null>(null);
   const [copyStatusIndicator, setCopyStatusIndicator] = useState<PromptCardStatus>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const isMounted = useIsMounted();
   const [rotationStatusIndicator, setRotationStatusIndicator] = useState<PromptCardStatus>('idle');
   const rotatingRef = useRef(false);
   const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
@@ -369,18 +371,27 @@ export const HomePrompts: FC<HomePromptsProps> = ({
 
   const copyHotKeyError = useCallback(() => {
     const text = hotKeyError ?? 'Hot-key secure hardware unavailable';
-    void navigator.clipboard
-      .writeText(text)
+    // The write is owned by an async function: a bare `navigator.clipboard` dereference throws
+    // synchronously where the API is absent, and the `.catch` below - the only thing that reports
+    // a failure - would never have been attached to anything.
+    void (async () => {
+      await navigator.clipboard.writeText(text);
+    })()
       .then(() => {
+        // The timer below is armed AFTER the awaited write, so the unmount cleanup has already run
+        // and found nothing to clear by the time this continuation lands. Liveness has to be
+        // checked here, not just cleaned up there.
+        if (!isMounted()) return;
         setCopyStatusIndicator('success');
         if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
         copyTimerRef.current = setTimeout(() => setCopyStatusIndicator('idle'), 1500);
       })
       .catch(error => {
         console.error('[wallet-prompts] failed to copy hot-key error:', error);
+        if (!isMounted()) return;
         setCopyStatusIndicator('failure');
       });
-  }, [hotKeyError]);
+  }, [hotKeyError, isMounted]);
 
   // Rotation-needed prompt action: enqueue a replace-hot-key transaction and
   // route to the generating-transaction page (which drives the FIFO loop on

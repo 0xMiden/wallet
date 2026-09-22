@@ -31,7 +31,9 @@ function setFieldRef(ref: { current: HTMLInputElement | null }, value: HTMLInput
 describe('useCopyToClipboard', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    writeText.mockClear();
+    writeText.mockReset();
+    // The hook awaits the write, so the stub has to settle like the real API.
+    writeText.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -42,7 +44,7 @@ describe('useCopyToClipboard', () => {
     document.body.innerHTML = '';
   });
 
-  it('starts with copied=false, a null ref, and the expected API surface', () => {
+  it('starts with copied=false, a null ref, and the expected API surface', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
 
     expect(result.current.copied).toBe(false);
@@ -51,7 +53,7 @@ describe('useCopyToClipboard', () => {
     expect(typeof result.current.setCopied).toBe('function');
   });
 
-  it('focuses, selects, writes the field value to the clipboard and flips copied=true', () => {
+  it('focuses, selects, writes the field value to the clipboard and flips copied=true', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
     const field = makeField('secret-mnemonic');
     const focusSpy = jest.spyOn(field, 'focus');
@@ -61,7 +63,7 @@ describe('useCopyToClipboard', () => {
       setFieldRef(result.current.fieldRef, field);
     });
 
-    act(() => {
+    await act(async () => {
       result.current.copy();
     });
 
@@ -72,10 +74,10 @@ describe('useCopyToClipboard', () => {
     expect(document.activeElement).toBe(field);
   });
 
-  it('does nothing when the field ref is null (no clipboard write, copied stays false)', () => {
+  it('does nothing when the field ref is null (no clipboard write, copied stays false)', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
 
-    act(() => {
+    await act(async () => {
       result.current.copy();
     });
 
@@ -83,7 +85,52 @@ describe('useCopyToClipboard', () => {
     expect(result.current.copied).toBe(false);
   });
 
-  it('is a no-op on a second copy while still in the copied state', () => {
+  it('is a no-op on a second copy while still in the copied state', async () => {
+    const { result } = renderHook(() => useCopyToClipboard());
+    const field = makeField('value-1');
+
+    act(() => {
+      setFieldRef(result.current.fieldRef, field);
+    });
+    await act(async () => {
+      result.current.copy();
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
+
+    // Second call short-circuits because `copied` is already true.
+    await act(async () => {
+      result.current.copy();
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
+  });
+
+  // The confirmation follows the write, so a refused write must not claim the value was copied.
+  // Reporting it beforehand is worst exactly here: the callers are the screens that reveal a
+  // secret, and the user walks away from it believing the clipboard holds it.
+  it('leaves copied false when the write is refused', async () => {
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    const { result } = renderHook(() => useCopyToClipboard());
+    const field = makeField('value-1');
+
+    act(() => {
+      setFieldRef(result.current.fieldRef, field);
+    });
+    await act(async () => {
+      result.current.copy();
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(result.current.copied).toBe(false);
+    // The value is still selected, so it can be copied by hand.
+    expect(document.activeElement).toBe(field);
+  });
+
+  // `copied` cannot hold the second click off any more - it is only set once the write resolves -
+  // so the in-flight latch is what keeps a click inside that window a no-op. The receive-address
+  // E2E depends on exactly that.
+  it('is a no-op on a second copy made before the write resolves', async () => {
+    let settle: () => void = () => undefined;
+    writeText.mockImplementationOnce(() => new Promise<void>(resolve => (settle = resolve)));
     const { result } = renderHook(() => useCopyToClipboard());
     const field = makeField('value-1');
 
@@ -92,17 +139,18 @@ describe('useCopyToClipboard', () => {
     });
     act(() => {
       result.current.copy();
-    });
-    expect(writeText).toHaveBeenCalledTimes(1);
-
-    // Second call short-circuits because `copied` is already true.
-    act(() => {
       result.current.copy();
     });
+
     expect(writeText).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      settle();
+    });
+    expect(result.current.copied).toBe(true);
   });
 
-  it('resets copied and blurs the field after the default 2s delay when it is still focused', () => {
+  it('resets copied and blurs the field after the default 2s delay when it is still focused', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
     const field = makeField('blur-me');
     const blurSpy = jest.spyOn(field, 'blur');
@@ -110,7 +158,7 @@ describe('useCopyToClipboard', () => {
     act(() => {
       setFieldRef(result.current.fieldRef, field);
     });
-    act(() => {
+    await act(async () => {
       result.current.copy();
     });
     expect(result.current.copied).toBe(true);
@@ -131,14 +179,14 @@ describe('useCopyToClipboard', () => {
     expect(document.activeElement).not.toBe(field);
   });
 
-  it('honours a custom copyDelay', () => {
+  it('honours a custom copyDelay', async () => {
     const { result } = renderHook(() => useCopyToClipboard(500));
     const field = makeField('custom-delay');
 
     act(() => {
       setFieldRef(result.current.fieldRef, field);
     });
-    act(() => {
+    await act(async () => {
       result.current.copy();
     });
 
@@ -153,7 +201,7 @@ describe('useCopyToClipboard', () => {
     expect(result.current.copied).toBe(false);
   });
 
-  it('resets copied but does NOT blur when the field is no longer the active element', () => {
+  it('resets copied but does NOT blur when the field is no longer the active element', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
     const field = makeField('not-active');
     const other = makeField('other');
@@ -162,7 +210,7 @@ describe('useCopyToClipboard', () => {
     act(() => {
       setFieldRef(result.current.fieldRef, field);
     });
-    act(() => {
+    await act(async () => {
       result.current.copy();
     });
 
@@ -179,7 +227,7 @@ describe('useCopyToClipboard', () => {
     expect(blurSpy).not.toHaveBeenCalled();
   });
 
-  it('resets copied without blurring when the field ref has been cleared before the timeout fires', () => {
+  it('resets copied without blurring when the field ref has been cleared before the timeout fires', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
     const field = makeField('cleared');
     const blurSpy = jest.spyOn(field, 'blur');
@@ -187,7 +235,7 @@ describe('useCopyToClipboard', () => {
     act(() => {
       setFieldRef(result.current.fieldRef, field);
     });
-    act(() => {
+    await act(async () => {
       result.current.copy();
     });
 
@@ -203,7 +251,7 @@ describe('useCopyToClipboard', () => {
     expect(blurSpy).not.toHaveBeenCalled();
   });
 
-  it('clears the pending timeout on unmount so copied never resets after teardown', () => {
+  it('clears the pending timeout on unmount so copied never resets after teardown', async () => {
     const clearSpy = jest.spyOn(window, 'clearTimeout');
     const { result, unmount } = renderHook(() => useCopyToClipboard());
     const field = makeField('unmount');
@@ -211,7 +259,7 @@ describe('useCopyToClipboard', () => {
     act(() => {
       setFieldRef(result.current.fieldRef, field);
     });
-    act(() => {
+    await act(async () => {
       result.current.copy();
     });
 
@@ -226,7 +274,45 @@ describe('useCopyToClipboard', () => {
     clearSpy.mockRestore();
   });
 
-  it('exposes setCopied to drive the copied state directly', () => {
+  // A `navigator.clipboard` that is absent makes the DEREFERENCE throw, before any promise exists,
+  // so a bare `void navigator.clipboard.writeText(...).catch(...).finally(...)` never builds the
+  // chain: the throw escapes into the click handler and the in-flight latch is never released,
+  // leaving every later activation a no-op for the life of the component. The stub is installed
+  // once at module scope, so this case removes it and restores it in a `finally` - an assertion
+  // failing here (which is what happens on the unfixed hook) must not poison every later case.
+  it('survives an absent Clipboard API and leaves the control usable', async () => {
+    const stub = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
+    // Model a surface that exposes no Clipboard API at all.
+    delete (window.navigator as { clipboard?: unknown }).clipboard;
+
+    try {
+      const field = makeField('s3cret');
+      const { result } = renderHook(() => useCopyToClipboard());
+      act(() => {
+        setFieldRef(result.current.fieldRef, field);
+      });
+
+      // It does not throw into the caller ...
+      await act(async () => {
+        expect(() => result.current.copy()).not.toThrow();
+      });
+      // ... and nothing claims the secret reached the clipboard.
+      expect(result.current.copied).toBe(false);
+
+      // The latch is released, not merely never taken: the microtask flush above has let the
+      // rejection settle, so a second activation must reach the field again. Re-selecting it is
+      // the observable, since there is no clipboard to count calls on.
+      field.blur();
+      await act(async () => {
+        result.current.copy();
+      });
+      expect(document.activeElement).toBe(field);
+    } finally {
+      if (stub) Object.defineProperty(window.navigator, 'clipboard', stub);
+    }
+  });
+
+  it('exposes setCopied to drive the copied state directly', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
 
     act(() => {

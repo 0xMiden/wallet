@@ -15,11 +15,12 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
+import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
+import { NewContactPage } from 'screens/contacts/NewContactPage';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
 import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
@@ -277,6 +278,23 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
+  // `/contacts/new` first: the `:address` route below would otherwise match it.
+  [
+    '/contacts/new',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <NewContactPage />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/contacts/:address',
+    onlyReady(({ address }) => (
+      <FullScreenPage key={`contact-${address}`} entrance="slide">
+        <ContactDetailPage address={decodeURIComponent(address!)} />
+      </FullScreenPage>
+    ))
+  ],
   [
     '/token-detail/:tokenId',
     onlyReady(({ tokenId }) => (
@@ -459,14 +477,9 @@ const PageRouter: FC = () => {
       </MobilePageLayers>
     );
 
-  // The network banner (#875) sits above EVERY routed page, outside the page
-  // layouts, so no screen can forget it. The page takes the remaining height.
-  return (
-    <div className="flex h-full w-full flex-col">
-      <NetworkModeBanner />
-      <div className="relative flex min-h-0 flex-1 flex-col">{layered}</div>
-    </div>
-  );
+  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout), not in a banner
+  // above every page; the page takes the full height.
+  return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
 };
 
 export default PageRouter;

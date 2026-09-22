@@ -416,7 +416,7 @@ describe('RecallCalendarDrawer', () => {
       const props = makeProps({ recallDate, recallTime: '14:30' });
       await renderDrawer(props);
 
-      expect(screen.getByTestId('recall-time-input').className).toContain('text-heading-gray');
+      expect(screen.getByTestId('recall-time-input').className).toContain('text-ink');
       expect(screen.queryByText('recallTimeInPast')).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByText('confirm'));

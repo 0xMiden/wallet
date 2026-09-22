@@ -13,9 +13,9 @@ import GuardianReplaceHotKey from './GuardianReplaceHotKey';
 // of native/store-backed collaborators. We isolate the component under test by
 // stubbing every collaborator so the only real code exercised (and measured) is
 // GuardianReplaceHotKey.tsx itself:
-//   - `FormSubmitButton` is captured so tests can invoke its `onClick`
+//   - `components/Button` is captured so tests can invoke its `onClick`
 //     (the sole entry into the rotation flow) regardless of the `disabled`
-//     state the component computes, and read the `loading` / `children` props.
+//     state the component computes, and read the `isLoading` / `children` props.
 //   - `lib/miden/activity` / guardian-sync provider / platform / settings /
 //     store are jest.fn()s the tests script per-case.
 // ---------------------------------------------------------------------------
@@ -25,22 +25,28 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// Capture the latest props FormSubmitButton receives so tests can invoke its
+// Capture the latest props Button receives so tests can invoke its
 // `onClick` (the only driver of the rotation flow) and read the computed label
-// (`children`), `loading`, and `disabled`. The stub always forwards the click,
+// (`children`), `isLoading`, and `disabled`. The stub always forwards the click,
 // so the `!currentAccount` guard is reachable even though the real button would
 // be disabled in that state.
 const fsbHolder: { props: any } = { props: null };
-jest.mock('app/atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: (props: any) => {
+jest.mock('components/Button', () => ({
+  Button: (props: any) => {
     fsbHolder.props = props;
     return (
-      <button data-testid="submit" disabled={props.disabled} onClick={props.onClick}>
+      <button
+        data-testid="submit"
+        data-variant={props.variant}
+        data-size={props.size}
+        disabled={props.disabled}
+        onClick={props.onClick}
+      >
         {props.children}
       </button>
     );
-  }
+  },
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
 }));
 
 const mockInitiate = jest.fn();
@@ -95,7 +101,7 @@ const flush = () =>
     await Promise.resolve();
   });
 
-// Drive the captured FormSubmitButton.onClick (the only entry into the rotation
+// Drive the captured Button's onClick (the only entry into the rotation
 // flow), awaiting the async handler and letting React flush effects.
 const click = async () => {
   await act(async () => {
@@ -133,9 +139,35 @@ describe('GuardianReplaceHotKey — rendering', () => {
     // Not confirming yet: no confirmation copy, button enabled, not loading.
     expect(screen.queryByText('replaceHotKeyConfirmation')).not.toBeInTheDocument();
     expect(fsbHolder.props.disabled).toBe(false);
-    expect(fsbHolder.props.loading).toBe(false);
+    expect(fsbHolder.props.isLoading).toBe(false);
     // No error / success surfaces initially.
     expect(screen.queryByText('hotKeyRotated')).not.toBeInTheDocument();
+  });
+
+  it('renders as a Keys page section: label, muted description, then a compact secondary button', () => {
+    render(<GuardianReplaceHotKey />);
+
+    const section = screen.getByTestId('replace-hot-key-section');
+    expect(section.tagName).toBe('SECTION');
+    // The section label is the shared SectionHeader (an h2), not hand-styled text.
+    expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass('text-muted', 'text-label');
+    expect(screen.getByText('replaceHotKeyDescription').parentElement).toHaveClass('text-body', 'text-muted');
+    // One maintenance action on a page of links: secondary, 36px, not the page's primary CTA.
+    expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'secondary');
+    expect(screen.getByTestId('submit')).toHaveAttribute('data-size', 'sm');
+    expect(section).toContainElement(screen.getByTestId('submit'));
+  });
+
+  it('shows a failure as an alert in the negative ink', async () => {
+    mockInitiate.mockRejectedValueOnce(new Error('boom'));
+    render(<GuardianReplaceHotKey />);
+
+    await click();
+    await click();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('boom');
+    expect(alert).toHaveClass('text-negative-ink');
   });
 
   it('disables the button when there is no current account', () => {
@@ -196,7 +228,7 @@ describe('GuardianReplaceHotKey — rotation', () => {
     // The screen remains armed for confirmation while navigation takes over.
     expect(screen.getByText('replaceHotKeyConfirmation')).toBeInTheDocument();
     expect(label()).toBe('confirmReplaceHotKey');
-    expect(fsbHolder.props.loading).toBe(false);
+    expect(fsbHolder.props.isLoading).toBe(false);
   });
 
   it('passes the delegate-proof flag through when enabled', async () => {
@@ -235,7 +267,7 @@ describe('GuardianReplaceHotKey — rotation', () => {
     });
     await flush();
 
-    expect(fsbHolder.props.loading).toBe(true);
+    expect(fsbHolder.props.isLoading).toBe(true);
     expect(mockNavigate).not.toHaveBeenCalled();
 
     // Resolve the in-flight tx → success, loading cleared.
@@ -245,7 +277,7 @@ describe('GuardianReplaceHotKey — rotation', () => {
     await flush();
 
     expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1');
-    expect(fsbHolder.props.loading).toBe(false);
+    expect(fsbHolder.props.isLoading).toBe(false);
   });
 
   it('surfaces a thrown Error message', async () => {

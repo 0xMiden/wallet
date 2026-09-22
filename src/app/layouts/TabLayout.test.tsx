@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Transition } from 'framer-motion';
 
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -63,15 +63,25 @@ jest.mock('lib/mobile/useKeyboardVisible', () => ({
 }));
 
 // `springs` is animation config only; the value is irrelevant to behaviour.
+// `usePreset('fade')` returns a stand-in whose values the mount-fade tests
+// look for on the motion wrapper.
+const mockFadePreset = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  transition: { type: 'tween', duration: 0.42 }
+};
 jest.mock('lib/animation', () => ({
   springs: { standard: { type: 'spring' } },
-  useMotion: (transition: Transition) => transition
+  useMotion: (transition: Transition) => transition,
+  usePreset: (name: string) => (name === 'fade' ? mockFadePreset : undefined)
 }));
 
-// Icons are SVG re-exports; render nothing but expose the enum keys the layout
-// references so `IconName.X` lookups don't blow up.
+// Icons are SVG re-exports; render a stub that carries the name and classes the layout gives it,
+// and expose the enum keys the layout references so `IconName.X` lookups don't blow up.
 jest.mock('app/icons/v2', () => ({
-  Icon: () => null,
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid={`icon-${name}`} className={className} />
+  ),
   IconName: {
     Home: 'Home',
     Explore: 'Explore',
@@ -107,7 +117,14 @@ jest.mock('framer-motion', () => ({
   useReducedMotion: () => false,
   motion: {
     div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
-      <div ref={ref} data-testid="motion-div" data-initial={JSON.stringify(initial)} {...props}>
+      <div
+        ref={ref}
+        data-testid="motion-div"
+        data-initial={JSON.stringify(initial)}
+        data-animate={JSON.stringify(animate)}
+        data-transition={JSON.stringify(transition)}
+        {...props}
+      >
         {children}
       </div>
     ))
@@ -118,8 +135,9 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked }: any) => (
+  BottomNav: ({ items, activeId, onChange, docked, corner }: any) => (
     <div data-testid="bottom-nav" data-active={activeId} data-docked={String(!!docked)}>
+      <div data-testid="bottom-nav-corner">{corner}</div>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -135,10 +153,11 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange, layoutId }: any) => (
-    <div data-testid="action-bar" data-active={activeId} data-layout-id={layoutId}>
+  SegmentedActionBar: ({ items, activeId, onChange }: any) => (
+    <div data-testid="action-bar" data-active={activeId}>
       {items.map((it: any) => (
         <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
+          {it.icon}
           {it.label}
         </button>
       ))}
@@ -146,6 +165,13 @@ jest.mock('components/ui', () => ({
         unknown
       </button>
     </div>
+  )
+}));
+
+// The ribbon has its own suite; here it only has to land in the bar's corner, told which bar it is on.
+jest.mock('components/NetworkModeRibbon', () => ({
+  NetworkModeRibbon: ({ docked }: { docked: boolean }) => (
+    <div data-testid="network-mode-ribbon" data-docked={String(docked)} />
   )
 }));
 
@@ -262,7 +288,8 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     mockLocation.pathname = '/send';
     renderLayout();
     expect(screen.getByTestId('action-bar')).toBeInTheDocument();
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-layout-id', 'tab-layout-action-fill');
+    // Nothing pads the row down from the top of the pane: the bar's own 4px is the whole gap.
+    expect(screen.getByTestId('action-bar').parentElement!.className).toBe('shrink-0 relative z-10');
     expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
     expect(screen.queryByTestId('child-content')).toBeNull();
   });
@@ -328,6 +355,23 @@ describe('TabLayout — tabs list composition', () => {
   });
 });
 
+describe('TabLayout — network corner ribbon', () => {
+  it.each([
+    ['mobile (docked)', true],
+    ['extension/desktop (floating)', false]
+  ])('puts the network ribbon in the bottom nav’s corner on %s', (_label, mobile) => {
+    mockPlatform.isMobile = mobile;
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav-corner')).toContainElement(screen.getByTestId('network-mode-ribbon'));
+    expect(screen.getByTestId('network-mode-ribbon')).toHaveAttribute('data-docked', String(mobile));
+  });
+
+  it('shows no banner above the tabs', () => {
+    renderLayout();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
+  });
+});
+
 describe('TabLayout — swap action availability (isSwapEnabled)', () => {
   it('shows the Swap action segment off-iOS', () => {
     mockPlatform.isIOS = false;
@@ -345,6 +389,21 @@ describe('TabLayout — swap action availability (isSwapEnabled)', () => {
     expect(screen.getByTestId('action-overview')).toBeInTheDocument();
     expect(screen.getByTestId('action-send')).toBeInTheDocument();
     expect(screen.getByTestId('action-receive')).toBeInTheDocument();
+  });
+});
+
+describe('TabLayout — action colours', () => {
+  it.each([
+    ['overview', 'Wallet'],
+    ['send', 'Send'],
+    ['receive', 'Receive'],
+    ['earn', 'Earn'],
+    ['swap', 'Convert']
+  ])('draws the %s icon in its action colour', (action, icon) => {
+    mockLocation.pathname = '/';
+    renderLayout();
+    const glyph = within(screen.getByTestId(`action-${action}`)).getByTestId(`icon-${icon}`);
+    expect(glyph).toHaveClass(`text-action-${action}`);
   });
 });
 
@@ -562,6 +621,15 @@ describe('TabLayout — mount fade and tab panes', () => {
     mockLocation.pathname = '/history';
     renderLayout();
     expect(initialOf()).toBe(JSON.stringify({ opacity: 0 }));
+  });
+
+  it('fades on the design system fade preset', () => {
+    mockLocation.pathname = '/history';
+    renderLayout();
+    const wrapper = screen.getByTestId('motion-div');
+    expect(wrapper.getAttribute('data-initial')).toBe(JSON.stringify(mockFadePreset.initial));
+    expect(wrapper.getAttribute('data-animate')).toBe(JSON.stringify(mockFadePreset.animate));
+    expect(wrapper.getAttribute('data-transition')).toBe(JSON.stringify(mockFadePreset.transition));
   });
 
   it('skips the fade when returning from a webview on mobile', () => {

@@ -1,4 +1,6 @@
 import { format } from 'date-fns';
+import fs from 'fs';
+import path from 'path';
 
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -10,11 +12,8 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
-  EARN_DEPOSIT_STATUS_LABEL_KEY,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
-  earnWithdrawToneOf,
   fontColorForType,
   formatBridgeOutputAmount,
   formatDate,
@@ -308,17 +307,51 @@ describe('fontColorForType', () => {
 
   it('falls back to the faucet color for any other type', () => {
     expect(fontColorForType('faucet' as any)).toBe(TRANSACTION_COLORS.faucet);
-    expect(fontColorForType('anything-else' as any)).toBe('#891DB1');
+    expect(fontColorForType('anything-else' as any)).toBe('#BA839F');
   });
 });
 
 describe('TRANSACTION_COLORS', () => {
   it('exposes the fixed palette', () => {
     expect(TRANSACTION_COLORS).toEqual({
-      send: '#91ACC1',
-      receive: '#99AC94',
-      faucet: '#891DB1'
+      send: 'var(--tx-sent)',
+      receive: 'var(--tx-received)',
+      faucet: '#BA839F'
     });
+  });
+
+  // Regression guard for the mismatched-purple bug: TransactionIcon draws the
+  // send, receive and faucet circles from these JS constants (not from the CSS
+  // vars), so each must stay byte-for-byte in sync with main.css or the Activity
+  // row and the detail hero drift apart again. This covered the faucet alone
+  // while send and receive had the same exposure and no guard at all.
+  //
+  // What it does NOT cover: any OTHER file that copies one of these hues. It reads
+  // main.css and this module and nothing else, so a third copy elsewhere stays
+  // invisible here - which is exactly how TransactionSummaryBadge kept painting the
+  // retired send and swap colours. That file carries its own guard.
+  // Send and receive REFERENCE the token rather than copying its value, so they cannot drift by
+  // construction; what this pins is that they reference the right one and that it exists. The
+  // colour itself is pinned, resolved through the alias and in both themes, by
+  // `lib/ui/design-tokens.test.ts`'s "keeps the white activity glyph at 3:1" cases.
+  it.each([
+    ['send', '--tx-sent'],
+    ['receive', '--tx-received']
+  ] as const)('points %s at the %s token rather than copying it', (key, token) => {
+    const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
+    expect(TRANSACTION_COLORS[key]).toBe(`var(${token})`);
+    expect(css).toMatch(new RegExp(`${token}:`));
+  });
+
+  // The faucet has no action colour to alias (it is not one of Home's five), so it stays a literal
+  // and keeps the byte-for-byte guard: declared once for `:root` and once for `.dark`, both
+  // agreeing with the constant TransactionIcon draws from.
+  it('keeps faucet in sync with the --tx-faucet token in main.css', () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
+    const matches = [...css.matchAll(/--tx-faucet:\s*(#[0-9a-fA-F]{6});/g)].map(m => m[1]!.toUpperCase());
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toBe(TRANSACTION_COLORS.faucet);
+    expect(matches[1]).toBe(TRANSACTION_COLORS.faucet);
   });
 });
 
@@ -643,23 +676,6 @@ describe('earn withdraw helpers', () => {
   it('passes a non-numeric amount through unchanged', () => {
     expect(formatEarnWithdrawAmount('not-a-number')).toBe('not-a-number');
   });
-
-  it('maps each phase to a bridge status tone', () => {
-    expect(earnWithdrawToneOf('redeeming')).toBe('pending');
-    expect(earnWithdrawToneOf('delivering')).toBe('pending');
-    expect(earnWithdrawToneOf('received')).toBe('confirmed');
-    expect(earnWithdrawToneOf('failed')).toBe('failed');
-    expect(earnWithdrawToneOf(undefined)).toBe('pending');
-  });
-
-  it('has a label key for every phase', () => {
-    expect(EARN_WITHDRAW_STATUS_LABEL_KEY).toEqual({
-      redeeming: 'earnWithdrawStatusRedeeming',
-      delivering: 'earnWithdrawStatusDelivering',
-      received: 'received',
-      failed: 'failed'
-    });
-  });
 });
 
 describe('earnWithdrawAmountFields', () => {
@@ -737,13 +753,5 @@ describe('earn deposit settlement helpers', () => {
     expect(earnDepositSettlementOf(bridgeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' }))).toBe(
       'failed'
     );
-  });
-
-  it('reuses the shared status label keys (no new i18n keys)', () => {
-    expect(EARN_DEPOSIT_STATUS_LABEL_KEY).toEqual({
-      pending: 'pending',
-      confirmed: 'confirmed',
-      failed: 'failed'
-    });
   });
 });

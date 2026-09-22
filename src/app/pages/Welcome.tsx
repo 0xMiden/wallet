@@ -211,6 +211,10 @@ const Welcome: FC = () => {
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+  // Whether a registration has landed for this attempt. Distinct from `registrationError`,
+  // which both outcomes set: the throw and the resolved-but-never-Ready path. Only this tells
+  // them apart, and only this can say whether a wallet may already exist.
+  const [registrationCommitted, setRegistrationCommitted] = useState(false);
   // The registration the backend is building or holds, keyed by the inputs that made it.
   // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
   // twice (a retry joins it), and a failed registration is forgotten because it may already have
@@ -448,6 +452,10 @@ const Welcome: FC = () => {
         registration = next;
       }
       await registration.done;
+      // From here a wallet may exist, whatever happens next: the escape back to the file picker is
+      // withdrawn, because it would show an empty picker implying the restore was abandoned while
+      // the databases are written and the registration has landed.
+      setRegistrationCommitted(true);
       if (!walletFilePayload && onboardingType === OnboardingType.Create) {
         // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
@@ -996,8 +1004,20 @@ const Welcome: FC = () => {
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.
   useEffect(() => {
-    if (step !== OnboardingStep.Confirmation) setRegistrationError(null);
+    if (step !== OnboardingStep.Confirmation) {
+      setRegistrationError(null);
+      setRegistrationCommitted(false);
+    }
   }, [step]);
+
+  // Confirmation creates the wallet, so there is nothing to step back to, except a file restore the
+  // user might want to retry with a different file - and only while no registration has landed. The
+  // chevron and the hardware back read the SAME predicate: the hardware path used to consult only
+  // `isLoading`, so it stayed open exactly where the chevron was being closed. Back returns to the
+  // file choice; see the 'back' action.
+  const canLeaveConfirmation =
+    step !== OnboardingStep.Confirmation ||
+    (importType === ImportType.WalletFile && !isLoading && !registrationCommitted);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
@@ -1005,14 +1025,13 @@ const Welcome: FC = () => {
     if (step === OnboardingStep.Welcome) {
       return false;
     }
-    // On confirmation/loading screen, don't allow back
-    if (step === OnboardingStep.Confirmation && isLoading) {
+    if (!canLeaveConfirmation) {
       return true; // Consume but don't navigate
     }
     // Trigger the onboarding back action
     onAction({ id: 'back' });
     return true;
-  }, [step, isLoading, onAction]);
+  }, [step, canLeaveConfirmation, onAction]);
 
   return (
     <AwaitFonts name="Nunito" weights={[500, 600, 700]}>
@@ -1033,6 +1052,7 @@ const Welcome: FC = () => {
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
           importViaKey={Boolean(keyPairPayload)}
+          canGoBack={canLeaveConfirmation}
           onBiometricChange={setUseBiometric}
           onAction={onAction}
         />

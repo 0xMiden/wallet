@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "Gesamtsaldo",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "Adresse: $number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "Kontooptionen",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "Adresse kopieren",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "Adresse kopiert",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "Wird geladen…",
@@ -94,42 +93,6 @@
   "promptCardLoading": {
     "message": "Wird geladen",
     "englishSource": "Loading"
-  },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
   },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
@@ -567,18 +530,6 @@
     "message": "Klicken Sie hier, um dieses Feld anzuzeigen",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Zum Anzeigen hier klicken",
-    "englishSource": "Click to reveal"
-  },
-  "copiedHash": {
-    "message": "Kopiert.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "In die Zwischenablage kopieren",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Konten",
     "englishSource": "Accounts"
@@ -757,14 +708,6 @@
     "message": "Nur gültige, vorab generierte Mnemonik",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Das Einfügen ist fehlgeschlagen, da der Text mehr als 24 Wörter enthielt.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Sie können Ihren gesamten geheimen Seed phrase in ein beliebiges Feld einfügen",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Ein oder mehrere Wörter sind nicht in der Wortliste der Wiederherstellungsphrase enthalten. Überprüfen Sie die hervorgehobenen Wörter.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +752,6 @@
   "retryAnyway": {
     "message": "Trotzdem wiederholen",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal: $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Bevor Sie fortfahren",
@@ -1083,7 +1017,7 @@
   },
   "importWallet": {
     "message": "Wallet importieren",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Stattdessen mit Schlüssel importieren",
@@ -1228,6 +1162,10 @@
   "termsOfService": {
     "message": "Nutzungsbedingungen",
     "englishSource": "Terms of Service"
+  },
+  "support": {
+    "message": "Support",
+    "englishSource": "Support"
   },
   "sendFeedback": {
     "message": "Feedback senden",
@@ -1598,9 +1536,17 @@
     "message": "Einfügen",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Nichts zum Einfügen. Kopieren Sie zuerst eine Adresse.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Empfänger auswählen",
     "englishSource": "Choose recipient"
+  },
+  "sendTo": {
+    "message": "Senden an",
+    "englishSource": "Send to"
   },
   "selectAmount": {
     "message": "Betrag auswählen",
@@ -1786,13 +1732,13 @@
     "message": "Miden",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Neuer Kontakt",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Kontakt hinzufügen",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "Wer ist das?",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "Zu den Kontakten hinzufügen?",
@@ -1801,10 +1747,6 @@
   "recent": {
     "message": "Aktuell",
     "englishSource": "Recent"
-  },
-  "newContactPlaceholder": {
-    "message": "z. B. Alice Bob",
-    "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Ein Kontakt mit derselben Adresse ist bereits vorhanden",
@@ -1822,17 +1764,13 @@
     "message": "Möchten Sie diesen Kontakt wirklich löschen?",
     "englishSource": "Are you sure you want to delete this contact?"
   },
-  "ownAccount": {
-    "message": "Eigene",
-    "englishSource": "Own"
-  },
   "noContactsFound": {
     "message": "Es wurden keine Kontakte gefunden",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
     "message": "Seed Phrase überprüfen",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Geld auf Ihre Geldbörse laden",
@@ -2063,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "Wählen Sie Ihren Importtyp",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "Stellen Sie mit Ihrem 12-Wörter-Satz das öffentliche Gleichgewicht wieder her. Um private Gelder wiederherzustellen, laden Sie die verschlüsselte Sicherungsdatei hoch.",
@@ -2071,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Mit Seed Phrase importieren",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Verwenden Sie eine vorhandene Seed Phrase mit 12 Wörtern. Sie können auch Wallets von anderen Wallet-Anbietern importieren.",
@@ -2079,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "Mit verschlüsselter Wallet-Datei importieren",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Laden Sie Ihre verschlüsselte Wallet-Datei hoch, um Ihr Konto sicher zu importieren. Ihre Daten bleiben privat, da nur gehashte Informationen in der Kette gespeichert werden",
@@ -2103,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Fahren Sie mit dem Import fort",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Entscheiden Sie, wie Sie Ihr Portemonnaie schützen möchten",
@@ -2111,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Face ID oder biometrische Authentifizierung verwenden",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Richten Sie Ihren Passcode ein",
@@ -2323,15 +2261,15 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "Geben Sie die 12-Wort-Seed phrase Ihrer Wallet ein.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Es werden ausschließlich Miden-Seed-Phrasen unterstützt.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Deine <highlight>Wallet</highlight> ist bereit!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Deine Wallet ist bereit!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Notieren Sie sich Ihre Wiederherstellungsphrase innerhalb von 7 Tagen, um Ihre Wallet vollständig zu sichern.",
@@ -2471,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Wallet muss zurückgesetzt werden",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Das Miden-Testnetz ist auf bech32-Konto-IDs umgestellt worden, um Ihre Benutzererfahrung zu verbessern. Um Ihre Wallet weiterhin nutzen zu können, stellen Sie sie bitte aus einer Sicherungsdatei oder unter seed phrase wieder her oder erstellen Sie eine neue.",
@@ -2483,11 +2421,11 @@
   },
   "reset": {
     "message": "Wallet zurücksetzen",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Passwort vergessen?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Wenn Sie Ihr Passwort vergessen haben, müssen Sie sich abmelden und Ihr Konto erneut importieren. Danach können Sie ein neues Passwort festlegen.",
@@ -2511,7 +2449,7 @@
   },
   "signOut": {
     "message": "Abmelden",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3076,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "Kontowiederherstellung einrichten",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Wählen Sie aus, wie Sie Ihr Konto wiederherstellen möchten, falls Sie den Zugriff darauf verlieren sollten.",
@@ -3092,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "Völlig privat",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Nur lokal – niemand außer Ihnen selbst kann Ihren Kontostand einsehen, aber es gibt keine Wiederherstellungsmöglichkeit: Der Verlust Ihres Geräts führt zum endgültigen Verlust Ihres Guthabens.",
@@ -3669,6 +3607,62 @@
     "message": "Soziales",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Spiele",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFTs",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Lernen",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Kategorien",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Empfohlen",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Hilfsprogramme",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Öffnen",
+    "englishSource": "Open"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Bald auf Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Neue Apps erscheinen hier, sobald sie auf Miden starten.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "dApps suchen",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Ergebnisse",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Keine Ergebnisse",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Versuche einen anderen Namen oder füge die URL einer dApp ein.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Testnet-Token für Swaps erhalten",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Minimieren",
     "englishSource": "Minimize"
@@ -3926,7 +3920,7 @@
   },
   "unlockWallet": {
     "message": "Wallet entsperren",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "Mit dem „seed phrase“ können Sie Ihr öffentliches Konto jederzeit wiederherstellen. Wählen Sie unten aus, wie Sie Ihre Wallet schnell entsperren möchten.",
@@ -3963,6 +3957,14 @@
   "seeConnected": {
     "message": "Siehe dazu",
     "englishSource": "See connected"
+  },
+  "noConnectedDApps": {
+    "message": "Keine verbundenen dApps",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "dApps, die Sie mit diesem Konto verbinden, erscheinen hier.",
+    "englishSource": "dApps you connect to this account show up here."
   },
   "transferDetails": {
     "message": "Überweisungsdetails",
@@ -4010,11 +4012,11 @@
   },
   "tokenPrice": {
     "message": "Token-Preis",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "Informationen zum Token",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Fungibel",
@@ -4026,7 +4028,7 @@
   },
   "recentActivity": {
     "message": "Letzte Aktivitäten",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Typ",
@@ -4781,6 +4783,14 @@
     "message": "Suchaktivität",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "Aktivitätsfilter",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "Diagrammzeitraum",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "Diese Bridge läuft auf Ethereum Sepolia. Verbinden Sie keine Wallet, die echtes Geld enthält. Erstellen Sie eine neue Wallet und laden Sie diese ausschließlich mit Sepolia-ETH auf.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
@@ -4832,10 +4842,6 @@
   "networkNoticeResetBody": {
     "message": "Ein Reset löscht Guthaben und den Verlauf. Testguthaben werden niemals ins Mainnet übertragen.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Nur Test-Token",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Ihre Auszahlung wird überprüft. Lassen Sie die Wallet geöffnet, bis die Zustellung bestätigt ist.",
@@ -4897,6 +4903,15 @@
   "networkModeBanner": {
     "message": "Sie nutzen Bread auf Miden $network$",
     "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkModeStripLabel": {
+    "message": "$network$ – über dieses Netzwerk",
+    "englishSource": "$network$ — about this network",
     "placeholders": {
       "network": {
         "content": "$1"
@@ -5138,5 +5153,66 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Authentifizieren Sie sich, um mit dieser Transaktion fortzufahren. Dadurch wird Ihr Ausgabenlimit weder geändert noch deaktiviert.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "Neuer Kontakt",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Meine Konten",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Noch keine Kontakte",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Speichere eine Adresse, um per Name an sie zu senden.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Das ist eines deiner Konten",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Bereits gespeichert als $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Kontakt bearbeiten",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Kontakt löschen",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Speichern",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Hinzugefügt",
+    "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "Betrieben von $operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

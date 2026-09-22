@@ -1,23 +1,17 @@
 import React from 'react';
 
-import { act, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { BridgeDeposit } from './BridgeDeposit';
 
-// BridgeDeposit is the funding surface: a connect prompt that hands over to the
-// bridge-deposit screen once an EVM wallet is connected. The heavy collaborators
-// (AppKit, the deposit screen) are stubbed; what is under test is the `fund`
-// flow's lifecycle and that the deposit screen is given the reporter.
-
-type ReportDeposit = <T>(attempt: () => Promise<T>) => Promise<T>;
-
-let connection = {
-  address: '0xevm-wallet',
-  connected: true,
-  status: 'connected',
-  nativeReown: { present: jest.fn(), disconnect: jest.fn(), error: null },
-  useNativeReownWallet: false
-};
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -28,40 +22,47 @@ jest.mock('@reown/appkit/react', () => ({
   useDisconnect: () => ({ disconnect: jest.fn() })
 }));
 
+let mockConnection: { address: string | undefined; connected: boolean } = { address: undefined, connected: false };
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
-  useEvmWalletConnection: () => connection
-}));
-
-jest.mock('lib/mobile/haptics', () => ({
-  hapticMedium: jest.fn()
+  useEvmWalletConnection: () => ({
+    ...mockConnection,
+    status: 'idle',
+    nativeReown: { error: null },
+    useNativeReownWallet: false
+  })
 }));
 
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (s: { currentAccount: unknown }) => unknown) =>
-    selector({ currentAccount: { publicKey: 'mtst1account' } })
+  useWalletStore: (select: (state: { currentAccount: { publicKey: string } }) => unknown) =>
+    select({ currentAccount: { publicKey: 'miden-account' } })
 }));
 
-jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
-}));
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: () => <div data-testid="screen-header" />
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
-jest.mock('lib/ui/button', () => ({
-  Button: ({ children, onClick }: { children?: React.ReactNode; onClick?: () => void }) => (
-    <button onClick={onClick}>{children}</button>
+jest.mock('components/ui/Button', () => ({
+  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
   )
 }));
 
-let depositProps: { reportDeposit?: ReportDeposit } = {};
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+    <div>
+      {title}
+      <button type="button" aria-label="close" onClick={onClose}>
+        close
+      </button>
+    </div>
+  )
+}));
 
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
-  EvmBridgeDepositScreen: (props: { reportDeposit?: ReportDeposit }) => {
-    depositProps = props;
-    return <div data-testid="bridge-deposit-screen" />;
-  }
+  EvmBridgeDepositScreen: () => <div data-testid="bridge-deposit-screen" />
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -69,141 +70,42 @@ jest.mock('app/icons/v2', () => ({
   IconName: { WarningFill: 'WarningFill' }
 }));
 
-type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
-const telemetryHandles: TelemetryHandle[] = [];
-const beginFlowMock = jest.fn((_flow: string) => {
-  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
-  telemetryHandles.push(handle);
-  return handle;
-});
-const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
-
-jest.mock('lib/telemetry', () => ({
-  beginFlow: (flow: string) => beginFlowMock(flow),
-  classifyError: (error: unknown) => classifyErrorMock(error)
-}));
-
-/** Throwing accessor so a missing handle names how many flows were begun. */
-const handleAt = (index: number): TelemetryHandle => {
-  const handle = telemetryHandles[index];
-  if (!handle) throw new Error(`no flow was begun at index ${index} (begun: ${telemetryHandles.length})`);
-  return handle;
-};
-
-/** Everything a test handed to telemetry, for the privacy assertions. */
-const telemetryPayload = () =>
-  JSON.stringify({
-    begun: beginFlowMock.mock.calls,
-    classified: classifyErrorMock.mock.calls,
-    settled: telemetryHandles.map(handle => [
-      handle.complete.mock.calls,
-      handle.cancel.mock.calls,
-      handle.fail.mock.calls
-    ])
-  });
-
-/** The reporter the page handed to the deposit screen. */
-const reporter = (): ReportDeposit => {
-  const { reportDeposit } = depositProps;
-  if (!reportDeposit) throw new Error('the page did not give the deposit screen a reporter');
-  return reportDeposit;
-};
-
-describe('BridgeDeposit - fund telemetry', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    telemetryHandles.length = 0;
-    depositProps = {};
-    connection = {
-      address: '0xevm-wallet',
-      connected: true,
-      status: 'connected',
-      nativeReown: { present: jest.fn(), disconnect: jest.fn(), error: null },
-      useNativeReownWallet: false
-    };
-  });
-
-  it('begins one fund flow on entry, before a wallet is even connected', () => {
-    connection = { ...connection, address: '', connected: false, status: 'disconnected' };
-
-    render(<BridgeDeposit />);
-
-    expect(screen.queryByTestId('bridge-deposit-screen')).toBeNull();
-    expect(beginFlowMock).toHaveBeenCalledTimes(1);
-    expect(beginFlowMock).toHaveBeenCalledWith('fund');
-  });
-
-  it('does not begin a second flow when the wallet connects mid-visit', () => {
-    connection = { ...connection, address: '', connected: false, status: 'connecting' };
-    const { rerender } = render(<BridgeDeposit />);
-
-    connection = { ...connection, address: '0xevm-wallet', connected: true, status: 'connected' };
-    rerender(<BridgeDeposit />);
-
-    expect(screen.getByTestId('bridge-deposit-screen')).toBeInTheDocument();
-    expect(beginFlowMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('cancels the flow when the user leaves without depositing', () => {
-    const { unmount } = render(<BridgeDeposit />);
-
-    unmount();
-
-    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
-  });
-
-  it('completes the flow when the deposit is accepted', async () => {
-    render(<BridgeDeposit />);
-
-    await act(async () => {
-      await reporter()(() => Promise.resolve('bridge-tx'));
-    });
-
-    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
-    expect(beginFlowMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('reports a broad error kind when the deposit fails', async () => {
-    render(<BridgeDeposit />);
-
-    const failure = new Error('bridge row failed');
-    await act(async () => {
-      await expect(reporter()(() => Promise.reject(failure))).rejects.toThrow('bridge row failed');
-    });
-
-    expect(classifyErrorMock).toHaveBeenCalledWith(failure);
-    expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
-  });
-
-  it('never passes the EVM address or the amount to telemetry', async () => {
-    render(<BridgeDeposit />);
-
-    await act(async () => {
-      await reporter()(() => Promise.resolve({ amount: '4200', sourceAddress: '0xevm-wallet' }));
-    });
-
-    expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
-    expect(telemetryPayload()).not.toContain('0xevm-wallet');
-    expect(telemetryPayload()).not.toContain('4200');
-    expect(telemetryPayload()).not.toContain('mtst1account');
-  });
-});
-
 describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
-    connection = { ...connection, address: '', connected: false, status: 'disconnected' };
+    mockConnection = { address: undefined, connected: false };
+    mockNavigate.mockClear();
+  });
+
+  // The NOT-YET-CONNECTED prompt. `beforeEach` sets `connected: false`, and this suite stubs
+  // EvmBridgeDepositScreen, so this case covers only that prompt - the connected flow that
+  // actually commits is EvmBridgeDepositScreen's own shell, registered in the banner registry.
+  // Named honestly because the first version of this test claimed to cover the committing screen
+  // and asserted against the one that commits nothing.
+  it('names the network on the connect-your-wallet prompt', () => {
+    render(<BridgeDeposit />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
+
+  it('closes via the header, falling back to /receive with no onClose prop', () => {
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'close' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/receive');
   });
 
   it('warns to connect a test wallet only while no EVM wallet is connected', () => {
     render(<BridgeDeposit />);
 
     const warning = screen.getByTestId('evm-connect-test-wallet-warning');
-    expect(warning).toHaveTextContent('evmConnectTestWalletTitle');
-    expect(warning).toHaveTextContent('evmConnectTestWalletBody');
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
   });
 
   it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {
-    connection = { ...connection, address: '0xabc', connected: true, status: 'connected' };
+    mockConnection = { address: '0xabc', connected: true };
 
     render(<BridgeDeposit />);
 

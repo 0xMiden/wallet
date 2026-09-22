@@ -53,54 +53,46 @@ button:disabled,
 @import 'tippy.js/animations/shift-away-subtle.css';
 @import 'vaul/style.css';
 
+/* vaul animates the sheet and its backdrop three ways, and reduced motion has
+ * to beat all three:
+ *   1. open/close — a CSS animation on [data-vaul-drawer] (slideFromBottom /
+ *      slideToBottom, keyed off [data-state]).
+ *   2. drag-release snap-back — resetDrawer() (vaul/dist/index.mjs) sets
+ *      drawerRef.current.style.transition and overlayRef.current.style.transition
+ *      as INLINE styles (`el.style[key] = value` in its `set()` helper, no
+ *      `!important`) once the pointer lets go, on both the drawer AND the
+ *      overlay (opacity fades back to 1 there too).
+ *   3. the backdrop's own open/close fade — a separate CSS animation on
+ *      [data-vaul-overlay], not reachable through the [data-vaul-drawer]
+ *      selector above.
+ * A plain (non-`!important`) rule here loses to #2: an inline style always
+ * outranks a stylesheet selector at normal weight, no matter how specific.
+ * `!important` is what beats an inline style in the CSS cascade, so both
+ * selectors carry it. This does NOT touch vaul's `transition: none` while a
+ * drag is in progress — "none" isn't a duration, so a near-zero duration
+ * layered on top of it changes nothing. Checked against
+ * node_modules/vaul/dist/index.mjs: `set()` is the only place vaul writes
+ * transition/animation inline, and every call site sets either the
+ * TRANSITIONS.DURATION (0.5s) shorthand this rule clamps, or `'none'`
+ * (drag-move, unaffected) — there is no other animated property on
+ * [data-vaul-drawer] or [data-vaul-overlay] left uncovered.
+ * On the extension (`shouldScaleBackground`) vaul also scales the app behind
+ * the sheet: useScaleBackground() writes an inline 0.5s transition-duration on
+ * [data-vaul-drawer-wrapper] (App.tsx), so the wrapper is clamped here too and
+ * the scale lands at once under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  [data-vaul-drawer],
+  [data-vaul-overlay],
+  [data-vaul-drawer-wrapper] {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+  }
+}
+
 .tippy-content {
   white-space: pre-line;
-}
-
-/**
- * React Modal
- */
-
-.ReactModal__Overlay {
-  opacity: 0;
-  transition: opacity 200ms ease-out;
-}
-
-.ReactModal__Content {
-  transform: scale(0.96);
-  transition: transform 200ms ease-out;
-}
-
-.ReactModal__Overlay--after-open {
-  opacity: 1;
-}
-
-.ReactModal__Overlay--before-close {
-  opacity: 0;
-}
-
-.ReactModal__Overlay--after-open .ReactModal__Content {
-  transform: scale(1);
-}
-
-.ReactModal__Overlay--before-close .ReactModal__Content {
-  transform: scale(0.96);
-}
-
-#recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(2rem);
-  transition: transform 200ms ease-out;
-}
-
-.ReactModal__Overlay--after-open #recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(0);
-}
-
-.ReactModal__Overlay--before-close #recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(2rem);
 }
 
 /**
@@ -108,7 +100,6 @@ button:disabled,
  */
 
 @import 'tailwindcss';
-@import 'tw-animate-css';
 @config '../tailwind.config.ts';
 @source "../src/**/*.{js,jsx,ts,tsx}";
 @source "../public/**/*.html";
@@ -262,6 +253,140 @@ button:disabled,
     'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-inter: 'Inter', system-ui, sans-serif;
   --default-font-family: var(--font-sans);
+}
+
+/**
+ * Type scale. One utility per text role, each setting family, size, line-height and weight
+ * together, so a role is one class and never a hand-assembled `font-heading text-[15px] font-bold`.
+ * Colour stays separate (`text-ink`, `text-muted`, ...). Nunito (`--font-heading`) carries titles,
+ * values and button labels; Inter (`--font-sans`) carries body copy, labels and captions. See
+ * skills/miden-wallet-frontend/references/design-system.md (Foundations, Type).
+ *
+ * Weight, line-height and tracking read Tailwind's own `--tw-*` variables first, the way its
+ * `text-xl` reads `--tw-leading`: a `leading-none` or `font-semibold` modifier then wins whatever
+ * order the stylesheet emits the two classes in. The names are registered with tailwind-merge in
+ * `lib/ui/type-styles.ts` so `cn()` keeps them beside a colour class.
+ */
+@utility text-display {
+  font-family: var(--font-heading);
+  font-size: 48px;
+  line-height: var(--tw-leading, 52px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-entry-unit {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  line-height: var(--tw-leading, 28px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-title-tab {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  line-height: var(--tw-leading, 36px);
+  font-weight: var(--tw-font-weight, 800);
+  letter-spacing: var(--tw-tracking, -0.5px);
+}
+@utility text-hero-value {
+  font-family: var(--font-heading);
+  font-size: 32px;
+  line-height: var(--tw-leading, 36px);
+  font-weight: var(--tw-font-weight, 900);
+}
+@utility text-hero-name {
+  font-family: var(--font-heading);
+  font-size: 24px;
+  line-height: var(--tw-leading, 28px);
+  font-weight: var(--tw-font-weight, 900);
+}
+@utility text-title-page {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  line-height: var(--tw-leading, 26px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-title-section {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-cta {
+  font-family: var(--font-heading);
+  font-size: 19px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-cta-sm {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-row-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-value {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-action {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-pill {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  line-height: var(--tw-leading, 1);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-badge {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  line-height: var(--tw-leading, 1);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 400);
+}
+@utility text-body-strong {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 600);
+}
+@utility text-explainer {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: var(--tw-leading, 22px);
+  font-weight: var(--tw-font-weight, 400);
+}
+@utility text-body-sm {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 400);
+}
+@utility text-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: var(--tw-leading, 17px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-caption {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: var(--tw-leading, 17px);
+  font-weight: var(--tw-font-weight, 400);
 }
 
 /* Force Inter as the inherited default. Tailwind v4's preflight should set this
@@ -529,60 +654,88 @@ body[data-hide-navbar]::after {
     --color-app-bg: #ffffff;
     --color-surface: #ffffff;
     --color-surface-solid: #ffffff;
-    --color-surface-secondary: #f9f9f9;
-    --color-surface-tertiary: #f3f3f3;
-    --color-text-primary: #3f3f3f;
-    --color-text-secondary: #484848;
+    /* Legacy `black`: text-black is now text-ink, but the overlays and the camera frame still
+     * read bg-black / border-black / from-black, so the var follows ink rather than going. */
+    --color-text-primary: var(--ds-ink);
     --color-text-tertiary: rgba(63, 63, 63, 0.4);
     --color-border: rgba(63, 63, 63, 0.16);
     --color-border-secondary: #e9ebef;
     --color-chip-bg: #eeeff2;
     --color-input-bg: #f9f9f9;
     --color-border-light: #e6e6e6;
-    --color-text-muted: #ababab;
+    --color-text-muted: var(--ds-muted);
     --color-border-subtle: rgba(63, 63, 63, 0.08);
     --color-hover-bg: #e1dbdb;
 
     /* Design system tokens (Foundations + Typography + Radius/Spacing) */
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
-    /* Per-action accents: each home action (Send, Receive, Earn, Swap) keeps its
-     * icon color as the highlight color of its own flow: back arrows, chevrons,
-     * links, selected states. The primary CTA stays --accent-primary. Tints are
-     * the accent at 12% pre-blended over the page, solid like the other fills. */
-    --accent-send: #91acc1;
-    --accent-send-tint: #f2f5f8;
-    --accent-receive: #99ac94;
-    --accent-receive-tint: #f3f5f2;
-    --accent-earn: #777487;
-    --accent-earn-tint: #efeef1;
-    --accent-swap: #beacd2;
-    --accent-swap-tint: #f7f5fa;
-    /* Circular navigation buttons (back, close) */
-    --surface-nav-button: #f9f9f9;
+    /* Action colours: each of Home's five actions takes one account card colour, and that one
+     * brand colour is both the tab's icon and its flow's accent (glyphs, borders, selected states),
+     * so the two can never drift. It is never darkened for contrast: text in an action's colour
+     * uses its `-ink`, a darker shade (lighter in dark mode) that reads at 4.5:1 on `page`, `fill`
+     * and the tint, like `accent-tint-ink` does for the brand orange. The primary CTA stays
+     * --accent-primary. Tints are the action colour at 12% pre-blended over the page, solid like
+     * the other fills; `.dark` re-declares only the tints and inks, since the card colours the
+     * action colours point at already flip. */
+    --action-overview: var(--card-orange);
+    --action-send: var(--card-blue);
+    --action-receive: var(--card-green);
+    --action-earn: var(--card-slate);
+    --action-swap: var(--card-purple);
+    --action-send-tint: #eceff2;
+    --action-receive-tint: #eff1ee;
+    --action-earn-tint: #efeef0;
+    --action-swap-tint: #f0eef2;
+    --action-send-ink: #566f83;
+    --action-receive-ink: #60715c;
+    --action-earn-ink: #6d697b;
+    --action-swap-ink: #746682;
+    /* Each flow's accent is its tab's action colour. */
+    --accent-send: var(--action-send);
+    --accent-send-tint: var(--action-send-tint);
+    --accent-send-ink: var(--action-send-ink);
+    --accent-receive: var(--action-receive);
+    --accent-receive-tint: var(--action-receive-tint);
+    --accent-receive-ink: var(--action-receive-ink);
+    --accent-earn: var(--action-earn);
+    --accent-earn-tint: var(--action-earn-tint);
+    --accent-earn-ink: var(--action-earn-ink);
+    --accent-swap: var(--action-swap);
+    --accent-swap-tint: var(--action-swap-tint);
+    --accent-swap-ink: var(--action-swap-ink);
+    /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
+    --network-miden-tint: #fff3ec;
+    --network-miden-border: #f7d6c2;
+    --network-miden-text: #9f4518;
+    --network-ethereum-tint: #eef0fb;
+    --network-ethereum-border: #d3d8f3;
+    --network-ethereum-text: #3d4a8f;
     --text-primary: #3f3f3f;
     --text-secondary: rgba(63, 63, 63, 0.65);
     --text-tertiary: #0000009c;
     --text-on-accent: #ffffff;
     --surface-page: #ffffff;
-    --surface-input: #f9f9f9;
-    --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --surface-button-secondary: #f9f9f9;
-    --surface-button-secondary-hover: #eceae7;
     --text-gray: #808080;
     --text-gray-secondary: #8e8e93;
     --text-placeholder: #00000047;
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #ff5500;
-    /* Activity icon-square hues — mirror the Send/Receive/Earn/Swap action-bar
-     * logo colors (the glyph is rendered white on top of these). */
-    --tx-received: #99ac94;
-    --tx-sent: #91acc1;
-    --tx-swap: #beacd2;
-    --tx-earn: #777487;
-    --tx-faucet: #891db1;
+    /* Activity icon squares: each kind of row is its action's colour, so a sent row matches the Send
+     * tab. The square renders a WHITE glyph on top (HistoryView paints `[&_path]:fill-pure-white`),
+     * so it owes WCAG 1.4.11's 3:1 while the artwork, a coloured icon on the page, does not. The
+     * light action colours clear it (3.63:1 to 4.58:1); the faucet has no tab, and its dusty rose
+     * sat at 2.19:1, so it takes the darker shade of the same hue. `.dark` gives these their own
+     * values rather than following the card colours, which flip to pastels there.
+     * `transactionUtils.ts` mirrors sent/received/faucet in JS because TransactionIcon draws those
+     * circles from constants; its test enforces the sync. */
+    --tx-received: var(--action-receive);
+    --tx-sent: var(--action-send);
+    --tx-swap: var(--action-swap);
+    --tx-earn: var(--action-earn);
+    --tx-faucet: #ba839f;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -593,24 +746,51 @@ body[data-hide-navbar]::after {
     /* Balance card surface — neutral graphite grey. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    /* The balance card's change pill: a darker well of the card's own color, so it suits every
+     * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
+    --surface-balance-pill: rgba(0, 0, 0, 0.24);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 
     /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
-     * get lighter variants in dark mode; slate/orange stay fixed. */
+     * get lighter variants in dark mode; slate/orange stay fixed. These five are BRAND colors:
+     * never shift them for contrast. The card solves readability with type size and weight
+     * (amount, currency) and a darker well (change pill), see BalanceCard and the contrast
+     * test in design-tokens.test.ts. */
     --card-slate: #777386;
     --card-orange: #e77537;
     --card-blue: #607c92;
     --card-green: #778c72;
     --card-purple: #847595;
-    /* Second tone — card bottom strip (same value in both themes). */
-    --card-slate-deep: #777386;
-    --card-orange-deep: #bd5d29;
-    --card-blue-deep: #405565;
-    --card-green-deep: #50634c;
-    --card-purple-deep: #5d5368;
+
+    /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
+     * Prefixed so a copied shadcn primitive can never redefine them. */
+    --ds-page: #ffffff;
+    --ds-fill: #f3f0ec;
+    --ds-fill-pressed: #e9e5e0;
+    --ds-hairline: rgba(63, 63, 63, 0.1);
+    --ds-ink: #3f3f3f;
+    --ds-muted: #6b6b6b;
+    --ds-accent-tint: #fdeee5;
+    --ds-accent-tint-ink: #a84a18;
+    --ds-positive-ink: #3d7a34;
+    --ds-pending-ink: #b8451a;
+    --ds-negative-ink: #c63a00;
+    /* A raised, clicky bubble (tab bars' active pill): white, a hairline ring so it holds on white,
+     * and a soft drop. Pressed sinks it: a tighter, lighter shadow. */
+    --ds-raised: #ffffff;
+    --ds-shadow-raised: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08);
+    --ds-shadow-raised-pressed: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 1px rgba(0, 0, 0, 0.05);
+    /* Status badge tones, drawn from the activity icon family (sage #99ac94 for received): opaque
+     * fills and their own inks, so a badge holds 4.5:1 on `page` and on `fill` alike. The inks
+     * also color signed amounts. `--ds-*-ink` stay as they are for errors and destructive text. */
+    --ds-positive-tint: #e8eee5;
+    --ds-positive-tint-ink: #4f6549;
+    --ds-pending-tint: #f4ecdc;
+    --ds-pending-tint-ink: #7a5b26;
+    --ds-negative-tint: #f6e5e1;
+    --ds-negative-tint-ink: #9b4638;
   }
 
   .dark {
@@ -624,54 +804,56 @@ body[data-hide-navbar]::after {
     --color-app-bg: #191919;
     --color-surface: #3f3f3f99;
     --color-surface-solid: #191919;
-    --color-surface-secondary: #3f3f3f99;
-    --color-surface-tertiary: #3f3f3f99;
-    --color-text-primary: #ffffff;
-    --color-text-secondary: #ffffff;
+    --color-text-primary: var(--ds-ink);
     --color-text-tertiary: #999999;
     --color-border: #ffffff22;
     --color-border-secondary: #444444;
     --color-chip-bg: #3f3f3f99;
     --color-input-bg: #3f3f3f99;
     --color-border-light: #444444;
-    --color-text-muted: #999999;
+    --color-text-muted: var(--ds-muted);
     --color-border-subtle: #ffffff15;
     --color-hover-bg: #ffffff0d;
 
     /* Design system tokens - dark variants. Foundations spec is light-mode only;
      * derive dark values by inverting text/surface and keeping action/status hues. */
     --accent-primary: #e77537;
-    --accent-primary-hover: #f08b57;
-    --accent-send: #91acc1;
-    --accent-send-tint: #272b2d;
-    --accent-receive: #99ac94;
-    --accent-receive-tint: #282b28;
-    --accent-earn: #777487;
-    --accent-earn-tint: #242426;
-    --accent-swap: #beacd2;
-    --accent-swap-tint: #2d2b2f;
-    --surface-nav-button: #363636;
+    --accent-primary-hover: #c95a21;
+    --action-send-tint: #272b2d;
+    --action-receive-tint: #2a2c2a;
+    --action-earn-tint: #242426;
+    --action-swap-tint: #2d2b2f;
+    /* Dark mode's brand colours already read at 4.5:1 as text, all but the slate. */
+    --action-send-ink: var(--action-send);
+    --action-receive-ink: var(--action-receive);
+    --action-earn-ink: #8d8a9a;
+    --action-swap-ink: var(--action-swap);
+    --network-miden-tint: #3a2418;
+    --network-miden-border: #5c3622;
+    --network-miden-text: #f2a57a;
+    --network-ethereum-tint: #1f2340;
+    --network-ethereum-border: #353d6e;
+    --network-ethereum-text: #b3bbf2;
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.65);
     --text-tertiary: rgba(255, 255, 255, 0.4);
     --text-on-accent: #ffffff;
     --surface-page: #191919;
-    --surface-input: #363636;
-    --surface-interactive: #363636;
     --surface-inactive: #3f3f3f99;
-    --surface-button-secondary: #484848;
-    --surface-button-secondary-hover: #3f3f3f;
     --text-gray: #e1d8d8;
     --text-gray-secondary: #8e8e93;
     --text-placeholder: #ffffff;
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
-    --tx-received: #99ac94;
-    --tx-sent: #91acc1;
-    --tx-swap: #beacd2;
+    /* The activity square keeps a white glyph in dark mode too, so it cannot follow `--card-*`,
+     * which flips to the light pastels here (2.04:1 to 2.37:1 against white). These are the same
+     * hues taken down in lightness until they clear 3:1. */
+    --tx-received: #839a7d;
+    --tx-sent: #7697b2;
+    --tx-swap: #a289bf;
     --tx-earn: #777487;
-    --tx-faucet: #891db1;
+    --tx-faucet: #ba839f;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;
@@ -679,8 +861,10 @@ body[data-hide-navbar]::after {
     /* Balance card surface — keep same graphite grey in dark mode. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    /* The balance card's change pill: a darker well of the card's own color, so it suits every
+     * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
+    --surface-balance-pill: rgba(0, 0, 0, 0.24);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 
@@ -689,10 +873,29 @@ body[data-hide-navbar]::after {
     --card-blue: #91acc1;
     --card-green: #a8bba3;
     --card-purple: #beacd2;
-    --card-slate-deep: #777386;
-    --card-orange-deep: #bd5d29;
-    --card-blue-deep: #405565;
-    --card-green-deep: #50634c;
-    --card-purple-deep: #5d5368;
+
+    --ds-page: #191919;
+    --ds-fill: #262422;
+    --ds-fill-pressed: #33302d;
+    --ds-hairline: rgba(255, 255, 255, 0.09);
+    /* A drop shadow barely reads on #191919, so dark raises the bubble with the lighter fill, a
+     * lit top edge and a faint ring. */
+    --ds-raised: #262422;
+    --ds-shadow-raised:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5);
+    --ds-shadow-raised-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --ds-ink: #ffffff;
+    --ds-muted: #a8a29c;
+    --ds-accent-tint: #3a2418;
+    --ds-accent-tint-ink: #f2a57a;
+    --ds-positive-ink: #90ba89;
+    --ds-pending-ink: #f08b57;
+    --ds-negative-ink: #ff7a4d;
+    --ds-positive-tint: #28302a;
+    --ds-positive-tint-ink: #b2c4ac;
+    --ds-pending-tint: #3a3222;
+    --ds-pending-tint-ink: #d8bc86;
+    --ds-negative-tint: #3d2724;
+    --ds-negative-tint-ink: #e7a193;
   }
 }

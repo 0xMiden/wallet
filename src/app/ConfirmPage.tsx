@@ -7,7 +7,6 @@ import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
 import ErrorBoundary from 'app/ErrorBoundary';
 import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
@@ -15,6 +14,7 @@ import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { Spinner } from 'components/ui/Spinner';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -29,8 +29,6 @@ import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
-import FormSecondaryButton from './atoms/FormSecondaryButton';
-import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
@@ -132,7 +130,7 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) =>
 const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = ({ origin, children }) => (
   <div
     className={classNames(
-      'text-sm text-left text-black',
+      'text-sm text-left text-ink',
       'flex w-full gap-x-3 items-center p-4',
       'border border-gray-100 rounded-2xl mb-4'
     )}
@@ -202,15 +200,15 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             {`${truncateAddress(payload.sourcePublicKey)}?`}
           </div>
           <div className="flex items-center justify-center">
-            <FormSecondaryButton
+            <Button
               type="button"
-              className="justify-center w-3/5 bg-chip-bg hover:bg-gray-100 text-black"
-              style={{ fontWeight: '400', border: 'none' }}
+              variant={ButtonVariant.Secondary}
+              size="sm"
+              className="w-3/5"
               onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
-              small
             >
               {t('downloadPrivateNoteData')}
-            </FormSecondaryButton>
+            </Button>
           </div>
         </>
       );
@@ -233,7 +231,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
               <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('account')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
                 </div>
@@ -254,7 +252,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-black" data-testid={txRowValueTestId(label)}>
+                <span className="text-ink" data-testid={txRowValueTestId(label)}>
                   {value}
                 </span>
               </div>
@@ -276,14 +274,14 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
               <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('account')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
                 </div>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('noteId')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{truncateHash(payload.noteId)}</span>
                 </div>
               </div>
@@ -299,7 +297,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-black">{value}</span>
+                <span className="text-ink">{value}</span>
               </div>
             );
           })}
@@ -312,12 +310,12 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
     <div className={classNames('w-full', 'flex flex-col')}>
       {t('payload') && (
         <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
-          <span className="text-black font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
+          <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
             {t('payload')}
           </span>
         </h2>
       )}
-      <span className="text-sm text-black">{error ? error : content}</span>
+      <span className="text-sm text-ink">{error ? error : content}</span>
     </div>
   );
 };
@@ -743,7 +741,7 @@ const ConfirmDAppForm: FC = () => {
       }}
     >
       <div className="flex flex-col items-left px-4">
-        <h2 className="py-6 flex text-black text-lg font-semibold">{content.title}</h2>
+        <h2 className="py-6 flex text-ink text-lg font-semibold">{content.title}</h2>
 
         {payload.type === 'connect' && (
           <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
@@ -795,13 +793,7 @@ const ConfirmDAppForm: FC = () => {
           <Button
             type="button"
             variant={ButtonVariant.Secondary}
-            className={classNames('w-full', 'px-8', 'text-black font-medium', 'transition duration-200 ease-in-out')}
-            style={{
-              fontSize: '16px',
-              lineHeight: '24px',
-              padding: '14px 0px',
-              border: 'none'
-            }}
+            className="w-full"
             isLoading={declining}
             onClick={handleDeclineClick}
             data-testid={content.declineActionTestID}
@@ -811,17 +803,16 @@ const ConfirmDAppForm: FC = () => {
         </div>
 
         <div className="w-1/2 pl-2">
-          <FormSubmitButton
+          <Button
             type="button"
-            className="w-full justify-center justify-center rounded-lg py-3"
-            style={{ fontSize: '16px', lineHeight: '24px', padding: '14px 0px', border: 'none' }}
-            loading={confirming}
+            variant={ButtonVariant.Primary}
+            className="w-full"
+            isLoading={confirming}
             onClick={handleConfirmClick}
-            testID={content.confirmActionTestID}
             data-testid={content.confirmActionTestID}
           >
             {content.confirmActionTitle}
-          </FormSubmitButton>
+          </Button>
         </div>
       </div>
       {showSpendingLimitChallenge && spendingLimitAssessment !== undefined && (

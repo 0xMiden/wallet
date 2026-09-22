@@ -9,7 +9,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and every rendered label is the raw key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string>) => (params ? `${key}: ${Object.values(params).join(' · ')}` : key)
+  })
 }));
 
 // Guardian provider list — controlled per-test so we can exercise the
@@ -19,6 +21,7 @@ jest.mock('react-i18next', () => ({
 // regression test below).
 const mockGetGuardianOptions = jest.fn();
 jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
   getGuardianOptionsForNetwork: (...args: unknown[]) => mockGetGuardianOptions(...args)
 }));
 
@@ -33,8 +36,10 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
 // Haptics — no-op mock so we can assert taps trigger feedback without dragging
 // in the Capacitor plugin.
 const mockHapticLight = jest.fn();
+const mockHapticSelection = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: () => mockHapticLight()
+  hapticLight: () => mockHapticLight(),
+  hapticSelection: () => mockHapticSelection()
 }));
 
 // URL helpers — controlled so both the valid and invalid custom-URL branches
@@ -62,22 +67,30 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-// `Input` — thin controlled input echoing the props the screen threads through
-// (rest props forwarded so keyboard attributes like enterKeyHint are assertable).
-jest.mock('components/Input', () => ({
-  Input: ({
+// `TextField` — thin controlled input echoing the props the screen threads through
+// (rest props forwarded so keyboard attributes like enterKeyHint are assertable),
+// and the error line the real field renders as an alert.
+jest.mock('components/ui/TextField', () => ({
+  TextField: ({
     id,
     value,
     placeholder,
     onChange,
+    error,
+    containerClassName: _containerClassName,
     ...rest
   }: {
     id?: string;
     value?: string;
     placeholder?: string;
+    error?: React.ReactNode;
+    containerClassName?: string;
     onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
   } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
+    <>
+      <input data-testid="custom-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
+      {error && <p role="alert">{error}</p>}
+    </>
   )
 }));
 
@@ -124,12 +137,11 @@ const LAMBDA = {
 
 const allOptions = () => [{ ...OZ }, { ...GATEWAY }, { ...LAMBDA }];
 
-// Option cards are the only `<button>`s carrying a Logo `<svg>` child; this
-// yields them in provider order.
+// The provider cards are the radios carrying their endpoint; this yields them in provider order.
 const optionButtons = (container: HTMLElement): HTMLButtonElement[] =>
-  Array.from(container.querySelectorAll('button')).filter(b => b.querySelector('svg')) as HTMLButtonElement[];
+  Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="radio"][data-guardian-endpoint]'));
 
-const isHighlighted = (btn: HTMLElement) => btn.className.includes('border-primary-500');
+const isHighlighted = (btn: HTMLElement) => btn.getAttribute('aria-checked') === 'true';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -159,16 +171,66 @@ describe('ChooseGuardianScreen', () => {
     // One card per provider.
     expect(optionButtons(container)).toHaveLength(3);
 
-    // Operator + location labels are rendered per card.
+    // Name, then one meta line (operator · location) inside each card: nothing floats below it.
     expect(screen.getByText('OpenZeppelin')).toBeInTheDocument();
-    expect(screen.getByText('Gateway')).toBeInTheDocument();
-    expect(screen.getByText('US-EAST')).toBeInTheDocument();
+    expect(screen.getByText('Gateway Operator')).toBeInTheDocument();
+    expect(screen.getByText('guardianCardMeta: Gateway · EU-NORTH')).toBeInTheDocument();
+    const [ozCard] = optionButtons(container);
+    expect(ozCard).toContainElement(screen.getByText('guardianCardMeta: OpenZeppelin · US-EAST'));
+
+    // The picker is the design system's radio cards on the onboarding step layout.
+    expect(screen.getByRole('radiogroup', { name: 'chooseYourGuardian' })).toBeInTheDocument();
+    const footer = screen.getByTestId('continue-button').closest<HTMLElement>('[data-slot="footer"]');
+    expect(footer).not.toBeNull();
+    expect(screen.getByTestId('onboarding-choose-guardian')).toContainElement(footer);
 
     // Continue button uses the default label.
     expect(screen.getByTestId('continue-button')).toHaveTextContent('continue');
 
     // Info drawer starts closed.
     expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
+  });
+
+  // Every card leads with the provider's logo on the same 48px brand tile (white in light mode, a
+  // dark neutral in dark mode): OpenZeppelin's colour mark untouched, a grey mark recoloured to ink.
+  it('leads each card with the provider mark on the brand tile', () => {
+    const { container } = render(<ChooseGuardianScreen />);
+    const [ozBtn, gatewayBtn, lambdaBtn] = optionButtons(container);
+
+    [ozBtn, gatewayBtn, lambdaBtn].forEach(btn => {
+      const tile = btn!.querySelector('[data-testid="guardian-logo-tile"]');
+      expect(tile).toHaveClass('size-12', 'rounded-xl', 'bg-pure-white', 'dark:bg-grey-800');
+    });
+    expect(ozBtn!.querySelector('[data-testid="guardian-operator-logo"]')).not.toHaveClass('[&_path]:fill-ink');
+    expect(gatewayBtn!.querySelector('[data-testid="guardian-operator-logo"]')).toHaveClass('[&_path]:fill-ink');
+  });
+
+  it('draws each card flat, with no border, and the selection as the accent ring', () => {
+    const { container } = render(<ChooseGuardianScreen />);
+    const [ozBtn, gatewayBtn] = optionButtons(container);
+    expect(ozBtn).toHaveClass('bg-fill', 'rounded-2xl', 'ring-accent-primary');
+    expect(ozBtn!.className).not.toMatch(/border-primary-500|border-4/);
+    expect(gatewayBtn).not.toHaveClass('ring-accent-primary');
+  });
+
+  it('draws Learn more and Use a custom URL as text actions, never underlined', () => {
+    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    [screen.getByText('learnMoreAboutGuardian'), screen.getByText('useCustomGuardianUrl')].forEach(action => {
+      expect(action).toHaveClass('text-accent-tint-ink');
+      expect(action.className).not.toMatch(/underline|text-primary-500/);
+    });
+  });
+
+  it('renders as a pushed page with the shared header when given onBack (Rotate Guardian)', () => {
+    const onBack = jest.fn();
+    render(<ChooseGuardianScreen onBack={onBack} />);
+    // The title moves into the header; the explainer and Learn more open the body.
+    expect(screen.getByRole('heading', { name: 'chooseYourGuardian' })).toBeInTheDocument();
+    expect(screen.getByText('chooseGuardianDescription')).toBeInTheDocument();
+    expect(screen.getByText('learnMoreAboutGuardian')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('page-back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('onboarding-choose-guardian').querySelector('[data-slot="step-heading"]')).toBeNull();
   });
 
   it('honours custom title / description / submitLabel props', () => {
@@ -188,6 +250,10 @@ describe('ChooseGuardianScreen', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('Guardian rejected the request');
     expect(alert.compareDocumentPosition(screen.getByTestId('continue-button'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // The error sits in the PINNED footer, not the scrolling body, so it is bounded and scrolls
+    // inside its own box. Without the bound a long backend error grows the footer and pushes
+    // Continue off the screen (#463) - the sibling rotate-guardian screen already caps it.
+    expect(alert).toHaveClass('max-h-24', 'overflow-y-auto');
   });
 
   it('renders no error region when the caller has no error', () => {
@@ -233,7 +299,7 @@ describe('ChooseGuardianScreen', () => {
     const [ozBtn, gwBtn] = optionButtons(container);
 
     fireEvent.click(gwBtn!);
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(mockHapticSelection).toHaveBeenCalledTimes(1);
     expect(isHighlighted(gwBtn!)).toBe(true);
     expect(isHighlighted(ozBtn!)).toBe(false);
   });
@@ -300,8 +366,9 @@ describe('ChooseGuardianScreen', () => {
     }).not.toThrow();
 
     expect(optionButtons(container)).toHaveLength(2);
-    expect(screen.getByText('Mystery Co')).toBeInTheDocument();
-    expect(screen.getByText('US-WEST')).toBeInTheDocument();
+    expect(screen.getByText('Mystery Operator')).toBeInTheDocument();
+    expect(screen.getByText('guardianCardMeta: Mystery Co · US-WEST')).toBeInTheDocument();
+    expect(screen.getByTestId('guardian-avatar')).toBeInTheDocument();
   });
 
   // --- switch flow (currentEndpoint) ---------------------------------------
@@ -464,15 +531,15 @@ describe('ChooseGuardianScreen', () => {
     const { container } = render(<ChooseGuardianScreen allowCustomEndpoint />);
 
     const [ozBtn] = optionButtons(container);
-    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
 
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
-    expect(ozBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'false');
     expect(ozBtn?.className).not.toContain('border-primary-500');
 
     // Closing the field hands the selection back to the card it came from.
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
-    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
   });
 
   it('exposes the custom-URL toggle as the disclosure control it is', () => {
@@ -500,7 +567,7 @@ describe('ChooseGuardianScreen', () => {
     fireEvent.click(screen.getByTestId('continue-button'));
 
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' });
-    expect(screen.getByTestId('choose-no-guardian')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('choose-no-guardian')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('edits the custom URL without a pre-existing error (customError falsy branch)', () => {
@@ -561,10 +628,8 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(banners[0]).toHaveTextContent('guardianOfflineLabel');
     // The banner sits inside the Gateway card (the button carrying its endpoint).
     expect(banners[0]!.closest('button')).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
-    // Same pairing as the GuardianSettings Offline pill: red-700 is 5.9:1 on
-    // red-50; red-300 exists only because the dark fill needs it
-    // (tailwind-colors.js), and a missing shade compiles to nothing.
-    expect(banners[0]).toHaveClass('text-red-700', 'dark:text-red-300');
+    // The same negative StatusBadge the Guardian settings pill draws.
+    expect(banners[0]).toHaveClass('bg-negative-tint');
   });
 
   it('renders no offline banner while pings are still checking or all online', () => {
@@ -580,15 +645,14 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(screen.queryByTestId('guardian-offline-banner')).not.toBeInTheDocument();
   });
 
-  it('keeps the default badge alongside the offline verdict in the one strip slot', () => {
-    // OZ is the default selection AND offline. Offline takes the strip's colour,
-    // not the slot.
+  it('keeps the default badge alongside the offline verdict', () => {
+    // OZ is the default selection AND offline: both badges show, side by side.
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
     render(<ChooseGuardianScreen />);
 
-    const banner = screen.getByTestId('guardian-offline-banner');
-    expect(banner).toHaveTextContent('default · guardianOfflineLabel');
-    expect(banner).toHaveClass('text-red-700');
+    const card = screen.getByTestId('guardian-offline-banner').closest('button');
+    expect(card).toHaveAccessibleDescription(/^default guardianOfflineLabel/);
+    expect(screen.getByTestId('guardian-offline-banner')).toHaveClass('bg-negative-tint');
   });
 
   // The card most likely to be offline is the one the user is already on — that
@@ -599,9 +663,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} />);
 
-    const banner = screen.getByTestId('guardian-offline-banner');
-    expect(banner).toHaveTextContent('currentLabel · guardianOfflineLabel');
-    expect(banner.closest('button')).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
+    const card = screen.getByTestId('guardian-offline-banner').closest('button');
+    expect(card).toHaveAccessibleDescription(/^currentLabel guardianOfflineLabel/);
+    expect(card).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
   });
 
   it('names each card by its operator, so a down one is not just "Offline"', () => {
@@ -615,22 +679,22 @@ describe('ChooseGuardianScreen — offline banner', () => {
     });
     render(<ChooseGuardianScreen />);
 
-    const ozCard = screen.getByRole('button', { name: `${OZ.name}, default, guardianOfflineLabel` });
+    const ozCard = screen.getByRole('radio', { name: OZ.name, description: /^default guardianOfflineLabel/ });
     expect(ozCard).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
-    const gwCard = screen.getByRole('button', { name: `${GATEWAY.name}, guardianOfflineLabel` });
+    const gwCard = screen.getByRole('radio', { name: GATEWAY.name, description: /^guardianOfflineLabel/ });
     expect(gwCard).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
   });
 
-  it('exposes the selected card as pressed, since selection is otherwise colour-only', () => {
+  it('exposes the selected card as checked, since selection is otherwise the ring alone', () => {
     render(<ChooseGuardianScreen />);
 
     // OZ is the default selection.
-    expect(screen.getByRole('button', { name: `${OZ.name}, default` })).toHaveAttribute('aria-pressed', 'true');
-    const gwCard = screen.getByRole('button', { name: GATEWAY.name });
-    expect(gwCard).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('radio', { name: OZ.name })).toHaveAttribute('aria-checked', 'true');
+    const gwCard = screen.getByRole('radio', { name: GATEWAY.name });
+    expect(gwCard).toHaveAttribute('aria-checked', 'false');
 
     fireEvent.click(gwCard);
-    expect(gwCard).toHaveAttribute('aria-pressed', 'true');
+    expect(gwCard).toHaveAttribute('aria-checked', 'true');
   });
 
   // An account created against a down operator fails deep in the pipeline,
@@ -647,7 +711,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
 
     fireEvent.click(gwBtn!);
     expect(mockHapticLight).not.toHaveBeenCalled();
-    expect(gwBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(gwBtn).toHaveAttribute('aria-checked', 'false');
     expect(isHighlighted(gwBtn!)).toBe(false);
 
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -663,10 +727,10 @@ describe('ChooseGuardianScreen — offline banner', () => {
     const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
-    expect(ozBtn).toHaveAttribute('aria-pressed', 'false');
-    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'false');
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
     // The "default" badge still names the first card; only the selection moved.
-    expect(screen.getByTestId('guardian-offline-banner')).toHaveTextContent('default · guardianOfflineLabel');
+    expect(ozBtn).toHaveAccessibleDescription(/^default guardianOfflineLabel/);
 
     fireEvent.click(screen.getByTestId('continue-button'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
@@ -680,14 +744,14 @@ describe('ChooseGuardianScreen — offline banner', () => {
     const [ozBtn, gwBtn] = optionButtons(container);
 
     fireEvent.click(gwBtn!);
-    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
 
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
 
     expect(gwBtn).toBeDisabled();
-    expect(gwBtn).toHaveAttribute('aria-pressed', 'false');
-    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(gwBtn).toHaveAttribute('aria-checked', 'false');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
 
     fireEvent.click(screen.getByTestId('continue-button'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
@@ -699,12 +763,12 @@ describe('ChooseGuardianScreen — offline banner', () => {
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
     const { container, rerender } = render(<ChooseGuardianScreen />);
     const [ozBtn, gwBtn] = optionButtons(container);
-    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
 
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'online' });
     rerender(<ChooseGuardianScreen />);
-    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
-    expect(gwBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
+    expect(gwBtn).toHaveAttribute('aria-checked', 'false');
   });
 
   it('disables Continue when every provider is offline, instead of submitting the first one', () => {
@@ -718,7 +782,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
 
     optionButtons(container).forEach(btn => {
       expect(btn).toBeDisabled();
-      expect(btn).toHaveAttribute('aria-pressed', 'false');
+      expect(btn).toHaveAttribute('aria-checked', 'false');
     });
     expect(screen.getByTestId('continue-button')).toBeDisabled();
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -733,8 +797,10 @@ describe('ChooseGuardianScreen — offline banner', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     const { container } = render(<ChooseGuardianScreen currentEndpoint={`${GATEWAY.endpoint}/`} />);
 
-    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-pressed', 'false'));
-    expect(screen.getByTestId('guardian-offline-banner')).toHaveTextContent('currentLabel · guardianOfflineLabel');
+    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByTestId('guardian-offline-banner').closest('button')).toHaveAccessibleDescription(
+      /^currentLabel guardianOfflineLabel/
+    );
     expect(screen.getByTestId('continue-button')).toBeDisabled();
   });
 
@@ -746,13 +812,13 @@ describe('ChooseGuardianScreen — offline banner', () => {
     const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
 
     fireEvent.click(gwBtn!);
-    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
 
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     rerender(<ChooseGuardianScreen currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
 
     expect(gwBtn).toBeDisabled();
-    [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-pressed', 'false'));
+    [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
     expect(screen.getByTestId('continue-button')).toBeDisabled();
   });
 
@@ -763,16 +829,18 @@ describe('ChooseGuardianScreen — offline banner', () => {
     const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
 
     expect(gwBtn).toBeDisabled();
-    [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-pressed', 'false'));
+    [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
     // "Current" survives on the strip so the user still sees what they are leaving.
-    expect(screen.getByTestId('guardian-offline-banner')).toHaveTextContent('currentLabel · guardianOfflineLabel');
+    expect(screen.getByTestId('guardian-offline-banner').closest('button')).toHaveAccessibleDescription(
+      /^currentLabel guardianOfflineLabel/
+    );
 
     expect(screen.getByTestId('continue-button')).toBeDisabled();
     fireEvent.click(screen.getByTestId('continue-button'));
     expect(onSubmit).not.toHaveBeenCalled();
 
     fireEvent.click(lcBtn!);
-    expect(lcBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(lcBtn).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByTestId('continue-button')).not.toBeDisabled();
     fireEvent.click(screen.getByTestId('continue-button'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'lambda-class', guardianEndpoint: LAMBDA.endpoint });
@@ -825,9 +893,9 @@ describe('ChooseGuardian — no-guardian option', () => {
     // An aria-label would override that composed name for no gain.
     expect(noGuardian).not.toHaveAttribute('aria-label');
     expect(noGuardian).toHaveAccessibleName(/noGuardianOptionTitle/);
-    expect(noGuardian).toHaveAttribute('aria-pressed', 'false');
+    expect(noGuardian).toHaveAttribute('aria-checked', 'false');
 
     fireEvent.click(noGuardian);
-    expect(noGuardian).toHaveAttribute('aria-pressed', 'true');
+    expect(noGuardian).toHaveAttribute('aria-checked', 'true');
   });
 });

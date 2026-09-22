@@ -55,6 +55,13 @@ describe('PromptCard', () => {
     mockReduceMotion = false;
   });
 
+  it('uses the design-system 16px card radius, not the retired 10px token', () => {
+    const { container } = render(<PromptCard title="Fund your wallet" />);
+
+    expect(container.querySelector('.rounded-2xl')).not.toBeNull();
+    expect(container.querySelector('.rounded-10')).toBeNull();
+  });
+
   it('runs the card action when its content is clicked', () => {
     const onClick = jest.fn();
     render(<PromptCard title="Fund your wallet" onClick={onClick} />);

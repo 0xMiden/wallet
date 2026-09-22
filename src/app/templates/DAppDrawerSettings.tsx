@@ -2,14 +2,16 @@ import React, { FC, useCallback, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import ToggleSwitch from 'app/atoms/ToggleSwitch';
-import { Icon, IconName } from 'app/icons/v2';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useStorage, useMidenContext, useAccount } from 'lib/miden/front';
 import { MidenDAppSessions, MidenSharedStorageKey } from 'lib/miden/types';
 import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
+import SettingToggle from './SettingToggle';
 
 const DAppDrawerSettings: FC = () => {
   const { t } = useTranslation();
@@ -44,33 +46,30 @@ const DAppDrawerSettings: FC = () => {
   );
 
   return (
-    <div className="w-full flex flex-col gap-6">
-      <div className="flex flex-col">
-        <div className="flex w-full justify-between">
-          <span className="font-medium text-sm text-heading-gray">{t('dAppsInteraction')}</span>
-          <ToggleSwitch
+    <SubPageLayout data-testid="dapp-drawer-settings">
+      <SubPageSection footnote={t('dAppsToggleDescription')}>
+        <ListGroup>
+          <SettingToggle
             checked={dAppEnabled}
             onChange={handleChange}
             name="dAppEnabled"
             testID={GeneralSettingsSelectors.DAppToggle}
+            title={t('dAppsInteraction')}
           />
-        </div>
-        {/* `text-heading-gray`: `text-text-muted` is #ababab, 2.30:1 on the light
-            page, and this 12px line is the only explanation of what the toggle does. */}
-        <span className="text-xs text-heading-gray">{t('dAppsToggleDescription')}</span>
-      </div>
+        </ListGroup>
+      </SubPageSection>
 
       {hasConnectedDApps && (
-        <button type="button" onClick={() => navigate('/settings/dapps')} className="w-full">
-          <div className="flex items-center justify-between text-heading-gray">
-            <div className="flex flex-col">
-              <span className="font-medium text-base">{t('seeConnected')}</span>
-            </div>
-            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5" fill="none" />
-          </div>
-        </button>
+        <ListGroup>
+          <ListRow
+            title={t('seeConnected')}
+            onClick={() => navigate('/settings/dapps')}
+            chevron
+            data-testid="dapp-see-connected"
+          />
+        </ListGroup>
       )}
-    </div>
+    </SubPageLayout>
   );
 };
 

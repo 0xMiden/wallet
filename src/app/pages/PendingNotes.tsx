@@ -8,7 +8,7 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import { useReportNoteClaim } from 'app/hooks/useReportNoteClaim';
 import { PendingTab } from 'app/pages/Receive/PendingTab';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { isMobile } from 'lib/platform';
 
 const PendingNotes: FC = () => {
@@ -35,7 +35,7 @@ const PendingNotes: FC = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <NavigationHeader title={t('pendingNotes')} onBack={handleBack} variant="prominent" titleAlign="left" />
+      <PageHeader className="px-4" title={t('pendingNotes')} onBack={handleBack} />
       <PendingTab
         safeClaimableNotes={claim.safeClaimableNotes}
         unclaimedNotesCount={claim.unclaimedNotes.length}

@@ -112,11 +112,10 @@ jest.mock('./components', () => {
   };
 });
 
-// Native haptics wrap the Capacitor plugin — stub both entry points so the
-// timeframe taps and the action buttons never reach native code.
+// Native haptics wrap the Capacitor plugin - stub the entry point the action
+// buttons use so they never reach native code.
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn(),
-  hapticSelection: jest.fn()
+  hapticLight: jest.fn()
 }));
 
 // Feed the component a deterministic dataset through `useEarnPositions` (the
@@ -267,6 +266,27 @@ describe('EarnPositionDetail', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
   });
 
+  it('carries only grid-placement layout on the action buttons, no restyled variant colors', () => {
+    renderDetail('pos-flat');
+
+    // Was `h-14 ... border-rule-strong bg-white text-base font-bold text-accent-primary
+    // hover:bg-white focus:bg-white` (a fixed white fill that never flips in dark mode) /
+    // `h-14 ... text-base font-bold` — both now carry only the grid-placement class
+    // (`rounded-full` and `font-extrabold` below are the canonical Button's own base
+    // classes, not a caller override, so they're expected and not asserted against here).
+    const depositMore = screen.getByTestId('earn-deposit-more-btn');
+    const withdraw = screen.getByTestId('earn-withdraw-btn');
+    expect(depositMore).toHaveClass('max-w-none');
+    expect(depositMore.className).not.toMatch(/bg-white|h-14|border-rule-strong|\btext-base\b|\bfont-bold\b/);
+    expect(withdraw).toHaveClass('max-w-none');
+    expect(withdraw.className).not.toMatch(/h-14|\btext-base\b|\bfont-bold\b/);
+
+    // The spec's 10px gap between the two side-by-side 52px CTAs.
+    expect(depositMore.parentElement).toBe(withdraw.parentElement);
+    expect(depositMore.parentElement).toHaveClass('gap-2.5');
+    expect(depositMore.parentElement).not.toHaveClass('gap-3');
+  });
+
   it('falls back to the placeholder position when the id does not match any position', () => {
     renderDetail('does-not-exist');
 
@@ -294,25 +314,12 @@ describe('EarnPositionDetail', () => {
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
   });
 
-  it('renders the four timeframe buttons with 1M active by default and switches on click', () => {
+  // No timeframe row: the chart draws one fixed series, so the control changed nothing.
+  it('draws the chart with no timeframe row', () => {
     renderDetail('pos-flat');
 
-    const oneMonth = screen.getByRole('button', { name: '1M' });
-    const oneWeek = screen.getByRole('button', { name: '1W' });
-    const oneDay = screen.getByRole('button', { name: '1D' });
-    const all = screen.getByRole('button', { name: 'All' });
-
-    // Default active timeframe is 1M.
-    expect(oneMonth).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneWeek).not.toHaveClass('font-semibold');
-    expect(oneDay).not.toHaveClass('font-semibold');
-    expect(all).not.toHaveClass('font-semibold');
-
-    // Clicking another timeframe moves the active styling (covers the onClick
-    // handler + the `timeframe === item` ternary flipping both ways).
-    fireEvent.click(oneWeek);
-    expect(oneWeek).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneMonth).not.toHaveClass('font-semibold');
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument();
   });
 
   it('invokes goBack when the back button is pressed', () => {

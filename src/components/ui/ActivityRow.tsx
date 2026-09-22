@@ -8,12 +8,14 @@ import { useTranslation } from 'react-i18next';
 import { springs, useMotion } from 'lib/animation';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
+
+import { Status, StatusBadge } from './StatusBadge';
 
 /** Extra batch-claim assets rendered inline before the row collapses to a count. */
 const EXTRA_ASSET_PREVIEW_COUNT = 2;
 
 export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
-export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed' | 'cancelled';
 
 export interface ActivityRowProps {
   /** Glyph rendered inside the colored square. Pass a white-stroked SVG; it is forced to 16x16. */
@@ -44,13 +46,15 @@ export interface ActivityRowProps {
      */
     extra?: { key: string; value: string; symbol?: string }[];
   };
-  status?: {
-    label: string;
-    tone: ActivityStatusTone;
-  };
+  /** The row's status, drawn as a `sm` `StatusBadge` under the amount. */
+  status?: Status;
   /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
   timestamp?: string;
   onClick?: () => void;
+  /**
+   * Layout, or the surface a `Card asChild` draws onto the row. Merged with `cn`, so a card's
+   * padding replaces the row's own `py-4` instead of fighting it.
+   */
   className?: string;
   /**
    * Optional E2E hook. The component destructures its props (no rest spread), so
@@ -69,24 +73,13 @@ export interface ActivityRowProps {
   entryKey?: string;
 }
 
+// The status badge's sage and clay inks, so an amount and the badge under it speak one palette.
+// Never the raw status fills (#90BA89 was 2.19:1 on white): on the row's `fill` card these read
+// 5.62 / 5.56:1 light and 8.38 / 7.30:1 dark (`lib/ui/design-tokens.test.ts`).
 const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
-  positive: 'text-status-positive',
-  negative: 'text-status-negative',
-  neutral: 'text-text-primary-token'
-};
-
-const STATUS_DOT: Record<ActivityStatusTone, string> = {
-  confirmed: 'bg-status-positive',
-  pending: 'bg-status-pending',
-  failed: 'bg-status-negative',
-  cancelled: 'bg-gray-400'
-};
-
-const STATUS_TEXT: Record<ActivityStatusTone, string> = {
-  confirmed: 'text-status-positive',
-  pending: 'text-status-pending',
-  failed: 'text-status-negative',
-  cancelled: 'text-gray-500'
+  positive: 'text-positive-tint-ink',
+  negative: 'text-negative-tint-ink',
+  neutral: 'text-ink'
 };
 
 const DISPLAY_DECIMAL_PLACES = 3;
@@ -105,7 +98,7 @@ function formatDisplayAmount(value: string): string {
 
 export const ActivityRow: FC<ActivityRowProps> = ({
   icon,
-  iconBg = 'bg-gray-50',
+  iconBg = 'bg-fill',
   title,
   subtitle,
   amount,
@@ -136,25 +129,30 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   const visibleExtra = extra.slice(0, EXTRA_ASSET_PREVIEW_COUNT);
   const extraOverflowCount = extra.length - visibleExtra.length;
   // The row is a Framer element so a list can animate it as a plain list item:
-  // `layout` slides the rows that stay into place when a filter or a search
-  // removes a neighbour. Nothing fades: a removed row leaves at once and a new
-  // one appears in place, the way a native list behaves. The tap state is
+  // `layout="position"` slides the rows that stay into place when a filter or a
+  // search removes a neighbour. Nothing fades: a removed row leaves at once and
+  // a new one appears in place, the way a native list behaves. The tap state is
   // Framer's, so it shares the channel a layout move may hold.
+  // Position-only is load-bearing, not a preference: a full `layout` also scales,
+  // and Framer can only undo that scale for a radius it reads from `style` or a
+  // motion value. The avatar and the status dot below are plain elements whose
+  // radius is a class, so under a full `layout` both draw as ovals for the whole
+  // spring. Same reason as the inline radius on SegmentedActionBar's pill and segments.
   return (
     <motion.div
-      layout
+      layout="position"
       whileTap={onClick ? { opacity: 0.9 } : undefined}
       transition={transition}
       data-testid={testId}
       data-entry-key={entryKey}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
-      className={classNames('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
+      className={cn('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
     >
       <div className="flex items-center gap-2">
         <div
           className={classNames(
-            'shrink-0 flex items-center justify-center w-10 h-10 rounded-10 text-pure-white',
+            'shrink-0 flex items-center justify-center w-10 h-10 rounded-full text-pure-white',
             '[&_svg]:w-4 [&_svg]:h-4',
             iconBg
           )}
@@ -162,32 +160,26 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           {icon}
         </div>
 
-        <div className="flex flex-col text-heading-gray leading-tight dark:text-pure-white">
-          <span data-testid={testId && `${testId}-title`} className="font-heading text-base font-bold">
+        <div className="flex flex-col text-ink dark:text-pure-white">
+          <span data-testid={testId && `${testId}-title`} className="text-row-title">
             {title}
           </span>
           {subtitle && (
-            <span
-              data-testid={testId && `${testId}-subtitle`}
-              className="font-heading text-xs opacity-50 font-medium leading-[100%]"
-            >
+            <span data-testid={testId && `${testId}-subtitle`} className="text-caption text-muted">
               {subtitle}
             </span>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col items-end gap-0.5">
+      <div className="flex flex-col items-end gap-1">
         {amount && (
-          <span
-            data-testid={testId && `${testId}-amount`}
-            className="font-heading text-sm font-bold leading-tight text-right"
-          >
+          <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
             {amount.value !== '' && (
               <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             )}
             {amount.symbol ? (
-              <span className="text-heading-gray">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
+              <span className="text-ink">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
             ) : null}
             {/* Every further asset of a batch claim follows inline: "+20 A, +10 B".
                 The test id is indexed so each asset stays individually addressable —
@@ -198,17 +190,17 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {visibleExtra.map((line, index) => (
               <span key={line.key} data-testid={testId && `${testId}-amount-extra-${index}`}>
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
-                <span className="text-heading-gray">, </span>
+                <span className="text-ink">, </span>
                 {line.value !== '' && (
                   <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
                 )}
                 {line.symbol ? (
-                  <span className="text-heading-gray">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
+                  <span className="text-ink">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
                 ) : null}
               </span>
             ))}
             {extraOverflowCount > 0 && (
-              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-heading-gray">
+              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-ink">
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
                 <span>, </span>
                 {t('andMoreAssets', { count: extraOverflowCount })}
@@ -216,19 +208,8 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             )}
           </span>
         )}
-        {status && (
-          <span
-            data-testid={testId && `${testId}-status`}
-            className={classNames(
-              'flex items-center gap-1 text-[10px] font-normal leading-none',
-              STATUS_TEXT[status.tone]
-            )}
-          >
-            <span className={classNames('w-1.5 h-1.5 rounded-full', STATUS_DOT[status.tone])} />
-            {status.label}
-          </span>
-        )}
-        {timestamp && <span className="text-[10px] text-[#8E8E93] font-regular">{timestamp}</span>}
+        {status && <StatusBadge status={status} data-testid={testId && `${testId}-status`} />}
+        {timestamp && <span className="text-caption text-muted">{timestamp}</span>}
       </div>
     </motion.div>
   );

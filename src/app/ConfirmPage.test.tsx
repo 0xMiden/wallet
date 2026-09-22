@@ -89,9 +89,8 @@ jest.mock('app/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }: any) => <div data-testid="error-boundary">{children}</div>
 }));
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 jest.mock('app/pages/Unlock', () => ({
   __esModule: true,
@@ -119,8 +118,16 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!isLoading)} data-variant={variant}>
+  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+    <button
+      type={type ?? 'button'}
+      onClick={onClick}
+      data-loading={String(!!isLoading)}
+      data-variant={variant}
+      data-size={size}
+      className={className}
+      data-testid={dataTestId}
+    >
       {children}
     </button>
   )
@@ -187,22 +194,6 @@ jest.mock('./atoms/Alert', () => ({
         close
       </button>
     </div>
-  )
-}));
-jest.mock('./atoms/FormSecondaryButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick }: any) => (
-    <button type="button" onClick={onClick} data-testid="form-secondary">
-      {children}
-    </button>
-  )
-}));
-jest.mock('./atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick, loading, testID }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!loading)} data-testid={testID}>
-      {children}
-    </button>
   )
 }));
 jest.mock('./atoms/Name', () => ({
@@ -390,7 +381,12 @@ describe('connect payload', () => {
     expect(screen.queryByTestId('pdp-checkbox')).not.toBeInTheDocument();
     // Confirm/decline labels.
     expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toHaveTextContent('connect');
-    expect(screen.getByText('deny')).toBeInTheDocument();
+    const declineButton = screen.getByText('deny').closest('button')!;
+    expect(declineButton).toBeInTheDocument();
+    // Only layout survives on the decline button: no restyled text color/weight
+    // or transition fighting the Secondary variant's own anatomy.
+    expect(declineButton).toHaveClass('w-full');
+    expect(declineButton.className).not.toMatch(/text-ink|font-medium|transition/);
   });
 
   it('auto-confirms an existing permission during render', () => {
@@ -706,8 +702,11 @@ describe('privateNotes payload', () => {
     render(<ConfirmPage />);
 
     // The intro copy is split across text nodes by a <br/>; match the button.
-    expect(screen.getByText('downloadPrivateNoteData')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('downloadPrivateNoteData'));
+    const downloadButton = screen.getByText('downloadPrivateNoteData').closest('button')!;
+    expect(downloadButton).toBeInTheDocument();
+    // Was FormSecondaryButton's `small` prop; the canonical Button uses `sm`.
+    expect(downloadButton).toHaveAttribute('data-size', 'sm');
+    fireEvent.click(downloadButton);
 
     expect(createObjSpy).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalled();

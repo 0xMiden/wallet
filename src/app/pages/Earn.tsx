@@ -1,9 +1,9 @@
 import React, { FC } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { CardButton } from 'components/ui/Card';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
@@ -26,14 +26,10 @@ const Earn: FC = () => {
 
           <section className="mt-4" aria-labelledby="earn-positions-title">
             <div className="flex items-center justify-between">
-              <h2 id="earn-positions-title" className="text-xl font-heading font-bold leading-none text-heading-gray">
+              <h2 id="earn-positions-title" className="text-title-page text-ink">
                 {t('earnCurrentPositionsTitle')}
               </h2>
-              <button
-                type="button"
-                onClick={handleSeeAllClick}
-                className="text-xs font-heading font-bold leading-none text-heading-gray"
-              >
+              <button type="button" onClick={handleSeeAllClick} className="text-action text-accent-tint-ink">
                 {t('earnSeeAll')}
               </button>
             </div>
@@ -51,7 +47,7 @@ const Earn: FC = () => {
           </section>
 
           <section className="mt-3" aria-labelledby="earn-vaults-title">
-            <h2 id="earn-vaults-title" className="text-xl font-heading font-bold leading-none text-heading-gray">
+            <h2 id="earn-vaults-title" className="text-title-page text-ink">
               {t('earnVaultsTitle')}
             </h2>
 
@@ -71,32 +67,29 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
   const { t } = useTranslation();
 
   return (
-    <button
-      type="button"
+    <CardButton
+      padding="tile"
       data-testid={`earn-position-card-${position.id}`}
-      onClick={() => {
-        hapticLight();
-        navigate(`/earn/positions/${position.id}`);
-      }}
-      className={classNames('shrink-0 rounded-2xl border border-[#EFEFF2] bg-white px-4 py-4 text-left')}
+      onClick={() => navigate(`/earn/positions/${position.id}`)}
+      className="shrink-0"
     >
       <div className="flex items-center gap-10">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="text-base font-bold leading-none text-black">
+          <div className="text-base font-bold leading-none text-ink">
             {position.protocol} &bull; {position.asset}
           </div>
         </div>
-        <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-bold font-heading leading-none text-green-500">
+        <div className="rounded-full bg-green-100 px-2 py-1 text-badge text-green-500">
           {position.apy} {t('earnApyLabel')}
         </div>
       </div>
 
-      <div className="mt-3 text-[22px] font-bold font-heading leading-none text-black">{position.amount}</div>
+      <div className="mt-3 text-[22px] font-bold font-heading leading-none text-ink">{position.amount}</div>
       <div className="mt-2 text-xs font-bold leading-none text-green-500">
         {position.rewards} &bull; {position.age}
       </div>
-    </button>
+    </CardButton>
   );
 };
 
@@ -119,7 +112,7 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
 
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
-          <span className="shrink-0 text-base font-bold leading-tight text-black">{vault.protocol}</span>
+          <span className="shrink-0 text-base font-bold leading-tight text-ink">{vault.protocol}</span>
           <span className="truncate text-xs font-regular leading-tight text-text-secondary-token">
             {t('earnVaultAssetOnNetwork', { asset: vault.asset, network: vault.network })}
           </span>

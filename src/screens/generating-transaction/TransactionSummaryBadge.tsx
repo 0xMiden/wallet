@@ -38,10 +38,15 @@ export interface TransactionSummaryBadgeContent {
   fillForArrow?: string;
 }
 
-/** Default separator — the horizontal "→" arrow, tinted by `fill`. */
+/**
+ * Default separator - the horizontal arrow, tinted by `fill`. The disc carries white strokes, so
+ * its colour owes WCAG 1.4.11's 3:1 like every other activity surface. It reads the shared
+ * constant rather than a literal: this was a third copy of the send hue and it was left behind
+ * when the activity tokens moved, so the detail hero showed one transaction in two shades.
+ */
 const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" fill={fill ?? '#91ACC1'} />
+    <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--tx-sent)' }} />
     <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
     <path
       d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
@@ -53,10 +58,10 @@ const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
   </svg>
 );
 
-/** Separator used when opening an earn position — an up "↑" arrow in a grey circle. */
+/** Separator used when opening an earn position — an up "↑" arrow in the Earn action colour. */
 export const EarnDepositArrowGlyph: FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" fill="#6E6E73" />
+    <rect width="24" height="24" rx="12" style={{ fill: 'var(--tx-earn)' }} />
     <path d="M11.6523 17.5195L11.6523 7.23506" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
     <path
       d="M9.3418 9.08398L11.6529 6.65731L13.964 9.08398"
@@ -97,17 +102,17 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
     // reads as "this whole list → Consumed".
     <div
       className={classNames(
-        'flex w-full items-center justify-center gap-2 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
+        'flex w-full items-center justify-center gap-2 rounded-3xl bg-fill px-4 py-4 text-base',
         className
       )}
     >
-      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-heading-gray text-xl dark:text-pure-white">
+      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-ink text-xl dark:text-pure-white">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
         {separator ?? <HorizontalArrowGlyph fill={fillForArrow} />}
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
+      <div className="flex min-w-0 items-center gap-2 font-bold text-ink text-xl font-heading dark:text-pure-white">
         {rhs}
       </div>
     </div>
@@ -134,7 +139,7 @@ interface ResolvedAsset {
 // without a quantity rather than shown at an invented one.
 const SwapAmountText: FC<{ amount?: string; symbol: string }> = ({ amount, symbol }) => (
   <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
-    {amount !== undefined && <span className="text-heading-gray">{amount}</span>}
+    {amount !== undefined && <span className="text-ink">{amount}</span>}
     <span className="text-gray">{symbol}</span>
   </span>
 );
@@ -263,7 +268,8 @@ export const useTransactionSummaryBadgeContent = (
 
       return {
         lhs: parts.join(', '),
-        rhs: t('consumed', { defaultValue: 'Consumed' })
+        rhs: t('consumed', { defaultValue: 'Consumed' }),
+        fillForArrow: 'var(--tx-received)'
       };
     }
 
@@ -299,7 +305,9 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
         rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
-        fillForArrow: '#BEACD2'
+        // The disc carries white strokes, so it takes the activity token, which clears 3:1 in both
+        // themes, rather than the brand action colour, which does not in dark.
+        fillForArrow: 'var(--tx-swap)'
       };
     }
 

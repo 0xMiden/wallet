@@ -3,6 +3,7 @@ import React from 'react';
 import classNames from 'clsx';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 
 export interface ReviewAction {
@@ -19,13 +20,13 @@ export interface ReviewAction {
 }
 
 export interface ReviewLayoutProps {
-  /** Hero block — a ReviewAmount (send) or a composed swap hero. */
+  /** Hero block — a `Hero` amount (bridge deposit) or a composed swap hero. */
   hero: React.ReactNode;
-  /** Orange underline under the hero. Default true (send); pass false for swap (its hero owns its dividers). */
+  /** Orange underline under the hero. Default true; every current caller passes false (kept for a future hero that wants the accent divider back). */
   heroDivider?: boolean;
-  /** Divider lines between the detail rows. Default true (send); pass false for swap. */
+  /** Divider lines around the children. Default true; a caller whose rows already live in one `DetailCard` (its own hairlines) passes false. */
   dividers?: boolean;
-  /** The ReviewRow list. */
+  /** The row content — a `DetailCard` of `DetailRow`s. */
   children: React.ReactNode;
   primary: ReviewAction;
   secondary?: ReviewAction;
@@ -55,37 +56,40 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   useHideNavbarWhileOpen();
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-app-bg px-4 pt-6 pb-4">
-      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
-        {hero}
+    <div className="flex flex-col h-full min-h-0 bg-app-bg pb-4">
+      <NetworkModeBanner />
+      <div className="flex flex-1 min-h-0 flex-col px-4 pt-6">
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+          {hero}
 
-        {heroDivider && <div className="mt-4 h-2 w-full rounded-full bg-primary-500" />}
+          {heroDivider && <div className="mt-4 h-2 w-full rounded-full bg-primary-500" />}
 
-        <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
-      </div>
+          <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
+        </div>
 
-      <div className="shrink-0 pt-6 flex flex-col gap-y-2">
-        {error && <p className="text-center text-sm text-red-500">{error}</p>}
-        <Button
-          type={primary.type ?? 'button'}
-          title={primary.label}
-          variant={ButtonVariant.Primary}
-          onClick={primary.onPress}
-          isLoading={primary.loading}
-          disabled={primary.disabled || primary.loading}
-          data-testid={primary['data-testid']}
-          className="w-full max-w-none rounded-full text-base font-semibold"
-        />
-        {secondary && (
+        <div className="shrink-0 pt-6 flex flex-col gap-y-2">
+          {error && <p className="text-center text-sm text-red-500">{error}</p>}
           <Button
-            type="button"
-            title={secondary.label}
-            variant={ButtonVariant.Secondary}
-            onClick={secondary.onPress}
-            disabled={secondary.disabled}
-            className="w-full max-w-none rounded-full text-base font-semibold"
+            type={primary.type ?? 'button'}
+            title={primary.label}
+            variant={ButtonVariant.Primary}
+            onClick={primary.onPress}
+            isLoading={primary.loading}
+            disabled={primary.disabled || primary.loading}
+            data-testid={primary['data-testid']}
+            className="w-full max-w-none"
           />
-        )}
+          {secondary && (
+            <Button
+              type="button"
+              title={secondary.label}
+              variant={ButtonVariant.Secondary}
+              onClick={secondary.onPress}
+              disabled={secondary.disabled}
+              className="w-full max-w-none"
+            />
+          )}
+        </div>
       </div>
     </div>
   );

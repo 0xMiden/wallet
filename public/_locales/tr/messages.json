@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "Toplam Bakiye",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "Adres: $number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "Hesap seçenekleri",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "Adresi kopyala",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "Adres kopyalandı",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "Yükleniyor…",
@@ -94,42 +93,6 @@
   "promptCardLoading": {
     "message": "Yükleniyor",
     "englishSource": "Loading"
-  },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
   },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
@@ -567,18 +530,6 @@
     "message": "Bu alanı görüntülemek için tıklayın",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Görüntülemek için tıklayın",
-    "englishSource": "Click to reveal"
-  },
-  "copiedHash": {
-    "message": "Kopyalandı.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Panoya kopyala",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Hesaplar",
     "englishSource": "Accounts"
@@ -757,14 +708,6 @@
     "message": "Yalnızca geçerli, önceden oluşturulmuş mnemonik",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Yapıştırma işlemi, metinde 24 kelimeden fazla olduğu için başarısız oldu.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Gizli Seed phrase adresinizi herhangi bir alana olduğu gibi yapıştırabilirsiniz",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Kurtarma ifadesindeki kelime listesinde bir veya daha fazla kelime bulunmuyor. Vurgulanan kelimeleri kontrol edin.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +752,6 @@
   "retryAnyway": {
     "message": "Yine de yeniden dene",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal: $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Devam etmeden önce",
@@ -1083,7 +1017,7 @@
   },
   "importWallet": {
     "message": "Cüzdanı İçe Aktar",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Bunun yerine anahtarla içe aktarın",
@@ -1228,6 +1162,10 @@
   "termsOfService": {
     "message": "Kullanım Koşulları",
     "englishSource": "Terms of Service"
+  },
+  "support": {
+    "message": "Destek",
+    "englishSource": "Support"
   },
   "sendFeedback": {
     "message": "Geri bildirim gönder",
@@ -1598,9 +1536,17 @@
     "message": "Yapıştır",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Yapıştırılacak bir şey yok. Önce bir adres kopyalayın.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Alıcıyı seçin",
     "englishSource": "Choose recipient"
+  },
+  "sendTo": {
+    "message": "Alıcı",
+    "englishSource": "Send to"
   },
   "selectAmount": {
     "message": "Tutar Seç",
@@ -1786,13 +1732,13 @@
     "message": "Miden",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Yeni kişi",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Kişi Ekle",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "Bu kim?",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "Kişilere eklemek ister misiniz?",
@@ -1801,10 +1747,6 @@
   "recent": {
     "message": "Son",
     "englishSource": "Recent"
-  },
-  "newContactPlaceholder": {
-    "message": "örn. Alice Bob",
-    "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Aynı adresle zaten bir kayıt mevcut",
@@ -1822,17 +1764,13 @@
     "message": "Bu kişiyi silmek istediğinizden emin misiniz?",
     "englishSource": "Are you sure you want to delete this contact?"
   },
-  "ownAccount": {
-    "message": "Kendi",
-    "englishSource": "Own"
-  },
   "noContactsFound": {
     "message": "Hiçbir kişi bulunamadı",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
     "message": "Seed Phrase adresini doğrulayın",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Cüzdanınıza para yatırın",
@@ -2063,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "İçe Aktarma Türünüzü Seçin",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "12 kelimelik ifadenizle halkın dengesini yeniden sağlayın. Özel fonları geri yüklemek için şifrelenmiş yedekleme dosyasını yükleyin.",
@@ -2071,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Seed Phraseyle İçe Aktarma",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Mevcut 12 kelimelik bir kurtarma ifadesini kullanın. Ayrıca diğer cüzdan sağlayıcılarından da cüzdanları içe aktarabilirsiniz.",
@@ -2079,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "Şifreli Cüzdan Dosyasıyla İçe Aktarma",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Hesabınızı güvenli bir şekilde içe aktarmak için şifrelenmiş cüzdan dosyanızı yükleyin. Verileriniz gizli kalır ve yalnızca karma bilgiler zincirde depolanır",
@@ -2103,7 +2041,7 @@
   },
   "continueImport": {
     "message": "İçe Aktarmaya Devam Et",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Cüzdanınızı nasıl korumak istediğinizi seçin",
@@ -2111,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Face ID veya Biyometrik Kimlik Doğrulama'yı kullanın",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Şifrenizi ayarlayın",
@@ -2323,15 +2261,15 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "Cüzdanınızın 12 kelimelik “Seed phrase”sini girin.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Yalnızca Miden Seed ifadeleri desteklenmektedir.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "<highlight>Cüzdanınız</highlight> hazır!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Cüzdanınız hazır!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Cüzdanınızı tam anlamıyla güvence altına almak için kurtarma ifadesini 7 gün içinde bir yere yazın.",
@@ -2471,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Cüzdanın Sıfırlanması Gerekiyor",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden Testnet, kullanıcı deneyiminizi iyileştirmek amacıyla bech32 hesap kimliklerine geçiş yapmıştır. Cüzdanınızı kullanmaya devam etmek için lütfen bir yedekleme dosyasından veya seed phrase adresinden geri yükleme yapın ya da yeni bir cüzdan oluşturun.",
@@ -2483,11 +2421,11 @@
   },
   "reset": {
     "message": "Cüzdanı Sıfırla",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Şifrenizi mi unuttunuz?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Şifrenizi unuttuysanız, oturumunuzu kapatıp hesabınızı yeniden içe aktarmanız gerekir. Ardından yeni bir şifre oluşturabilirsiniz.",
@@ -2511,7 +2449,7 @@
   },
   "signOut": {
     "message": "Oturumu Kapat",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3076,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "Hesap Kurtarma İşlemini Ayarla",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Erişiminizi kaybederseniz, hesabınızı nasıl kurtarmak istediğinizi seçin.",
@@ -3092,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "Tamamen Özel",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Yalnızca yerel kullanım içindir; eyaletinizi sizden başka kimse göremez, ancak geri alma imkânı yoktur; cihazınızı kaybetmeniz durumunda paranız kalıcı olarak kaybedilir.",
@@ -3669,6 +3607,62 @@
     "message": "Sosyal",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Oyunlar",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT’ler",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Öğren",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Kategoriler",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Öne çıkan",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Yardımcı araçlar",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Aç",
+    "englishSource": "Open"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Yakında Miden’de",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Yeni uygulamalar Miden’de yayınlandıkça burada görünür.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "dApp ara",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Sonuçlar",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Sonuç yok",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Başka bir ad deneyin veya bir dApp’in URL’sini yapıştırın.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Takas için testnet token’ı alın",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Küçült",
     "englishSource": "Minimize"
@@ -3926,7 +3920,7 @@
   },
   "unlockWallet": {
     "message": "Cüzdanın Kilidini Aç",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "seed phrase ile genel hesabınızı her zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini hızlı bir şekilde nasıl açacağınızı aşağıdan seçin.",
@@ -3963,6 +3957,14 @@
   "seeConnected": {
     "message": "İlgili bölümlere bakınız",
     "englishSource": "See connected"
+  },
+  "noConnectedDApps": {
+    "message": "Bağlı dApp yok",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "Bu hesaba bağladığınız dApp'ler burada görünür.",
+    "englishSource": "dApps you connect to this account show up here."
   },
   "transferDetails": {
     "message": "Transfer Ayrıntıları",
@@ -4009,12 +4011,12 @@
     "englishSource": "Invalid amount"
   },
   "tokenPrice": {
-    "message": "Token Fiyatı",
-    "englishSource": "Token Price"
+    "message": "Token fiyatı",
+    "englishSource": "Token price"
   },
   "tokenInfo": {
-    "message": "Token Bilgileri",
-    "englishSource": "Token Info"
+    "message": "Token bilgileri",
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Değiştirilebilir",
@@ -4025,8 +4027,8 @@
     "englishSource": "Network"
   },
   "recentActivity": {
-    "message": "Son Etkinlikler",
-    "englishSource": "Recent Activity"
+    "message": "Son etkinlikler",
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Tür",
@@ -4781,6 +4783,14 @@
     "message": "Arama etkinliği",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "Etkinlik filtreleri",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "Grafik zaman aralığı",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "Bu köprü, Ethereum Sepolia üzerinde çalışır. Gerçek fon içeren bir cüzdanı bağlamayınız. Yeni bir cüzdan oluşturun ve içine yalnızca Sepolia ETH yatırın.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
@@ -4832,10 +4842,6 @@
   "networkNoticeResetBody": {
     "message": "Sıfırlama işlemi, bakiyeleri ve geçmişi temizler. Test bakiyeleri asla Mainnet’e aktarılmaz.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Yalnızca test token'ları",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Para çekme işleminiz kontrol ediliyor. Teslimat onaylanana kadar cüzdanı açık tutun.",
@@ -4897,6 +4903,15 @@
   "networkModeBanner": {
     "message": "Bread'i Miden $network$ üzerinde kullanıyorsunuz",
     "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkModeStripLabel": {
+    "message": "$network$ — bu ağ hakkında",
+    "englishSource": "$network$ — about this network",
     "placeholders": {
       "network": {
         "content": "$1"
@@ -5138,5 +5153,66 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Bu işleme devam etmek için kimliğinizi doğrulayın. Bu işlem harcama limitinizi değiştirmez veya devre dışı bırakmaz.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "Yeni kişi",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Hesaplarım",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Henüz kişi yok",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Adla göndermek için bir adres kaydedin.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Bu hesaplarınızdan biri",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Zaten $name$ olarak kayıtlı",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Kişiyi düzenle",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Kişiyi sil",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Kaydet",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Eklendi",
+    "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "İşleten: $operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

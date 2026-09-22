@@ -258,7 +258,11 @@ describe('HelpImproveWalletScreen', () => {
 
     // Accepting is the primary; a full-weight "Not now" would nudge, and the
     // opt-in has to be a real choice.
-    expect(screen.getByText(DECLINE_LABEL).className).not.toEqual(screen.getByText(ACCEPT_LABEL).className);
+    // Compare the buttons themselves: the shared Button renders its label in an unclassed
+    // span, so the variant shows on the button element rather than on the text node.
+    const decline = screen.getByText(DECLINE_LABEL).closest('button')!;
+    const accept = screen.getByText(ACCEPT_LABEL).closest('button')!;
+    expect(decline.className).not.toEqual(accept.className);
   });
 
   it('does not throw when clicked without an onSubmit handler', () => {

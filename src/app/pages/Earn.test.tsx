@@ -11,7 +11,7 @@ import Earn from './Earn';
 
 // Stub the two child widgets pulled in from `screens/earn-flow/components`.
 // The real `EarnSummaryPanel` / `ProviderLogo` drag in the Aave `?url` SVG
-// import plus `components/CircleButton` / `components/TokenLogo` chrome that is
+// import plus `components/ui/IconButton` / `components/TokenLogo` chrome that is
 // irrelevant to `Earn.tsx`'s own wiring. Rendering them as probes keeps the
 // coverage scoped to this page while still letting us assert the props it
 // forwards (summary + titleId to the panel, protocol to the logo). This mirrors
@@ -140,12 +140,12 @@ describe('Earn page', () => {
       .getAllByRole('button')
       .find(button => button.textContent !== 'earnSeeAll')!;
     expect(within(positionCard).getByText(`${positions[0]!.protocol} • ${positions[0]!.asset}`)).toHaveClass(
-      'text-black'
+      'text-ink'
     );
-    expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-black');
+    expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-ink');
 
     const vaultRow = within(vaultsSection()).getAllByRole('button')[0]!;
-    expect(within(vaultRow).getByText(vaults[0]!.protocol)).toHaveClass('text-black');
+    expect(within(vaultRow).getByText(vaults[0]!.protocol)).toHaveClass('text-ink');
   });
 
   it('navigates to a position detail when its card is tapped', () => {

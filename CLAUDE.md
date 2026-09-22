@@ -95,7 +95,10 @@ Fix (already in place — keep it): every app vite config (`vite.{mobile,extensi
 
 ### Tailwind auto-flipping tokens
 Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
-- `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray`
+- the design-system tokens `bg-page`, `bg-fill`, `bg-fill-pressed`, `border-hairline`, `text-ink`, `text-muted`, `accent-tint(-ink)`, `*-ink` status text
+- legacy `bg-white`, `bg-gray-100`, `black` (overlays only; text is `text-ink`)
+
+`gray-25`, `gray-50`, `surface-input`, `surface-interactive`, `surface-nav-button`, `button-secondary(-hover)` and `heading-gray` are removed: use `fill` / `fill-pressed` / `ink`.
 
 Add `dark:` only on fixed-palette colors (`grey.*` custom palette, `pure-white`, `pure-black`) or SVG `fill={...}` props (check `document.documentElement.classList.contains('dark')` at render).
 
@@ -171,7 +174,7 @@ The in-progress transaction view is a routed full-screen page at `/generating-tr
 
 Send flow: only recipient → amount remain Navigator steps inside `/send`; the token and contact pickers are fixed-height bottom-sheet drawers (`SelectTokenDrawer`, `AccountsListDrawer`) closed first by SendManager's mobile back handler; the review step is a routed full-screen page (`/send/review?amount=…&to=…&tokenId=…`, `ReviewTransaction.tsx`) that owns the transaction pipeline. Backing out restores the form via `send-flow/send-draft.ts` (SendManager reopens on the Amount step). Hardware back on review is covered by `MobileBackBridge` (history pop).
 
-Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. `PageLayout` registers a default that calls `goBack()` if `historyPosition > 0` else navigates home. Mobile hardware/swipe back requires `@capacitor/app` + explicit handlers — must be registered for global nav (`MobileBackBridge`), Navigator flows, state-based flows, and modals. A handler for UI rendered outside the routed page's React tree (app-level dialogs and gates, provider modals, the router's banner sheet) passes `{ overlay: true }` to `useMobileBackHandler`: overlays run before every page handler, whenever the page last registered. A sheet a page renders stays in the page tier, closed by that page's own handler.
+Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. `PageLayout` registers a default that calls `goBack()` if `historyPosition > 0` else navigates home. Mobile hardware/swipe back requires `@capacitor/app` + explicit handlers — must be registered for global nav (`MobileBackBridge`), Navigator flows, state-based flows, and modals. A handler for UI rendered outside the routed page's React tree (app-level dialogs and gates, provider modals, the network sheet the tab bar's corner ribbon opens) passes `{ overlay: true }` to `useMobileBackHandler`: overlays run before every page handler, whenever the page last registered. A sheet a page renders stays in the page tier, closed by that page's own handler.
 
 When adding screens/routes, keep this section accurate so mobile back stays correct.
 

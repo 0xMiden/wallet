@@ -8,7 +8,12 @@ import type { ITransactionType } from 'lib/miden/db/types';
 export type FlowAccent = 'brand' | 'send' | 'receive' | 'earn' | 'swap';
 
 interface AccentClasses {
+  /** The brand action colour, for glyphs (the spinner, a chevron): 3:1 is all a glyph needs. */
   text: string;
+  /** Text in the flow's colour: its darker `-ink`, which reads at 4.5:1 on page, fill and tint. */
+  ink: string;
+  /** Solid fill, for a badge that carries the accent rather than hinting at it. */
+  bg: string;
   border: string;
   tint: string;
 }
@@ -17,26 +22,36 @@ interface AccentClasses {
 export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
   brand: {
     text: 'text-primary-500',
+    ink: 'text-accent-tint-ink',
+    bg: 'bg-primary-500',
     border: 'border-primary-500',
     tint: 'bg-primary-50'
   },
   send: {
     text: 'text-accent-send',
+    ink: 'text-accent-send-ink',
+    bg: 'bg-accent-send',
     border: 'border-accent-send',
     tint: 'bg-accent-send-tint'
   },
   receive: {
     text: 'text-accent-receive',
+    ink: 'text-accent-receive-ink',
+    bg: 'bg-accent-receive',
     border: 'border-accent-receive',
     tint: 'bg-accent-receive-tint'
   },
   earn: {
     text: 'text-accent-earn',
+    ink: 'text-accent-earn-ink',
+    bg: 'bg-accent-earn',
     border: 'border-accent-earn',
     tint: 'bg-accent-earn-tint'
   },
   swap: {
     text: 'text-accent-swap',
+    ink: 'text-accent-swap-ink',
+    bg: 'bg-accent-swap',
     border: 'border-accent-swap',
     tint: 'bg-accent-swap-tint'
   }

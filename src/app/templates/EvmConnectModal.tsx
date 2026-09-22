@@ -3,9 +3,10 @@ import React, { useCallback } from 'react';
 import { useAppKit } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
-import { TestNetworkWarning } from 'components/TestNetworkWarning';
+import { Icon, IconName } from 'app/icons/v2';
+import { Button } from 'components/ui/Button';
+import { Notice } from 'components/ui/Notice';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { Button } from 'lib/ui/button';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
@@ -48,11 +49,14 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
               {/* Shown before the WalletConnect handshake (#875): the bridge only
                   works on Ethereum Sepolia, so a wallet that holds real funds has
                   nothing to gain here and everything to lose. */}
-              <TestNetworkWarning
-                titleKey="evmConnectTestWalletTitle"
-                bodyKey="evmConnectTestWalletBody"
+              <Notice
+                tone="warning"
+                icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+                title={t('evmConnectTestWalletTitle')}
                 data-testid="evm-connect-test-wallet-warning"
-              />
+              >
+                {t('evmConnectTestWalletBody')}
+              </Notice>
 
               {status === 'connecting' && (
                 <div className="flex items-center justify-center py-12 text-sm text-grey-500">{t('preparing')}</div>
@@ -66,13 +70,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
             </div>
           </div>
           <DrawerFooter className="shrink-0">
-            <Button
-              variant="default"
-              size="lg"
-              onClick={handleConnect}
-              className="w-full"
-              data-testid="evm-connect-open-wallet"
-            >
+            <Button onClick={handleConnect} className="max-w-none" data-testid="evm-connect-open-wallet">
               {t('openWallet')}
             </Button>
           </DrawerFooter>

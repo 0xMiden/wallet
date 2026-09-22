@@ -16,6 +16,23 @@ const mockAccount: { publicKey: string; evmAddress?: string } = {
 };
 let mockPositions: EarnPosition[] = [];
 
+// `PageHeader` (real, unmocked below) calls `useTranslation` for its back
+// button's accessible name; without this the un-initialized react-i18next
+// instance warns on every render and `t('back')` falls back to the key.
+// Mocking it keeps that fallback deterministic instead of implicit.
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
 }));
@@ -48,15 +65,8 @@ jest.mock('./useEarnPositions', () => ({
 }));
 
 jest.mock('app/icons/v2', () => ({
+  Icon: () => null,
   IconName: { ChevronLeft: 'ChevronLeft' }
-}));
-
-jest.mock('components/CircleButton', () => ({
-  CircleButton: ({ onClick }: { onClick?: () => void }) => (
-    <button type="button" aria-label="Back" onClick={onClick}>
-      Back
-    </button>
-  )
 }));
 
 jest.mock('components/Button', () => ({
@@ -124,13 +134,16 @@ describe('EarnWithdrawReview', () => {
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     expect(screen.getByRole('heading')).toHaveTextContent('Aave • USDC');
+    // The network pill goes through the same translation key as EarnVaultDetail's,
+    // rather than a hard-coded "{asset} on {network}" English string.
+    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
     expect(screen.getByText('42.25')).toBeInTheDocument();
     expect(screen.getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
     expect(screen.getByText('earnFullPositionGasless')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(goBack).toHaveBeenCalledTimes(1);
   });
 
@@ -226,5 +239,14 @@ describe('EarnWithdrawReview', () => {
     const footer = screen.getByRole('button', { name: 'withdraw' }).parentElement;
     expect(footer).toHaveClass('px-8');
     expect(footer).not.toHaveClass('px-6');
+  });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - which is the distinction a source match could
+  // not make, and how a banner once shipped behind an early return.
+  it('names the network it will commit on', () => {
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });

@@ -1,13 +1,11 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useMemo } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
-import { hapticSelection } from 'lib/mobile/haptics';
+import { PageHeader } from 'components/PageHeader';
+import { Pill } from 'components/ui/Pill';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -16,7 +14,6 @@ import { placeholderVault } from './earn-mapping';
 import { EarnVault } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
-const TIMEFRAMES = ['1D', '1W', '1M', 'All'];
 const CHART_GREEN = '#90BA89';
 
 interface EarnVaultDetailProps {
@@ -24,30 +21,20 @@ interface EarnVaultDetailProps {
 }
 
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
-  const [timeframe, setTimeframe] = useState('1M');
   const { t } = useTranslation();
   const { vaults } = useEarnPositions();
   const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {vault.protocol} &bull; {vault.asset}
-          </h1>
-          <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
-            {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
-          </span>
-        </div>
-      </header>
+      <PageHeader
+        className="shrink-0 px-4"
+        title={`${vault.protocol} • ${vault.asset}`}
+        onBack={goBack}
+        actions={
+          <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 pb-8 pt-8">
@@ -66,25 +53,6 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
 
           <VaultAreaChart vault={vault} />
 
-          <div className="mt-4 flex items-center justify-between px-4 text-sm font-medium text-gray-secondary">
-            {TIMEFRAMES.map(item => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => {
-                  hapticSelection();
-                  setTimeframe(item);
-                }}
-                className={classNames(
-                  'rounded-full px-3 py-2 leading-none',
-                  timeframe === item ? 'bg-[#F2F2F4] font-semibold text-pure-black' : 'text-gray-secondary'
-                )}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-
           <VaultStats vault={vault} />
           <VaultAbout vault={vault} />
 
@@ -95,7 +63,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
               variant={ButtonVariant.Primary}
               disabled={!vault.id}
               onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
-              className="h-14 max-w-none rounded-full text-lg font-bold"
+              className="max-w-none"
             />
           </div>
         </div>
@@ -128,7 +96,7 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
               return (
-                <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
+                <div className="rounded-lg bg-ink px-2 py-1 text-xs text-pure-white shadow">
                   <div className="font-heading font-semibold">{Number(point.value).toFixed(2)}%</div>
                   <div className="opacity-75">{point.label}</div>
                 </div>
@@ -165,7 +133,7 @@ const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => {
         label={t('earnAuditedLabel')}
         value={vault.audited ? `✓ ${t('yes')}` : t('no')}
         className="px-3"
-        valueClassName={vault.audited ? 'text-heading-gray' : undefined}
+        valueClassName={vault.audited ? 'text-ink' : undefined}
       />
     </div>
   );
@@ -176,8 +144,8 @@ const VaultAbout: FC<{ vault: EarnVault }> = ({ vault }) => {
 
   return (
     <section className="mt-4">
-      <h2 className="font-heading text-base font-bold leading-none text-heading-gray">{t('about')}</h2>
-      <p className="mt-3 text-sm leading-snug text-heading-gray">{vault.about}</p>
+      <h2 className="font-heading text-base font-bold leading-none text-ink">{t('about')}</h2>
+      <p className="mt-3 text-sm leading-snug text-ink">{vault.about}</p>
     </section>
   );
 };

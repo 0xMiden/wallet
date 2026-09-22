@@ -11,12 +11,14 @@
  *
  * The confirm surface has no product-owned selectors other than the two
  * `data-testid`s added alongside this file (`ConfirmPage.tsx`) — the
- * `ConfirmPageSelectors` enum is an ANALYTICS event-name list that
- * `FormSubmitButton` passes to `trackEvent`, never to the DOM. The enum values
- * are reused verbatim as the testids so there is still one name per action.
+ * `ConfirmPageSelectors` enum is an ANALYTICS event-name list that the confirm
+ * button's own `onClick` passes to `trackEvent` by hand, never to the DOM. The
+ * enum values are reused verbatim as the testids so there is still one name
+ * per action.
  */
 import type { BrowserContext, Page } from '@playwright/test';
 
+import { acknowledgeNetworkNotice } from './network-notice';
 import { dismissTelemetryConsent } from './telemetry-consent';
 
 /**
@@ -160,7 +162,7 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
   await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
   // The network notice (#875) precedes the import flow.
-  await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: ACTION_TIMEOUT });
+  await acknowledgeNetworkNotice(page, ACTION_TIMEOUT);
   // Import now asks WHICH credential first; this helper drives the seed-phrase one.
   await page.getByTestId('import-select-type').waitFor({ timeout: timeoutMs });
   await page.getByTestId('import-type-seed-phrase').click({ timeout: ACTION_TIMEOUT });

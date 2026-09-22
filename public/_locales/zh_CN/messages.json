@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "总余额",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "地址：$number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "账户选项",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "复制地址",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "地址已复制",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "正在加载……",
@@ -94,42 +93,6 @@
   "promptCardLoading": {
     "message": "正在加载",
     "englishSource": "Loading"
-  },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
   },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
@@ -567,18 +530,6 @@
     "message": "点击显示此字段",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "点击查看",
-    "englishSource": "Click to reveal"
-  },
-  "copiedHash": {
-    "message": "已复制。",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "复制到剪贴板",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "账户",
     "englishSource": "Accounts"
@@ -757,14 +708,6 @@
     "message": "仅限有效的预生成助记词",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "粘贴失败，因为内容超过了24个单词。",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "您可以将完整的密钥 Seed phrase 粘贴到任何输入框中",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "恢复短语中的单词列表中缺少一个或多个单词。请检查已高亮显示的单词。",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +752,6 @@
   "retryAnyway": {
     "message": "仍然重试",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal：$amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "在继续之前",
@@ -1083,7 +1017,7 @@
   },
   "importWallet": {
     "message": "导入钱包",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "改用密钥导入",
@@ -1228,6 +1162,10 @@
   "termsOfService": {
     "message": "服务条款",
     "englishSource": "Terms of Service"
+  },
+  "support": {
+    "message": "支持",
+    "englishSource": "Support"
   },
   "sendFeedback": {
     "message": "发送反馈",
@@ -1598,9 +1536,17 @@
     "message": "粘贴",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "没有可粘贴的内容。请先复制地址。",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "选择收件人",
     "englishSource": "Choose recipient"
+  },
+  "sendTo": {
+    "message": "发送至",
+    "englishSource": "Send to"
   },
   "selectAmount": {
     "message": "选择金额",
@@ -1786,13 +1732,13 @@
     "message": "米登",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "新联系人",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "添加联系人",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "这是谁？",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "添加到联系人？",
@@ -1801,10 +1747,6 @@
   "recent": {
     "message": "近期",
     "englishSource": "Recent"
-  },
-  "newContactPlaceholder": {
-    "message": "例如：爱丽丝、鲍勃",
-    "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "已存在与该地址相同的联系人",
@@ -1822,17 +1764,13 @@
     "message": "您确定要删除此联系人吗？",
     "englishSource": "Are you sure you want to delete this contact?"
   },
-  "ownAccount": {
-    "message": "拥有",
-    "englishSource": "Own"
-  },
   "noContactsFound": {
     "message": "未找到联系人",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
     "message": "验证 Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "给钱包充值",
@@ -2063,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "选择您的导入类型",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "用你的 12 个词短语恢复公共平衡。如需恢复私人资金，请上传加密的备份文件。",
@@ -2071,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "使用Seed Phrase导入",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "使用现有的 12 字恢复短语。您还可以从其他钱包提供商导入钱包。",
@@ -2079,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "使用加密钱包文件导入",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "上传您的加密钱包文件以安全地导入您的帐户。您的数据保持私密，仅散列信息存储在链上",
@@ -2103,7 +2041,7 @@
   },
   "continueImport": {
     "message": "继续导入",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "选择您希望如何保护您的钱包",
@@ -2111,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "使用 FaceID 或生物识别",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "设置您的密码",
@@ -2323,15 +2261,15 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "请输入您的钱包的12个单词Seed phrase。",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "仅支持 Miden Seed 短语。",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "您的 <highlight>钱包</highlight> 已准备就绪！",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "您的 钱包 已准备就绪！",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "请在 7 天内写下您的恢复短语，以确保钱包的安全。",
@@ -2471,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "需要重置钱包",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden 测试网已升级至 bech32 账户 ID，以提升您的使用体验。若要继续使用您的钱包，请从备份文件或 seed phrase 恢复钱包，或创建一个新钱包。",
@@ -2483,11 +2421,11 @@
   },
   "reset": {
     "message": "重置钱包",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "忘记密码了吗？",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "如果您忘记了密码，请先退出登录，然后重新导入您的账户。之后，您就可以设置新密码了。",
@@ -2511,7 +2449,7 @@
   },
   "signOut": {
     "message": "退出",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X（Twitter）",
@@ -3076,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "设置账户恢复",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "请选择在无法访问账户时希望采用的账户恢复方式。",
@@ -3092,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "完全私密",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "仅限本地使用，除您本人外无人能查看您的状态，但无法恢复数据，若设备丢失，您的资金将永久丢失。",
@@ -3669,6 +3607,62 @@
     "message": "社交",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "游戏",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "学习",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "类别",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "精选",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "辅助工具",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "打开",
+    "englishSource": "Open"
+  },
+  "exploreComingSoonTitle": {
+    "message": "即将登陆 Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "新应用在 Miden 上线后会显示在这里。",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "搜索 dApp",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "结果",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "无结果",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "试试其他名称，或粘贴 dApp 的 URL。",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "获取用于兑换的测试网代币",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "最小化",
     "englishSource": "Minimize"
@@ -3926,7 +3920,7 @@
   },
   "unlockWallet": {
     "message": "解锁钱包",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "使用seed phrase，您可以随时恢复您的公共账户。请从以下选项中选择快速解锁钱包的方式。",
@@ -3963,6 +3957,14 @@
   "seeConnected": {
     "message": "参见相关内容",
     "englishSource": "See connected"
+  },
+  "noConnectedDApps": {
+    "message": "没有已连接的 dApp",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "你连接到此账户的 dApp 会显示在这里。",
+    "englishSource": "dApps you connect to this account show up here."
   },
   "transferDetails": {
     "message": "转账详情",
@@ -4010,11 +4012,11 @@
   },
   "tokenPrice": {
     "message": "代币价格",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "代币信息",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "可互换的",
@@ -4026,7 +4028,7 @@
   },
   "recentActivity": {
     "message": "最近的活动",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "类型",
@@ -4781,6 +4783,14 @@
     "message": "搜索活动",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "活动筛选",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "图表时间范围",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "该桥运行在以太坊 Sepolia 网络上。请勿连接存有真实资金的钱包。请创建一个新的钱包，并仅向其中存入 Sepolia ETH。",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
@@ -4832,10 +4842,6 @@
   "networkNoticeResetBody": {
     "message": "重置会清空余额和交易记录。测试网的余额绝不会转入主网。",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "仅限测试代币",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "正在检查您的提现状态。请保持钱包打开，直到交付得到确认。",
@@ -4897,6 +4903,15 @@
   "networkModeBanner": {
     "message": "您正在 Miden $network$ 上使用 Bread",
     "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkModeStripLabel": {
+    "message": "$network$ — 关于此网络",
+    "englishSource": "$network$ — about this network",
     "placeholders": {
       "network": {
         "content": "$1"
@@ -5138,5 +5153,66 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "进行身份验证以继续此交易。这不会更改或停用您的支出限额。",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "新联系人",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "我的账户",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "暂无联系人",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "保存地址后即可按名称发送。",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "这是你的账户之一",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "已保存为 $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "编辑联系人",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "删除联系人",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "添加时间",
+    "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "运营方：$operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "无法验证此钱包的解锁方式。请检查您的网络连接并重试。",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

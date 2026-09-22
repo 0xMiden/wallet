@@ -70,12 +70,14 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
       }}
       onClose={onDoneClick}
     >
-      {badgeContent && <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} />}
+      {badgeContent && (
+        <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} fillForArrow={badgeContent.fillForArrow} />
+      )}
 
       {feeText && <ReceiptRows rows={[{ label: t('networkFee'), value: feeText }]} className="mt-6" />}
 
       {returnAmountText && (
-        <div className="mt-6 flex w-full items-start gap-1.5 text-xs text-heading-gray">
+        <div className="mt-6 flex w-full items-start gap-1.5 text-xs text-ink">
           <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
           <span>{t('swapOrderReservedNote', { amount: returnAmountText })}</span>
         </div>

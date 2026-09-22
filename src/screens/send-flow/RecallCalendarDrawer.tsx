@@ -160,7 +160,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
           {/* Time Input */}
           <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-border-subtle">
             <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
-            <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
+            <span className="text-sm font-medium text-ink">{t('time')}</span>
             <input
               type="time"
               data-testid="recall-time-input"
@@ -174,7 +174,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
               }}
               className={clsx(
                 'ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer',
-                selectionInPast ? 'text-red-500' : 'text-heading-gray'
+                selectionInPast ? 'text-red-500' : 'text-ink'
               )}
             />
           </div>
@@ -201,7 +201,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
               <button
                 key={i}
                 type="button"
-                className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors cursor-pointer"
+                className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-ink hover:bg-input-bg transition-colors cursor-pointer"
                 onClick={() => {
                   const date = preset.fn(new Date());
                   applyDateTimeSelection(date, format(date, 'HH:mm'));
@@ -216,7 +216,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
               plain P2ID note (recipient keeps it; the sender has no recall window). */}
           <button
             type="button"
-            className="w-full mt-2 py-2.5 rounded-[10px] border border-border-card text-heading-gray text-sm font-medium hover:bg-input-bg transition-colors cursor-pointer"
+            className="w-full mt-2 py-2.5 rounded-[10px] border border-border-card text-ink text-sm font-medium hover:bg-input-bg transition-colors cursor-pointer"
             onClick={() => {
               onRecallNever();
               onOpenChange(false);

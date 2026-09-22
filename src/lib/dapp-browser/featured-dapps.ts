@@ -20,7 +20,6 @@ import midenIcon from 'app/misc/dapp-icons/miden.png';
 import playgroundIcon from 'app/misc/dapp-icons/playground.png';
 import qashIcon from 'app/misc/dapp-icons/qash.png';
 import zoroIcon from 'app/misc/dapp-icons/zoro.png';
-import { isSwapEnabled } from 'lib/feature-flags';
 
 export type FeaturedDappCategory = 'defi' | 'nft' | 'tools' | 'social';
 export type FeaturedDappBadge = 'featured' | 'new' | 'verified';
@@ -48,7 +47,7 @@ export interface FeaturedDapp {
    * Marks a swap/exchange (DEX) surface. These are hidden from the curated
    * launcher on iOS, where the app ships without an exchange surface (Apple
    * treats in-app crypto exchange as requiring licensing under Guideline
-   * 3.1.5(iii)). See `getExploreGridDapps` / `isSwapEnabled`.
+   * 3.1.5(iii)). See `getExploreCatalog` / `isSwapEnabled`.
    */
   isExchange?: boolean;
 }
@@ -156,20 +155,3 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
 
 /** dApps surfaced in the hero carousel — subset of FEATURED_DAPPS. */
 export const CAROUSEL_DAPPS = FEATURED_DAPPS.filter(d => d.featured);
-
-/** The curated apps shown on the simplified Explore grid, in display order. */
-export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['faucet', 'forkchoice-faucet'].flatMap(id =>
-  FEATURED_DAPPS.filter(d => d.id === id)
-);
-
-/**
- * The Explore grid for the current platform. On iOS, where the app ships
- * without a swap surface (App Store Guideline 3.1.5(iii)), swap/exchange (DEX)
- * dApps are filtered out so the launcher does not first-party-promote an
- * exchange the build otherwise omits. Off-iOS it returns EXPLORE_GRID_DAPPS
- * unchanged. Call at render time (not module scope) so the platform check runs
- * after Capacitor is initialized.
- */
-export function getExploreGridDapps(): FeaturedDapp[] {
-  return isSwapEnabled() ? EXPLORE_GRID_DAPPS : EXPLORE_GRID_DAPPS.filter(d => !d.isExchange);
-}

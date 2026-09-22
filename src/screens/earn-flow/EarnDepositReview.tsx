@@ -6,8 +6,10 @@ import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
+import { Card } from 'components/ui/Card';
 import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
@@ -216,17 +218,18 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-review-page">
+      <NetworkModeBanner />
       <EarnFlowHeader vault={vault} />
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
           <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnDepositAmountTitle')}</span>
-          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
+          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
             {toAdaptiveFixed(amountValue)}
           </div>
           <div className="flex items-center gap-1">
             <TokenLogo symbol={depositSymbol} size="md" />
-            <span className="font-heading text-2xl font-bold text-heading-gray">{depositSymbol}</span>
+            <span className="font-heading text-2xl font-bold text-ink">{depositSymbol}</span>
           </div>
 
           <DepositProjection vault={vault} amount={amountValue} />
@@ -243,7 +246,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
           disabled={isSubmitting || amountValue <= 0 || !vault.id}
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
       {spendingLimitChallenge !== undefined && (
@@ -281,7 +284,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
 
   return (
     <div className="mt-8 pb-4">
-      <div className="rounded-10 border border-[#EFEFF2] bg-white py-4 px-5 ">
+      <Card padding="tile">
         <div className="h-22">
           <ChartContainer config={{ projected: { color: CHART_GREEN } }} className="h-full w-full aspect-auto">
             <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 8, bottom: 0 }}>
@@ -320,7 +323,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
             ))}
           </div>
         </div>
-      </div>
+      </Card>
 
       <div className="mt-4 space-y-6">
         <DetailRow label={t('earnCollateralLabel')} value={t('earnCollateralValue')} />
@@ -339,7 +342,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
 
 const DetailRow: FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex items-center justify-between gap-4 text-sm leading-tight">
-    <div className="text-heading-gray font-regular">{label}</div>
+    <div className="text-ink font-regular">{label}</div>
     <div className="text-right font-bold text-[#8C877F]">{value}</div>
   </div>
 );

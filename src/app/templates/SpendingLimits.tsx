@@ -190,10 +190,10 @@ const SpendingLimits: FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-4 pb-6" data-testid="spending-limits-settings">
-      <div className="rounded-xl bg-gray-25 p-4 flex flex-col gap-2">
-        <p className="text-sm text-heading-gray">{t('spendingLimitLocalDisclosure')}</p>
-        <p className="text-sm text-heading-gray">{t('spendingLimitNotOnChain')}</p>
-        <p className="text-sm text-heading-gray">{t('spendingLimitCoverage')}</p>
+      <div className="rounded-xl bg-fill p-4 flex flex-col gap-2">
+        <p className="text-sm text-muted">{t('spendingLimitLocalDisclosure')}</p>
+        <p className="text-sm text-muted">{t('spendingLimitNotOnChain')}</p>
+        <p className="text-sm text-muted">{t('spendingLimitCoverage')}</p>
       </div>
       {loading ? (
         <p role="status" className="text-sm text-text-secondary-token">

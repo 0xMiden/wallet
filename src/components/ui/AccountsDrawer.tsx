@@ -48,12 +48,12 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle className="font-extrabold">{t('accounts')}</DrawerTitle>
+          <DrawerTitle>{t('accounts')}</DrawerTitle>
         </DrawerHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-6">
           <div className="flex flex-col gap-2">
-            <span className="text-base font-bold font-heading uppercase  text-grey-400">{t('cardColor')}</span>
+            <span className="px-1 text-label text-muted">{t('cardColor')}</span>
             <div className="flex items-center justify-between">
               {CARD_COLORS.map(color => {
                 const isSelected = color === selectedCardColor;
@@ -83,10 +83,10 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             type="button"
             onClick={handleSettings}
             className={classNames(
-              'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
-              'bg-surface-input',
-              'font-heading text-base font-bold text-gray-secondary dark:text-pure-white',
-              'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
+              'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
+              'bg-fill',
+              'text-row-title text-gray-secondary dark:text-pure-white',
+              'transition-colors hover:bg-fill-pressed'
             )}
           >
             <Icon name={IconName.SettingsNew} className="w-4 h-4" fill="currentColor" />
@@ -97,10 +97,10 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             type="button"
             onClick={handleImportAccount}
             className={classNames(
-              'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
-              'bg-surface-input',
-              'text-sm font-semibold text-gray-secondary dark:text-pure-white',
-              'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
+              'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
+              'bg-fill',
+              'text-row-title text-gray-secondary dark:text-pure-white',
+              'transition-colors hover:bg-fill-pressed'
             )}
           >
             <Icon name={IconName.Add} className="w-4 h-4" fill="currentColor" />

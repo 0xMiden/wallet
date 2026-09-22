@@ -10,8 +10,8 @@ describe('Input theme colors', () => {
       <Input label="Password" icon={<span data-testid="visibility-icon" />} defaultValue="secret" />
     );
 
-    expect(screen.getByText('Password')).toHaveClass('text-heading-gray');
-    expect(container.querySelector('input')).toHaveClass('text-black');
-    expect(screen.getByTestId('visibility-icon').parentElement).toHaveClass('text-heading-gray');
+    expect(screen.getByText('Password')).toHaveClass('text-ink');
+    expect(container.querySelector('input')).toHaveClass('text-ink');
+    expect(screen.getByTestId('visibility-icon').parentElement).toHaveClass('text-ink');
   });
 });

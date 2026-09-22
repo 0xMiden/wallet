@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "Загальний баланс",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "Адреса: $number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "Параметри облікового запису",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "Скопіювати адресу",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "Адресу скопійовано",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "Завантаження…",
@@ -94,42 +93,6 @@
   "promptCardLoading": {
     "message": "Завантаження",
     "englishSource": "Loading"
-  },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
   },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
@@ -567,18 +530,6 @@
     "message": "Натисніть, щоб розгорнути це поле",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Натисніть, щоб розгорнути",
-    "englishSource": "Click to reveal"
-  },
-  "copiedHash": {
-    "message": "Скопійовано.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Скопіювати до буфера обміну",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Рахунки",
     "englishSource": "Accounts"
@@ -757,14 +708,6 @@
     "message": "Лише дійсна попередньо згенерована мнемоніка",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Вставлення не вдалося, оскільки текст містив понад 24 слова.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Ви можете вставити весь свій секретний код Seed phrase у будь-яке поле",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Одне або кілька слів відсутні у списку слів фрази відновлення. Перевірте виділені слова.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +752,6 @@
   "retryAnyway": {
     "message": "Усе одно повторити",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal: $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Перш ніж продовжувати",
@@ -1083,7 +1017,7 @@
   },
   "importWallet": {
     "message": "Імпортувати гаманець",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Імпортувати за допомогою ключа",
@@ -1228,6 +1162,10 @@
   "termsOfService": {
     "message": "Умови надання послуг",
     "englishSource": "Terms of Service"
+  },
+  "support": {
+    "message": "Підтримка",
+    "englishSource": "Support"
   },
   "sendFeedback": {
     "message": "Надіслати відгук",
@@ -1598,9 +1536,17 @@
     "message": "Вставити",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Нема чого вставити. Спершу скопіюйте адресу.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Виберіть одержувача",
     "englishSource": "Choose recipient"
+  },
+  "sendTo": {
+    "message": "Кому",
+    "englishSource": "Send to"
   },
   "selectAmount": {
     "message": "Виберіть суму",
@@ -1786,13 +1732,13 @@
     "message": "Міден",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Новий контакт",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Додати контакт",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "Хто це?",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "Додати до контактів?",
@@ -1801,10 +1747,6 @@
   "recent": {
     "message": "Останні",
     "englishSource": "Recent"
-  },
-  "newContactPlaceholder": {
-    "message": "наприклад, Аліса Боб",
-    "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Контакт із такою самою адресою вже існує",
@@ -1822,17 +1764,13 @@
     "message": "Ви впевнені, що хочете видалити цей контакт?",
     "englishSource": "Are you sure you want to delete this contact?"
   },
-  "ownAccount": {
-    "message": "Власний",
-    "englishSource": "Own"
-  },
   "noContactsFound": {
     "message": "Контакти не знайдено",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
     "message": "Перевірте Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Поповнити гаманець",
@@ -2063,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "Виберіть тип імпорту",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "Відновіть суспільний баланс своєю фразою з 12 слів. Щоб відновити приватні кошти, завантажте зашифрований файл резервної копії.",
@@ -2071,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Імпорт із початковою фразою",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Використовуйте існуючу фразу відновлення з 12 слів. Ви також можете імпортувати гаманці від інших постачальників гаманців.",
@@ -2079,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "Імпорт із зашифрованим файлом гаманця",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Завантажте зашифрований файл гаманця, щоб безпечно імпортувати свій обліковий запис. Ваші дані залишаються конфіденційними, лише хешована інформація зберігається в мережі",
@@ -2103,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Продовжити імпорт",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Виберіть, як саме ви хочете захистити свій гаманець",
@@ -2111,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Використовуйте Face ID або біометричну аутентифікацію",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Налаштуйте свій пароль",
@@ -2323,15 +2261,15 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "Введіть 12-слівний вираз відновлення (Seed phrase) вашого гаманця.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Підтримуються лише фрази Miden Seed.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Ваш <highlight>гаманець</highlight> готовий!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Ваш гаманець готовий!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Запишіть свою фразу відновлення протягом 7 днів, щоб повністю захистити свій гаманець.",
@@ -2471,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Необхідно скинути налаштування гаманця",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Мережа Miden Testnet перейшла на ідентифікатори облікових записів у форматі bech32 з метою покращення вашого досвіду користування. Щоб і надалі користуватися гаманцем, будь ласка, відновіть дані з файлу резервної копії або за адресою seed phrase, або створіть новий гаманець.",
@@ -2483,11 +2421,11 @@
   },
   "reset": {
     "message": "Скинути налаштування гаманця",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Забули пароль?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Якщо ви забули пароль, вам потрібно вийти з облікового запису та заново імпортувати його. Після цього ви зможете створити новий пароль.",
@@ -2511,7 +2449,7 @@
   },
   "signOut": {
     "message": "Вийти",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3076,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "Налаштувати відновлення облікового запису",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Виберіть спосіб відновлення доступу до облікового запису на випадок, якщо ви його втратите.",
@@ -3092,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "Повністю приватний",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Тільки локальний режим: ніхто, крім вас, не бачить ваш стан, але відновлення неможливе — у разі втрати пристрою ваші кошти будуть безповоротно втрачені.",
@@ -3669,6 +3607,62 @@
     "message": "Соціальне",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Ігри",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Навчання",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Категорії",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Рекомендоване",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Допоміжні інструменти",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Відкрити",
+    "englishSource": "Open"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Незабаром у Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Нові застосунки з’являтимуться тут, щойно вони запрацюють у Miden.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "Пошук dApps",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Результати",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Нічого не знайдено",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Спробуйте іншу назву або вставте URL dApp.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Отримайте тестові токени для обміну",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Згорнути",
     "englishSource": "Minimize"
@@ -3926,7 +3920,7 @@
   },
   "unlockWallet": {
     "message": "Розблокувати гаманець",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "За допомогою «seed phrase» ви завжди зможете відновити свій публічний обліковий запис. Оберіть нижче спосіб швидкого розблокування гаманця.",
@@ -3963,6 +3957,14 @@
   "seeConnected": {
     "message": "Див. пов’язані матеріали",
     "englishSource": "See connected"
+  },
+  "noConnectedDApps": {
+    "message": "Немає підключених dApp",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "Тут з’являться dApp, які ви підключите до цього облікового запису.",
+    "englishSource": "dApps you connect to this account show up here."
   },
   "transferDetails": {
     "message": "Деталі переказу",
@@ -4010,11 +4012,11 @@
   },
   "tokenPrice": {
     "message": "Ціна токена",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "Інформація про токен",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Замінний",
@@ -4026,7 +4028,7 @@
   },
   "recentActivity": {
     "message": "Останні дії",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Тип",
@@ -4781,6 +4783,14 @@
     "message": "Активність пошуку",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "Фільтри активності",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "Період графіка",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
@@ -4832,10 +4842,6 @@
   "networkNoticeResetBody": {
     "message": "Скидання очищає залишки та історію. Тестові залишки ніколи не переносяться до Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Тільки тестові токени",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Перевіряємо ваше виведення коштів. Тримайте гаманець відкритим, доки доставку не буде підтверджено.",
@@ -4897,6 +4903,15 @@
   "networkModeBanner": {
     "message": "Ви користуєтеся сервісом Bread на платформі Miden $network$",
     "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkModeStripLabel": {
+    "message": "$network$ — про цю мережу",
+    "englishSource": "$network$ — about this network",
     "placeholders": {
       "network": {
         "content": "$1"
@@ -5138,5 +5153,66 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Пройдіть автентифікацію, щоб продовжити цю транзакцію. Це не змінить і не вимкне ваш ліміт витрат.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "Новий контакт",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Мої рахунки",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Контактів ще немає",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Збережіть адресу, щоб надсилати за іменем.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Це один із ваших рахунків",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Уже збережено як $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Редагувати контакт",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Видалити контакт",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Зберегти",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Додано",
+    "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "Оператор: $operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Не вдалося перевірити спосіб розблокування цього гаманця. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

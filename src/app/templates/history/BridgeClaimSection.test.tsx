@@ -73,7 +73,7 @@ jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 jest.mock('./transactionUtils', () => ({}));
 
-jest.mock('lib/ui/button', () => ({
+jest.mock('components/ui/Button', () => ({
   Button: ({
     children,
     onClick,
@@ -89,22 +89,18 @@ jest.mock('lib/ui/button', () => ({
   )
 }));
 jest.mock('../HashChip', () => ({ __esModule: true, default: () => <span /> }));
-jest.mock('./DetailCard', () => ({
-  DetailCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DetailRow: ({
-    label,
-    children,
-    value
-  }: {
-    label?: React.ReactNode;
-    children?: React.ReactNode;
-    value?: React.ReactNode;
-  }) => (
+jest.mock('components/ui/DetailCard', () => ({
+  DetailRow: ({ label, children }: { label?: React.ReactNode; children?: React.ReactNode }) => (
     <div>
       {label}
-      {children ?? value}
+      {children}
     </div>
-  ),
+  )
+}));
+jest.mock('./DetailSection', () => ({
+  DetailSection: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
+}));
+jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: () => <span />
 }));
 

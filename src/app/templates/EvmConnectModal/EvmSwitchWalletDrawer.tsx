@@ -63,11 +63,11 @@ export const EvmSwitchWalletDrawer: React.FC<EvmSwitchWalletDrawerProps> = ({
             />
           ) : (
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border-faint bg-gray-100">
-              <Icon name={IconName.Wallet} className="h-5 w-5 text-heading-gray" fill="currentColor" />
+              <Icon name={IconName.Wallet} className="h-5 w-5 text-ink" fill="currentColor" />
             </span>
           )}
           <div className="flex min-w-0 flex-1 flex-col">
-            <span className="font-heading text-base font-bold text-heading-gray">{name}</span>
+            <span className="font-heading text-base font-bold text-ink">{name}</span>
             <span className="text-sm text-text-tertiary-token">{truncateHash(address, 6, 4)}</span>
           </div>
           <span className="shrink-0 text-sm font-semibold text-text-tertiary-token">
@@ -79,7 +79,7 @@ export const EvmSwitchWalletDrawer: React.FC<EvmSwitchWalletDrawerProps> = ({
         <button
           type="button"
           onClick={handleConnectAnother}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-100 py-4 font-heading text-base font-bold text-heading-gray transition-colors active:bg-gray-200"
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-100 py-4 font-heading text-base font-bold text-ink transition-colors active:bg-gray-200"
         >
           <Icon name={IconName.Add} className="h-5 w-5" fill="currentColor" />
           {t('connectAnotherWallet')}

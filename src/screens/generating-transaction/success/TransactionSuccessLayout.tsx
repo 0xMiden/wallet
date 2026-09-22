@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
-import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
-import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -132,42 +132,44 @@ export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }
  * glyph, e.g. the earn up-arrow). Reuses the in-progress screen's
  * `TransactionSummaryBadge`, so it renders `null` when either side is missing.
  */
-export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode; separator?: ReactNode }> = ({
-  lhs,
-  rhs,
-  separator
-}) => <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} className="mt-1" />;
+export const SuccessSummaryPill: FC<{
+  lhs?: ReactNode;
+  rhs?: ReactNode;
+  separator?: ReactNode;
+  fillForArrow?: string;
+}> = ({ lhs, rhs, separator, fillForArrow }) => (
+  // `fillForArrow` is forwarded because dropping it painted a swap's success receipt in the send
+  // hue: the badge falls back to send, and the caller's content object already carries the right
+  // one. That is the same "one transaction in two shades" the in-progress badge was fixed for.
+  <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} fillForArrow={fillForArrow} className="mt-1" />
+);
 
 /** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows. */
-export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: FlowAccent }> = ({
-  rows,
-  className,
-  accent = 'brand'
-}) => {
+export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {
   if (rows.length === 0) return null;
 
   return (
-    <FlowDetails className={classNames('w-full', className)}>
+    <DetailCard className={classNames('w-full', className)}>
       {rows.map(row => (
-        <FlowDetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
+        <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
           {row.onClick ? (
             <button
               type="button"
               aria-label={row.actionLabel}
               onClick={row.onClick}
-              className={classNames(
-                'min-w-0 bg-transparent p-0 text-right font-heading font-bold underline-offset-2 hover:underline',
-                ACCENT_CLASSES[accent].text
-              )}
+              // `accent-tint-ink` — same as `DetailRow`'s own inline action — is the
+              // accent pair that actually clears 4.5:1 on `fill`; the flow's own
+              // accent (e.g. `accent-send`) sat at ~2:1 here.
+              className="min-w-0 bg-transparent p-0 text-right font-heading font-bold text-accent-tint-ink underline-offset-2 hover:underline"
             >
               {row.value}
             </button>
           ) : (
             row.value
           )}
-        </FlowDetailRow>
+        </DetailRow>
       ))}
-    </FlowDetails>
+    </DetailCard>
   );
 };
 
@@ -178,7 +180,7 @@ const FooterAction: FC<{ action: SuccessAction }> = ({ action }) => (
     variant={action.variant ?? ButtonVariant.Primary}
     title={action.label}
     onClick={action.onClick}
-    className="w-full max-w-none rounded-full"
+    className="w-full max-w-none"
   />
 );
 
@@ -226,7 +228,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   // navigation and no live region — so the outcome of the transaction the user
   // just authorized was never announced. The view they were on unmounts, which
   // drops focus to `<body>`; moving it to the title both names the new screen
-  // and puts the user at the top of it. Same shape as NavigationHeader's
+  // and puts the user at the top of it. Same shape as PageHeader's
   // `focusTitleOnMount`, and this layout only ever mounts on that transition.
   useEffect(() => {
     titleRef.current?.focus();
@@ -241,7 +243,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   const actions = ordered.map(action => <FooterAction key={action.label} action={action} />);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-heading-gray">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
       {/* The receipt replaces Processing in place, so it keeps the same frame: close top right, a
           title where Processing's was, the hero and heading below, the CTAs pinned to the bottom.
           Only the body scrolls on a short popup, so the CTAs stay reachable (#463). */}
@@ -256,17 +258,9 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
         }
       >
         <section className="flex w-full flex-col items-center pt-6">
-          {hero ?? <SuccessHero />}
-
           {/* The moment's heading and the focus target on the view change, so the outcome is
               announced. `tabIndex={-1}` makes it focusable without joining the tab order. */}
-          <h2
-            ref={titleRef}
-            tabIndex={-1}
-            className="mt-5 w-full text-center font-heading text-[1.75rem] leading-none font-bold text-heading-gray outline-none"
-          >
-            {title}
-          </h2>
+          <Hero visual={hero ?? <SuccessHero />} name={title} nameRef={titleRef} nameProps={{ tabIndex: -1 }} />
 
           {children}
         </section>

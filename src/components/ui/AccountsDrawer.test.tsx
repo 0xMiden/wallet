@@ -101,6 +101,20 @@ describe('AccountsDrawer', () => {
     expect(screen.getByText('importAccount')).toBeTruthy();
   });
 
+  it('gives the Settings and Import Account rows one consistent radius and the token hover fill', () => {
+    renderDrawer();
+
+    [screen.getByText('settings').closest('button')!, screen.getByText('importAccount').closest('button')!].forEach(
+      button => {
+        expect(button.className).toContain('rounded-2xl');
+        expect(button.className).not.toContain('rounded-xl');
+        expect(button.className).toContain('hover:bg-fill-pressed');
+        expect(button.className).not.toContain('#ECEAE7');
+        expect(button.className).not.toContain('#3f3f3f');
+      }
+    );
+  });
+
   it('renders one swatch per card color with its background class', () => {
     renderDrawer();
 

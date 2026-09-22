@@ -1,10 +1,11 @@
 import React, { FC, ReactNode } from 'react';
 
-import classNames from 'clsx';
+import { AnimatePresence, motion, type Transition } from 'framer-motion';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { hapticLight } from 'lib/mobile/haptics';
+import { IconName } from 'app/icons/v2';
+import { durations, easings, useMotion, useSprings } from 'lib/animation';
 
+import { IconButton } from './IconButton';
 import { SearchInput } from './SearchInput';
 
 export interface TabHeaderProps {
@@ -20,31 +21,31 @@ export interface TabHeaderProps {
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
+    /** Enter / the keyboard's go key, e.g. to open a typed URL. */
+    onSubmit?: () => void;
+    /** Escape, e.g. to close the search. */
+    onEscape?: () => void;
+    /** `'url'` for a field that also takes a URL (URL keyboard, go key, no autocorrect). */
+    inputMode?: 'text' | 'url' | 'search';
+    /** Test id of the field's input. */
+    'data-testid'?: string;
   };
 }
 
-/** Round icon button for the header's action group. */
-export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boolean; onClick: () => void }> = ({
-  label,
-  icon,
-  active = false,
-  onClick
-}) => (
-  <button
-    type="button"
-    aria-label={label}
-    aria-pressed={active}
-    onClick={() => {
-      hapticLight();
-      onClick();
-    }}
-    className={classNames(
-      'flex items-center justify-center w-9 h-9 rounded-full',
-      active ? 'bg-accent-primary text-pure-white' : 'bg-gray-25 text-text-primary-token'
-    )}
-  >
-    <Icon name={icon} className="w-4 h-4" fill="currentColor" />
-  </button>
+/**
+ * Bare icon button for the header's action group: a 24px glyph in a 44px hit area, built on the
+ * design system's `IconButton`. `active` renders the accent-colored selected state (e.g. the
+ * search icon while search is open) and sets `aria-pressed`, so this action always reads as a
+ * toggle rather than a one-shot button.
+ */
+export const TabHeaderAction: FC<{
+  label: string;
+  icon: IconName;
+  active?: boolean;
+  onClick: () => void;
+  'data-testid'?: string;
+}> = ({ label, icon, active = false, onClick, 'data-testid': dataTestId }) => (
+  <IconButton icon={icon} label={label} active={active} onClick={onClick} data-testid={dataTestId} />
 );
 
 /**
@@ -58,27 +59,59 @@ export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boole
 export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const searchOpen = search?.open === true;
 
+  // Movement (position, scale) rides the shared spring; opacity gets its own
+  // tween, so a fade never feels like it's being dragged by the spring's
+  // physics. Both branches collapse to an instant swap under reduced motion —
+  // `useSprings`/`useMotion` do that once, here.
+  const springs = useSprings();
+  const fade = useMotion({ duration: durations.fast, ease: easings.easeOutCubic });
+  const transition: Transition = { default: springs.snappy, opacity: fade };
+
   return (
-    <>
-      <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
+    <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
+      <AnimatePresence initial={false} mode="popLayout">
         {searchOpen && search ? (
-          <SearchInput
-            size="sm"
+          <motion.div
+            key="search"
+            data-testid="tab-header-search"
             className="min-w-0 flex-1"
-            value={search.value}
-            onChange={search.onChange}
-            placeholder={search.placeholder}
-            autoFocus
-          />
+            // The field grows in from just shy of full size, slightly offset toward
+            // the search icon it replaces (on the header's right edge) — closing
+            // retraces the same path back toward the icon, not a plain fade.
+            initial={{ opacity: 0, scale: 0.96, x: 6 }}
+            animate={{ opacity: 1, scale: 1, x: 0 }}
+            exit={{ opacity: 0, scale: 0.96, x: 6 }}
+            transition={transition}
+          >
+            <SearchInput
+              size="sm"
+              className="w-full"
+              value={search.value}
+              onChange={search.onChange}
+              placeholder={search.placeholder}
+              onSubmit={search.onSubmit}
+              onEscape={search.onEscape}
+              inputMode={search.inputMode}
+              data-testid={search['data-testid']}
+              autoFocus
+            />
+          </motion.div>
         ) : (
-          <h1 className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-heading-gray dark:text-pure-white">
+          <motion.h1
+            key="title"
+            data-testid="tab-header-title"
+            className="min-w-0 truncate text-title-tab text-ink"
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6 }}
+            transition={transition}
+          >
             {title}
-          </h1>
+          </motion.h1>
         )}
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-      </header>
-      <div aria-hidden="true" className="shrink-0 mx-4 h-1 rounded-full bg-gray-50" />
-    </>
+      </AnimatePresence>
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+    </header>
   );
 };
 

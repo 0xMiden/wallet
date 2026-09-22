@@ -9,6 +9,7 @@ import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
 import { Loader } from 'components/Loader';
 import { ActivityRow } from 'components/ui/ActivityRow';
+import { Card } from 'components/ui/Card';
 import { springs, useMotion } from 'lib/animation';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -98,138 +99,134 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
   }
 
   return (
-    <article
-      className="flex flex-col overflow-hidden rounded-2xl border border-rule-default bg-white"
-      data-pending-status={status}
-    >
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 text-left focus-visible:outline-accent-primary"
-        aria-expanded={expanded}
-        aria-controls={detailsId}
-        onClick={() => {
-          hapticLight();
-          setExpanded(value => !value);
-        }}
-      >
-        <ActivityRow
-          testId="pending-activity-row"
-          entryKey={note.id}
-          className="min-w-0 flex-1"
-          icon={<Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />}
-          iconBg="bg-tx-received"
-          title={t('received')}
-          subtitle={`${t('from')}: ${sender}`}
-          amount={{
-            value: amount === undefined ? '' : `+${amount}`,
-            symbol: note.metadata.symbol,
-            direction: 'positive'
+    <Card asChild padding="none">
+      <article className="flex flex-col overflow-hidden" data-pending-status={status}>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          onClick={() => {
+            hapticLight();
+            setExpanded(value => !value);
           }}
-          status={{
-            label: claimed ? t('activityTransferClaimed') : t('pending'),
-            tone: claimed ? 'confirmed' : 'pending'
-          }}
-        />
-        <motion.span
-          aria-hidden
-          className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
-          animate={{ rotate: expanded ? 180 : 0 }}
-          transition={transition}
         >
-          <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
-        </motion.span>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            id={detailsId}
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={transition}
-            className="overflow-hidden"
-          >
-            <dl className="border-t border-rule-default divide-y divide-rule-default text-sm">
-              {rows.map(row => (
-                <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
-                  <dt className="text-text-secondary-token">{row.label}</dt>
-                  <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
-                    {row.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-
-            <div className={classNames('bg-gray-25 px-4 py-3 text-center text-sm italic', hintTone)}>
-              <p role={status === 'failed' ? 'alert' : 'status'}>{hint}</p>
-              {note.recallableAtMs !== undefined && !claimed && (
-                <p className="mt-1 text-xs text-text-secondary-token">
-                  {t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {claimed ? (
-        txId && (
-          <Button
-            className="w-full max-w-none rounded-none! h-12 min-h-12 border-t border-rule-default text-sm"
-            variant={ButtonVariant.Secondary}
-            title={t('activityTransferDetails')}
-            onClick={() => navigate(`/history-details/${encodeURIComponent(txId)}`)}
+          <ActivityRow
+            testId="pending-activity-row"
+            entryKey={note.id}
+            className="min-w-0 flex-1 py-3"
+            icon={<Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />}
+            iconBg="bg-tx-received"
+            title={t('received')}
+            subtitle={`${t('from')}: ${sender}`}
+            amount={{
+              value: amount === undefined ? '' : `+${amount}`,
+              symbol: note.metadata.symbol,
+              direction: 'positive'
+            }}
+            status={claimed ? 'claimed' : 'pending'}
           />
-        )
-      ) : (
-        <div className="flex overflow-hidden border-t border-rule-default">
-          <AnimatePresence initial={false}>
-            {onReject && status !== 'claiming' && (
-              <motion.div
-                key="reject"
-                className="shrink-0 overflow-hidden"
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: '40%', opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                transition={transition}
-              >
-                <Button
-                  variant={ButtonVariant.Secondary}
-                  className="w-full max-w-none rounded-none! h-12 min-h-12 px-3 whitespace-nowrap text-sm"
-                  title={t('activityRejectTransfer')}
-                  disabled={!canAccept}
-                  onClick={() => onReject(note)}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <Button
-            className={`flex-1 max-w-none rounded-none! h-12 min-h-12 px-3 text-sm ${status === 'claiming' ? 'bg-primary-500 text-pure-white' : ''}`}
-            title={actionLabel}
-            disabled={!canAccept}
-            aria-label={actionLabel}
-            aria-busy={busy}
-            onClick={() => onAccept(note)}
+          <motion.span
+            aria-hidden
+            className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
+            animate={{ rotate: expanded ? 180 : 0 }}
+            transition={transition}
           >
-            <span className="relative flex h-5 w-full items-center justify-center">
-              <AnimatePresence initial={false}>
-                <motion.span
-                  key={status === 'claiming' ? 'spinner' : 'label'}
-                  className="absolute inset-0 flex items-center justify-center whitespace-nowrap"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+            <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
+          </motion.span>
+        </button>
+
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              id={detailsId}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={transition}
+              className="overflow-hidden"
+            >
+              <dl className="border-t border-rule-default divide-y divide-rule-default text-sm">
+                {rows.map(row => (
+                  <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
+                    <dt className="text-text-secondary-token">{row.label}</dt>
+                    <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
+                      {row.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className={classNames('bg-fill px-4 py-3 text-center text-sm italic', hintTone)}>
+                <p role={status === 'failed' ? 'alert' : 'status'}>{hint}</p>
+                {note.recallableAtMs !== undefined && !claimed && (
+                  <p className="mt-1 text-xs text-text-secondary-token">
+                    {t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {claimed ? (
+          txId && (
+            <Button
+              className="w-full max-w-none rounded-none! h-12 min-h-12 border-t border-rule-default text-sm"
+              variant={ButtonVariant.Secondary}
+              title={t('activityTransferDetails')}
+              onClick={() => navigate(`/history-details/${encodeURIComponent(txId)}`)}
+            />
+          )
+        ) : (
+          <div className="flex overflow-hidden border-t border-rule-default">
+            <AnimatePresence initial={false}>
+              {onReject && status !== 'claiming' && (
+                <motion.div
+                  key="reject"
+                  className="shrink-0 overflow-hidden"
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: '40%', opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
                   transition={transition}
-                  aria-hidden
                 >
-                  {status === 'claiming' ? <Loader color="white" /> : actionLabel}
-                </motion.span>
-              </AnimatePresence>
-            </span>
-          </Button>
-        </div>
-      )}
-    </article>
+                  <Button
+                    variant={ButtonVariant.Secondary}
+                    className="w-full max-w-none rounded-none! h-12 min-h-12 px-3 whitespace-nowrap text-sm"
+                    title={t('activityRejectTransfer')}
+                    disabled={!canAccept}
+                    onClick={() => onReject(note)}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <Button
+              className={`flex-1 max-w-none rounded-none! h-12 min-h-12 px-3 text-sm ${status === 'claiming' ? 'bg-primary-500 text-pure-white' : ''}`}
+              title={actionLabel}
+              disabled={!canAccept}
+              aria-label={actionLabel}
+              aria-busy={busy}
+              onClick={() => onAccept(note)}
+            >
+              <span className="relative flex h-5 w-full items-center justify-center">
+                <AnimatePresence initial={false}>
+                  <motion.span
+                    key={status === 'claiming' ? 'spinner' : 'label'}
+                    className="absolute inset-0 flex items-center justify-center whitespace-nowrap"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={transition}
+                    aria-hidden
+                  >
+                    {status === 'claiming' ? <Loader color="white" /> : actionLabel}
+                  </motion.span>
+                </AnimatePresence>
+              </span>
+            </Button>
+          </div>
+        )}
+      </article>
+    </Card>
   );
 };

@@ -4,11 +4,13 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { Checkbox } from 'components/Checkbox';
-import { Input } from 'components/Input';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
+import { IconButton } from 'components/ui/IconButton';
+import { SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { Vault } from 'lib/miden/back/vault';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
@@ -115,7 +117,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   );
 
   const handleEnterKey = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<TextFieldElement>) => {
       if (e.key === 'Enter' && confirmed) {
         e.preventDefault();
         onSubmit();
@@ -138,61 +140,59 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 text-heading-gray pb-6">
-      <div className="flex flex-col">
-        <div className="flex flex-col justify-stretch gap-y-4">
-          <p className="text-base font-medium leading-[130%]">
-            {t(hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription')}
-          </p>
-          {!hasHardwareProtector && !usePasscodeEntry && (
-            <div className="flex flex-col gap-y-4">
-              <Input
-                type={isPasswordVisible ? 'text' : 'password'}
-                label={t('password')}
-                value={walletPassword}
-                disabled={isDisabled}
-                placeholder={t('enterPassword')}
-                icon={
-                  <button type="button" className="flex-1" onClick={onPasswordVisibilityToggle}>
-                    <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
-                  </button>
-                }
-                onChange={e => onPasswordChange(e.target.value)}
-                onKeyDown={handleEnterKey}
-                autoFocus={!isMobile()}
-                labelClassName="text-base! font-medium leading-[20px]"
+    // A sheet's content, not a page: the drawer brings the title and the margins.
+    <div className="flex min-h-0 flex-1 flex-col gap-5" data-testid="encrypted-file-wallet-password">
+      <SubPageSection
+        description={t(
+          hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription'
+        )}
+      >
+        {!hasHardwareProtector && !usePasscodeEntry && (
+          <TextField
+            type={isPasswordVisible ? 'text' : 'password'}
+            label={t('password')}
+            value={walletPassword}
+            disabled={isDisabled}
+            placeholder={t('enterPassword')}
+            trailing={
+              <IconButton
+                icon={isPasswordVisible ? IconName.EyeOff : IconName.Eye}
+                label={t(isPasswordVisible ? 'hide' : 'show')}
+                onClick={onPasswordVisibilityToggle}
               />
-              {errors.password && <p className="h-4 text-red-500 text-xs">{errors.password.message}</p>}
-            </div>
-          )}
-          <div className="flex gap-x-2 text-sm text-left pb-8">
-            <button className="flex mt-3 gap-x-2 text-left" onClick={() => setConfirmed(!confirmed)}>
-              <Checkbox id="help-us" value={confirmed} />
-              <span className="text-sm leading-[130%] cursor-pointer text-left -mt-1">
-                {t('encryptedWalletFileConfirmation')}
-              </span>
-            </button>
-          </div>
-          {!hasHardwareProtector && isDisabled && (
-            <Alert
-              type="error"
-              title={t('error')}
-              description={`${t('unlockPasswordErrorDelay')} ${timeleft}`}
-              className="mt-8 rounded-lg text-black mx-auto"
-              style={{ width: '80%' }}
-            />
-          )}
-          {hasHardwareProtector && errors.password && (
-            <Alert
-              type="error"
-              title={t('error')}
-              description={errors.password.message || ''}
-              className="mt-4 rounded-lg text-black mx-auto"
-              style={{ width: '80%' }}
-            />
-          )}
-        </div>
-      </div>
+            }
+            onChange={e => onPasswordChange(e.target.value)}
+            onKeyDown={handleEnterKey}
+            autoFocus={!isMobile()}
+            error={errors.password?.message}
+            data-testid="encrypted-file-wallet-password-input"
+          />
+        )}
+      </SubPageSection>
+
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={confirmed}
+        className="flex items-start gap-x-2 px-1 text-left"
+        onClick={() => setConfirmed(!confirmed)}
+      >
+        <CheckboxIndicator checked={confirmed} />
+        <span className="cursor-pointer font-sans text-sm text-ink">{t('encryptedWalletFileConfirmation')}</span>
+      </button>
+
+      {!hasHardwareProtector && isDisabled && (
+        <Alert
+          type="error"
+          title={t('error')}
+          description={`${t('unlockPasswordErrorDelay')} ${timeleft}`}
+          className="rounded-2xl"
+        />
+      )}
+      {hasHardwareProtector && errors.password && (
+        <Alert type="error" title={t('error')} description={errors.password.message || ''} className="rounded-2xl" />
+      )}
+
       {usePasscodeEntry ? (
         <PasscodeEntry
           onSubmit={code => onSubmit(code)}
@@ -206,16 +206,14 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           className="mt-auto"
         />
       ) : (
-        <div className="mt-auto">
-          <Button
-            className="w-full justify-center"
-            variant={ButtonVariant.Primary}
-            title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-            disabled={!continueEnabled}
-            onClick={() => onSubmit()}
-            isLoading={isSubmitting}
-          />
-        </div>
+        <Button
+          className="mt-auto w-full max-w-none"
+          variant={ButtonVariant.Primary}
+          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+          disabled={!continueEnabled}
+          onClick={() => onSubmit()}
+          isLoading={isSubmitting}
+        />
       )}
     </div>
   );

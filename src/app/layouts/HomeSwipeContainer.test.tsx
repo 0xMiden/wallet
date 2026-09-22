@@ -50,6 +50,11 @@ let mockLastDrag: unknown = null;
 // point of the release path, so the tests drive it in that order too.
 let mockLastModifyTarget: ((ideal: number) => number) | null = null;
 let mockLastDragControlsProp: unknown = null;
+// Framer calls `onDragStart` once a pointer has travelled far enough to drag, and
+// only then. It is the one signal that tells a swipe's release from a tap's.
+let mockLastDragStart: (() => void) | null = null;
+// Framer notifies this before it resets the track's transform to measure layout.
+let mockLastBeforeLayoutMeasure: (() => void) | null = null;
 
 // framer-motion: `motion.div` -> passthrough div (drag props stripped so React
 // doesn't warn/attempt to render them). `animate`/`useMotionValue` are stubbed.
@@ -59,6 +64,8 @@ jest.mock('framer-motion', () => {
     const {
       children,
       onDragEnd,
+      onDragStart,
+      onBeforeLayoutMeasure,
       dragConstraints,
       // strip non-DOM / framer-only props
       drag,
@@ -71,6 +78,8 @@ jest.mock('framer-motion', () => {
       ...rest
     } = props;
     if (onDragEnd) mockLastDragEnd = onDragEnd;
+    if (onDragStart) mockLastDragStart = onDragStart;
+    if (onBeforeLayoutMeasure) mockLastBeforeLayoutMeasure = onBeforeLayoutMeasure;
     if (dragConstraints !== undefined) mockLastDragConstraints = dragConstraints;
     if (dragTransition) mockLastModifyTarget = dragTransition.modifyTarget;
     if (dragControls !== undefined) mockLastDragControlsProp = dragControls;
@@ -103,6 +112,12 @@ jest.mock('lib/animation', () => ({
   // the component actually branches on it.
   resolveTransition: (_reduceMotion: boolean, transition: unknown) => transition,
   springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args)
+}));
+
+// A swipe that lands on another page is a tab switch and buzzes once.
+const mockHapticSelection = jest.fn();
+jest.mock('lib/mobile/haptics', () => ({
+  hapticSelection: (...args: unknown[]) => mockHapticSelection(...args)
 }));
 
 jest.mock('lib/mobile/high-refresh-rate', () => ({
@@ -227,6 +242,8 @@ beforeEach(() => {
   mockLastDrag = null;
   mockLastModifyTarget = null;
   mockLastDragControlsProp = null;
+  mockLastDragStart = null;
+  mockLastBeforeLayoutMeasure = null;
   mockRoCallback = null;
   mockSwapEnabled.value = true;
   mockReduceMotion.value = false;
@@ -255,6 +272,12 @@ function settleAt(x: number) {
   mockX = x;
 }
 
+/** Land the track where the last `animate` call was taking it, as a finished animation would. */
+function finishAnimations() {
+  const target = mockAnimate.mock.calls[mockAnimate.mock.calls.length - 1]?.[1];
+  if (typeof target === 'number') settleAt(target);
+}
+
 /** The release in flight, asserting there is one. */
 function releaseInFlight(): MockRelease {
   const animation = mockReleases[mockReleases.length - 1];
@@ -275,14 +298,16 @@ function finishRelease() {
 }
 
 /**
- * Play a release the way framer does: `modifyTarget` with the coasting target it
- * projected from the finger, then `onDragEnd` once the frame ends.
+ * Play a release the way framer does: `onDragStart` once the finger has moved far
+ * enough to drag, `modifyTarget` with the coasting target it projected from the
+ * finger, then `onDragEnd` once the frame ends.
  *
  * Returns what `modifyTarget` handed back, which is framer's own momentum target.
  */
 function release(idealX: number): number | undefined {
   let parked: number | undefined;
   act(() => {
+    mockLastDragStart?.();
     parked = mockLastModifyTarget?.(idealX);
     mockLastDragEnd?.(null, {
       offset: { x: 0, y: 0 },
@@ -299,18 +324,25 @@ function release(idealX: number): number | undefined {
  * `pointerType` when it falls back to `Event` — which is the one field the
  * handler branches on, so it is set explicitly here.
  */
-function pointerDown(node: Element, pointerType: 'touch' | 'mouse'): Event {
+function pointerDown(node: Element, pointerType: 'touch' | 'mouse', isPrimary?: boolean): Event {
   const event = new Event('pointerdown', { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'pointerType', { value: pointerType });
+  // Left undefined unless a test asks, which is what a synthesized pointerdown carries and what
+  // every existing test here relies on.
+  if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
   act(() => {
     fireEvent(node, event);
   });
   return event;
 }
 
-function pointerUp(node: Element) {
+function pointerUp(node: Element, isPrimary?: boolean) {
+  const event = new Event('pointerup', { bubbles: true, cancelable: true });
+  // Same shape as `pointerDown`: left undefined unless a test asks, which is what a synthesized
+  // pointerup carries and what every existing test here relies on.
+  if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
   act(() => {
-    fireEvent(node, new Event('pointerup', { bubbles: true, cancelable: true }));
+    fireEvent(node, event);
   });
 }
 
@@ -318,6 +350,19 @@ function pointerUp(node: Element) {
 function tap(node: Element) {
   pointerDown(node, 'touch');
   pointerUp(node);
+}
+
+/**
+ * A tap as framer really handles one once any drag has resolved the constraints:
+ * its pan session "resumes" them when a pointer lifts without dragging, which runs
+ * `modifyTarget` with no velocity from wherever the tap stopped the track. No
+ * `onDragStart` and no `onDragEnd`, because nothing was dragged.
+ */
+function tapResumedByFramer(node: Element) {
+  tap(node);
+  act(() => {
+    mockLastModifyTarget?.(mockX);
+  });
 }
 
 describe('HomeSwipeContainer', () => {
@@ -402,6 +447,75 @@ describe('HomeSwipeContainer', () => {
     });
   });
 
+  describe('while another tab is showing', () => {
+    // TabLayout keeps the Home pane mounted, hidden, while Explore, Activity or
+    // Settings shows, and this component reads the live route. None of those
+    // routes is a home page, and treating them as Overview slid the hidden track
+    // there, so coming back showed Overview and then slid to the page the bar named.
+    it('holds the track on its page instead of sliding it to Overview', () => {
+      mockPathname = '/send';
+      const { rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      mockAnimate.mockClear();
+      mockMotionSet.mockClear();
+
+      mockPathname = '/history';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+      expect(mockMotionSet).not.toHaveBeenCalledWith(-0);
+    });
+
+    it('shows the page again without a slide when the route comes back to it', () => {
+      mockPathname = '/send';
+      const { rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      mockPathname = '/history';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      finishAnimations();
+      mockAnimate.mockClear();
+
+      mockPathname = '/send';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      expect(mockAnimate).not.toHaveBeenCalled();
+      expect(mockX).toBe(-300);
+    });
+
+    it('swaps straight to Overview when Home is chosen from another tab', () => {
+      mockPathname = '/receive';
+      const { rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-600);
+      mockPathname = '/history';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      finishAnimations();
+      mockAnimate.mockClear();
+      mockMotionSet.mockClear();
+
+      mockPathname = '/';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      // The pane was hidden, so the change is a tab swap: no slide across the
+      // pages in between as it appears.
+      expect(mockAnimate).not.toHaveBeenCalled();
+      expect(mockMotionSet).toHaveBeenLastCalledWith(-0);
+      expect(mockX).toBe(-0);
+    });
+  });
+
   describe('ResizeObserver callback branches', () => {
     it('ignores measurements of width 0', () => {
       mockPathname = '/send';
@@ -445,6 +559,33 @@ describe('HomeSwipeContainer', () => {
       settleAt(-600);
       release(-300); // velocity +375 -> projected +112.5
       expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('buzzes once when the swipe lands on another page, as a tap on the bar does', () => {
+      mockPathname = '/'; // index 0
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+      // The buzz and the route change are the same switch.
+      expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
+    });
+
+    it('stays silent when the swipe snaps back to the same page', () => {
+      mockPathname = '/send'; // index 1
+      render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      release(-310);
+      expect(mockHapticSelection).not.toHaveBeenCalled();
+    });
+
+    it('stays silent at either end, where there is no page to switch to', () => {
+      mockPathname = '/'; // index 0 (first)
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(300);
+      expect(mockHapticSelection).not.toHaveBeenCalled();
     });
 
     it('stays put when the flick is too weak to project past the threshold', () => {
@@ -603,6 +744,120 @@ describe('HomeSwipeContainer', () => {
       expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -300, expect.anything());
     });
 
+    it('keeps a tap that stops a release on the page the route is on', () => {
+      mockPathname = '/';
+      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      mockPathname = '/send';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
+      track.style.transform = 'translateX(-180px)';
+
+      tapResumedByFramer(getByTestId('page-explore'));
+
+      // The route and the action bar say Send. Judged as a swipe, the stop at -180
+      // is 120px short of Send, past the 90px threshold, so the tap sent the track
+      // back to Overview under a bar still showing Send.
+      expect(releaseInFlight().keyframes).toEqual([
+        { transform: 'translateX(-180px)' },
+        { transform: 'translateX(-300px)' }
+      ]);
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a tap during a tab switch\u2019s slide on the tab that was chosen', () => {
+      mockPathname = '/';
+      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      // Tapping Send on the action bar slides the track toward it; a finger landing
+      // 30% of the way there stops the slide at -90.
+      mockPathname = '/send';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      settleAt(-90);
+
+      tapResumedByFramer(getByTestId('page-send'));
+
+      expect(releaseInFlight().keyframes).toEqual([
+        { transform: 'translateX(-90px)' },
+        { transform: 'translateX(-300px)' }
+      ]);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    // A second finger landing mid-swipe is not a new gesture. Without the guard the capture handler
+    // cleared the drag flag, so the swipe in flight was judged a tap and snapped back to where it
+    // started. This is the same setup as the test below, with the one difference that matters.
+    it('keeps an in-flight drag when a second, non-primary finger lands', () => {
+      mockPathname = '/send';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      act(() => {
+        mockLastDragStart?.();
+      });
+      settleAt(-120);
+
+      pointerDown(getByTestId('page-send'), 'touch', false);
+      act(() => {
+        mockLastModifyTarget?.(mockX);
+      });
+
+      expect(releaseInFlight().keyframes).not.toEqual([
+        { transform: 'translateX(-120px)' },
+        { transform: 'translateX(-300px)' }
+      ]);
+    });
+
+    // The same rule at the carousel's other two capture bindings: `onPointerUpCapture` and
+    // `onPointerCancelCapture` share one body, so one guard closes both. Without it a second
+    // finger LIFTING mid-gesture landed the track on the current page under a first finger that
+    // was still dragging. The positive control below is what makes this non-vacuous: the landing
+    // must still happen for an ordinary pointerup.
+    it('does not land the track when a second, non-primary finger lifts', () => {
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-120);
+      mockAnimate.mockClear();
+
+      pointerUp(getByTestId('page-send'), false);
+
+      expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+    });
+
+    it('still lands the track when an ordinary pointer lifts', () => {
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-120);
+      mockAnimate.mockClear();
+
+      pointerUp(getByTestId('page-send'));
+
+      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+    });
+
+    it('judges a drag that follows an unfinished drag as a new gesture', () => {
+      mockPathname = '/send';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      // A drag that framer locked to the vertical axis never reaches `modifyTarget`,
+      // so whatever it recorded must not carry over to the next touch.
+      act(() => {
+        mockLastDragStart?.();
+      });
+      settleAt(-120);
+      tapResumedByFramer(getByTestId('page-send'));
+      expect(releaseInFlight().keyframes).toEqual([
+        { transform: 'translateX(-120px)' },
+        { transform: 'translateX(-300px)' }
+      ]);
+    });
+
     it('does nothing when a tap lands on a track already at rest', () => {
       mockPathname = '/';
       const { getByTestId } = render(<HomeSwipeContainer />);
@@ -743,6 +998,68 @@ describe('HomeSwipeContainer', () => {
       // the track still moving. Reading it as "mid-transition" cost the first tap
       // on every field after a flick — the keyboard needed a second tap.
       expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(false);
+    });
+  });
+
+  describe('a layout measurement elsewhere in the tree', () => {
+    /**
+     * What framer does to the track whenever any `layout` node commits (the tab
+     * bars' pill, icon pop, a SegmentedControl): announce the measurement, reset
+     * the transform to `none` so the boxes beneath read untransformed, measure.
+     * It then re-renders the track only if that render isn't deduped against one
+     * already made at the same frame timestamp, and on WebKit it often is.
+     */
+    function measureLayout(track: HTMLElement) {
+      mockLastBeforeLayoutMeasure?.();
+      track.style.transform = 'none';
+    }
+
+    it('puts the track back on its page after framer resets it to measure', async () => {
+      mockPathname = '/send';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      const track = getByTestId('page-send').parentElement?.parentElement as HTMLElement;
+      track.style.transform = 'translateX(-300px)';
+
+      measureLayout(track);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Left at `none`, the track showed Overview under a bar naming Send — for a
+      // frame mid-slide, or for good when the reset landed as the slide settled.
+      expect(track.style.transform).toBe('translateX(-300px)');
+    });
+
+    it('leaves the transform alone when framer re-rendered it itself', async () => {
+      mockPathname = '/send';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      const track = getByTestId('page-send').parentElement?.parentElement as HTMLElement;
+
+      measureLayout(track);
+      track.style.transform = 'translateX(-299px)';
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(track.style.transform).toBe('translateX(-299px)');
+    });
+
+    it('keeps `none` on Overview, where it is the resting transform', async () => {
+      mockPathname = '/';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
+
+      measureLayout(track);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(track.style.transform).toBe('none');
     });
   });
 

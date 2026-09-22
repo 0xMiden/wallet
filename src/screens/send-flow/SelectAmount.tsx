@@ -7,12 +7,18 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { Avatar } from 'components/ui/Avatar';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { approxFiatAmount, formatBalance } from './amount-format';
 import { BridgeNetwork } from './bridge-networks';
 import { UIToken } from './types';
+
+// Placeholder-circle background before a token/network is chosen. Not a design-system token —
+// carried over from the pre-Avatar literal as-is; a later token-cleanup pass maps it to one.
+const PLACEHOLDER_BLUE = '#2F6BED';
 
 export interface SelectAmountProps {
   token?: UIToken;
@@ -69,13 +75,6 @@ export interface SelectAmountProps {
  * user who reads that back into the field is over the cap and rejected, with no
  * Max button to fall back on.
  */
-/** Blue circle used as a placeholder before a token/network is chosen. */
-const PlaceholderCircle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white">
-    {children}
-  </span>
-);
-
 export const SelectAmount: React.FC<SelectAmountProps> = ({
   token,
   amount,
@@ -125,13 +124,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       {token ? (
         <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
       ) : embedded ? (
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2F6BED] text-lg font-bold text-pure-white">
-          $
-        </span>
+        <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-2xl font-bold text-heading-gray">
-        {token ? token.name : t('selectAToken')}
-      </span>
+      <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
       <Icon name={IconName.ChevronDown} size="sm" className="text-primary-500" fill="currentColor" />
     </button>
   );
@@ -149,10 +144,12 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         }}
         className="flex items-center gap-3 text-left"
       >
-        {token ? <TokenLogo symbol={logoSymbol ?? token.name} size="md" /> : <PlaceholderCircle>$</PlaceholderCircle>}
-        <span className="font-heading text-2xl font-bold text-heading-gray">
-          {token ? token.name : t('selectAToken')}
-        </span>
+        {token ? (
+          <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+        ) : (
+          <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
+        )}
+        <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
         <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
       </button>
 
@@ -167,9 +164,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         }}
         className="flex items-start gap-3 text-left"
       >
-        <PlaceholderCircle>
-          <Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />
-        </PlaceholderCircle>
+        <Avatar
+          size={36}
+          icon={<Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />}
+          color={PRIMARY_HEX}
+        />
         <div className="flex flex-col">
           <span className="font-heading text-2xl font-bold text-gray flex items-center gap-1">
             {network ? (
@@ -260,7 +259,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           // the CTA rather than rendering a live-but-dead button.
           disabled={!canProceed || !onConfirm}
           data-testid="send-amount-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>

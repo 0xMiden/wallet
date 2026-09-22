@@ -401,26 +401,16 @@ describe('ConnectivityIssueBanner', () => {
     setState({ node: true });
     render(<ConnectivityIssueBanner />);
 
-    // The assertion is the absence of an unhandled rejection, and that has to be
-    // OBSERVED — the previous version awaited two microtasks and asserted
-    // nothing, so deleting the `.catch` left it green. Node reports an unhandled
-    // rejection on the process, which is where this listens.
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on('unhandledRejection', onUnhandled);
-    try {
-      fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
+    // What this proves is the absence of an unhandled rejection. Jest fails the
+    // running test on one, but Node reports it only after a macrotask: the
+    // version that awaited two microtasks finished first, so deleting the
+    // `.catch` left it green. (A process.on('unhandledRejection') listener here
+    // would never fire: each test file gets its own copy of `process`.)
+    fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
 
-      await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
-      // Let the rejected promise settle so the `.catch(() => {})` handler runs,
-      // then give the runtime a macrotask to report anything left unhandled.
-      await Promise.resolve();
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off('unhandledRejection', onUnhandled);
-    }
+    await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
+    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   // -- onDismiss ------------------------------------------------------------

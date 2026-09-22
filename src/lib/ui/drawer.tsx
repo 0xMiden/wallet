@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
+import { IconButton } from 'components/ui/IconButton';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
@@ -28,16 +29,37 @@ interface DrawerProps {
    * captured, just without a per-drawer label. E2E-only; no visual effect.
    */
   screenKey?: string;
+  /**
+   * `false` makes the sheet close only when the caller sets `open` to false: no drag down, press
+   * outside or Escape closes it on its own. Callers that want Escape handle it on `DrawerContent`.
+   */
+  dismissible?: boolean;
+  /**
+   * Skip vaul's Safari body pin and its black body paint on open. vaul keeps the pinned body's
+   * previous position in one module-level slot and restores it when ANY sheet closes, so a sheet
+   * opened over another sheet passes this to leave the pin of the one beneath in place. That pin
+   * is all it protects: vaul's scale cleanup (`useScaleBackground`) still resets
+   * `body.style.background` 500ms after this sheet closes, with no `noBodyStyles` guard, so on the
+   * extension a sheet closing over an open drawer still clears that drawer's black background.
+   */
+  noBodyStyles?: boolean;
 }
 
-function Drawer({ open = false, onOpenChange, children, screenKey }: DrawerProps) {
+function Drawer({ open = false, onOpenChange, children, screenKey, dismissible, noBodyStyles }: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
-      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">
+      <VaulDrawer.Root
+        open={open}
+        onOpenChange={onOpenChange}
+        shouldScaleBackground={isExtension()}
+        direction="bottom"
+        dismissible={dismissible}
+        noBodyStyles={noBodyStyles}
+      >
         {children}
       </VaulDrawer.Root>
     </DrawerContext.Provider>
@@ -56,30 +78,7 @@ interface DrawerContentProps extends Omit<
   hideHandle?: boolean;
 }
 
-/**
- * Was the press that Radix is calling "outside the drawer" actually inside the
- * confirmation/alert dialog stacked ABOVE it?
- *
- * react-modal portals into a `div.ReactModalPortal` on <body>, outside the
- * drawer's subtree, so Radix reads a click on the dialog as an outside
- * interaction and dismisses the drawer — pulling it closed underneath the very
- * question it is still asking. Radix dispatches its outside-event on the element
- * that was actually pressed, so the original event's target identifies the
- * dialog.
- */
-function isPressInsideModalPortal(event: { detail: { originalEvent: Event } }): boolean {
-  const target = event.detail.originalEvent.target;
-  return target instanceof Element && target.closest('.ReactModalPortal') !== null;
-}
-
-function DrawerContent({
-  className,
-  overlayClassName,
-  children,
-  hideHandle = true,
-  onPointerDownOutside,
-  ...props
-}: DrawerContentProps) {
+function DrawerContent({ className, overlayClassName, children, hideHandle = true, ...props }: DrawerContentProps) {
   return (
     <VaulDrawer.Portal>
       <VaulDrawer.Overlay
@@ -95,20 +94,15 @@ function DrawerContent({
           // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
           // (env() and the var are 0 on extension/Android). The transition runs
           // in sync with the native keyboard slide.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none',
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-surface-solid text-body-sm outline-none',
           'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
           className
         )}
-        onPointerDownOutside={event => {
-          onPointerDownOutside?.(event);
-          // vaul dismisses only if this event comes back un-prevented.
-          if (isPressInsideModalPortal(event)) event.preventDefault();
-        }}
         {...props}
       >
         {!hideHandle && (
           <div className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing">
-            <VaulDrawer.Handle className="h-0.5 w-10 shrink-0 rounded-full bg-primary-500 opacity-100" />
+            <VaulDrawer.Handle className="h-[5px] w-9 shrink-0 rounded-full bg-fill-pressed opacity-100" />
           </div>
         )}
         {children}
@@ -131,14 +125,7 @@ function DrawerHeader({ className, children }: { className?: string; children?: 
     <div data-slot="drawer-header" className={cn('border-b border-border-faint mb-4', className)}>
       <div className="flex w-full items-center justify-between gap-3 p-4">
         <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t('close')}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100"
-        >
-          <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-heading-gray" />
-        </button>
+        <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
       </div>
     </div>
   );
@@ -152,7 +139,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
   return (
     <VaulDrawer.Title
       data-slot="drawer-title"
-      className={cn('text-3xl font-bold font-heading leading-none text-heading-gray', className)}
+      className={cn('text-left text-title-page text-ink', className)}
       {...props}
     >
       {children}
@@ -164,7 +151,7 @@ function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLPar
   return (
     <VaulDrawer.Description
       data-slot="drawer-description"
-      className={cn('text-sm text-text-muted', className)}
+      className={cn('text-body-sm text-muted', className)}
       {...props}
     />
   );

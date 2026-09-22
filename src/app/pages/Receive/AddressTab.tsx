@@ -4,17 +4,19 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
-import CopyButton from 'app/atoms/CopyButton';
-import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
+import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
-import { TestNetworkWarning } from 'components/TestNetworkWarning';
+import { CopyButton } from 'components/ui/CopyButton';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { Notice } from 'components/ui/Notice';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
-import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { cn } from 'lib/ui/util';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
@@ -24,6 +26,8 @@ interface AddressTabProps {
 }
 
 const QR_FILE_NAME = 'miden-address.png';
+/** Resolution of the shared QR image; on screen the QR scales to the room the layout leaves. */
+const QR_EXPORT_SIZE = 300;
 
 /** Reads a Blob as raw base64 (without the `data:*;base64,` prefix) for Capacitor Filesystem. */
 const blobToBase64 = (blob: Blob): Promise<string> =>
@@ -45,7 +49,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : null;
-  const { fieldRef, copy } = useCopyToClipboard();
+  // The share fallback copies through the same hook as the page's copy control: one clipboard
+  // path, and it catches a rejected write.
+  const { copy: copyAddress } = useClipboardCopy(address);
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
@@ -54,8 +60,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     onBridgeDeposit();
   }, [onBridgeDeposit]);
 
+  // ListRow fires the tap haptic for both actions.
   const handleOpenEvm = useCallback(() => {
-    hapticLight();
     if (evmConnected && evmAddress) {
       openBridgeDeposit();
       return;
@@ -75,8 +81,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const shareText = network ? t('shareAddressText', { network, address }) : address;
 
   const handleShare = useCallback(async () => {
-    hapticLight();
-
     let qrBlob: Blob | null = null;
     try {
       qrBlob = (await qrRef.current?.getImageBlob()) ?? null;
@@ -112,84 +116,110 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
-    copy();
-  }, [copy, shareText, t]);
+    // Stays OUTSIDE the try above, and the primary path here is NOT an error: wherever the Web
+    // Share API is absent the guard above is falsy - typically extension and desktop builds - so
+    // the try runs out, nothing throws, no branch returns, and control reaches this line having
+    // entered no catch. A share rejection also lands here via the catch; every success branch
+    // returns first. Moved into the catch, the Share button would do nothing at all on those builds;
+    // Receive.test.tsx's 'the web has no navigator.share' row is what fails if anyone does.
+    await copyAddress();
+  }, [copyAddress, shareText, t]);
+
+  const showCrossChain = !isExtension() && isBridgeDepositEnabled();
 
   return (
+    // Last-resort scroll only: the column below is laid out to fit between the top action bar and
+    // the tab bar on every supported height (the QR takes whatever height is left), and scrolls
+    // only when even the smallest QR does not fit.
     <div
       className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
       style={{ touchAction: 'pan-y' }}
       data-testid="receive-page"
     >
-      <div className="min-h-full flex flex-col">
-        <div className="flex flex-col items-center px-6 pt-6 pb-32">
-          <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-          {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
-          <span data-testid="receive-address-full" className="sr-only">
-            {address}
-          </span>
-          <div className="w-full flex flex-col items-center justify-center gap-6">
-            <QRCode
-              ref={qrRef}
-              address={address}
-              size={300}
-              caption={network ? t('qrNetworkCaption', { network }) : undefined}
-            />
-            <CopyButton
-              text={address}
-              data-testid="receive-copy-address"
-              className="w-full rounded-full! text-center py-5 bg-surface-interactive hover:bg-surface-interactive"
-            >
-              <span className="text-base font-heading font-bold text-heading-gray">
-                {truncateAddress(address, false, 16, 8)}
-              </span>
-            </CopyButton>
-            {/* Test-funds warning sits before the share and bridge actions:
-                the funding decision point named in #875. */}
-            {network && (
-              <TestNetworkWarning
-                titleKey="receiveTestFundsTitle"
-                bodyKey="receiveTestFundsBody"
-                values={{ network }}
-                data-testid="receive-test-funds-warning"
-              />
-            )}
+      <div
+        className={cn(
+          'mx-auto flex min-h-full w-full max-w-150 flex-col px-4 pt-4',
+          // Clears the tab bar that overlays the page (TabLayout): 57px docked on an iPhone, 64px
+          // floating elsewhere, plus the 16px gutter.
+          isMobile() ? 'pb-18' : 'pb-20'
+        )}
+      >
+        {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
+        <span data-testid="receive-address-full" className="sr-only">
+          {address}
+        </span>
+
+        {/* The QR block: one centred column. */}
+        <div data-testid="receive-qr-block" className="flex flex-1 flex-col items-center gap-3">
+          {/* The QR takes the height the rest of the page leaves (never under 160px), square and
+              capped at 288px. The frame is sized off the slot's flexed height through an absolute
+              box: a size container would be simpler, but Chrome resolves `cqh` to 0 in a slot whose
+              height comes from flexing. */}
+          <div data-testid="receive-qr-slot" className="relative min-h-40 w-full flex-1">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div data-testid="receive-qr-frame" className="aspect-square h-full max-h-72 max-w-full">
+                <QRCode
+                  ref={qrRef}
+                  address={address}
+                  size={QR_EXPORT_SIZE}
+                  // The page names the network in the chip below; the shared image still carries it.
+                  caption={network ? t('qrNetworkCaption', { network }) : undefined}
+                />
+              </div>
+            </div>
           </div>
-          <div className="w-full flex flex-col items-center gap-8 pt-6">
-            <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">
-              <Icon name={IconName.Share} size="lg" className="shrink-0" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">{t('share')}</span>
-            </button>
-            {/* <div className="flex items-center gap-4 text-accent-primary">
-              <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
-            </div> */}
+          {network && (
+            <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
+          )}
+          <CopyButton
+            text={address}
+            data-testid="receive-copy-address"
+            label={truncateAddress(address, false, 16, 8)}
+            icon="leading"
+            iconClassName="text-muted"
+            checkClassName="text-positive-ink"
+            className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+            contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+          />
+        </div>
+
+        <div className="mt-5 flex shrink-0 flex-col gap-3">
+          {/* Test-funds warning sits before the share and bridge actions:
+              the funding decision point named in #875. */}
+          {network && (
+            <Notice
+              tone="warning"
+              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+              data-testid="receive-test-funds-warning"
+            >
+              {t('receiveTestFundsBody', { network })}
+            </Notice>
+          )}
+          <ListGroup data-testid="receive-actions">
+            <ListRow
+              icon={<Icon name={IconName.Share} size="xs" />}
+              title={t('share')}
+              onClick={() => void handleShare()}
+              data-testid="receive-share"
+            />
             {/* WalletConnect is not supported on the extension: the Reown relay
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
                 the AppKit connect flow can never complete there. */}
-            {!isExtension() && isBridgeDepositEnabled() && (
-              <button
-                type="button"
-                data-testid="receive-cross-chain"
+            {showCrossChain && (
+              <ListRow
+                icon={<Icon name={IconName.CrossChain} size="xs" />}
+                title={t('crossChain')}
+                // Name the actual source test network, not a bare "Testnet" (#875).
+                subtitle={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+                chevron
                 onClick={handleOpenEvm}
-                className="flex items-center gap-4 text-accent-primary"
-              >
-                <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
-                <span className="flex flex-col items-start gap-1">
-                  <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
-                    {t('crossChain')}
-                  </span>
-                  {/* Name the actual source test network, not a bare "Testnet" (#875). */}
-                  <span className="text-xs font-medium leading-none text-text-tertiary-token">
-                    {t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-                  </span>
-                </span>
-              </button>
+                data-testid="receive-cross-chain"
+              />
             )}
-          </div>
+          </ListGroup>
         </div>
       </div>
-      {!isExtension() && isBridgeDepositEnabled() && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
+      {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { useAccount } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -12,14 +12,6 @@ import AdvancedSettings from './AdvancedSettings';
 // (labels rendered via `t(...)`) is assertable by key.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
-}));
-
-// `app/icons/v2` is a barrel of SVG components. Render a marker element that
-// surfaces the icon `name` so the copied/not-copied and chevron icons are
-// individually assertable via `[data-icon="..."]`.
-jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-icon={name} />,
-  IconName: { Checkmark: 'checkmark', Copy: 'copy', ChevronRightLucide: 'chevron-right' }
 }));
 
 // `lib/miden/front` is a barrel over the SDK; mock only `useAccount`, the sole
@@ -49,17 +41,13 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  Link: () => null
 }));
 
-// Controllable copy hook: `copy` is a spy and `copied` is a mutable flag so the
-// checkmark-vs-copy icon branch can be driven from the test.
+// The copy action is the shared CopyButton, rendered for real; only the clipboard is stubbed.
 const mockCopy = jest.fn();
-let mockCopied = false;
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: mockCopied })
-}));
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => mockCopy(...args) } }));
 
 const mockUseAccount = useAccount as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
@@ -70,7 +58,8 @@ const mockNavigate = navigate as jest.Mock;
 const RESOLVED_KEY = 'abcdef1234567890';
 const commitment = { toHex: () => `0x${RESOLVED_KEY}` };
 
-const getCopyButton = (container: HTMLElement) => container.querySelectorAll('button')[0]!;
+// The copy action is DetailRow's orange text action, labelled by state.
+const queryCopyAction = () => screen.queryByRole('button', { name: /^(copy|copied)$/ });
 
 const renderWithResolvedKey = async () => {
   mockGetAccount.mockResolvedValue({});
@@ -83,7 +72,6 @@ const renderWithResolvedKey = async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockCopied = false;
   mockUseAccount.mockReturnValue({ publicKey: 'account-id-1', type: 'on-chain' });
 });
 
@@ -97,7 +85,7 @@ describe('AdvancedSettings (page)', () => {
   });
 
   it('resolves the account public key and displays the truncated chip', async () => {
-    const { container } = await renderWithResolvedKey();
+    await renderWithResolvedKey();
 
     // Client was queried with the wallet account's public key.
     expect(mockGetAccount).toHaveBeenCalledWith('account-id-1');
@@ -107,34 +95,47 @@ describe('AdvancedSettings (page)', () => {
     // Truncated chip: 0x + first 6 + ... + last 4.
     expect(screen.getByText('0xabcdef...7890')).toBeInTheDocument();
 
-    // The hidden sr-only input mirrors the full (un-truncated) key.
-    const srInput = container.querySelector('input') as HTMLInputElement;
-    expect(srInput.value).toBe(RESOLVED_KEY);
-
-    // Copy button is enabled and shows the (not-yet-copied) copy icon.
-    expect(getCopyButton(container)).not.toBeDisabled();
-    expect(container.querySelector('[data-icon="copy"]')).not.toBeNull();
-    expect(container.querySelector('[data-icon="checkmark"]')).toBeNull();
+    // The copy action is offered, labelled for the not-yet-copied state.
+    expect(queryCopyAction()).toHaveTextContent('copy');
   });
 
-  it('triggers haptics and copies when the enabled copy button is pressed', async () => {
-    const { container } = await renderWithResolvedKey();
+  it('renders through SubPageLayout: the key in a DetailCard, the faucet editor as a ListRow', async () => {
+    await renderWithResolvedKey();
 
-    fireEvent.click(getCopyButton(container));
+    const page = screen.getByTestId('advanced-settings');
+    expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'gap-5');
+    const keyRow = screen.getByTestId('advanced-public-key');
+    expect(keyRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-y');
+    expect(keyRow).toContainElement(queryCopyAction());
+    const faucetRow = screen.getByTestId('advanced-edit-faucet-id');
+    expect(faucetRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    expect(faucetRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+  });
+
+  it('triggers haptics and copies when the copy action is pressed', async () => {
+    await renderWithResolvedKey();
+
+    fireEvent.click(queryCopyAction()!);
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockCopy).toHaveBeenCalledTimes(1);
+    // The full, untruncated key, not the chip's short form.
+    expect(mockCopy).toHaveBeenCalledWith({ string: RESOLVED_KEY });
   });
 
-  it('shows the checkmark icon while in the copied state', async () => {
-    mockCopied = true;
-    const { container } = await renderWithResolvedKey();
+  it('rolls the action to Copied after a copy', async () => {
+    mockCopy.mockResolvedValue(undefined);
+    await renderWithResolvedKey();
 
-    expect(container.querySelector('[data-icon="checkmark"]')).not.toBeNull();
-    expect(container.querySelector('[data-icon="copy"]')).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('advanced-copy-public-key'));
+    });
+
+    expect(
+      screen.getByTestId('advanced-copy-public-key').querySelector('[data-copy-label] [data-present="true"]')
+    ).toHaveTextContent('copied');
   });
 
-  it('renders a non-breaking-space placeholder and disabled copy button when the account is not found', async () => {
+  it('renders a non-breaking-space placeholder and no copy action when the account is not found', async () => {
     mockGetAccount.mockResolvedValue(null);
 
     const { container } = render(<AdvancedSettings />);
@@ -149,17 +150,10 @@ describe('AdvancedSettings (page)', () => {
       expect(chip.textContent).toBe(' ');
     });
 
-    const copyButton = getCopyButton(container);
-    expect(copyButton).toBeDisabled();
-
-    // The disabled button does not dispatch the click handler.
-    fireEvent.click(copyButton);
+    // Nothing to copy, so no action to press.
+    expect(queryCopyAction()).toBeNull();
     expect(mockHapticLight).not.toHaveBeenCalled();
     expect(mockCopy).not.toHaveBeenCalled();
-
-    // Hidden input falls back to an empty string when there is no key.
-    const srInput = container.querySelector('input') as HTMLInputElement;
-    expect(srInput.value).toBe('');
   });
 
   it('leaves the key unresolved when the account has no public-key commitments', async () => {
@@ -174,7 +168,7 @@ describe('AdvancedSettings (page)', () => {
       const chip = container.querySelector('.font-mono') as HTMLElement;
       expect(chip.textContent).toBe(' ');
     });
-    expect(getCopyButton(container)).toBeDisabled();
+    expect(queryCopyAction()).toBeNull();
   });
 
   it('navigates to the faucet-id editor when the faucet row is pressed', async () => {

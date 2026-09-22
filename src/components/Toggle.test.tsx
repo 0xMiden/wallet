@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { presets, reducedMotionTransition, springs } from 'lib/animation';
 import { hapticMedium } from 'lib/mobile/haptics';
 
 import { Toggle } from './Toggle';
@@ -25,8 +26,10 @@ jest.mock('utils/brand-colors', () => ({
 
 // framer-motion's <motion.div> is replaced by a plain div that surfaces the
 // animate / layout / transition props as data-attributes for assertion.
+let mockReduceMotion = false;
 jest.mock('framer-motion', () => ({
   __esModule: true,
+  useReducedMotion: () => mockReduceMotion,
   motion: {
     div: ({ animate, layout, transition, className, ...rest }: any) => (
       <div
@@ -48,6 +51,7 @@ describe('Toggle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsExtension = false;
+    mockReduceMotion = false;
   });
 
   describe('rendering', () => {
@@ -192,18 +196,24 @@ describe('Toggle', () => {
   });
 
   describe('motion config across platforms', () => {
-    it('enables layout animation and a spring transition on non-extension platforms', () => {
+    it('slides the thumb on the press spring and fades its color on non-extension platforms', () => {
       mockIsExtension = false;
       render(<Toggle data-testid="toggle" />);
 
       const thumb = getThumb();
       expect(thumb).toHaveAttribute('data-layout', 'true');
       expect(JSON.parse(thumb.getAttribute('data-transition') as string)).toEqual({
-        type: 'spring',
-        stiffness: 700,
-        damping: 30,
-        backgroundColor: { duration: 0.2 }
+        ...springs.snappy,
+        backgroundColor: presets.fade.transition
       });
+    });
+
+    it('moves the thumb instantly when the user asks for reduced motion', () => {
+      mockIsExtension = false;
+      mockReduceMotion = true;
+      render(<Toggle data-testid="toggle" />);
+
+      expect(JSON.parse(getThumb().getAttribute('data-transition') as string)).toEqual(reducedMotionTransition);
     });
 
     it('disables layout animation and uses a zero-duration transition on the extension', () => {

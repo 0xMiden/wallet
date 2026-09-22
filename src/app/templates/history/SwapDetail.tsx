@@ -1,11 +1,12 @@
 import React, { FC, memo } from 'react';
 
-import clsx from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { DetailRow } from 'components/ui/DetailCard';
+import { Status, StatusBadge } from 'components/ui/StatusBadge';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -13,11 +14,12 @@ import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
 
 import HashChip from '../HashChip';
-import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
+import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
 import { deliveredRequestedToken } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon from './TransactionIcon';
+import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import { formatDate } from './transactionUtils';
 
 interface SwapDetailProps {
@@ -60,8 +62,6 @@ interface SwapDetailProps {
    * a navigation the receipt would never call.
    */
   onOpenPendingNotes?: () => void;
-  /** Leaves the receipt. Nothing about the order is cancelled. */
-  onDismiss: () => void;
 }
 
 interface SwapNoteRowProps {
@@ -142,7 +142,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
           </div>
           <div className="flex min-w-0 flex-col items-end text-right">
             {receivedAmount && (
-              <p className="font-heading text-lg font-semibold text-status-positive">
+              <p className="font-heading text-lg font-semibold text-positive-tint-ink">
                 {t('swapReceivedAmount', {
                   amount: receivedAmount,
                   symbol: requestedSymbol ? ` ${requestedSymbol}` : ''
@@ -150,14 +150,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
               </p>
             )}
             {displayNoteIds.map(displayNoteId => (
-              <HashChip
-                key={displayNoteId}
-                hash={displayNoteId}
-                trimHash
-                fill="currentColor"
-                copyIcon={false}
-                className="mt-1 max-w-full font-heading text-base font-semibold text-text-secondary-token"
-              />
+              <HashChip key={displayNoteId} hash={displayNoteId} trimHash className="mt-1 max-w-full text-muted" />
             ))}
           </div>
         </div>
@@ -175,14 +168,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
           </div>
           <div className="min-w-0 text-right">
             {displayNoteIds.map(displayNoteId => (
-              <HashChip
-                key={displayNoteId}
-                hash={displayNoteId}
-                trimHash
-                fill="currentColor"
-                copyIcon={false}
-                className="max-w-full font-heading text-base font-semibold text-text-secondary-token"
-              />
+              <HashChip key={displayNoteId} hash={displayNoteId} trimHash className="max-w-full text-muted" />
             ))}
           </div>
         </div>
@@ -194,7 +180,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
             <p className="font-heading text-base font-semibold text-text-secondary-token">{t('swapOpenFill')}</p>
             <p className="text-sm font-medium text-text-tertiary-token">{t('swapMatchingDex')}</p>
           </div>
-          <span className="shrink-0 text-sm font-semibold text-status-pending">{t('pending')}</span>
+          <StatusBadge status="pending" className="shrink-0" />
         </div>
       );
   }
@@ -214,7 +200,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
  */
 const ExplorerTxValue: FC<{ txId: string; onChain?: boolean }> = ({ txId, onChain = true }) => {
   const explorerUrl = onChain ? getExplorerTxUrl(txId) : undefined;
-  const hash = <HashChip hash={txId} trimHash fill="currentColor" copyIcon={false} />;
+  const hash = <HashChip hash={txId} trimHash />;
 
   return explorerUrl ? <ExternalLinkValue displayValue={hash} href={explorerUrl} /> : hash;
 };
@@ -223,29 +209,16 @@ const ExplorerTxValue: FC<{ txId: string; onChain?: boolean }> = ({ txId, onChai
 // request already matched, and a terminal one can have delivered part of the
 // request and returned the rest. Announcing either as a flat "Filled" overstates
 // what the user got.
-const orderStatusLabel = (state: SwapOrderState | null, trackingLoading: boolean, isPartialFill: boolean): string => {
+const orderStatusOf = (state: SwapOrderState | null, trackingLoading: boolean, isPartialFill: boolean): Status => {
   switch (state) {
     case 'filled':
-      return isPartialFill ? 'orderStatusPartiallyFilled' : 'orderStatusFilled';
+      return isPartialFill ? 'partiallyFilled' : 'filled';
     case 'reclaimed':
-      return isPartialFill ? 'orderStatusPartiallyFilledReclaimed' : 'orderStatusReclaimed';
+      return isPartialFill ? 'partiallyFilledReclaimed' : 'orderReclaimed';
     case 'active':
-      return isPartialFill ? 'orderStatusPartiallyFilled' : 'orderStatusActive';
+      return isPartialFill ? 'partiallyFilled' : 'open';
     case null:
-      return trackingLoading ? 'loading' : 'trackingUnavailable';
-  }
-};
-
-const orderStatusTone = (state: SwapOrderState | null, isPartialFill: boolean): string => {
-  switch (state) {
-    case 'filled':
-      return isPartialFill ? 'text-status-pending' : 'text-status-positive';
-    case 'reclaimed':
-      return 'text-text-secondary-token';
-    case 'active':
-      return 'text-status-pending';
-    case null:
-      return 'text-text-tertiary-token';
+      return trackingLoading ? 'loading' : 'unavailable';
   }
 };
 
@@ -264,8 +237,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   approximateUsdAmount,
   fromAccount,
   showActions,
-  onOpenPendingNotes,
-  onDismiss
+  onOpenPendingNotes
 }) => {
   const { t } = useTranslation();
   const progressTransition = useMotion(springs.standard);
@@ -306,7 +278,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
           <div
             data-testid="swap-order-hero"
-            className="mt-2 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-surface-interactive px-4 font-heading text-2xl font-extrabold text-text-primary-token"
+            className="mt-2 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-fill px-4 font-heading text-2xl font-extrabold text-text-primary-token"
           >
             <span className="truncate">{formattedOffered}</span>
             {entry.token && <span className="text-text-secondary-token">{entry.token}</span>}
@@ -370,19 +342,18 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             )}
           </div>
 
-          <p
+          <StatusBadge
+            status={orderStatusOf(orderState, trackingLoading, isPartialFill)}
+            live
+            className="mt-1"
             data-testid="swap-order-status"
-            className={clsx('mt-1 text-xs font-semibold', orderStatusTone(orderState, isPartialFill))}
-            role="status"
-          >
-            {t(orderStatusLabel(orderState, trackingLoading, isPartialFill))}
-          </p>
+          />
         </section>
 
         <section className="mt-6" aria-labelledby="swap-notes-label">
           <div
             id="swap-notes-label"
-            className="inline-flex rounded-full bg-surface-interactive px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
+            className="inline-flex rounded-full bg-fill px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
           >
             {t('swapNotesBundled')}
           </div>
@@ -438,10 +409,8 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
         <section className="mt-6 pb-2">
           <div className="mb-5 h-1 w-full rounded-full bg-tx-swap" />
-          <DetailCard title={t('transferDetails')}>
-            <DetailRow label={t('date')}>
-              <span className="text-sm font-medium text-text-primary-token">{formatDate(entry.timestamp)}</span>
-            </DetailRow>
+          <DetailSection title={t('transferDetails')}>
+            <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
             {entry.externalTxId && (
               <DetailRow label={t('txIdLabel')}>
                 <ExplorerTxValue txId={entry.externalTxId} />
@@ -450,20 +419,14 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             {/* The generic detail card renders this for every other type; swap took a
                 specialised branch and so was the one history view that dropped it.
                 `entry.fee` is already resolved by the caller. */}
-            {entry.fee && (
-              <DetailRow label={t('networkFee')}>
-                <span className="text-sm font-medium text-heading-gray">{entry.fee}</span>
-              </DetailRow>
-            )}
-            <DetailRow label={t('from')} isLast={consumeTransactions.length === 0}>
-              {fromAccount}
-            </DetailRow>
+            {entry.fee && <DetailRow label={t('networkFee')}>{entry.fee}</DetailRow>}
+            <DetailRow label={t('from')}>{fromAccount}</DetailRow>
             {consumeTransactions.map((transaction, index) => {
               const label =
                 consumeTransactions.length === 1 ? t('consumeTxId') : t('consumeTxIdNumber', { number: index + 1 });
 
               return (
-                <DetailRow key={transaction.id} label={label} isLast={index === consumeTransactions.length - 1}>
+                <DetailRow key={transaction.id} label={label}>
                   <ExplorerTxValue
                     txId={transaction.transactionId ?? transaction.id}
                     onChain={transaction.transactionId !== undefined}
@@ -471,28 +434,21 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                 </DetailRow>
               );
             })}
-          </DetailCard>
+          </DetailSection>
         </section>
       </div>
 
-      {showActions && (
+      {/* The receipt is left via the page's own back button, not a dismiss
+          control here - there is no other action once an order has reached
+          the DEX, so the only thing this bar ever offers is the claim route. */}
+      {showActions && onOpenPendingNotes && (
         <div className="shrink-0 space-y-3 pb-4 pt-3">
-          {onOpenPendingNotes && (
-            <Button
-              variant={ButtonVariant.Primary}
-              title={t('swapOpenPendingNotes')}
-              onClick={onOpenPendingNotes}
-              className="max-w-none"
-            />
-          )}
-          {/* Always present. It dismisses the receipt - an order that already
-              reached the DEX has no cancel path, so it must not borrow the
-              destructive Cancel label, and there is no order state in which
-              "leave this screen" stops being available. Deriving it from the
-              order state instead left a filled receipt with no button at all,
-              and promoted this one into the primary slot the instant a fill
-              landed, under a finger already reaching for the other button. */}
-          <Button variant={ButtonVariant.Secondary} title={t('close')} onClick={onDismiss} className="max-w-none" />
+          <Button
+            variant={ButtonVariant.Primary}
+            title={t('swapOpenPendingNotes')}
+            onClick={onOpenPendingNotes}
+            className="max-w-none"
+          />
         </div>
       )}
     </div>

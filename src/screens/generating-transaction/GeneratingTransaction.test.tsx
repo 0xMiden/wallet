@@ -16,14 +16,23 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 
-jest.mock('app/atoms/CircularProgress', () => () => null);
 jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: string }) => <div data-testid="alert">{title}</div>,
   AlertVariant: { Warning: 'Warning' }
 }));
 jest.mock('components/Button', () => ({
-  Button: ({ children, onClick, variant }: { children?: React.ReactNode; onClick?: () => void; variant?: string }) => (
-    <button type="button" data-variant={variant} onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    variant,
+    className
+  }: {
+    children?: React.ReactNode;
+    onClick?: () => void;
+    variant?: string;
+    className?: string;
+  }) => (
+    <button type="button" data-variant={variant} className={className} onClick={onClick}>
       {children}
     </button>
   ),
@@ -628,7 +637,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
       paragraph =>
         paragraph.textContent === 'generatingTransactionDescription' && paragraph.classList.contains('font-bold')
     );
-    expect(helper).toHaveClass('text-heading-gray');
+    expect(helper).toHaveClass('text-ink');
     expect(helper).not.toHaveClass('dark:text-white');
     act(() => root.unmount());
   });
@@ -743,6 +752,30 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(viewBtn).toBeDefined();
     act(() => viewBtn!.click());
     expect(navigateMock).toHaveBeenCalledWith('/history-details/tx-failed-1');
+    act(() => root.unmount());
+  });
+
+  it("labels Done in the secondary button's own color once Retry takes the primary slot", async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={false}
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        canRetry
+        onRetry={() => {}}
+      />
+    );
+    const doneBtn = Array.from(container.querySelectorAll('button')).find(button =>
+      button.textContent?.includes('done')
+    );
+    expect(doneBtn).toHaveAttribute('data-variant', 'secondary');
+    // White would vanish on the light secondary fill; the label is plain text now, styled by
+    // the variant itself (no wrapping span carrying a stray white-text override), and the
+    // className the caller passes carries no color override of its own — className is now
+    // forwarded by the mock, so this actually exercises the real prop.
+    expect(doneBtn?.querySelector('span')).toBeNull();
+    expect(doneBtn?.className ?? '').not.toMatch(/text-pure-white/);
     act(() => root.unmount());
   });
 

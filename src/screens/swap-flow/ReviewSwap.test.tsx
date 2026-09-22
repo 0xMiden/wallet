@@ -10,6 +10,15 @@ import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 // returned string so we can assert that `swapSolverFeeNote`'s `{percent}` was
 // computed from SOLVER_MARGIN (mirrors sibling atom/screen tests that mock
 // `useTranslation` with `t: (key) => key`).
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -26,43 +35,33 @@ jest.mock('lib/miden/swap/tokens', () => ({
   SOLVER_MARGIN: 0.05
 }));
 
-// The real review components transitively pull in `components/Button`
-// (framer-motion + Capacitor haptics), `TokenLogo` and the navbar hook. Stub
-// them with light DOM so the test stays focused on ReviewSwap's own branches
-// (matches how the sibling SelectRecipient test stubs `components/Button`).
-jest.mock('components/review', () => {
+// The real ReviewLayout transitively pulls in `components/Button` (framer-motion +
+// Capacitor haptics) and the navbar hook. Stub those with light DOM so the test stays
+// focused on ReviewSwap's own branches (matches how the sibling SelectRecipient test
+// stubs `components/Button`); Hero/Pill/DetailCard/DetailRow are the canonical design-system
+// primitives and render for real, same as ReviewTransaction's and TransactionSuccessLayout's
+// suites.
+jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
+  useHideNavbarWhileOpen: jest.fn()
+}));
+
+jest.mock('components/Button', () => {
   const R = require('react');
   return {
     __esModule: true,
-    ReviewAmount: ({ label, symbol, logoSymbol, amount }: any) =>
-      R.createElement(
-        'div',
-        { 'data-testid': 'review-amount', 'data-symbol': symbol, 'data-logo': logoSymbol ?? '' },
-        R.createElement('span', { 'data-testid': 'ra-label' }, label),
-        R.createElement('span', { 'data-testid': 'ra-amount' }, `${amount} ${symbol}`)
-      ),
-    ReviewLabel: ({ children, className }: any) =>
-      R.createElement('span', { 'data-testid': 'review-label', className }, children),
-    ReviewRow: ({ label, value, children }: any) =>
-      R.createElement(
-        'div',
-        { 'data-testid': 'review-row', 'data-label': label },
-        R.createElement('span', { 'data-testid': 'rr-value' }, children ?? value ?? '')
-      ),
-    ReviewLayout: ({ hero, heroDivider, dividers, primary, secondary, children }: any) =>
-      R.createElement(
-        'div',
-        {
-          'data-testid': 'review-layout',
-          'data-herodivider': String(heroDivider),
-          'data-dividers': String(dividers)
-        },
-        R.createElement('div', { 'data-testid': 'hero' }, hero),
-        R.createElement('div', { 'data-testid': 'rows' }, children),
-        R.createElement('button', { 'data-testid': primary['data-testid'], onClick: primary.onPress }, primary.label),
-        secondary &&
-          R.createElement('button', { 'data-testid': 'secondary', onClick: secondary.onPress }, secondary.label)
-      )
+    ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+    Button: ({ title, onClick, type, 'data-testid': dataTestId }: any) =>
+      R.createElement('button', { type, onClick, 'data-testid': dataTestId }, title)
+  };
+});
+
+// Stub the token logo: a real Avatar/TokenLogo pulls in image-fallback and network-badge
+// machinery unrelated to this screen's own branches.
+jest.mock('components/TokenLogo', () => {
+  const R = require('react');
+  return {
+    TokenLogo: ({ symbol, size }: any) =>
+      R.createElement('div', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': size })
   };
 });
 
@@ -109,24 +108,19 @@ const renderComponent = (overrides: Partial<ReviewSwapProps> = {}) => {
 
 describe('ReviewSwap', () => {
   describe('hero', () => {
-    it('renders both You Send / You Receive amount blocks with symbol + logoSymbol', () => {
+    it('renders both You Send / You Receive amounts as Hero values, with the offer/request logos', () => {
       renderComponent();
 
-      const amounts = screen.getAllByTestId('review-amount');
-      expect(amounts).toHaveLength(2);
+      const logos = screen.getAllByTestId('token-logo');
+      expect(logos).toHaveLength(2);
+      expect(logos[0]).toHaveAttribute('data-symbol', 'MIDEN');
+      expect(logos[1]).toHaveAttribute('data-symbol', 'ETH');
 
-      // Send block (first) reflects the offer token.
-      expect(amounts[0]).toHaveAttribute('data-symbol', 'IMIDEN');
-      expect(amounts[0]).toHaveAttribute('data-logo', 'MIDEN');
-      // Receive block (second) reflects the request token.
-      expect(amounts[1]).toHaveAttribute('data-symbol', 'IETH');
-      expect(amounts[1]).toHaveAttribute('data-logo', 'ETH');
-
-      // Labels come from the translated keys.
+      // Captions come from the translated keys, as neutral Pills beside each Hero.
       expect(screen.getByText('youSend')).toBeInTheDocument();
       expect(screen.getByText('youReceive')).toBeInTheDocument();
 
-      // Amount strings composed from amount + symbol.
+      // Amount strings composed from amount + symbol, rendered as the Hero value.
       expect(screen.getByText('1.5 IMIDEN')).toBeInTheDocument();
       expect(screen.getByText('3 IETH')).toBeInTheDocument();
     });
@@ -136,92 +130,81 @@ describe('ReviewSwap', () => {
       expect(container.querySelector('svg')).not.toBeNull();
     });
 
-    it('passes heroDivider=false and dividers=false to the layout (swap owns its own dividers)', () => {
-      renderComponent();
-      const layout = screen.getByTestId('review-layout');
-      expect(layout).toHaveAttribute('data-herodivider', 'false');
-      expect(layout).toHaveAttribute('data-dividers', 'false');
+    it('owns its own dividers, so ReviewLayout adds neither the orange hero bar nor an outer row-list divide-y', () => {
+      const { container } = renderComponent();
+      // heroDivider={false}: the swap hero draws its own pair of horizontal rules around the
+      // arrow glyph instead of the orange bar the layout can render under the hero.
+      expect(container.querySelector('.bg-primary-500.h-2')).not.toBeInTheDocument();
+      // dividers={false}: the rows' hairlines come from the DetailCard itself, so ReviewLayout's
+      // outer children wrapper carries no divide-y.
+      expect(container.querySelector('.divide-y.divide-rule-default')).not.toBeInTheDocument();
     });
   });
 
   describe('rate row', () => {
-    const rateValue = () => screen.getAllByTestId('rr-value')[0];
+    const rateRow = () => screen.getByTestId('swap-rate-row');
 
     it('shows no rate value and no solver-fee note when there is no quote', () => {
       renderComponent({ swapEta: undefined });
 
-      const row = screen.getAllByTestId('review-row')[0];
-      expect(row).toHaveAttribute('data-label', 'rate');
-      expect(rateValue()).toHaveTextContent('');
+      expect(rateRow()).toHaveTextContent('rate');
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is zero (falsy)', () => {
       renderComponent({ swapEta: etaWithRate('0') });
-      expect(rateValue()).toHaveTextContent('');
+      expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is not a number', () => {
       renderComponent({ swapEta: etaWithRate('not-a-number') });
-      expect(rateValue()).toHaveTextContent('');
+      expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is non-finite', () => {
       renderComponent({ swapEta: etaWithRate('Infinity') });
-      expect(rateValue()).toHaveTextContent('');
+      expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
     it('renders a whole-number rate and the solver-fee note when the market price is valid', () => {
       renderComponent({ swapEta: etaWithRate('2') });
 
-      expect(rateValue()).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
+      expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
       // Percent is Math.round(0.05 * 100) = 5.
       expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
     });
 
-    it('colours the solver-fee note with a theme token that flips in dark mode, not a hardcoded light hex', () => {
-      renderComponent({ swapEta: etaWithRate('2') });
-
-      // The note sits on the dark app background in dark mode, so its colour must
-      // come from a token that flips. `text-heading-gray` (--color-text-secondary)
-      // is #484848 in light (9.15:1 on white) and #ffffff in dark — both clear AA.
-      const note = screen.getByText('swapSolverFeeNote_5%');
-      expect(note.className).toContain('text-heading-gray');
-      expect(note.className).not.toContain('text-[#6B6862]');
-    });
-
     it('renders a fractional rate rounded to 4 significant figures', () => {
       renderComponent({ swapEta: etaWithRate('0.333333333') });
-      expect(rateValue()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
+      expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
       expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
     });
   });
 
   describe('usually-fills-in row', () => {
-    const fillsInValue = () => screen.getAllByTestId('rr-value')[1];
+    const fillsInRow = () => screen.getByTestId('swap-fills-in-row');
 
     it('falls back to the static estimate when both live signals are absent', () => {
       renderComponent({ swapEta: undefined });
-      expect(screen.getAllByTestId('review-row')[1]).toHaveAttribute('data-label', 'usuallyFillsIn');
-      expect(fillsInValue()).toHaveTextContent('swapEtaFallback');
+      expect(fillsInRow()).toHaveTextContent('swapEtaFallback');
     });
 
     it('prefers the next-batch ETA in seconds when the order can fill', () => {
       renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 12 } });
-      expect(fillsInValue()).toHaveTextContent('swapEtaSeconds_12');
+      expect(fillsInRow()).toHaveTextContent('swapEtaSeconds_12');
     });
 
     it('renders minutes once the estimate reaches 90s', () => {
       renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 150 } });
-      expect(fillsInValue()).toHaveTextContent('swapEtaMinutes_3');
+      expect(fillsInRow()).toHaveTextContent('swapEtaMinutes_3');
     });
 
     it('falls back to the 24h median when the order cannot fill right now', () => {
       renderComponent({ swapEta: { ...etaWithRate('2'), estimatedSeconds: 12, median24hSeconds: 45 } });
-      expect(fillsInValue()).toHaveTextContent('swapEtaSeconds_45');
+      expect(fillsInRow()).toHaveTextContent('swapEtaSeconds_45');
     });
   });
 
@@ -234,8 +217,8 @@ describe('ReviewSwap', () => {
       expect(expiry).toHaveClass('[appearance:textfield]');
       expect(toggle).toHaveAttribute('data-value', 'true');
       expect(toggle).toHaveClass('!h-8', '!w-16');
-      expect(screen.getByText('expires').parentElement).toHaveClass('justify-between');
-      expect(screen.getByText('swapAutoConsume').parentElement).toHaveClass('justify-between');
+      expect(screen.getByText('expires')).toBeInTheDocument();
+      expect(screen.getByText('swapAutoConsume')).toBeInTheDocument();
     });
 
     it('forwards expiry edits and auto-consume toggles', () => {
@@ -276,7 +259,7 @@ describe('ReviewSwap', () => {
 
     it('wires the secondary CTA to onGoBack', () => {
       const { props } = renderComponent();
-      fireEvent.click(screen.getByTestId('secondary'));
+      fireEvent.click(screen.getByText('back'));
       expect(props.onGoBack).toHaveBeenCalledTimes(1);
       expect(props.onSubmit).not.toHaveBeenCalled();
     });
@@ -284,7 +267,16 @@ describe('ReviewSwap', () => {
     it('labels the primary CTA "swap" and the secondary CTA "back"', () => {
       renderComponent();
       expect(screen.getByTestId('swap-submit')).toHaveTextContent('swap');
-      expect(screen.getByTestId('secondary')).toHaveTextContent('back');
+      expect(screen.getByText('back')).toBeInTheDocument();
     });
+  });
+
+  // This screen commits value, so it names the network. The banner comes from the shared
+  // ReviewLayout, not from this component: ReviewLayout hides the tab bar, and the network ribbon
+  // lives in the tab bar's footer, so this screen showed no network at all.
+  it('names the network it will commit on', () => {
+    renderComponent();
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });

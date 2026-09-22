@@ -2,7 +2,10 @@ import React, { FC, useCallback, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { TabPicker } from 'components/TabPicker';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { isMobile } from 'lib/platform';
 import type { ThemeSetting } from 'lib/settings/constants';
 import {
@@ -30,28 +33,18 @@ const GeneralSettings: FC = () => {
   const mobile = isMobile();
 
   const [themeSetting, setThemeSettingState] = useState<ThemeSetting>(() => getThemeSetting());
-  const themeOptions = useMemo<ThemeSetting[]>(() => ['system', 'light', 'dark'], []);
-  const themeTabs = useMemo(
-    () =>
-      themeOptions.map(opt => ({
-        id: `theme-${opt}`,
-        // TabPickerItem destructures `id` OUT before spreading, so the id above never
-        // reaches the DOM; the raw data-testid rides ...props onto the <button>.
-        'data-testid': `theme-${opt}`,
-        title: t(opt === 'system' ? 'themeSystem' : opt === 'light' ? 'themeLight' : 'themeDark'),
-        active: themeSetting === opt
-      })),
-    [t, themeOptions, themeSetting]
+  const themeItems = useMemo<SegmentedControlItem<ThemeSetting>[]>(
+    () => [
+      { id: 'system', label: t('themeSystem'), 'data-testid': 'theme-system' },
+      { id: 'light', label: t('themeLight'), 'data-testid': 'theme-light' },
+      { id: 'dark', label: t('themeDark'), 'data-testid': 'theme-dark' }
+    ],
+    [t]
   );
-  const handleThemeTabChange = useCallback(
-    (index: number) => {
-      const next = themeOptions[index];
-      if (!next) return;
-      setThemeSettingState(next);
-      setTheme(next);
-    },
-    [themeOptions]
-  );
+  const handleThemeChange = useCallback((next: ThemeSetting) => {
+    setThemeSettingState(next);
+    setTheme(next);
+  }, []);
 
   const delegateEnabled = isDelegateProofEnabled();
   const delegateChangingRef = useRef(false);
@@ -101,49 +94,74 @@ const GeneralSettings: FC = () => {
   }, []);
 
   return (
-    <div className="w-full flex flex-col gap-y-6" data-testid="general-settings">
-      <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
-        <span className="font-medium text-base leading-[130%] text-black">{t('theme')}</span>
-        <TabPicker className="flex-shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />
-      </div>
+    <SubPageLayout data-testid="general-settings">
+      <SubPageSection>
+        <ListGroup>
+          <ListRow
+            title={t('theme')}
+            trailing={
+              <SegmentedControl
+                items={themeItems}
+                value={themeSetting}
+                onChange={handleThemeChange}
+                size="sm"
+                // A settings choice is a fill row (design-system): three equal segments, and a row
+                // that never scrolls cannot ask an ancestor to scroll for it.
+                layout="fill"
+                aria-label={t('theme')}
+                className="shrink-0"
+              />
+            }
+            data-testid={GeneralSettingsSelectors.ThemeSelector}
+          />
+          {mobile && (
+            <SettingToggle
+              checked={hapticEnabled}
+              onChange={handleHapticChange}
+              name="hapticFeedbackEnabled"
+              testID={GeneralSettingsSelectors.HapticFeedbackToggle}
+              title={t('hapticFeedback')}
+            />
+          )}
+        </ListGroup>
+      </SubPageSection>
 
-      {mobile && (
-        <SettingToggle
-          checked={hapticEnabled}
-          onChange={handleHapticChange}
-          name="hapticFeedbackEnabled"
-          testID={GeneralSettingsSelectors.HapticFeedbackToggle}
-          title={t('hapticFeedback')}
-        />
-      )}
+      <SubPageSection footnote={t('delegateProofSettingsDescription')}>
+        <ListGroup>
+          <SettingToggle
+            checked={delegateEnabled}
+            onChange={handleDelegateChange}
+            name="delegateEnabled"
+            testID={GeneralSettingsSelectors.DelegateToggle}
+            title={t('delegateProofSettings')}
+          />
+        </ListGroup>
+      </SubPageSection>
 
-      <SettingToggle
-        checked={delegateEnabled}
-        onChange={handleDelegateChange}
-        name="delegateEnabled"
-        testID={GeneralSettingsSelectors.DelegateToggle}
-        title={t('delegateProofSettings')}
-        description={t('delegateProofSettingsDescription')}
-      />
+      <SubPageSection footnote={t('autoConsumeSettingsDescription')}>
+        <ListGroup>
+          <SettingToggle
+            checked={consumeEnabled}
+            onChange={handleAutoConsumeChange}
+            name="autoConsumeEnabled"
+            testID={GeneralSettingsSelectors.AutoConsumeToggle}
+            title={t('autoConsumeSettings')}
+          />
+        </ListGroup>
+      </SubPageSection>
 
-      <SettingToggle
-        checked={consumeEnabled}
-        onChange={handleAutoConsumeChange}
-        name="autoConsumeEnabled"
-        testID={GeneralSettingsSelectors.AutoConsumeToggle}
-        title={t('autoConsumeSettings')}
-        description={t('autoConsumeSettingsDescription')}
-      />
-
-      <SettingToggle
-        checked={telemetryEnabled}
-        onChange={handleTelemetryChange}
-        name="telemetryEnabled"
-        testID={GeneralSettingsSelectors.TelemetryToggle}
-        title={t('helpImproveWallet')}
-        description={t('helpImproveWalletDescription')}
-      />
-    </div>
+      <SubPageSection footnote={t('helpImproveWalletDescription')}>
+        <ListGroup>
+          <SettingToggle
+            checked={telemetryEnabled}
+            onChange={handleTelemetryChange}
+            name="telemetryEnabled"
+            testID={GeneralSettingsSelectors.TelemetryToggle}
+            title={t('helpImproveWallet')}
+          />
+        </ListGroup>
+      </SubPageSection>
+    </SubPageLayout>
   );
 };
 

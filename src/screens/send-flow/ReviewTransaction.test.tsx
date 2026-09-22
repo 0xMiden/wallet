@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -55,6 +55,15 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 
 // RpcClient lives on the lazy SDK subpath (mapped to wasmMock, which has no
 // RpcClient). Provide a controllable class + expose its header fn.
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const getBlockHeaderByNumber = jest.fn();
   class RpcClient {
@@ -89,8 +98,8 @@ jest.mock('./SendStepLayout', () => ({
     </div>
   )
 }));
-jest.mock('./NetworkChip', () => ({
-  NetworkChip: ({ label }: any) => <span data-testid="network-chip">{label}</span>
+jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: ({ kind }: any) => <span data-testid="network-logo" data-kind={kind} />
 }));
 
 // Set by a test that needs the mock challenge to hand back an authorization for a DIFFERENT
@@ -129,9 +138,9 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   }
 }));
 
-jest.mock('components/flow/FlowDetails', () => ({
-  FlowDetails: ({ children }: any) => <div data-testid="rows">{children}</div>,
-  FlowDetailRow: ({ label, children, action, sub }: any) => (
+jest.mock('components/ui/DetailCard', () => ({
+  DetailCard: ({ children }: any) => <div data-testid="rows">{children}</div>,
+  DetailRow: ({ label, children, action, sub }: any) => (
     <div data-testid="review-row">
       <span data-testid="row-label">{label}</span>
       {children !== undefined && <span data-testid="row-children">{children}</span>}
@@ -439,15 +448,24 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
     expect(screen.getByTestId('back-btn')).toBeInTheDocument();
-    expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The network is a plain value with its mark, not a chip; the fee has no inline note.
+    expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
+    expect(screen.queryByText('networkFeeEstimateNote')).not.toBeInTheDocument();
+    // Both the amount and its fiat subtitle live inside the review-amount hero —
+    // scoping to it is what proves they render together, not just somewhere on the page.
+    const hero = within(screen.getByTestId('review-amount'));
+    expect(hero.getByText('5 MDN')).toBeInTheDocument();
+    // The fiat subtitle renders under the hero value once the token's price is known.
+    expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
     // Seeding effect ran -> recallDate seeded -> capitalized relative
     // label + reclaim note both present.
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
-    expect(screen.getByTestId('row-note').textContent).toBe('recallReturnsNote');
+    // The reclaim reassurance is one caption under the card, not a note in the expiration row.
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote');
+    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
     expect(dateTimeToRecallBlocksMock).toHaveBeenCalledWith(expect.any(Date));
@@ -543,7 +561,7 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
-    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
   });
 });
 
@@ -602,7 +620,7 @@ describe('ReviewTransaction — onSubmit', () => {
     render(<ReviewTransaction />);
     await flush();
     // Wait until the recall blocks have been seeded.
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
 
     await clickSubmit();
 
@@ -954,7 +972,9 @@ describe('ReviewTransaction — onSubmit', () => {
       })
     );
     expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
   });
 
   it('cancels a spending-limit challenge without queueing or losing the review draft', async () => {
@@ -971,7 +991,9 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateMock).not.toHaveBeenCalled();
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
   });
 
   it('cancels a bridge challenge before any external bridge work', async () => {
@@ -990,7 +1012,9 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(bridgeEpochSendMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
   });
 
   it('reopens the challenge with the final atomic assessment when authorization expires or loses a race', async () => {
@@ -1015,7 +1039,9 @@ describe('ReviewTransaction — onSubmit', () => {
     await flush();
 
     expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
@@ -1025,7 +1051,7 @@ describe('ReviewTransaction — onSubmit', () => {
     isExtensionMock.mockReturnValue(true);
     render(<ReviewTransaction />);
     await flush();
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
 
     await clickSubmit();
 
@@ -1170,6 +1196,17 @@ describe('ReviewTransaction — E2E share-privately hook', () => {
 
     unmount();
     expect((globalThis as any).__TEST_SET_SHARE_PRIVATELY__).toBeUndefined();
+  });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - which is the distinction a source match could
+  // not make, and how a banner once shipped behind an early return.
+  it('names the network it will commit on', () => {
+    // Without params the screen redirects and renders nothing, so the params are the test.
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    render(<ReviewTransaction />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });
 

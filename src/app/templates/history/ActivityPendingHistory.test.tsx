@@ -81,10 +81,13 @@ jest.mock('components/Button', () => ({
     title,
     variant,
     isLoading,
+    size,
     children,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; isLoading?: boolean }) => (
-    <button {...props}>{children ?? (isLoading ? <span data-testid="claim-spinner" /> : title)}</button>
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; isLoading?: boolean; size?: string }) => (
+    <button {...props} data-size={size}>
+      {children ?? (isLoading ? <span data-testid="claim-spinner" /> : title)}
+    </button>
   )
 }));
 
@@ -113,7 +116,12 @@ it('requires confirmation before hiding a transfer', async () => {
   const card = expandCard('first');
   fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
   await waitFor(() => expect(mockHide).toHaveBeenCalledWith('first'));
-  expect(mockConfirm).toHaveBeenCalledWith({ title: 'activityRejectTransfer', children: 'activityRejectExplanation' });
+  expect(mockConfirm).toHaveBeenCalledWith({
+    title: 'activityRejectTransfer',
+    children: 'activityRejectExplanation',
+    confirmLabel: 'activityRejectTransfer',
+    destructive: true
+  });
 });
 
 it('leaves a transfer in place when the decline is cancelled', async () => {
@@ -264,7 +272,11 @@ it('offers Restore under the Pending filter while declined transfers can still b
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).toBeNull();
   expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'activityRestoreTransfers' }));
+  const restoreButton = screen.getByRole('button', { name: 'activityRestoreTransfers' });
+  // The canonical `sm` size replaces the old manual px-3/py-2/text-xs override.
+  expect(restoreButton).toHaveAttribute('data-size', 'sm');
+  expect(restoreButton.className).not.toMatch(/\btext-xs\b|\bpy-2\b/);
+  fireEvent.click(restoreButton);
   expect(mockRestore).toHaveBeenCalledTimes(1);
 });
 
@@ -301,4 +313,13 @@ it('keeps cached, unconfirmed notes out of Accept All and off the card actions',
   } finally {
     cached.note = confirmed;
   }
+});
+
+it('draws each pending transfer on the shared fill card, with no border', () => {
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"] article');
+  if (!(card instanceof HTMLElement)) throw new Error('Missing pending card');
+  expect(card).toHaveClass('bg-fill', 'rounded-2xl', 'overflow-hidden');
+  expect(card.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+  expect(card).not.toHaveClass('bg-white');
 });

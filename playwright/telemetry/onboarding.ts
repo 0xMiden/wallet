@@ -1,6 +1,8 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
+import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+
 /** The seed this suite imports. Known, so it doubles as a leak sentinel. */
 export const SEED_WORDS =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
@@ -27,8 +29,9 @@ export async function importWalletToConsentPrompt(page: Page): Promise<void> {
   await page.locator('#import-link').click();
 
   // Test networks show the notice before the import choice. The seed form is
-  // one option on that choice, not the screen Import opens.
-  await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+  // one option on that choice, not the screen Import opens. Acknowledging means ticking the
+  // notice's three checkboxes first, which is what the shared helper does.
+  await acknowledgeNetworkNotice(page);
   await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
   await page.getByTestId('import-type-seed-phrase').click();
 

@@ -6,12 +6,12 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
+import { EmptyState } from 'components/ui/EmptyState';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
@@ -19,13 +19,9 @@ import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
-  BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
-  EARN_DEPOSIT_STATUS_LABEL_KEY,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnDepositSettlementOf,
-  earnWithdrawToneOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
   isFaucetRequest
@@ -76,7 +72,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const longDate = format(d, 'MMMM d, yyyy');
   const day = format(d, 'EEEE');
   return (
-    <div className="flex items-center justify-between font-heading font-extrabold text-heading-gray dark:text-pure-white text-base leading-[100%]">
+    <div className="flex items-center justify-between font-heading font-extrabold text-ink dark:text-pure-white text-base leading-[100%]">
       <span className="">{longDate}</span>
       <span className="text-accent-primary">{day}</span>
     </div>
@@ -111,7 +107,7 @@ function buildRowProps(
             direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
           }
         : undefined,
-      status: { label: t(BRIDGE_STATUS_LABEL_KEY[d.status]), tone: d.status }
+      status: d.status
     };
   }
 
@@ -134,7 +130,8 @@ function buildRowProps(
         failed || entry.amount === undefined
           ? undefined
           : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
-      status: { label: t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase]), tone: earnWithdrawToneOf(phase) }
+      // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
+      status: phase
     };
   }
 
@@ -144,7 +141,8 @@ function buildRowProps(
   const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
-  let iconBg = 'bg-gray-50';
+  // `page`, not a grey: the row sits on `fill`, where a grey circle all but disappears.
+  let iconBg = 'bg-page';
   let amountDirection: 'positive' | 'negative' | 'neutral' = 'neutral';
 
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
@@ -192,7 +190,7 @@ function buildRowProps(
     iconBg = earnFailed ? 'bg-[#CC5D5D]' : 'bg-tx-earn';
     amountDirection = 'negative';
   } else {
-    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
+    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" className="text-ink" />;
   }
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
@@ -299,37 +297,29 @@ function buildRowProps(
     }
   }
 
-  let statusTone: ActivityStatusTone = 'confirmed';
-  let statusLabel = t('confirmed');
+  let status: Status = 'confirmed';
   if (isCancelled) {
-    statusTone = 'cancelled';
-    statusLabel = t('cancelled');
+    status = 'cancelled';
   } else if (isFailed) {
-    statusTone = 'failed';
-    statusLabel = t('failed');
+    status = 'failed';
   } else if (
     entry.type === HistoryEntryType.PendingTransaction ||
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
-    statusTone = 'pending';
-    statusLabel = t('pending');
+    status = 'pending';
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
-    // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
-    // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
+    // the badge tracks that leg, as the details page does. Deliberately checked
+    // AFTER cancelled/failed/pending so a Miden-side
     // failure always wins over the lending leg's state.
-    const settlement = earnDepositSettlementOf(entry);
-    statusTone = settlement;
-    statusLabel = t(EARN_DEPOSIT_STATUS_LABEL_KEY[settlement]);
+    status = earnDepositSettlementOf(entry);
   } else if (isSwap && entry.swapSettlement === 'pending') {
     // A completed swap row is the single trace of the whole order (its
     // settlement consumes are suppressed) — the chip reflects settlement.
-    statusTone = 'pending';
-    statusLabel = t('pending');
+    status = 'pending';
   } else if (isSwap && entry.swapSettlement === 'reclaimed') {
-    statusTone = 'cancelled';
-    statusLabel = t('reclaimed');
+    status = 'reclaimed';
   }
 
   return {
@@ -338,7 +328,7 @@ function buildRowProps(
     title,
     subtitle,
     amount,
-    status: { label: statusLabel, tone: statusTone }
+    status
   };
 }
 
@@ -385,26 +375,30 @@ const HistoryView = memo<HistoryViewProps>(
       );
     }, [entries, pendingItems]);
     const noEntries = timeline.length === 0;
-    const noOperationsClass = fullHistory
-      ? 'mt-8 items-center text-left text-black'
-      : 'm-4 items-start text-left text-black';
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (initialLoading) return <ActivitySpinner />;
-      if (centerEmptyState) {
+      if (initialLoading)
         return (
-          <div className="flex flex-col items-center justify-center flex-1 pt-16">
-            <Icon name={IconName.ArrowUpDown} size="xl" fill="currentColor" className="mb-4 text-text-tertiary-token" />
-            <p className="font-heading text-sm text-center text-text-tertiary-token">{t('noOperationsFound')}</p>
+          <div className="flex h-8 justify-center pt-5">
+            <Spinner />
+          </div>
+        );
+      if (centerEmptyState) {
+        // Sits right under the filters, at the same top offset the first date
+        // group gets once the list has entries (`pt-4` on the first `dateGroups`
+        // row below) — not vertically centered in the remaining tab height.
+        return (
+          <div className="flex flex-col pt-4">
+            <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
           </div>
         );
       }
       return (
-        <div className={classNames('mb-12', 'flex flex-col justify-left', noOperationsClass)}>
-          <h3 className="text-sm text-left" style={{ maxWidth: '20rem' }}>
-            {t('noOperationsFound')}
-          </h3>
+        // Full history outside the Activity tab (the token page) sits under its own section
+        // header, which already spaces it; the summary view keeps its own margin.
+        <div className={classNames('flex flex-col justify-left', !fullHistory && 'm-4')}>
+          <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
         </div>
       );
     }
@@ -431,20 +425,21 @@ const HistoryView = memo<HistoryViewProps>(
     const list = (
       <div data-testid="history-view" className="flex flex-col">
         {/* Each row is a layout-animated Framer element (`ActivityRow`), and
-            `layout` on the date group moves the groups below into the space a
-            removed row leaves. Rows and groups slide; nothing fades, so a
-            filter change behaves like a native list update. */}
+            `layout="position"` on the date group moves the groups below into the
+            space a removed row leaves. Rows and groups slide; nothing fades, so a
+            filter change behaves like a native list update. Position-only, because
+            a full `layout` would also scale this group and Framer cannot correct a
+            radius that lives in a class rather than `style` - the row below passes
+            exactly such a radius. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
           <motion.div
-            layout
+            layout="position"
             transition={layoutTransition}
             key={dateMs}
             className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
           >
             {dateMs === -1 ? (
-              <span className="font-heading font-extrabold text-heading-gray text-base">
-                {t('activityDateUnavailable')}
-              </span>
+              <span className="font-heading font-extrabold text-ink text-base">{t('activityDateUnavailable')}</span>
             ) : (
               <DateSeparator dateMs={dateMs} />
             )}
@@ -459,19 +454,19 @@ const HistoryView = memo<HistoryViewProps>(
                 }
                 const props = buildRowProps(entry, t, tokenId);
                 return (
-                  <ActivityRow
-                    key={entry.key}
-                    entryKey={entry.key}
-                    testId="activity-row"
-                    className="rounded-2xl border border-rule-default bg-white px-3"
-                    icon={props.icon}
-                    iconBg={props.iconBg}
-                    title={props.title}
-                    subtitle={props.subtitle}
-                    amount={props.amount}
-                    status={props.status}
-                    onClick={entry.txId ? () => navigate(`/history-details/${entry.txId}`) : undefined}
-                  />
+                  <Card key={entry.key} asChild padding="row" pressable={Boolean(entry.txId)}>
+                    <ActivityRow
+                      entryKey={entry.key}
+                      testId="activity-row"
+                      icon={props.icon}
+                      iconBg={props.iconBg}
+                      title={props.title}
+                      subtitle={props.subtitle}
+                      amount={props.amount}
+                      status={props.status}
+                      onClick={entry.txId ? () => navigate(`/history-details/${entry.txId}`) : undefined}
+                    />
+                  </Card>
                 );
               })}
             </div>

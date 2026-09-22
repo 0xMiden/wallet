@@ -22,6 +22,7 @@ import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
+import { TRANSACTION_COLORS } from './transactionUtils';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
@@ -78,6 +79,9 @@ const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
+// useBackWithFallback reads live history at call time, so the position is a knob, not a constant.
+// Defaults to a page reached by navigation; the cold-open case sets it to 0 explicitly.
+let mockHistoryPosition = 1;
 const mockCancelTransactionById = jest.fn();
 const mockRequeueFailedTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
@@ -150,7 +154,17 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 jest.mock('lib/woozie', () => ({
   goBack: () => mockGoBack(),
-  navigate: (...args: unknown[]) => mockNavigate(...args)
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  // useBackWithFallback reads live history at call time, and useOncePerLocation calls listen() in a
+  // mount effect, so without these the whole suite throws on render, not just the back-button cases.
+  createLocationState: () => ({
+    historyPosition: mockHistoryPosition,
+    href: 'http://localhost/#/history-details/tx-1'
+  }),
+  listen: () => () => undefined,
+  // The real values, unlike the two sibling suites that mock 'push'/'replace': asserting a literal
+  // production never emits would pin the mock rather than the behaviour.
+  HistoryAction: { Pop: 'popstate', Push: 'pushstate', Replace: 'replacestate' }
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
@@ -165,8 +179,8 @@ jest.mock('./useSwapSettlementNotes', () => ({
 // Presentational dependency mocks - light DOM so the test stays focused on
 // HistoryDetails' own branches (mirrors how sibling tests stub sub-components).
 // ---------------------------------------------------------------------------
-jest.mock('app/atoms/ActivitySpinner', () => ({
-  ActivitySpinner: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({
@@ -196,13 +210,23 @@ jest.mock('components/GuardianTransitionHero', () => ({
   )
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
+// Forwards `onClose` (rather than silently dropping it, as the old mock did)
+// so a regression that reintroduces a header close control is caught here
+// rather than only in the real PageHeader's own suite.
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack, onClose }: { title: string; onBack: () => void; onClose?: () => void }) => (
     <div data-testid="screen-header">
       <span data-testid="header-title">{title}</span>
-      <button data-testid="back-button" onClick={onBack}>
-        back
-      </button>
+      {onBack && (
+        <button data-testid="back-button" onClick={onBack}>
+          back
+        </button>
+      )}
+      {onClose && (
+        <button data-testid="header-close" onClick={onClose}>
+          close
+        </button>
+      )}
     </div>
   )
 }));
@@ -221,17 +245,23 @@ jest.mock('../HashChip', () => ({
   default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
 }));
 
-jest.mock('./DetailCard', () => ({
-  DetailCard: ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <section data-testid="detail-card" data-title={title}>
-      {children}
-    </section>
-  ),
-  DetailRow: ({ label, isLast, children }: { label: string; isLast?: boolean; children: React.ReactNode }) => (
-    <div data-testid="detail-row" data-label={label} data-islast={String(!!isLast)}>
+jest.mock('components/ui/DetailCard', () => ({
+  DetailRow: ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div data-testid="detail-row" data-label={label}>
       {children}
     </div>
-  ),
+  )
+}));
+
+jest.mock('./DetailSection', () => ({
+  DetailSection: ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <section data-testid="detail-section" data-title={title}>
+      {children}
+    </section>
+  )
+}));
+
+jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ displayValue, href }: { displayValue: React.ReactNode; href: string }) => (
     <a data-testid="external-link" href={href}>
       {displayValue}
@@ -272,7 +302,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
-  getTransactionIconBackgroundColor: () => '#91ACC1'
+  // Reads the shared constant so a future move of the activity hues carries this mock with it;
+  // it was left on the retired literal when they last moved.
+  getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
@@ -376,6 +408,7 @@ const rowByLabel = (label: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockHistoryPosition = 1;
   // Keep IndexedDB/Dexie's scheduling primitives real so the global database
   // cleanup hook can complete; only timer-based order polling needs faking.
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
@@ -743,7 +776,7 @@ describe('HistoryDetails', () => {
       expect(hero).toHaveAttribute('data-new-label', 'to');
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
       expect(screen.queryByTestId('tx-icon')).toBeNull();
-      expect(screen.getByTestId('detail-card')).toHaveAttribute('data-title', 'details');
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
       expect(rowByLabel('date')).toBeDefined();
       expect(rowByLabel('txIdLabel')).toBeDefined();
       expect(rowByLabel('from')).toBeUndefined();
@@ -809,6 +842,60 @@ describe('HistoryDetails', () => {
       fireEvent.click(screen.getByTestId('back-button'));
       expect(mockGoBack).toHaveBeenCalledTimes(1);
     });
+
+    // `/history-details/:transactionId` is its own route, so a reload or a deep link opens it with
+    // no history behind it, and `goBack()` is `history.go(-1)`, which does nothing there. This
+    // page draws its own header instead of PageLayout's toolbar, so nothing else covers it.
+    it('falls back to home when the back button is pressed on a cold-opened page', async () => {
+      mockHistoryPosition = 0;
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+      fireEvent.click(screen.getByTestId('back-button'));
+      expect(mockNavigate).toHaveBeenCalledWith('/', 'replacestate');
+      expect(mockGoBack).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('header close control', () => {
+    // The header used to carry a close X for swap rows (a shortcut straight
+    // home) alongside the back chevron. It is gone: the back button is the
+    // only way off this page now, for every transaction type.
+    it('renders no close X for an ordinary transaction', async () => {
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+      expect(screen.queryByTestId('header-close')).not.toBeInTheDocument();
+    });
+
+    it('renders no close X for a swap row either', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: undefined,
+        faucetId: 'faucet-1',
+        outputNoteIds: undefined,
+        transactionId: undefined,
+        extraInputs: { orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }
+      });
+      await renderAndLoad();
+      expect(screen.queryByTestId('header-close')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('pending-cancel action', () => {
+    const STATUS_QUEUED = 0;
+
+    it('still renders the cancel button for a queued transaction and cancels on click', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, displayMessage: 'Sending' });
+      await renderAndLoad();
+
+      const cancelButton = screen.getByTestId('history-cancel-button');
+      expect(cancelButton).toBeInTheDocument();
+
+      fireEvent.click(cancelButton);
+      await flush();
+
+      expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
+    });
   });
 
   describe('sent transaction rendering', () => {
@@ -861,7 +948,7 @@ describe('HistoryDetails', () => {
       // Transfer details and Notes are separated using the transaction icon accent.
       const dividers = screen.getAllByTestId('history-section-divider');
       expect(dividers).toHaveLength(2);
-      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.send }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
@@ -1164,11 +1251,9 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
     });
 
-    it('keeps a way off the screen once the order is filled', async () => {
-      // Close is a dismiss, not a cancellation, so no order state can take it
-      // away. Deriving it from the order state left a filled receipt with only
-      // the header controls, and slid it into the primary slot the instant a
-      // fill landed - under a finger already travelling toward the other button.
+    it('keeps a way off the screen once the order is filled, via the header back button only', async () => {
+      // The receipt no longer owns its own dismiss control; the only way off
+      // this screen in any order state is the page's own back chevron.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '42',
@@ -1183,7 +1268,8 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
-      expect(screen.getByText('close')).toBeInTheDocument();
+      expect(screen.queryByText('close')).not.toBeInTheDocument();
+      expect(screen.getByTestId('back-button')).toBeInTheDocument();
     });
 
     it('calls a partly-matched open order partially filled, not open', async () => {
@@ -2079,7 +2165,7 @@ describe('HistoryDetails', () => {
       setMockRow(failedSendTx());
       await renderAndLoad();
 
-      const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+      const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
         el => el.getAttribute('data-title') === 'error'
       )!;
       expect(errorCard).toBeTruthy();
@@ -2208,7 +2294,7 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
       // The failure card is titled "cancelled" and retry is suppressed.
-      const cancelledCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+      const cancelledCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
         el => el.getAttribute('data-title') === 'cancelled'
       );
       expect(cancelledCard).toBeTruthy();
@@ -2230,6 +2316,17 @@ describe('HistoryDetails', () => {
       await flush();
 
       expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
+    });
+
+    it('renders the cancel button as the canonical Destructive variant, not a faked-red Primary', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      await renderAndLoad();
+
+      const cancelButton = screen.getByText('cancel').closest('button');
+      // The variant prop paints the negative state; no stray bg-status-negative
+      // className should be fighting it.
+      expect(cancelButton).toHaveClass('text-negative-ink');
+      expect(cancelButton).not.toHaveClass('bg-status-negative');
     });
 
     it('shows the cancel failure inline when cancelling throws', async () => {
@@ -2410,7 +2507,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByText('bridgeFailed')).toBeInTheDocument();
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('failed');
       expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
     });
   });
@@ -2660,8 +2757,14 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(rowByLabel('depositIntentLabel')).toBeUndefined();
     expect(rowByLabel('txIdLabel')).toBeUndefined();
-    // Position owner is then the card's last row.
-    expect(rowByLabel('positionOwnerLabel')).toHaveAttribute('data-islast', 'true');
+    // Position owner is then the card's last (and only) row — the card relies on
+    // `divide-y` for its hairlines, so being last in render order is what keeps
+    // it undivided from below, with no `isLast` flag to assert on directly.
+    const earnDepositCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+      el => el.getAttribute('data-title') === 'earnDepositDetailsTitle'
+    )!;
+    const rows = Array.from(earnDepositCard.querySelectorAll('[data-testid="detail-row"]'));
+    expect(rows[rows.length - 1]).toHaveAttribute('data-label', 'positionOwnerLabel');
   });
 
   // The generic StatusPill would read "Completed" the moment the Miden note
@@ -2677,6 +2780,16 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(screen.queryByTestId('status-pill')).toBeNull();
     expect(document.body.textContent).toContain(label);
+  });
+
+  it('draws the lending leg as the live md StatusBadge in the detail header', async () => {
+    setMockRow(earnDepositTx({ epochStatus: 'failed' }));
+    await renderAndLoad();
+
+    const badge = screen.getByTestId('history-status-pill');
+    expect(badge).toHaveTextContent('failed');
+    expect(badge).toHaveAttribute('role', 'status');
+    expect(badge).toHaveClass('h-6', 'bg-negative-tint', 'text-negative-tint-ink');
   });
 
   it('falls back to the Miden status pill until the collateral note lands', async () => {

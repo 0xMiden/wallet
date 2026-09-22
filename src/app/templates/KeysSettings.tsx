@@ -2,9 +2,10 @@ import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import GuardianReplaceHotKey from 'app/templates/GuardianReplaceHotKey';
-import { hapticLight } from 'lib/mobile/haptics';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
@@ -24,34 +25,33 @@ const KeysSettings: FC = () => {
     {
       titleI18nKey: 'revealPrivateKey',
       path: isGuardian ? '/settings/reveal-hot-key' : '/settings/reveal-private-key',
+      testId: 'keys-reveal-private-key',
       show: isGuardian ? hasActivatedHotKey : seedPhraseStatus === 'stored'
     },
-    { titleI18nKey: 'rotateGuardian', path: '/rotate-guardian', show: isGuardian }
+    { titleI18nKey: 'rotateGuardian', path: '/rotate-guardian', testId: 'keys-rotate-guardian', show: isGuardian }
   ].filter(row => row.show);
 
-  const openPage = (path: string) => {
-    hapticLight();
-    navigate(path);
-  };
-
   return (
-    <div className="w-full flex flex-col gap-6 pb-6">
-      {rows.map(row => (
-        <button key={row.titleI18nKey} type="button" onClick={() => openPage(row.path)} className="w-full">
-          <div className="flex items-center justify-between text-heading-gray">
-            <span className="font-medium text-base">{t(row.titleI18nKey)}</span>
-            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
-          </div>
-        </button>
-      ))}
-
-      {isGuardian && (
-        <>
-          <hr />
-          <GuardianReplaceHotKey />
-        </>
+    <SubPageLayout data-testid="keys-settings">
+      {rows.length > 0 && (
+        <SubPageSection>
+          <ListGroup>
+            {rows.map(row => (
+              <ListRow
+                key={row.titleI18nKey}
+                title={t(row.titleI18nKey)}
+                // No haptic here: ListRow fires one on every tap.
+                onClick={() => navigate(row.path)}
+                chevron
+                data-testid={row.testId}
+              />
+            ))}
+          </ListGroup>
+        </SubPageSection>
       )}
-    </div>
+
+      {isGuardian && <GuardianReplaceHotKey />}
+    </SubPageLayout>
   );
 };
 

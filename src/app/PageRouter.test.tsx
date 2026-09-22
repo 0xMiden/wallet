@@ -266,16 +266,18 @@ beforeEach(() => {
   mockTelemetryChoice.made = false;
 });
 
-describe('app/PageRouter — network banner (#875)', () => {
-  it('mounts the network banner above every routed page', () => {
+describe('app/PageRouter — no network banner', () => {
+  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout); only the dApp
+  // confirm window keeps the full-width banner.
+  it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
-    const banner = screen.getByTestId('network-mode-banner');
-    expect(banner.compareDocumentPosition(screen.getByTestId('explore'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 
-  it('mounts the network banner on pre-ready screens too', () => {
+  it('renders no banner above pre-ready screens either', () => {
     renderAt('/reset-required');
-    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 });
 
@@ -519,6 +521,19 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
   it('/settings/:tabSlug stays outside TabLayout so sub-pages keep their own layout', () => {
     renderAt('/settings/general', ready);
     expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+  });
+
+  // Recovery phrase used to open a warning overlay on the Settings root, where the
+  // tab bar covered its buttons. It is a routed sub-page now, so it gets the
+  // full-screen layout, which hides the tab bar (FullScreenPage.test.tsx asserts
+  // the `data-hide-navbar` flag it sets).
+  it('/settings/reveal-seed-phrase renders full screen, outside TabLayout', () => {
+    renderAt('/settings/reveal-seed-phrase', ready);
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', 'reveal-seed-phrase');
   });
 
   it('retains the root scroll reference across Settings layout changes', () => {

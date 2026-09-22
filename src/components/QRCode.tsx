@@ -9,11 +9,14 @@ import midenLogoUrl from '../../public/misc/brand/new-bread.svg?url';
 export interface QRCodeProps {
   /** The Miden address to encode in the QR code */
   address: string;
-  /** Size of the QR code in pixels */
+  /**
+   * Resolution in pixels the QR renders and exports at. On screen it fills its parent as a square,
+   * scaling through the SVG's viewBox.
+   */
   size: number;
   /**
-   * Short label painted under the modules, on screen AND into the exported
-   * PNG, so a shared QR image says which network it belongs to (#875).
+   * Short label painted into the exported PNG, so a shared QR image says which network it belongs
+   * to (#875). Export only: the page that shows the QR names the network itself.
    */
   caption?: string;
 }
@@ -157,20 +160,15 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, ca
     // payload and the repo has no QR *decoder* (qr-code-styling is an encoder;
     // qrcode/qrcode-generator are transitive-only). It exposes nothing new — the
     // same address already renders in `receive-address-full` and the copy button.
+    // Always fills its parent as a square: the layout sizes the QR, and `size` is only the resolution
+    // it renders and exports at. The caption is painted into the EXPORTED image only - the page names
+    // the network itself, so an on-screen copy of it had no caller.
     <div
-      className="flex flex-col items-center bg-pure-white rounded-10 p-2"
+      className="flex w-full flex-col items-center bg-pure-white rounded-2xl p-2"
       data-testid="qr-code"
       data-qr-payload={paintedValue || undefined}
     >
-      <div ref={containerRef} style={{ width: size, height: size }} />
-      {caption && (
-        <span
-          className="pb-2 font-heading text-sm font-bold uppercase tracking-wider text-accent-primary"
-          data-testid="qr-code-caption"
-        >
-          {caption}
-        </span>
-      )}
+      <div ref={containerRef} className="aspect-square w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full" />
     </div>
   );
 });

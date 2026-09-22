@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
@@ -89,6 +91,20 @@ describe('TransactionSummaryBadge component', () => {
     act(() => root.unmount());
   });
 
+  // The disc carries white strokes, so it takes the ACTIVITY token rather than the brand action
+  // colour: the two are the same in light, but the action colour flips to a pastel in dark and the
+  // glyph would fall under 3:1 (design-tokens.test.ts pins the resolved value).
+  it.each([
+    [undefined, 'var(--tx-sent)'],
+    ['var(--tx-swap)', 'var(--tx-swap)']
+  ])('fills the arrow circle in the activity token of its flow (%s)', async (fillForArrow, expected) => {
+    const { container, root } = await renderInto(
+      <TransactionSummaryBadge lhs="a" rhs="b" fillForArrow={fillForArrow} />
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe(expected);
+    act(() => root.unmount());
+  });
+
   it.each([
     ['lhs null', null, 'rhs'],
     ['lhs undefined', undefined, 'rhs'],
@@ -126,7 +142,15 @@ describe('useTransactionSummaryBadgeContent', () => {
     return (
       <div data-testid="out">
         <span data-testid="lhs">{content.lhs}</span>
-        <TransactionSummaryBadge lhs={content.lhs} rhs={content.rhs} />
+        {/* The disc travels on `separator`/`fillForArrow`. A probe that forwards only lhs/rhs
+            asserts the text and lets the colour drift back unobserved, which is how a retired
+            hue survived in this file once already. */}
+        <TransactionSummaryBadge
+          lhs={content.lhs}
+          rhs={content.rhs}
+          separator={content.separator}
+          fillForArrow={content.fillForArrow}
+        />
       </div>
     );
   };
@@ -159,6 +183,27 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
     expect(container.textContent).toContain('Consumed');
+    act(() => root.unmount());
+  });
+
+  it('paints the consume disc in the received activity token', async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1' })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
+    act(() => root.unmount());
+  });
+
+  it('paints the earn-deposit disc in the earn activity token', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-earn)');
     act(() => root.unmount());
   });
 
@@ -363,5 +408,30 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('8 MIDEN');
     act(() => root.unmount());
+  });
+});
+
+// The activity hues live in main.css, are mirrored in TRANSACTION_COLORS, and were mirrored a
+// THIRD time as literals in this file - which is why the badge kept painting the retired send and
+// swap colours after the tokens moved, under white arrow strokes that owe WCAG 1.4.11's 3:1.
+//
+// The drift guard in transactionUtils.test.ts cannot catch that: it compares TRANSACTION_COLORS
+// against main.css and never opens this file. So the guard belongs here, and it is a source
+// assertion for the same reason the network-banner registry is one - the fills are attributes on
+// an inline SVG, and jsdom does not resolve `var()` in an attribute, so a render assertion would
+// only ever read the literal string back.
+describe('the badge paints no retired activity hue of its own', () => {
+  const source = readFileSync(join(__dirname, 'TransactionSummaryBadge.tsx'), 'utf8');
+
+  it('takes the send arrow from the activity token', () => {
+    expect(source).toContain("style={{ fill: fill ?? 'var(--tx-sent)' }}");
+  });
+
+  it('takes the swap arrow from the CSS token, which has no JS mirror to import', () => {
+    expect(source).toContain("fillForArrow: 'var(--tx-swap)'");
+  });
+
+  it.each(['#91ACC1', '#BEACD2', '#99AC94', '#CCA4B8'])('carries no retired hue (%s)', hex => {
+    expect(source).not.toContain(hex);
   });
 });

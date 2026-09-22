@@ -6,7 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
+import { Pill } from 'components/ui';
+import { Card } from 'components/ui/Card';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
@@ -15,7 +18,6 @@ import { truncateAddress } from 'utils/string';
 
 import { approxFiatAmount, formatBalance } from './amount-format';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
-import { NetworkChip } from './NetworkChip';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
 
@@ -89,7 +91,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="send-amount-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       }
     >
@@ -103,7 +105,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
       />
 
-      <div className="mt-8 rounded-2xl bg-surface-interactive">
+      <div className="mt-8 rounded-2xl bg-fill">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
             type="button"
@@ -120,7 +122,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               <span className="h-9 w-9 shrink-0 rounded-full bg-gray-100" aria-hidden="true" />
             )}
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="flex items-center gap-1 font-heading text-lg leading-tight font-bold text-heading-gray">
+              <span className="flex items-center gap-1 font-heading text-lg leading-tight font-bold text-ink">
                 {token ? token.name : t('selectAToken')}
                 <Icon name={IconName.ChevronDown} size="xs" className="text-accent-send" fill="currentColor" />
               </span>
@@ -141,17 +143,13 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 exit={{ opacity: 0, scale: 0.85 }}
                 transition={transition}
               >
-                <button
-                  type="button"
+                <Pill
+                  onClick={() => onAmountChange(formatBalance(token.balance))}
+                  className="text-accent-send-ink"
                   data-testid="send-amount-max"
-                  onClick={() => {
-                    hapticLight();
-                    onAmountChange(formatBalance(token.balance));
-                  }}
-                  className="shrink-0 rounded-full border border-border-subtle bg-app-bg px-3 py-1.5 font-heading text-sm font-bold text-accent-send"
                 >
                   {t('max')}
-                </button>
+                </Pill>
               </motion.span>
             )}
           </AnimatePresence>
@@ -163,7 +161,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           <span className="text-sm text-text-muted">{t('to')}</span>
           <span
             data-testid="send-amount-recipient"
-            className="min-w-0 flex-1 truncate font-heading text-base font-bold text-heading-gray"
+            className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
           >
             {recipientName ?? truncateAddress(recipientAddress)}
           </span>
@@ -186,18 +184,15 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             transition={transition}
           >
             <div className="pt-4">
-              <div
-                data-testid="send-fee-notice"
-                className="flex items-start gap-3 rounded-2xl border border-border-subtle px-4 py-3"
-              >
+              <Card padding="row" data-testid="send-fee-notice" className="flex items-start gap-3">
                 <Icon
                   name={IconName.InformationFill}
                   size="xs"
                   fill="currentColor"
-                  className="mt-0.5 shrink-0 text-heading-gray"
+                  className="mt-0.5 shrink-0 text-ink"
                 />
                 <div className="flex flex-col items-start gap-1">
-                  <span className="text-sm text-heading-gray">{t('insufficientFeeAsset')}</span>
+                  <span className="text-sm text-ink">{t('insufficientFeeAsset')}</span>
                   <button
                     type="button"
                     data-testid="send-fee-notice-receive"
@@ -205,13 +200,13 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                       hapticLight();
                       onReceive();
                     }}
-                    className="flex items-center gap-0.5 font-heading text-sm font-bold text-accent-send"
+                    className="flex items-center gap-0.5 font-heading text-sm font-bold text-accent-send-ink"
                   >
                     {t('receive')}
-                    <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send" />
+                    <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send-ink" />
                   </button>
                 </div>
-              </div>
+              </Card>
             </div>
           </motion.div>
         )}

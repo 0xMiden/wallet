@@ -1,14 +1,15 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
-import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { CopyButton } from 'components/ui/CopyButton';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
-import { hapticLight } from 'lib/mobile/haptics';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -16,7 +17,6 @@ const AdvancedSettings: FC = () => {
   const { t } = useTranslation();
   const walletAccount = useAccount();
   const [publicKey, setPublicKey] = useState<string | null>(null);
-  const { fieldRef, copy, copied } = useCopyToClipboard();
   const isGuardianAccount = walletAccount.type === WalletType.Guardian;
 
   const fetchPublicKey = useCallback(async () => {
@@ -40,14 +40,8 @@ const AdvancedSettings: FC = () => {
     fetchPublicKey();
   }, [fetchPublicKey]);
 
-  const handleCopy = useCallback(() => {
-    if (!publicKey) return;
-    hapticLight();
-    copy();
-  }, [publicKey, copy]);
-
+  // No haptic here: ListRow fires one on every tap.
   const handleExportAccountFile = useCallback(() => {
-    hapticLight();
     navigate('/settings/export-account-file');
   }, []);
 
@@ -57,49 +51,39 @@ const AdvancedSettings: FC = () => {
   const truncatedPublicKey = publicKey ? `0x${publicKey.slice(0, 6)}...${publicKey.slice(-4)}` : ' ';
 
   return (
-    <div className="w-full flex flex-col gap-6 pb-6">
-      <div className="flex items-center justify-between text-heading-gray">
-        <div className="flex flex-col">
-          <span className="font-medium text-base">{t('accountPublicKey')}</span>
-          {/* `text-heading-gray`, not `text-text-muted` (#ababab, 2.30:1 in light):
-              this is a public key the user is meant to read and copy, at 12px. */}
-          <span className="text-xs font-mono text-heading-gray select-text">{truncatedPublicKey}</span>
-        </div>
-        <button
-          type="button"
-          onClick={handleCopy}
-          disabled={!publicKey}
-          className="flex items-center cursor-pointer hover:bg-gray-25 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Icon name={copied ? IconName.Checkmark : IconName.Copy} className={clsx('w-5 h-5 p-1 stroke-black')} />
-        </button>
-      </div>
+    <SubPageLayout data-testid="advanced-settings">
+      <SubPageSection>
+        <DetailCard>
+          <DetailRow label={t('accountPublicKey')} data-testid="advanced-public-key">
+            <span className="font-mono text-sm select-text">{truncatedPublicKey}</span>
+            {/* Offered only once there is a key to copy. */}
+            {publicKey && <CopyButton text={publicKey} data-testid="advanced-copy-public-key" />}
+          </DetailRow>
+        </DetailCard>
+      </SubPageSection>
 
-      <button type="button" onClick={() => navigate('/settings/edit-miden-faucet-id')} className="w-full">
-        <div className="flex items-center justify-between text-heading-gray">
-          <div className="flex flex-col">
-            <span className="font-medium text-base">{t('editMidenFaucetId')}</span>
-          </div>
-          <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
-        </div>
-      </button>
-
-      {/* A Guardian account can never be exported: its auth entry is a platform-wrapped hot
-          ciphertext, and the vault refuses it outright. Do not offer the action rather than let
-          the user acknowledge the warning and spend a credential to reach a certain refusal. */}
-      {!isGuardianAccount && (
-        <button type="button" onClick={handleExportAccountFile} className="w-full">
-          <div className="flex items-center justify-between text-heading-gray">
-            <div className="flex flex-col">
-              <span className="font-medium text-base">{t('exportAccountFile')}</span>
-            </div>
-            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
-          </div>
-        </button>
-      )}
-
-      <input ref={fieldRef} value={publicKey ?? ''} readOnly className="sr-only" />
-    </div>
+      <SubPageSection>
+        <ListGroup>
+          <ListRow
+            title={t('editMidenFaucetId')}
+            onClick={() => navigate('/settings/edit-miden-faucet-id')}
+            chevron
+            data-testid="advanced-edit-faucet-id"
+          />
+          {/* A Guardian account can never be exported: its auth entry is a platform-wrapped hot
+              ciphertext, and the vault refuses it outright. Do not offer the action rather than let
+              the user acknowledge the warning and spend a credential to reach a certain refusal. */}
+          {!isGuardianAccount && (
+            <ListRow
+              title={t('exportAccountFile')}
+              onClick={handleExportAccountFile}
+              chevron
+              data-testid="advanced-export-account-file"
+            />
+          )}
+        </ListGroup>
+      </SubPageSection>
+    </SubPageLayout>
   );
 };
 

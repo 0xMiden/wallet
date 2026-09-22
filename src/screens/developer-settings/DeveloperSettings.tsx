@@ -1,14 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Button, ButtonVariant } from 'components/Button';
-import { Checkbox } from 'components/Checkbox';
-import { Input } from 'components/Input';
-import { ScreenHeader } from 'components/ScreenHeader';
-import { TabPicker } from 'components/TabPicker';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import {
   applyEndpointOverride,
   buildDefaultOverrideFor,
@@ -22,7 +26,7 @@ import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 
 import { CUSTOM_PRESET, ENDPOINT_PRESETS, NETWORK_ID_OPTIONS, presetToOverride } from './preset';
 
@@ -59,6 +63,10 @@ const FIELDS: FieldSpec[] = [
   { key: 'guardianUrl', labelKey: 'devEndpointGuardian', health: 'reachability' }
 ];
 
+/** Just the URL fields of an override, which are the only ones "custom" is about. */
+const pickUrls = (o: EndpointOverride): Partial<Record<UrlFieldKey, string>> =>
+  Object.fromEntries(FIELDS.map(field => [field.key, o[field.key]]));
+
 interface HealthNoteProps {
   url: string;
   kind: EndpointHealthKind;
@@ -70,7 +78,7 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
   const status = useEndpointHealth(url, kind);
   if (status === 'idle') return null;
 
-  const color = status === 'reachable' ? 'text-green-600' : status === 'error' ? 'text-red-500' : 'text-text-muted';
+  const color = status === 'reachable' ? 'text-positive-ink' : status === 'error' ? 'text-negative-ink' : 'text-muted';
   const labelKey =
     status === 'pending'
       ? 'devEndpointChecking'
@@ -78,7 +86,7 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
         ? 'devEndpointReachable'
         : 'devEndpointNoResponse';
 
-  return <p className={`text-xs mt-1 ${color}`}>{t(labelKey)}</p>;
+  return <p className={`px-1 text-caption ${color}`}>{t(labelKey)}</p>;
 };
 
 export interface DeveloperSettingsProps {
@@ -92,6 +100,10 @@ export interface DeveloperSettingsProps {
  * when an override is active).
  */
 const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false }) => {
+  // Both routes for this page are full-screen pages outside the Settings host, so neither inherits
+  // the host's fallback. A deep link or a reload lands at the first history entry, where goBack()
+  // does nothing. Read-only is the /settings sub-page; the standalone debug route belongs to home.
+  const handleBack = useBackWithFallback(readOnly ? '/settings' : '/');
   const { t } = useTranslation();
   const confirm = useConfirm();
   const initial = useMemo<EndpointOverride>(
@@ -104,28 +116,62 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
   const noWalletYet = useWalletStore(selectIsIdle);
 
-  const presetTabs = useMemo(
-    () =>
-      [
-        ...ENDPOINT_PRESETS.map(preset => ({ id: preset, title: capitalize(preset) })),
-        { id: CUSTOM_PRESET, title: t('devEndpointCustom') }
-      ].map(tab => ({ ...tab, active: form.presetName === tab.id })),
-    [form.presetName, t]
+  const presetItems = useMemo<SegmentedControlItem[]>(
+    () => [
+      ...ENDPOINT_PRESETS.map(preset => ({
+        id: preset,
+        label: capitalize(preset),
+        'data-testid': `dev-endpoint-preset-${preset}`
+      })),
+      { id: CUSTOM_PRESET, label: t('devEndpointCustom'), 'data-testid': `dev-endpoint-preset-${CUSTOM_PRESET}` }
+    ],
+    [t]
   );
 
-  const applyPreset = (index: number) => {
-    // `presetTabs` is every known preset followed by one trailing "Custom" tab, so an index
-    // past the end of `ENDPOINT_PRESETS` is always that trailing tab.
-    const network = ENDPOINT_PRESETS[index];
+  const networkIdItems = useMemo<SegmentedControlItem<MIDEN_NETWORK_NAME>[]>(
+    () =>
+      NETWORK_ID_OPTIONS.map(network => ({
+        id: network,
+        label: capitalize(network),
+        disabled: readOnly,
+        'data-testid': `dev-endpoint-network-${network}`
+      })),
+    [readOnly]
+  );
+
+  // The endpoints the user typed, kept while a preset is selected so choosing Custom again brings
+  // them back. The picker is a radio group, so arrow keys commit every item they pass over: without
+  // this, one keypress away from Custom replaced the fields and coming back kept the preset's URLs.
+  // ONLY a keystroke defines them. Two other controls flip the form to Custom without touching a
+  // URL - the Network ID picker and the no-guardian checkbox - and while a preset's URLs are in the
+  // fields, so capturing the whole form whenever it reads Custom would store a PRESET's URLs as
+  // what the user typed and lose them on the next hop.
+  const customUrlsRef = useRef<Partial<Record<UrlFieldKey, string>> | null>(null);
+
+  const applyPreset = (id: string) => {
+    const network = ENDPOINT_PRESETS.find(preset => preset === id);
     if (network) {
       setForm(presetToOverride(network));
       return;
     }
-    setForm(prev => ({ ...prev, presetName: CUSTOM_PRESET }));
+    // Back to Custom: the endpoints the user authored, over whatever the other controls have set
+    // since, so the network id and the no-guardian choice survive the round trip. Authored covers
+    // both sources, in precedence order - the ones this screen OPENED on, when it opened on a saved
+    // custom override, under the ones typed since. Without the first, a screen opened on saved
+    // endpoints remembered nothing and one hop to a preset replaced them.
+    setForm(prev => ({
+      ...prev,
+      ...(initial.presetName === CUSTOM_PRESET ? pickUrls(initial) : null),
+      ...customUrlsRef.current,
+      presetName: CUSTOM_PRESET
+    }));
   };
 
-  const setField = (key: UrlFieldKey, value: string) =>
+  const setField = (key: UrlFieldKey, value: string) => {
+    // Outside the updater, which must stay pure: this needs no previous form.
+    customUrlsRef.current = { ...customUrlsRef.current, [key]: value };
     setForm(prev => ({ ...prev, [key]: value, presetName: CUSTOM_PRESET }));
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -171,7 +217,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // "Reset Wallet" for the same pattern) so a single stray tap can't wipe the wallet.
     const confirmed = await confirm({
       title: t('actionConfirmation'),
-      children: t('devEndpointResetConfirm')
+      children: t('devEndpointResetConfirm'),
+      confirmLabel: t('reset'),
+      destructive: true
     });
     if (!confirmed) return;
 
@@ -202,32 +250,64 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
   const handleResetToDefaults = () => setForm(buildDefaultOverrideFor(getEffectiveNetworkName()));
 
+  const actionButton = 'flex-1 max-w-none';
+
   return (
-    <div className="flex flex-col h-full min-h-0 bg-app-bg">
-      <ScreenHeader
-        title={t('developerSettingsTitle')}
-        backLabel={t('back')}
-        onBack={() => goBack()}
-        className="mx-4 shrink-0"
-      />
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-4 flex flex-col gap-5">
-        <div className="w-full bg-surface-input rounded-10 px-4 py-3">
-          <div className="text-base font-bold font-heading leading-tight text-black">
-            {t('developerSettingsWarningTitle')}
-          </div>
-          <div className="text-xs mt-1 text-text-muted">{t('developerSettingsWarning')}</div>
-        </div>
+    <SubPageLayout
+      title={t('developerSettingsTitle')}
+      onBack={handleBack}
+      data-testid="developer-settings"
+      footerLayout="stack"
+      footer={
+        readOnly ? (
+          // Destructive: it wipes the wallet and starts onboarding over.
+          <Button
+            className={actionButton}
+            variant={ButtonVariant.Destructive}
+            title={t('devEndpointResetAndReonboard')}
+            data-testid="dev-endpoints-reset"
+            onClick={handleReset}
+          />
+        ) : (
+          <>
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Primary}
+              title={t('devEndpointSaveContinue')}
+              isLoading={saving}
+              data-testid="dev-endpoints-save"
+              onClick={handleSave}
+            />
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Secondary}
+              title={t('devEndpointResetDefaults')}
+              data-testid="dev-endpoints-reset-defaults"
+              onClick={handleResetToDefaults}
+            />
+          </>
+        )
+      }
+    >
+      <SubPageSection title={t('developerSettingsWarningTitle')} description={t('developerSettingsWarning')} />
 
-        {!readOnly && (
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-heading-gray">{t('devEndpointPreset')}</span>
-            <TabPicker tabs={presetTabs} onTabChange={applyPreset} />
-          </div>
-        )}
+      {!readOnly && (
+        <SubPageSection title={t('devEndpointPreset')}>
+          <SegmentedControl
+            items={presetItems}
+            value={form.presetName}
+            onChange={applyPreset}
+            layout="fill"
+            aria-label={t('devEndpointPreset')}
+            data-testid="dev-endpoint-preset"
+          />
+        </SubPageSection>
+      )}
 
+      <SubPageSection className="gap-4">
         {FIELDS.map(field => (
-          <div key={field.key} className="flex flex-col">
-            <Input
+          <div key={field.key} className="flex flex-col gap-1">
+            <TextField
               label={t(field.labelKey)}
               data-testid={`dev-endpoint-${field.key}`}
               value={form[field.key]}
@@ -236,83 +316,41 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               autoCorrect="off"
               spellCheck={false}
               disabled={readOnly}
-              inputClassName="font-mono text-xs select-text"
+              className="font-mono select-text"
               onChange={e => setField(field.key, e.target.value)}
             />
             <HealthNote url={form[field.key]} kind={field.health} />
           </div>
         ))}
+      </SubPageSection>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium text-heading-gray">{t('devEndpointNetworkId')}</span>
-          <TabPicker
-            tabs={NETWORK_ID_OPTIONS.map(network => ({
-              id: network,
-              title: capitalize(network),
-              active: form.networkName === network
-            }))}
-            onTabChange={
-              readOnly
-                ? undefined
-                : index => {
-                    const network = NETWORK_ID_OPTIONS[index];
-                    if (network) setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }));
-                  }
-            }
-          />
-        </div>
+      <SubPageSection title={t('devEndpointNetworkId')}>
+        <SegmentedControl
+          items={networkIdItems}
+          value={form.networkName}
+          onChange={network => setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }))}
+          layout="fill"
+          aria-label={t('devEndpointNetworkId')}
+          data-testid="dev-endpoint-network-id"
+        />
+      </SubPageSection>
 
-        <button
-          type="button"
+      <ListGroup>
+        <ListRow
+          title={t('devAllowNoGuardian')}
           disabled={readOnly}
           data-testid="dev-allow-no-guardian"
-          onClick={
-            readOnly
-              ? undefined
-              : () =>
-                  setForm(prev => ({
-                    ...prev,
-                    allowNoGuardian: !prev.allowNoGuardian,
-                    presetName: CUSTOM_PRESET
-                  }))
+          onClick={() =>
+            setForm(prev => ({
+              ...prev,
+              allowNoGuardian: !prev.allowNoGuardian,
+              presetName: CUSTOM_PRESET
+            }))
           }
-          className="flex items-center justify-between gap-3 text-left"
-        >
-          <span className="text-sm font-medium text-heading-gray">{t('devAllowNoGuardian')}</span>
-          <Checkbox value={form.allowNoGuardian} />
-        </button>
-      </div>
-
-      <div className="px-4 pb-8 pt-4 mt-auto flex flex-col items-center gap-3">
-        {readOnly ? (
-          <Button
-            className="w-full justify-center"
-            variant={ButtonVariant.Secondary}
-            title={t('devEndpointResetAndReonboard')}
-            data-testid="dev-endpoints-reset"
-            onClick={handleReset}
-          />
-        ) : (
-          <>
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Primary}
-              title={t('devEndpointSaveContinue')}
-              isLoading={saving}
-              data-testid="dev-endpoints-save"
-              onClick={handleSave}
-            />
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Ghost}
-              title={t('devEndpointResetDefaults')}
-              data-testid="dev-endpoints-reset-defaults"
-              onClick={handleResetToDefaults}
-            />
-          </>
-        )}
-      </div>
-    </div>
+          trailing={<CheckboxIndicator checked={form.allowNoGuardian} />}
+        />
+      </ListGroup>
+    </SubPageLayout>
   );
 };
 

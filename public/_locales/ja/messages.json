@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "残高合計",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "住所：$number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "アカウント設定",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "アドレスをコピー",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "アドレスをコピーしました",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "読み込み中…",
@@ -94,42 +93,6 @@
   "promptCardLoading": {
     "message": "読み込み中",
     "englishSource": "Loading"
-  },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
   },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
@@ -567,18 +530,6 @@
     "message": "クリックしてこのフィールドを表示する",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "クリックして表示",
-    "englishSource": "Click to reveal"
-  },
-  "copiedHash": {
-    "message": "コピーしました。",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "クリップボードにコピー",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "勘定科目",
     "englishSource": "Accounts"
@@ -757,14 +708,6 @@
     "message": "事前に生成された、有効なニーモニックのみ",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "24語を超えていたため、貼り付けに失敗しました。",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Seed phrase の秘密鍵全体を、任意の入力欄に貼り付けることができます",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "1つ以上の単語がリカバリーフレーズの単語リストに含まれていません。ハイライトされた単語を確認してください。",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +752,6 @@
   "retryAnyway": {
     "message": "それでも再試行",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal：$amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "先に進む前に",
@@ -1083,7 +1017,7 @@
   },
   "importWallet": {
     "message": "ウォレットをインポート",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "代わりにキーを使用してインポートしてください",
@@ -1228,6 +1162,10 @@
   "termsOfService": {
     "message": "利用規約",
     "englishSource": "Terms of Service"
+  },
+  "support": {
+    "message": "サポート",
+    "englishSource": "Support"
   },
   "sendFeedback": {
     "message": "ご意見・ご感想をお寄せください",
@@ -1598,9 +1536,17 @@
     "message": "貼り付け",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "貼り付けるものがありません。先にアドレスをコピーしてください。",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "受信者を選択してください",
     "englishSource": "Choose recipient"
+  },
+  "sendTo": {
+    "message": "送金先",
+    "englishSource": "Send to"
   },
   "selectAmount": {
     "message": "金額を選択してください",
@@ -1786,13 +1732,13 @@
     "message": "ミデン",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "新しい連絡先",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "連絡先を追加",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "この人は誰ですか？",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "連絡先に追加しますか？",
@@ -1801,10 +1747,6 @@
   "recent": {
     "message": "最新情報",
     "englishSource": "Recent"
-  },
-  "newContactPlaceholder": {
-    "message": "例：アリス、ボブ",
-    "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "同じ住所の連絡先はすでに存在します",
@@ -1822,17 +1764,13 @@
     "message": "この連絡先を削除してもよろしいですか？",
     "englishSource": "Are you sure you want to delete this contact?"
   },
-  "ownAccount": {
-    "message": "所有",
-    "englishSource": "Own"
-  },
   "noContactsFound": {
     "message": "連絡先が見つかりませんでした",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
     "message": "Seed Phrase を確認してください",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "ウォレットに資金を入金する",
@@ -2063,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "インポートタイプを選択してください",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "12 語のフレーズで社会のバランスを取り戻しましょう。プライベート資金を復元するには、暗号化されたバックアップ ファイルをアップロードします。",
@@ -2071,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Seed Phraseを使用してインポートする",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "既存の 12 単語のリカバリ フレーズを使用します。他のウォレットプロバイダーからウォレットをインポートすることもできます。",
@@ -2079,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "暗号化されたウォレットファイルを使用してインポートする",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "暗号化されたウォレット ファイルをアップロードして、アカウントを安全にインポートします。データはプライベートのままで、ハッシュ化された情報のみがオンチェーンに保存されます",
@@ -2103,7 +2041,7 @@
   },
   "continueImport": {
     "message": "インポートを続行する",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "お財布をどのように保護するかをお選びください",
@@ -2111,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Face ID または生体認証を使用する",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "パスコードを設定する",
@@ -2323,15 +2261,15 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "ウォレットの12語からなる「Seed phrase」を入力してください。",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Miden Seedのフレーズのみがサポートされています。",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "<highlight>ウォレット</highlight>の準備が完了しました！",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "ウォレットの準備が完了しました！",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "ウォレットのセキュリティを万全にするため、7日以内にリカバリーフレーズを書き留めておいてください。",
@@ -2471,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "ウォレットのリセットが必要です",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden Testnetでは、ユーザーの利便性向上のため、アカウントIDをbech32形式にアップグレードしました。ウォレットを引き続きご利用いただくには、バックアップファイルまたはseed phraseから復元するか、新しいウォレットを作成してください。",
@@ -2483,11 +2421,11 @@
   },
   "reset": {
     "message": "ウォレットをリセットする",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "パスワードをお忘れですか？",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "パスワードをお忘れの場合は、一度ログアウトしてからアカウントを再度インポートする必要があります。その後、新しいパスワードを設定することができます。",
@@ -2511,7 +2449,7 @@
   },
   "signOut": {
     "message": "ログアウト",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X（Twitter）",
@@ -3076,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "アカウントの復旧設定",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "アカウントにアクセスできなくなった場合に備え、アカウントの復旧方法を選択してください。",
@@ -3092,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "完全非公開",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "地域限定であり、あなた以外にはあなたの状態は誰にも見えませんが、復元機能はありません。デバイスを紛失した場合、資金は永久に失われてしまいます。",
@@ -3669,6 +3607,62 @@
     "message": "ソーシャル",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "ゲーム",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "学ぶ",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "カテゴリ",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "おすすめ",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "ヘルパーツール",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "開く",
+    "englishSource": "Open"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Midenに近日登場",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Midenで公開された新しいアプリがここに表示されます。",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "dAppを検索",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "結果",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "結果がありません",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "別の名前を試すか、dAppのURLを貼り付けてください。",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "スワップ用のテストネットトークンを入手",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "最小化",
     "englishSource": "Minimize"
@@ -3926,7 +3920,7 @@
   },
   "unlockWallet": {
     "message": "ウォレットのロックを解除",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "seed phrase なら、いつでもパブリックアカウントを復元できます。ウォレットのロックを素早く解除する方法については、以下から選択してください。",
@@ -3963,6 +3957,14 @@
   "seeConnected": {
     "message": "関連情報はこちら",
     "englishSource": "See connected"
+  },
+  "noConnectedDApps": {
+    "message": "接続済みのdAppはありません",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "このアカウントに接続したdAppがここに表示されます。",
+    "englishSource": "dApps you connect to this account show up here."
   },
   "transferDetails": {
     "message": "移籍の詳細",
@@ -4010,11 +4012,11 @@
   },
   "tokenPrice": {
     "message": "トークン価格",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "トークン情報",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "代替可能",
@@ -4026,7 +4028,7 @@
   },
   "recentActivity": {
     "message": "最近の活動",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "種類",
@@ -4781,6 +4783,14 @@
     "message": "検索履歴",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "アクティビティのフィルター",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "チャートの期間",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "このブリッジはイーサリアム・セポリア上で動作します。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、セポリアETHのみをそのウォレットに入金してください。",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
@@ -4832,10 +4842,6 @@
   "networkNoticeResetBody": {
     "message": "リセットを行うと、残高と履歴がクリアされます。テスト環境の残高はメインネットには引き継がれません。",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "テスト用トークンのみ",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "出金状況を確認しています。資金の受け取りが確認されるまで、ウォレットを開いたままにしてください。",
@@ -4897,6 +4903,15 @@
   "networkModeBanner": {
     "message": "あなたはMiden $network$上のBreadを利用しています",
     "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkModeStripLabel": {
+    "message": "$network$ — このネットワークについて",
+    "englishSource": "$network$ — about this network",
     "placeholders": {
       "network": {
         "content": "$1"
@@ -5138,5 +5153,66 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "この取引を続行するには認証してください。利用上限が変更または無効化されることはありません。",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "新しい連絡先",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "自分のアカウント",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "連絡先はまだありません",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "アドレスを保存すると、名前で送金できます。",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "これはあなたのアカウントです",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "$name$ として保存済み",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "連絡先を編集",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "連絡先を削除",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "追加日",
+    "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "運営: $operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

@@ -77,10 +77,6 @@ jest.mock('lib/walletconnect/config', () => ({
   getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: () => <div data-testid="screen-header" />
-}));
-
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({

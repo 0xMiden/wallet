@@ -59,16 +59,19 @@ describe('QRCode', () => {
   });
 
   describe('rendering', () => {
-    it('renders the white padded wrapper with a sized inner container', () => {
-      const { container } = render(<QRCode address={ADDRESS} size={200} />);
+    it('fills its parent as a square, scaling the SVG, and renders at `size`', () => {
+      const { container } = render(<QRCode address={ADDRESS} size={288} />);
 
       const outer = container.firstChild as HTMLElement;
-      expect(outer).toHaveClass('bg-pure-white', 'rounded-10', 'p-2');
+      expect(outer).toHaveClass('bg-pure-white', 'rounded-2xl', 'p-2', 'w-full');
 
       const inner = outer.firstChild as HTMLElement;
-      expect(inner.tagName).toBe('DIV');
-      // Numeric size props become px strings on the DOM node.
-      expect(inner).toHaveStyle({ width: '200px', height: '200px' });
+      expect(inner).toHaveClass('aspect-square', 'w-full', '[&>svg]:h-full', '[&>svg]:w-full');
+      // The layout sizes it, so no fixed pixel box is set on the node.
+      expect(inner.style.width).toBe('');
+      expect(inner.style.height).toBe('');
+      // `size` is the rendered resolution (the exported PNG and the SVG's viewBox).
+      expect(ctorOptions()).toMatchObject({ width: 288, height: 288 });
     });
 
     it('constructs the styling instance exactly once with the encoded payload', () => {
@@ -185,13 +188,22 @@ describe('QRCode', () => {
   });
 
   describe('caption (#875)', () => {
-    it('renders the caption under the modules and omits it when absent', () => {
-      const { container, rerender } = render(<QRCode address={ADDRESS} size={200} caption="Miden Testnet" />);
-      const caption = container.querySelector('[data-testid="qr-code-caption"]');
-      expect(caption).toHaveTextContent('Miden Testnet');
+    // The caption belongs to the SHARED image, so a QR sent on its own still says which network it
+    // is for. The page that shows the QR names the network itself, so it is never drawn on screen.
+    it('paints the caption into the exported image only, never on screen', async () => {
+      mockGetRawData.mockResolvedValue(new Blob(['png-bytes'], { type: 'image/png' }));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const ref = React.createRef<QRCodeHandle>();
+        const { container } = render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" />);
 
-      rerender(<QRCode address={ADDRESS} size={200} />);
-      expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
+        expect(container).not.toHaveTextContent('Miden Testnet');
+        // The export still tries to paint the caption strip (jsdom has no canvas to finish it).
+        await ref.current!.getImageBlob();
+        expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('falls back to the raw PNG when the realm has no createImageBitmap', async () => {

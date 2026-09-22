@@ -6,9 +6,13 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
-import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
+import { NetworkLogo } from 'components/NetworkChip';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
+import { Skeleton } from 'components/ui/Skeleton';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -36,7 +40,6 @@ import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
-import { NetworkChip } from './NetworkChip';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
@@ -50,9 +53,9 @@ import { useEpochQuote } from './useEpochQuote';
  * Owns the whole transaction-creation pipeline: the send form at `/send` only
  * collects recipient/amount/token and hands them over via query params (plus a
  * send-draft for back-restore — see `send-draft.ts`). Rendered outside
- * TabLayout via FullScreenPage, so there is no tab bar; back is the
- * ScreenHeader's back button (or hardware back via MobileBackBridge on
- * mobile).
+ * TabLayout via FullScreenPage, so there is no tab bar; back is
+ * SendStepLayout's (FlowLayout's) PageHeader back button (or hardware back via
+ * MobileBackBridge on mobile).
  */
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
@@ -535,6 +538,7 @@ export const ReviewTransaction: React.FC = () => {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg">
+      <NetworkModeBanner />
       <SendStepLayout
         title={t('reviewDetails')}
         onBack={() => goBack()}
@@ -557,70 +561,67 @@ export const ReviewTransaction: React.FC = () => {
               // deliberate refusal.
               disabled={isSubmitting || scaleIsUnknown}
               data-testid="send-review-submit"
-              className="w-full max-w-none rounded-full text-base font-semibold"
+              className="w-full max-w-none"
             />
           </div>
         }
       >
-        {/* The amount is the page's large text, in the same place as on the amount step. */}
-        <div className="mt-3 flex items-center gap-3" data-testid="review-amount">
-          <TokenLogo symbol={token?.name ?? ''} size="md" />
-          <span className="font-heading text-5xl leading-none font-bold text-heading-gray">
-            {amount} {token?.name ?? ''}
-          </span>
-        </div>
-        {fiatValue !== undefined && (
-          <span className="mt-2 font-heading text-base font-bold text-gray">
-            {t('approxFiatValue', { value: approxFiatAmount(fiatValue) })}
-          </span>
-        )}
+        {/* The amount is the page's hero, in the same place as on the amount step. */}
+        <Hero
+          data-testid="review-amount"
+          className="mt-3"
+          visual={<TokenLogo symbol={token?.name ?? ''} size="2xl" />}
+          value={`${amount} ${token?.name ?? ''}`}
+          subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
+        />
 
-        <FlowDetails className="mt-6">
-          {/* The full address, never truncated: this is the last look before funds move. */}
-          <FlowDetailRow label={t('to')} stacked data-testid="review-row-to">
-            {to}
-          </FlowDetailRow>
-          <FlowDetailRow label={t('network')}>
-            {isBridge ? (
-              <NetworkChip kind="ethereum" label={bridgeNetworkObj?.name ?? t('ethereum')} />
-            ) : (
-              <NetworkChip kind="miden" label={t('miden')} />
-            )}
-          </FlowDetailRow>
+        <DetailCard className="mt-6">
+          {/* The full address, never truncated: this is the last look before funds move. Set in body
+              text rather than the bold value face, so it reads as something to check, not a headline. */}
+          <DetailRow label={t('to')} stacked data-testid="review-row-to">
+            <span className="text-body-sm break-all text-ink">{to}</span>
+          </DetailRow>
+          {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
+          <DetailRow label={t('network')}>
+            <span className="flex items-center gap-1.5">
+              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} />
+              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
+            </span>
+          </DetailRow>
 
           {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
           {networkFee && (
-            <FlowDetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
-              {networkFee}
-            </FlowDetailRow>
+            // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
+            <DetailRow label={t('networkFeeMax')}>{networkFee}</DetailRow>
           )}
 
           {isBridge ? (
             <>
-              <FlowDetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</FlowDetailRow>
-              <FlowDetailRow label={t('youReceive')}>
-                {youReceiveLoading ? (
-                  <div className="h-6 w-28 animate-pulse rounded bg-heading-gray/10" />
-                ) : (
-                  youReceiveLabel
-                )}
-              </FlowDetailRow>
+              <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+              <DetailRow label={t('youReceive')}>
+                {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
+              </DetailRow>
             </>
           ) : (
-            <FlowDetailRow
-              label={t('expirationDate')}
-              accent="send"
+            <DetailRow
+              label={t('expires')}
               action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
-              sub={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
               data-testid="review-row-expiration"
             >
               {expirationLabel}
-            </FlowDetailRow>
+            </DetailRow>
           )}
-        </FlowDetails>
+        </DetailCard>
+        {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
+            squeezed into the value column. */}
+        {!isBridge && recallBlocks ? (
+          <p className="mt-3 px-4 text-caption text-muted" data-testid="review-recall-note">
+            {t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` })}
+          </p>
+        ) : null}
       </SendStepLayout>
 
       {!isBridge && (

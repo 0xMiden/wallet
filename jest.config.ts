@@ -33,8 +33,8 @@ export default {
   //   QR/native-share UI, and transaction-list interactions covered by E2E.
   // - `app/providers/DappBrowserProvider.tsx` — Capacitor inappbrowser
   //   provider wired to native plugins, exercised via mobile-e2e.
-  // - `components/review/ReviewRow.tsx`, `lib/ui/drawer.tsx`, and the swap
-  //   success view — interaction/animation wrappers with no domain logic.
+  // - `lib/ui/drawer.tsx` and the swap success view — interaction/animation
+  //   wrappers with no domain logic.
   // - `lib/animation/use-motion.ts` — browser media-query/animation plumbing.
   // - `app/icons/v2/index.tsx` — barrel file of SVG re-exports.
   // - `lib/mobile/faucet-webview.ts` — Capacitor InAppBrowser wrapper.
@@ -77,7 +77,6 @@ export default {
     '/src/app/pages/Receive/',
     '/src/app/icons/v2/index\\.tsx$',
     '/src/app/providers/DappBrowserProvider\\.tsx$',
-    '/src/components/review/ReviewRow\\.tsx$',
     '/src/lib/animation/use-motion\\.ts$',
     '/src/lib/ui/drawer\\.tsx$',
     '/src/lib/mobile/faucet-webview\\.ts$',

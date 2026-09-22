@@ -42,6 +42,14 @@ describe('AssetListItem', () => {
     expect((container.firstChild as HTMLElement).className).toContain('my-extra-class');
   });
 
+  it('renders the amount in the muted token rather than opacity-50', () => {
+    renderItem();
+
+    const amount = screen.getByText('12.5 MIDEN');
+    expect(amount.className).toContain('text-muted');
+    expect(amount.className).not.toContain('opacity-50');
+  });
+
   describe('chart rendering', () => {
     it('renders the chart node when provided', () => {
       renderItem({ chart: <div data-testid="chart" /> });
@@ -80,19 +88,19 @@ describe('AssetListItem', () => {
     it('applies the positive color for an explicit positive direction', () => {
       renderItem({ delta: { value: '+2.5%', direction: 'positive' } });
 
-      expect(screen.getByText('+2.5%').className).toContain('text-status-positive');
+      expect(screen.getByText('+2.5%').className).toContain('text-positive-tint-ink');
     });
 
     it('defaults to the positive color when direction is undefined', () => {
       renderItem({ delta: { value: '+1.0%' } });
 
-      expect(screen.getByText('+1.0%').className).toContain('text-status-positive');
+      expect(screen.getByText('+1.0%').className).toContain('text-positive-tint-ink');
     });
 
     it('applies the negative color for a negative direction', () => {
       renderItem({ delta: { value: '-3.1%', direction: 'negative' } });
 
-      expect(screen.getByText('-3.1%').className).toContain('text-status-negative');
+      expect(screen.getByText('-3.1%').className).toContain('text-negative-tint-ink');
     });
 
     it('applies the tertiary color for a neutral direction', () => {

@@ -163,7 +163,7 @@ flowchart LR
 > #### Handling the order-discovery timing race
 > On a live network, a taker discovers an order by watching the chain — but there is a brief window after an order is posted before it becomes visible. Rather than paper over this with fixed "wait and hope" delays (which make tests slow and flaky), the harness hands the order note directly from the maker to the taker (the thick arrow above), the same approach a production market-making bot uses. The result is deterministic and, if anything, closer to real trading behaviour than a polling loop would be.
 
-These run on a blockchain booted fresh for the job on every pull request. The same suite can also be pointed at the **public test network** with `yarn e2e:real --suite swap`, which swaps the booted chain for the real one, the local prover for the shared hosted prover, and the local coin tap for the public faucet. Nothing about the trade itself changes — the offer is a note and the fill is a note, with no exchange contract in between — so the suite needs no deployment there.
+These run on a blockchain booted fresh for the job on every pull request. The same suite can also be pointed at the **public test network** with `yarn e2e:real --suite swap`, which swaps the booted chain for the real one, the local prover for the shared hosted prover, and the local coin tap for the public faucet. Nothing about the trade itself changes - the offer is a note and the fill is a note, with no exchange contract in between - so the suite needs no deployment there.
 
 <details>
 <summary>The tests in this group</summary>
@@ -179,7 +179,7 @@ Full fill (both directions), partial fill with remainder, cancel-and-reclaim, cr
 
 The flow is exercised at **two levels of realism**, each suited to a different point in the pipeline:
 
-- **On demand (`yarn e2e:real --suite bridge-out-epoch`):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination — an end-to-end check that includes the third-party solver settling the Ethereum side. It is opt-in rather than automatic, because it spends a real solver fill and a third party declining to quote should not turn `main` red; the runner probes the live solver for a quote before it builds anything.
+- **On demand (`yarn e2e:real --suite bridge-out-epoch`):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination - an end-to-end check that includes the third-party solver settling the Ethereum side. It is opt-in rather than automatic, because it spends a real solver fill and a third party declining to quote should not turn `main` red; the runner probes the live solver for a quote before it builds anything.
 - **Post-merge (after every merge to main):** the AggLayer route against the real bridge, asserting the Miden leg.
 - **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum node, so the guardian-secured bridge path is verified on every commit without depending on external infrastructure.
 
@@ -205,7 +205,7 @@ flowchart LR
 ```
 
 > #### Verifying settlement on Ethereum
-> The on-demand test (`yarn e2e:real --suite bridge-out-epoch`) does not stop at the app reporting success. After bridging, it reads the destination account on a real Ethereum test network and confirms the USDC balance actually increased. This validates the entire path — including the external solver that settles the Ethereum side — so the app cannot pass merely by believing it succeeded.
+> The on-demand test (`yarn e2e:real --suite bridge-out-epoch`) does not stop at the app reporting success. After bridging, it reads the destination account on a real Ethereum test network and confirms the USDC balance actually increased. This validates the entire path - including the external solver that settles the Ethereum side - so the app cannot pass merely by believing it succeeded.
 
 > #### On-chain verification of the minted note
 > The bridge service accepts only a specific shape of collateral note. The harness reads the committed note directly from the chain and verifies its type and structure are exactly what the service requires. This check was added after a defect — a guardian bridge minting the wrong kind of note — reached a release; with the check in place, that class of mistake now fails a test rather than shipping silently.

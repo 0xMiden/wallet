@@ -2,12 +2,20 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import AllHistory from './AllHistory';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+// Real framer-motion, with `prefers-reduced-motion` driven by one flag: the filter row is the
+// shared SegmentedControl, and its bubble, pop and press all read `useReducedMotion`.
+const mockReducedMotion = { value: false };
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual('framer-motion'),
+  useReducedMotion: () => mockReducedMotion.value
 }));
 
 // The dead-letter notice owns its own data (SWR over the note dead-letter
@@ -109,13 +117,25 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 const getHistory = () => screen.getByTestId('history');
-const getFilterButton = (label: string) => screen.getByRole('button', { name: label });
+const getFilterButton = (label: string) => screen.getByRole('radio', { name: label });
+// The raised bubble the shared SegmentedControl slides under the selected filter.
+const bubbleIn = (item: HTMLElement) => item.querySelector('[data-slot="motion-highlight"]');
+
+// jsdom does not implement scrollIntoView; install a spy so the
+// keep-selection-in-view effect can run without throwing.
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
+    mockReducedMotion.value = false;
+    HTMLElement.prototype.scrollIntoView = jest.fn();
+  });
+
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   });
 
   it('renders the activity header, filter chips and search field', () => {
@@ -160,14 +180,33 @@ describe('AllHistory', () => {
     expect(getHistory().getAttribute('data-program-id')).toBe('');
   });
 
-  it('marks the "all" filter active by default and the others inactive', () => {
+  it('renders the filters as the shared segmented control: a labelled radiogroup, "all" selected', () => {
     render(<AllHistory />);
 
-    expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('true');
-    expect(getFilterButton('all').className).toContain('bg-accent-primary');
+    expect(screen.getByRole('radiogroup', { name: 'activityFilters' })).toHaveClass('overflow-x-auto');
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
+    expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'false');
+    // The selected filter sits on the raised bubble; the rest have no fill of their own.
+    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-raised', 'shadow-raised');
+    expect(bubbleIn(getFilterButton('sent'))).toBeNull();
+    expect(getFilterButton('sent').className).not.toMatch(/(^|\s)bg-/);
+  });
 
-    expect(getFilterButton('sent').getAttribute('aria-pressed')).toBe('false');
-    expect(getFilterButton('sent').className).toContain('bg-white');
+  describe('reduced motion', () => {
+    beforeEach(() => {
+      mockReducedMotion.value = true;
+    });
+
+    it('scrolls a filter change into view instantly instead of smoothly', () => {
+      render(<AllHistory />);
+
+      fireEvent.click(getFilterButton('pending'));
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    });
   });
 
   it('changes the active filter and propagates it to History on tap', () => {
@@ -176,19 +215,40 @@ describe('AllHistory', () => {
     fireEvent.click(getFilterButton('received'));
 
     expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(getFilterButton('received').getAttribute('aria-pressed')).toBe('true');
-    expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('false');
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(getFilterButton('received')).toHaveAttribute('aria-checked', 'true');
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'false');
     expect(getHistory().getAttribute('data-filter')).toBe('received');
+
+    // The bubble moves to the newly-selected filter (the old one fades out through the exit).
+    expect(bubbleIn(getFilterButton('received'))).not.toBeNull();
+
+    // The newly-selected chip is scrolled into view.
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'nearest'
+    });
+  });
+
+  it('scrolls nothing on mount', () => {
+    render(<AllHistory />);
+
+    // The row keeps its own selection in view on a CHANGE; a mount-time call would scroll whatever
+    // ancestor can scroll, which on a settings page is the page itself.
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('ignores a tap on the already-active filter (no haptic, no change)', () => {
     render(<AllHistory />);
 
-    // "all" is active from the start, so tapping it hits the early return.
+    // "all" is active from the start, and the segmented control reports (and
+    // buzzes for) real changes only.
     fireEvent.click(getFilterButton('all'));
 
     expect(hapticSelection).not.toHaveBeenCalled();
-    expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('true');
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
     expect(getHistory().getAttribute('data-filter')).toBe('all');
   });
 
@@ -199,9 +259,10 @@ describe('AllHistory', () => {
     expect(hapticSelection).toHaveBeenCalledTimes(1);
     expect(getHistory().getAttribute('data-filter')).toBe('faucet');
 
-    // Second tap on the same (now active) chip returns early.
+    // A second tap on the same (now selected) filter is silent.
     fireEvent.click(getFilterButton('faucet'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   it('clears the query when the search field closes', () => {

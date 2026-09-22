@@ -114,15 +114,19 @@ jest.mock('components/ui', () => ({
     accountId,
     amount,
     onMore,
-    state
+    state,
+    delta
   }: {
     accountNumber: string;
     accountId: string;
     amount: string;
     onMore: () => void;
     state?: string;
+    // Surfaced so a test can see what Home passes: a stub that drops it makes the call site
+    // unobservable, which is how a fabricated change pill shipped.
+    delta?: unknown;
   }) => (
-    <div data-testid="balance-card" data-state={state}>
+    <div data-testid="balance-card" data-state={state} data-delta={delta === undefined ? 'none' : 'passed'}>
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
       <span data-testid="balance-amount">{amount}</span>
@@ -345,6 +349,15 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
+    });
+
+    // The same rule as the "$-" total above, one row down: a change figure the app does not have is
+    // not displayed. Home passed a hardcoded +0.00 / 0.00% before, so the card showed a fabricated
+    // zero-change pill on every visit.
+    it('passes no change figure until a real price-change source exists', async () => {
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
     });
 
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {

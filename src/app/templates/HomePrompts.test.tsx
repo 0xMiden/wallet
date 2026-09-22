@@ -2300,7 +2300,7 @@ describe('HomePrompts', () => {
 
     // A new note from a DIFFERENT faucet (e.g. an unrelated inbound transfer,
     // or a pre-existing note whose metadata only just resolved) must NOT play
-    // the success beat — the request only ever mints native MIDEN.
+    // the success beat - the request only ever mints native MIDEN.
     rerender(
       <HomePrompts
         account={account}
@@ -2795,6 +2795,54 @@ describe('HomePrompts', () => {
     });
   });
 
+  it('arms no timer when it unmounts while the clipboard write is still pending', async () => {
+    jest.useFakeTimers();
+    mockFetchHotKeyHardwareError.mockResolvedValue({ message: 'TEE unavailable (code 7)' });
+    let resolveWrite: () => void = () => undefined;
+    const writeText = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          resolveWrite = resolve;
+        })
+    );
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    const { unmount } = render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() => expect(mockFetchHotKeyHardwareError).toHaveBeenCalled());
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+
+    unmount();
+    // The feedback timer is armed only AFTER the awaited write, so at unmount there is nothing for
+    // the cleanup to clear. Without a liveness check the continuation arms one anyway.
+    await act(async () => {
+      resolveWrite();
+    });
+    expect(jest.getTimerCount()).toBe(0);
+    jest.useRealTimers();
+  });
+
   it('marks the copy action failed when the clipboard rejects', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const writeText = jest.fn().mockRejectedValue(new Error('denied'));
@@ -2826,6 +2874,42 @@ describe('HomePrompts', () => {
       expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
     });
     errorSpy.mockRestore();
+  });
+
+  // Where the Clipboard API is absent the DEREFERENCE throws, so before the write was owned by an
+  // async function the `.catch` that sets this indicator was never attached to anything.
+  it('marks the copy action failed where the Clipboard API is absent entirely', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const stub = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    delete (navigator as { clipboard?: unknown }).clipboard;
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+    });
+    errorSpy.mockRestore();
+    if (stub) Object.defineProperty(navigator, 'clipboard', stub);
   });
 
   it('initiates a hot-key rotation and routes to the generating-transaction page from the rotation prompt', async () => {

@@ -1810,7 +1810,7 @@ const generatePromisifyTransaction = async (
   }
 
   // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
-  // sheet cannot ask for them itself — see `formatSimulatedCustomEffects`. Hoisted above the
+  // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
   // platform split because the spending-limit gate below needs the dry run's outgoing totals on
   // BOTH paths: a custom request moves value too, and before this it reached the queue with no
   // assessment at all, which made "send it as a custom transaction" the way around a cap.

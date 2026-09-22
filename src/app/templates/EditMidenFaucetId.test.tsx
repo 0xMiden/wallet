@@ -32,57 +32,30 @@ jest.mock('lib/miden/assets', () => ({
   setFaucetIdSetting: jest.fn()
 }));
 
-// `FormField` pulls in analytics/tippy plumbing; a forwardRef <input> is enough
-// for react-hook-form to register the field via `ref` and read its value on
-// submit. It also surfaces `errorCaption` so the submit-error branch is
-// assertable, and wires the component's custom `onChange` (which overrides
-// register's own onChange in the source).
-jest.mock('app/atoms/FormField', () =>
-  React.forwardRef(
-    (
-      {
-        name,
-        id,
-        type,
-        placeholder,
-        errorCaption,
-        onChange,
-        onBlur
-      }: {
-        name?: string;
-        id?: string;
-        type?: string;
-        placeholder?: string;
-        errorCaption?: string;
-        onChange?: React.ChangeEventHandler<HTMLInputElement>;
-        onBlur?: React.FocusEventHandler<HTMLInputElement>;
-      },
-      ref: React.Ref<HTMLInputElement>
-    ) => (
-      <span>
-        <input
-          ref={ref}
-          name={name}
-          id={id}
-          type={type}
-          placeholder={placeholder}
-          onChange={onChange}
-          onBlur={onBlur}
-          data-testid={`field-${name}`}
-        />
-        {errorCaption ? <span data-testid={`error-${name}`}>{errorCaption}</span> : null}
-      </span>
-    )
-  )
-);
-
-// `FormSubmitButton` defaults to type="submit"; render a plain submit button so
-// clicking it drives the form's onSubmit, and expose the loading (isSubmitting)
-// flag so the in-flight state is assertable.
-jest.mock('app/atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({ children, loading, disabled }: { children?: React.ReactNode; loading?: boolean; disabled?: boolean }) => (
-    <button type="submit" disabled={disabled} data-loading={String(!!loading)} data-testid="submit-btn">
+// The component passes `type="submit"` explicitly; render a plain submit
+// button so clicking it drives the form's onSubmit, and expose the isLoading
+// (isSubmitting) flag so the in-flight state is assertable.
+jest.mock('components/Button', () => ({
+  Button: ({
+    children,
+    type,
+    form,
+    isLoading,
+    disabled
+  }: {
+    children?: React.ReactNode;
+    type?: 'submit' | 'button';
+    form?: string;
+    isLoading?: boolean;
+    disabled?: boolean;
+  }) => (
+    <button
+      type={type ?? 'button'}
+      form={form}
+      disabled={disabled}
+      data-loading={String(!!isLoading)}
+      data-testid="submit-btn"
+    >
       {children}
     </button>
   )
@@ -91,7 +64,7 @@ jest.mock('app/atoms/FormSubmitButton', () => ({
 const mockUseMidenFaucetId = useMidenFaucetId as jest.Mock;
 const mockSetFaucetIdSetting = setFaucetIdSetting as jest.Mock;
 
-const field = () => screen.getByTestId('field-faucetId') as HTMLInputElement;
+const field = () => screen.getByLabelText('faucetId');
 const form = () => document.querySelector('form') as HTMLFormElement;
 
 // Type a value, then blur. The component overrides register's `onChange` (with
@@ -120,7 +93,23 @@ describe('EditMidenFaucetId', () => {
     expect(field()).toHaveAttribute('placeholder', '0xcurrentfaucet');
     // No success message and no error before any interaction.
     expect(screen.queryByText('faucetIdUpdated')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('error-faucetId')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('edit-faucet-id-error')).not.toBeInTheDocument();
+    // FormSubmitButton defaulted to type="submit"; the canonical Button defaults to
+    // type="button", so the caller has to pin it explicitly.
+    expect(screen.getByTestId('submit-btn')).toHaveAttribute('type', 'submit');
+  });
+
+  it('renders through SubPageLayout with the shared field and Set in the footer, submitting the form', () => {
+    render(<EditMidenFaucetId />);
+
+    const page = screen.getByTestId('edit-miden-faucet-id');
+    const submit = screen.getByTestId('submit-btn');
+    // Pinned outside the form, the button still submits it by id.
+    expect(page.querySelector('[data-slot="footer"]')).toContainElement(submit);
+    expect(submit).toHaveAttribute('form', form().id);
+    // TextField: the field sits on the fill pill, the description is its hint.
+    expect(field().parentElement).toHaveClass('bg-fill', 'rounded-full');
+    expect(screen.getByText('setNewFaucetIdDescription')).toHaveClass('text-muted');
   });
 
   it('autofocuses the faucet-id input on mount (useLayoutEffect)', () => {
@@ -141,6 +130,7 @@ describe('EditMidenFaucetId', () => {
     fireEvent.submit(form());
 
     await waitFor(() => expect(screen.getByText('faucetIdUpdated')).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveClass('text-positive-ink');
     expect(mockSetFaucetIdSetting).toHaveBeenCalledTimes(1);
     expect(mockSetFaucetIdSetting).toHaveBeenCalledWith('0xnewfaucet');
     // The success button reflects the settled (not-submitting) state.
@@ -168,8 +158,9 @@ describe('EditMidenFaucetId', () => {
     fireEvent.submit(form());
 
     // The catch block waits 300ms (human delay) before setting the error.
-    await screen.findByTestId('error-faucetId', undefined, { timeout: 2000 });
-    expect(screen.getByTestId('error-faucetId')).toHaveTextContent('storage unavailable');
+    await screen.findByTestId('edit-faucet-id-error', undefined, { timeout: 2000 });
+    expect(screen.getByTestId('edit-faucet-id-error')).toHaveTextContent('storage unavailable');
+    expect(field()).toHaveAttribute('aria-invalid', 'true');
     expect(screen.queryByText('faucetIdUpdated')).not.toBeInTheDocument();
     expect(consoleSpy).toHaveBeenCalledWith(boom);
     // Refocus after the failed submit lands back on the faucet-id input.

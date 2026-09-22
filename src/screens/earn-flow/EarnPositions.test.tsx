@@ -40,21 +40,6 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
-// `components/CircleButton` itself pulls the icon barrel; stub it to a plain
-// button that forwards `onClick`/`aria-label`/`icon` so the back affordance is
-// assertable without the real presentational internals.
-jest.mock('components/CircleButton', () => ({
-  CircleButton: ({
-    onClick,
-    icon,
-    'aria-label': ariaLabel
-  }: {
-    onClick?: () => void;
-    icon?: string;
-    'aria-label'?: string;
-  }) => <button type="button" data-testid="circle-button" data-icon={icon} aria-label={ariaLabel} onClick={onClick} />
-}));
-
 // Sibling `./components` imports `aave.svg?url`, which jest's `\.svg$` mapper
 // does NOT match (the `?url` suffix defeats the `$` anchor). Stub the two
 // exports this screen consumes so the module never resolves that asset.
@@ -117,6 +102,11 @@ describe('EarnPositions', () => {
     const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
     expect(cards).toHaveLength(EARN_DATA.positions.length);
+    // Each card is the shared fill card, never an outlined one.
+    cards.forEach(card => {
+      expect(card).toHaveClass('bg-fill', 'rounded-2xl');
+      expect(card.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+    });
 
     // ProviderLogo + trailing sr-only chevron Icon appear once per card.
     expect(within(region).getAllByTestId('provider-logo')).toHaveLength(EARN_DATA.positions.length);
@@ -156,14 +146,16 @@ describe('EarnPositions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
-    expect(mockHapticLight).not.toHaveBeenCalled();
+    // PageHeader's IconButton buzzes on every tap, unlike the hand-rolled round
+    // back button this page used to have, which never wired haptics into it.
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('exposes the back button with the ChevronLeft icon', () => {
     render(<EarnPositions />);
 
-    expect(screen.getByTestId('circle-button')).toHaveAttribute('data-icon', 'ChevronLeft');
+    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ChevronLeft"]')).not.toBeNull();
   });
 
   it('fires haptics and navigates to the position route when a card is tapped', () => {

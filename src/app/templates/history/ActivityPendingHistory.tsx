@@ -84,7 +84,12 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   useHideNavbarWhileOpen(showAcceptAll && onActivityTab);
 
   const reject = async (note: NoteWithMetadata) => {
-    const accepted = await confirm({ title: t('activityRejectTransfer'), children: t('activityRejectExplanation') });
+    const accepted = await confirm({
+      title: t('activityRejectTransfer'),
+      children: t('activityRejectExplanation'),
+      confirmLabel: t('activityRejectTransfer'),
+      destructive: true
+    });
     if (!accepted) return;
     const latest = currentItems.current.find(item => item.note.id === note.id);
     if (!latest || (latest.status !== 'pending' && latest.status !== 'failed')) return;
@@ -134,7 +139,8 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             <span>{t('activityHiddenTransfers', { count: hiddenCount })}</span>
             <Button
               variant={ButtonVariant.Secondary}
-              className="w-auto px-3 py-2 text-xs"
+              size="sm"
+              className="w-auto"
               title={t('activityRestoreTransfers')}
               onClick={() => hidden.restore()}
             />

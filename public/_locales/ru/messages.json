@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "Общий остаток",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "Адрес: $number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "Настройки учетной записи",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "Скопировать адрес",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "Адрес скопирован",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "Загрузка…",
@@ -94,42 +93,6 @@
   "promptCardLoading": {
     "message": "Загрузка",
     "englishSource": "Loading"
-  },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
   },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
@@ -567,18 +530,6 @@
     "message": "Нажмите, чтобы отобразить это поле",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Нажмите, чтобы показать",
-    "englishSource": "Click to reveal"
-  },
-  "copiedHash": {
-    "message": "Скопировано.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Скопировать в буфер обмена",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Счета",
     "englishSource": "Accounts"
@@ -757,14 +708,6 @@
     "message": "Просто действительная заранее сгенерированная мнемоника",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Вставка не удалась, так как текст содержал более 24 слов.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Вы можете вставить весь свой секретный код Seed phrase в любое поле",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Одно или несколько слов отсутствуют в списке слов восстановительной фразы. Проверьте выделенные слова.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +752,6 @@
   "retryAnyway": {
     "message": "Всё равно повторить",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal: $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Прежде чем продолжить",
@@ -1083,7 +1017,7 @@
   },
   "importWallet": {
     "message": "Импортировать кошелек",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Импортировать с ключом вместо этого",
@@ -1228,6 +1162,10 @@
   "termsOfService": {
     "message": "Условия предоставления услуг",
     "englishSource": "Terms of Service"
+  },
+  "support": {
+    "message": "Поддержка",
+    "englishSource": "Support"
   },
   "sendFeedback": {
     "message": "Отправить отзыв",
@@ -1598,9 +1536,17 @@
     "message": "Вставить",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Нечего вставить. Сначала скопируйте адрес.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Выберите получателя",
     "englishSource": "Choose recipient"
+  },
+  "sendTo": {
+    "message": "Кому",
+    "englishSource": "Send to"
   },
   "selectAmount": {
     "message": "Выберите сумму",
@@ -1786,13 +1732,13 @@
     "message": "Миден",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Новый контакт",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Добавить контакт",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "Кто это?",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "Добавить в контакты?",
@@ -1801,10 +1747,6 @@
   "recent": {
     "message": "Последние",
     "englishSource": "Recent"
-  },
-  "newContactPlaceholder": {
-    "message": "например, Алиса Боб",
-    "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Контакт с таким же адресом уже существует",
@@ -1822,17 +1764,13 @@
     "message": "Вы уверены, что хотите удалить этот контакт?",
     "englishSource": "Are you sure you want to delete this contact?"
   },
-  "ownAccount": {
-    "message": "Собственный",
-    "englishSource": "Own"
-  },
   "noContactsFound": {
     "message": "Контакты не найдены",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
     "message": "Перейдите по ссылке Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Пополнить кошелек",
@@ -2063,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "Выберите тип импорта",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "Восстановите общественный баланс с помощью фразы из 12 слов. Чтобы восстановить частные средства, загрузите зашифрованный файл резервной копии.",
@@ -2071,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Импорт с исходной фразой",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Используйте существующую фразу восстановления из 12 слов. Вы также можете импортировать кошельки от других поставщиков кошельков.",
@@ -2079,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "Импорт с зашифрованным файлом кошелька",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Загрузите зашифрованный файл кошелька, чтобы безопасно импортировать свою учетную запись. Ваши данные остаются конфиденциальными, в цепочке хранится только хешированная информация.",
@@ -2103,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Продолжить импорт",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Выберите, как вы хотите защитить свой кошелек",
@@ -2111,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Используйте Face ID или биометрическую аутентификацию",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Установите пароль",
@@ -2323,15 +2261,15 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "Введите 12-словное выражение «Seed phrase» вашего кошелька.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Поддерживаются только фразы Miden Seed.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Ваш <highlight>кошелек</highlight> готов!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Ваш кошелек готов!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Запишите свою фразу восстановления в течение 7 дней, чтобы полностью защитить свой кошелек.",
@@ -2471,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Требуется сброс настроек кошелька",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Тестовая сеть Miden перешла на идентификаторы учетных записей в формате bech32 для улучшения удобства использования. Чтобы продолжить пользоваться кошельком, восстановите его из файла резервной копии или с сайта seed phrase либо создайте новый.",
@@ -2483,11 +2421,11 @@
   },
   "reset": {
     "message": "Сбросить настройки кошелька",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Забыли пароль?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Если вы забыли пароль, вам необходимо выйти из системы и повторно импортировать свою учетную запись. После этого вы сможете установить новый пароль.",
@@ -2511,7 +2449,7 @@
   },
   "signOut": {
     "message": "Выйти",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3076,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "Настроить восстановление учетной записи",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Выберите способ восстановления учетной записи на случай потери доступа.",
@@ -3092,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "Полностью приватный",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Только локальное хранение: никто, кроме вас, не увидит состояние вашего счета, но функции восстановления нет — в случае потери устройства ваши средства будут безвозвратно утрачены.",
@@ -3669,6 +3607,62 @@
     "message": "Социальные сети",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Игры",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Обучение",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Категории",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Рекомендуем",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Вспомогательные инструменты",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Открыть",
+    "englishSource": "Open"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Скоро в Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Здесь появятся новые приложения, как только они выйдут в Miden.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "Поиск dApps",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Результаты",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Ничего не найдено",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Попробуйте другое название или вставьте URL dApp.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Получите тестовые токены для обмена",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Свернуть",
     "englishSource": "Minimize"
@@ -3926,7 +3920,7 @@
   },
   "unlockWallet": {
     "message": "Разблокировать кошелек",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "С помощью «seed phrase» вы всегда сможете восстановить свой публичный аккаунт. Выберите ниже способ быстрой разблокировки кошелька.",
@@ -3963,6 +3957,14 @@
   "seeConnected": {
     "message": "См. связанные материалы",
     "englishSource": "See connected"
+  },
+  "noConnectedDApps": {
+    "message": "Нет подключённых dApp",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "Здесь появятся dApp, которые вы подключите к этому аккаунту.",
+    "englishSource": "dApps you connect to this account show up here."
   },
   "transferDetails": {
     "message": "Детали перевода",
@@ -4010,11 +4012,11 @@
   },
   "tokenPrice": {
     "message": "Цена токена",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "Информация о токене",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Взаимозаменяемый",
@@ -4026,7 +4028,7 @@
   },
   "recentActivity": {
     "message": "Последние действия",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Тип",
@@ -4781,6 +4783,14 @@
     "message": "Активность поиска",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "Фильтры активности",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "Период графика",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "Этот мост работает на Ethereum Sepolia. Не подключайте кошелек, в котором хранятся реальные средства. Создайте новый кошелек и пополните его исключительно токенами Sepolia ETH.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
@@ -4832,10 +4842,6 @@
   "networkNoticeResetBody": {
     "message": "Сброс очищает балансы и историю. Тестовые балансы никогда не переносятся в Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Только тестовые токены",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
@@ -4897,6 +4903,15 @@
   "networkModeBanner": {
     "message": "Вы используете Bread на Miden $network$",
     "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkModeStripLabel": {
+    "message": "$network$ — об этой сети",
+    "englishSource": "$network$ — about this network",
     "placeholders": {
       "network": {
         "content": "$1"
@@ -5138,5 +5153,66 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Пройдите аутентификацию, чтобы продолжить эту транзакцию. Это не изменит и не отключит ваш лимит расходов.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "Новый контакт",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Мои счета",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Контактов пока нет",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Сохраните адрес, чтобы отправлять по имени.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Это один из ваших счетов",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Уже сохранён как $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Изменить контакт",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Удалить контакт",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Сохранить",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Добавлен",
+    "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "Оператор: $operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

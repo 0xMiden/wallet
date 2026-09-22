@@ -18,9 +18,9 @@ import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
+import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
-import { useMotion } from 'lib/animation';
-import { pageAppearance } from 'lib/animation/page-appearance';
+import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
@@ -167,7 +167,15 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         scrollHidden && 'translate-y-full'
       )}
     >
-      <BottomNav items={items} activeId={activeId} onChange={onChange} docked={isMobile()} />
+      {/* The test network is named on a ribbon across the bar's lower-right corner, drawn over the
+          tabs, rather than in a banner above every page. */}
+      <BottomNav
+        items={items}
+        activeId={activeId}
+        onChange={onChange}
+        docked={isMobile()}
+        corner={<NetworkModeRibbon docked={isMobile()} />}
+      />
     </div>
   );
 });
@@ -189,18 +197,18 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   const dockedBar = useRef<DockedNavBarHandle>(null);
 
-  // The fade plays once, when the layout mounts. A tab change swaps panes
-  // with no animation, like a native tab bar.
+  // The `fade` preset plays once, when the layout mounts. A tab change swaps
+  // panes with no animation, like a native tab bar.
   const reduce = useReducedMotion();
-  const appearance = useMotion(pageAppearance);
+  const fade = usePreset('fade');
   const appear = !reduce && !isReturningFromWebview();
-  const initial = appear ? { opacity: 0 } : false;
+  const initial = appear ? (fade.initial ?? false) : false;
 
   const tabs = [
     {
       id: 'home',
       label: t('home'),
-      icon: <Icon name={IconName.Home} className="w-8 h-8" fill="currentColor" />
+      icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
     // Explore tab is a dApp browser surface — extension popup has no use
     // for it (browser-the-product is already the host), so drop it there.
@@ -210,42 +218,43 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           {
             id: 'explore',
             label: t('explore'),
-            icon: <Icon name={IconName.Explore} className="w-8 h-8" />
+            icon: <Icon name={IconName.Explore} className="w-6 h-6" />
           }
         ]),
     {
       id: 'activity',
       label: t('activity'),
-      icon: <Icon name={IconName.Activity} className="w-8 h-8" />,
+      icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
       showDot: hasUnclaimedNotes
     },
     {
       id: 'settings',
       label: t('settings'),
-      icon: <Icon name={IconName.Settings} className="w-8 h-8" fill="currentColor" />
+      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
     }
   ];
 
+  // Each action's icon is its action colour, the same token its flow's accent aliases (main.css).
   const actionItems = [
     {
       id: 'overview',
       label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-heading-gray" />
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-action-overview" />
     },
     {
       id: 'send',
       label: 'Send',
-      icon: <Icon name={IconName.Send} className="w-5 h-5" />
+      icon: <Icon name={IconName.Send} className="w-5 h-5 text-action-send" />
     },
     {
       id: 'receive',
       label: 'Receive',
-      icon: <Icon name={IconName.Receive} className="w-5 h-5" />
+      icon: <Icon name={IconName.Receive} className="w-5 h-5 text-action-receive" />
     },
     {
       id: 'earn',
       label: 'Earn',
-      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+      icon: <Icon name={IconName.Earn} className="w-5 h-5 text-action-earn" />
     },
     // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
     ...(isSwapEnabled()
@@ -253,7 +262,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           {
             id: 'swap',
             label: 'Swap',
-            icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+            icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap" />
           }
         ]
       : [])
@@ -275,7 +284,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   // SegmentedActionBar already no-ops re-taps on the active segment and
-  // fires the selection haptic itself.
+  // fires the selection haptic itself; a swipe buzzes in HomeSwipeContainer.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
     if (to && to !== pathname) navigate(to);
@@ -293,9 +302,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ? { height: '100%', width: '100%' }
         : fullPage
           ? { height: '640px', width: '600px' }
-          : // Popup: the body is a fixed 600px, and the router's network banner
-            // (#875) now takes part of it, so fill what remains instead of
-            // hard-coding 600px and clipping the bottom nav.
+          : // Popup: fill the body's fixed 600px from the router's container
+            // rather than hard-coding it.
             { height: '100%', width: '360px' };
 
   // The action bar lives inside the Home pane. A tab change swaps whole
@@ -304,12 +312,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   panesRef.current[activeTab] = showActionBar ? (
     <>
       <div className="shrink-0 relative z-10">
-        <SegmentedActionBar
-          items={actionItems}
-          activeId={activeAction}
-          onChange={handleActionChange}
-          layoutId="tab-layout-action-fill"
-        />
+        <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
         <HomeSwipeContainer />
@@ -341,8 +344,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       <motion.div
         className="flex-1 min-h-0 relative"
         initial={initial}
-        animate={{ opacity: 1 }}
-        transition={appearance}
+        animate={fade.animate}
+        transition={fade.transition}
       >
         {panes.map(id => (
           <TabPane key={id} id={id} active={id === activeTab}>

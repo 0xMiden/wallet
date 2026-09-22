@@ -240,3 +240,29 @@ describe('instanceId', () => {
     expect(id1.length).toBeGreaterThan(0);
   });
 });
+
+// The prompt line above the detail list, and whether that list is shown at all.
+// Both the mobile modal and the desktop overlay read these, so a kind that falls
+// through to the wrong arm mislabels a request the user is about to approve —
+// a note import or a private-data grant described as a transaction.
+describe('confirmationPromptKey / isDetailsConfirmation', () => {
+  it.each([
+    ['connect', 'dappConnectionRequest'],
+    ['sign', 'dappSignRequest'],
+    ['importPrivateNote', 'dappImportNoteRequest'],
+    ['privateData', 'dappPrivateDataRequest'],
+    ['transaction', 'dappTransactionRequest'],
+    ['consume', 'dappTransactionRequest']
+  ] as const)('names a %s request with %s', async (type, expected) => {
+    const { confirmationPromptKey } = await import('./confirmation-store');
+    expect(confirmationPromptKey(type)).toBe(expected);
+  });
+
+  it('shows the detail list for every kind except connect', async () => {
+    const { isDetailsConfirmation } = await import('./confirmation-store');
+    expect(isDetailsConfirmation('connect')).toBe(false);
+    for (const type of ['sign', 'transaction', 'consume', 'importPrivateNote', 'privateData'] as const) {
+      expect(isDetailsConfirmation(type)).toBe(true);
+    }
+  });
+});

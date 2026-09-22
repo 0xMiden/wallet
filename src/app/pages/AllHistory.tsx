@@ -1,6 +1,5 @@
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
@@ -8,9 +7,9 @@ import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHis
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeader, TabHeaderAction } from 'components/ui';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { hapticSelection } from 'lib/mobile/haptics';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
 
 type AllHistoryProps = {
@@ -50,7 +49,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     flow.complete();
   }, []);
 
-  const filters = useMemo<Array<{ id: ActivityFilter; label: string }>>(
+  const filters = useMemo<SegmentedControlItem<ActivityFilter>[]>(
     () => [
       { id: 'all', label: t('all') },
       { id: 'pending', label: t('pending') },
@@ -68,12 +67,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       if (open) setSearch('');
       return !open;
     });
-  };
-
-  const handleFilterTap = (id: ActivityFilter) => {
-    if (id === filter) return;
-    hapticSelection();
-    setFilter(id);
   };
 
   return (
@@ -97,27 +90,13 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
           store's contract assumes. Renders nothing while the store is empty. */}
       <DeadletteredNotesNotice className="shrink-0 mx-4 mt-3" />
 
-      <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {filters.map(f => {
-          const isActive = f.id === filter;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => handleFilterTap(f.id)}
-              className={classNames(
-                'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
-                isActive
-                  ? 'bg-accent-primary text-pure-white font-semibold'
-                  : 'bg-white text-text-primary-token border border-rule-strong'
-              )}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      <SegmentedControl
+        items={filters}
+        value={filter}
+        onChange={setFilter}
+        aria-label={t('activityFilters')}
+        className="shrink-0 px-4 py-2"
+      />
 
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
       <ActivityPendingHistory

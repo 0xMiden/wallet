@@ -4,12 +4,14 @@ import { useAppKit, useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { Icon, IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
-import { ScreenHeader } from 'components/ScreenHeader';
-import { TestNetworkWarning } from 'components/TestNetworkWarning';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
+import { PageHeader } from 'components/PageHeader';
+import { Button } from 'components/ui/Button';
+import { Notice } from 'components/ui/Notice';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
-import { Button } from 'lib/ui/button';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
 
@@ -79,22 +81,26 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg text-heading-gray">
+    <div className="flex h-full min-h-0 flex-col bg-app-bg text-ink">
+      <NetworkModeBanner />
       <div className="shrink-0 px-4">
-        <ScreenHeader title={t('midenBridge')} closeLabel={t('close')} onClose={handleClose} />
+        <PageHeader title={t('midenBridge')} onClose={handleClose} />
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-        <h2 className="text-2xl font-semibold text-heading-gray">{t('connectEvmWallet')}</h2>
+        <h2 className="text-2xl font-semibold text-ink">{t('connectEvmWallet')}</h2>
         <p className="max-w-80 text-sm text-text-tertiary-token">{t('connectEvmWalletDescription')}</p>
 
         {/* Same warning as the Receive-side connect drawer (#875). */}
-        <TestNetworkWarning
-          titleKey="evmConnectTestWalletTitle"
-          bodyKey="evmConnectTestWalletBody"
+        <Notice
+          tone="warning"
+          icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+          title={t('evmConnectTestWalletTitle')}
           className="max-w-80"
           data-testid="evm-connect-test-wallet-warning"
-        />
+        >
+          {t('evmConnectTestWalletBody')}
+        </Notice>
 
         {status === 'connecting' && <p className="text-sm text-grey-500">{t('preparing')}</p>}
 
@@ -104,7 +110,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
           </div>
         )}
 
-        <Button variant="default" size="lg" onClick={handleConnect} className="w-full max-w-80">
+        <Button onClick={handleConnect} className="max-w-80">
           {t('openWallet')}
         </Button>
       </div>

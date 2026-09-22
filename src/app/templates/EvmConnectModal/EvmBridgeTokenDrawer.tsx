@@ -72,13 +72,13 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
               onClick={() => handleSelect(token)}
               className={classNames(
                 'flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors',
-                token === selected ? 'border-primary-500 bg-surface-interactive' : 'border-rule-default bg-pure-white'
+                token === selected ? 'border-primary-500 bg-fill' : 'border-rule-default bg-pure-white'
               )}
             >
               <TokenLogo symbol={token} size="md" />
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="font-heading text-base font-bold text-heading-gray">{token}</span>
-                <span className="text-xs font-semibold text-heading-gray/60">
+                <span className="font-heading text-base font-bold text-ink">{token}</span>
+                <span className="text-xs font-semibold text-ink/60">
                   {loading ? t('loading') : `${balance} ${token}`}
                 </span>
               </div>

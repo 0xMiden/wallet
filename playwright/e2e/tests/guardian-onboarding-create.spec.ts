@@ -66,6 +66,7 @@
  */
 import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
+import { acknowledgeNetworkNotice } from '../helpers/network-notice';
 import { dismissTelemetryConsent } from '../helpers/telemetry-consent';
 
 /** The faucet the harness deploys (helpers/miden-cli.ts `createFaucet` defaults). */
@@ -113,7 +114,7 @@ test.describe('Onboarding — create', () => {
       // The network notice (#875) sits between Welcome and the first create
       // step so a new user reads that this is a test network before funding.
       await expect(page.getByTestId('onboarding-network-notice')).toBeVisible({ timeout: 30_000 });
-      await page.getByTestId('onboarding-network-notice-acknowledge').click();
+      await acknowledgeNetworkNotice(page);
       await expect(page.getByTestId('create-password-input')).toBeVisible({ timeout: 30_000 });
       // Biometric can't work on the extension, so the create flow skips the
       // choose-protection screen entirely (protectionStepRoute). Pinned here

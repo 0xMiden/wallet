@@ -38,6 +38,12 @@ let mockSelectedToken: any = { id: 'T1', name: 'TKN', decimals: 2, balance: 100,
 let mockSelectedContact: any = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
 
 let capturedBackHandler: (() => boolean) | null = null;
+let capturedBackHandlerDeps: unknown[] | null = null;
+
+/** Same comparison React uses for a deps array: same length, `Object.is` per slot. */
+function sameDeps(a: unknown[], b: unknown[]): boolean {
+  return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+}
 
 const navigateToMock = jest.fn();
 const goBackMock = jest.fn();
@@ -104,6 +110,7 @@ jest.mock('./SelectRecipient', () => ({
   SelectRecipient: (props: any) => (
     <div data-testid="select-recipient">
       <span data-testid="sr-address">{props.address}</span>
+      <span data-testid="sr-network">{props.network ?? ''}</span>
       <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
       <span data-testid="sr-error">{props.error ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
@@ -173,14 +180,16 @@ jest.mock('./AccountsList', () => ({
   )
 }));
 
-// The add-contact sheet reuses the Settings form, which reaches FormField ->
-// useTippy -> lib/platform at module scope. Stub it to its observable props.
+// The add-contact sheet has its own tests; stub it to its observable props.
 jest.mock('./AddContactDrawer', () => ({
   AddContactDrawer: (props: any) => (
     <div data-testid="add-contact-drawer">
       <span data-testid="acd-open">{String(props.open)}</span>
       <span data-testid="acd-address">{props.address ?? ''}</span>
+      <span data-testid="acd-network">{props.network ?? ''}</span>
       <button data-testid="acd-close" onClick={() => props.onOpenChange(false)} />
+      {/* Lets a test put the sheet into the in-flight-write state the real SheetBody reports. */}
+      <button data-testid="acd-busy" onClick={() => props.onBusyChange?.(true)} />
     </div>
   )
 }));
@@ -190,9 +199,12 @@ jest.mock('./useRecentRecipients', () => ({
   useRecentRecipients: (...a: any[]) => useRecentRecipientsMock(...a)
 }));
 
+let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
 jest.mock('./bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  BRIDGE_NETWORKS: [],
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
   getBridgeNetwork: jest.fn()
 }));
 
@@ -282,6 +294,7 @@ beforeEach(() => {
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
+  capturedBackHandlerDeps = null;
 
   useAccountMock.mockReturnValue({ publicKey: 'me-pk' });
   useAllAccountsMock.mockReturnValue([]);
@@ -299,9 +312,16 @@ beforeEach(() => {
   walletStoreState.isTransactionModalOpen = false;
   walletStoreState.lastCompletedTxHash = null;
 
-  // Capture the back-button handler from each render so tests can invoke it.
-  useMobileBackHandlerMock.mockImplementation((cb: any) => {
-    capturedBackHandler = cb;
+  // Capture the back-button handler the way registration actually picks one. The real hook
+  // registers inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately excluded
+  // from the deps, so the live handler is the one from the render that last CHANGED a dep, not the
+  // newest one. Re-capturing on every render hands tests the freshest closure and makes a value
+  // missing from the deps array impossible to catch.
+  useMobileBackHandlerMock.mockImplementation((cb: any, deps: unknown[] = []) => {
+    if (!capturedBackHandlerDeps || !sameDeps(deps, capturedBackHandlerDeps)) {
+      capturedBackHandlerDeps = deps;
+      capturedBackHandler = cb;
+    }
   });
 });
 
@@ -470,6 +490,28 @@ describe('mobile back handler', () => {
     });
     expect(result).toBe(true);
     expect(screen.getByTestId('ad-open')).toHaveTextContent('false');
+    expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('does not close the add-contact drawer on mobile back while its save is in flight', () => {
+    renderFlow();
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-addcontact'));
+    });
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
+    act(() => {
+      fireEvent.click(screen.getByTestId('acd-busy'));
+    });
+
+    // This path writes the sheet's open state directly, so it never reaches the drawer's own
+    // dismiss guard. Tearing the sheet down here destroys the only node that can report a failed
+    // save. The gesture is still consumed, so back does not fall through to the Navigator.
+    let result: boolean | undefined;
+    act(() => {
+      result = capturedBackHandler!();
+    });
+    expect(result).toBe(true);
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
@@ -682,6 +724,56 @@ describe('recipient address entry', () => {
     });
     expect(screen.getByTestId('sr-address')).toHaveTextContent('0xpicked');
     expect(screen.getByTestId('ad-recipient')).toHaveTextContent('0xpicked');
+  });
+
+  it('selects the only bridge network for a valid 0x recipient, so Confirm is ready', () => {
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    } finally {
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it("preselects a 0x contact's saved network when it is picked", () => {
+    mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external', network: 'sepolia' };
+    renderFlow();
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+
+    expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    // The add-contact sheet gets the same network, so saving keeps what was chosen.
+    expect(screen.getByTestId('acd-network')).toHaveTextContent('sepolia');
+  });
+
+  it("starts with the recipient and saved network handed over by a contact's page", () => {
+    mockSearch = '?to=0xfromcontact&network=sepolia';
+    mockBridgeNetworks = [
+      { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+      { id: 'base', name: 'Base', chainId: 84532 }
+    ];
+    try {
+      renderFlow();
+
+      expect(screen.getByTestId('sr-address')).toHaveTextContent('0xfromcontact');
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    } finally {
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('validates a handed-over recipient like a typed one', () => {
+    mockSearch = '?to=me-pk';
+    renderFlow();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
   });
 
   it('rejects the current account when it is selected from contacts', () => {

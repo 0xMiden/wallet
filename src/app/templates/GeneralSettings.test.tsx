@@ -60,45 +60,28 @@ jest.mock('lib/telemetry/crash', () => ({
   stopCrashReporting: jest.fn()
 }));
 
+// ListRow's routed branch imports the wallet Link, whose analytics barrel reaches
+// the store; none of these rows route.
+jest.mock('lib/woozie', () => ({ Link: () => null }));
+
 // `setTheme` applies the theme to the document (media queries / class toggles);
 // stub it to a spy so we only assert the intent.
 jest.mock('lib/settings/theme', () => ({
   setTheme: jest.fn()
 }));
 
-// `TabPicker` reaches into framer-motion / uuid / SVG icons. Render each tab as
-// a plain button exposing its id, active flag and index-driven onTabChange, plus
-// a dedicated out-of-range trigger so the `if (!next) return` guard is testable.
-jest.mock('components/TabPicker', () => ({
-  TabPicker: ({
-    tabs,
-    onTabChange
-  }: {
-    tabs: { id: string; title: string; active: boolean }[];
-    onTabChange: (index: number) => void;
-  }) => (
-    <div data-testid="tab-picker">
-      {tabs.map((tab, index) => (
-        <button
-          key={tab.id}
-          type="button"
-          data-testid={tab.id}
-          data-active={String(tab.active)}
-          onClick={() => onTabChange(index)}
-        >
-          {tab.title}
-        </button>
-      ))}
-      <button type="button" data-testid="tab-invalid" onClick={() => onTabChange(999)}>
-        invalid
-      </button>
-    </div>
-  )
-}));
+// The theme picker is the real shared SegmentedControl; only its haptic is stubbed.
+jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn() }));
+
+// jsdom has no scrollIntoView; the control keeps its selection in view with it.
+beforeAll(() => {
+  HTMLElement.prototype.scrollIntoView = jest.fn();
+});
 
 // `SettingToggle` wraps `ToggleSwitch` (analytics / haptics). Render a plain
-// controlled checkbox exposing checked/onChange/name plus title & optional
-// description so every prop and branch of GeneralSettings is assertable.
+// controlled checkbox exposing checked/onChange/name plus the title so every
+// prop and branch of GeneralSettings is assertable. What a setting does is the
+// page's own section footnote, rendered for real.
 jest.mock('./SettingToggle', () => ({
   __esModule: true,
   default: ({
@@ -106,20 +89,17 @@ jest.mock('./SettingToggle', () => ({
     onChange,
     name,
     testID,
-    title,
-    description
+    title
   }: {
     checked: boolean;
     onChange: (evt: React.ChangeEvent<HTMLInputElement>) => void;
     name: string;
     testID: string;
     title: string;
-    description?: string;
   }) => (
-    <div>
+    <div data-testid={`${testID}-row`}>
       <span data-testid={`${testID}-title`}>{title}</span>
       <input type="checkbox" data-testid={testID} name={name} checked={checked} onChange={onChange} />
-      {description ? <span data-testid={`${testID}-desc`}>{description}</span> : null}
     </div>
   )
 }));
@@ -161,7 +141,7 @@ beforeEach(() => {
 });
 
 describe('GeneralSettings', () => {
-  it('renders the theme selector with the three theme tabs and the system tab active by default', () => {
+  it('renders the theme selector with the three theme options and system selected by default', () => {
     render(<GeneralSettings />);
 
     // Theme label + selector container.
@@ -174,9 +154,9 @@ describe('GeneralSettings', () => {
     expect(screen.getByText('themeDark')).toBeInTheDocument();
 
     // `active: themeSetting === opt` — only the system tab is active initially.
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('renders the delegate and auto-consume toggles (both with descriptions) and hides haptic on non-mobile', () => {
@@ -191,10 +171,12 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-title`)).toHaveTextContent(
       'delegateProofSettings'
     );
-    // The delegate toggle now carries an explanatory description (local vs
-    // delegated proving), not just a bare label (#478).
-    expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-desc`)).toHaveTextContent(
-      'delegateProofSettingsDescription'
+    // The delegate toggle carries an explanatory description (local vs
+    // delegated proving), not just a bare label (#478): its section's footnote,
+    // right under the group holding the row.
+    const delegateNote = screen.getByText('delegateProofSettingsDescription');
+    expect(delegateNote.closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-row`)
     );
 
     expect(consume).toBeInTheDocument();
@@ -203,13 +185,42 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-title`)).toHaveTextContent(
       'autoConsumeSettings'
     );
-    // Auto-consume passes a `description` — its description branch renders.
-    expect(screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-desc`)).toHaveTextContent(
-      'autoConsumeSettingsDescription'
+    const consumeNote = screen.getByText('autoConsumeSettingsDescription');
+    expect(consumeNote.closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-row`)
     );
 
     // Non-mobile: haptic toggle is not rendered.
     expect(screen.queryByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeInTheDocument();
+  });
+
+  it('renders through SubPageLayout: theme and haptics in one group, each described switch in its own', () => {
+    mockIsMobile.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    const page = screen.getByTestId('general-settings');
+    const body = page.querySelector('[data-slot="body"]')!;
+    expect(body).toHaveClass('px-4', 'gap-5');
+    // Four since the telemetry consent joined: theme+haptics share one, then delegate,
+    // auto-consume and telemetry each get their own described section.
+    expect(body.querySelectorAll(':scope > section')).toHaveLength(4);
+
+    // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
+    const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
+    expect(themeRow.querySelector('[data-slot="title"]')).toHaveTextContent('theme');
+    expect(themeRow).toContainElement(screen.getByRole('radiogroup', { name: 'theme' }));
+    // A settings choice is a fill row: it never scrolls, so it can never scroll the page under it.
+    expect(screen.getByRole('radiogroup', { name: 'theme' })).toHaveClass('w-full');
+    expect(screen.getByRole('radiogroup', { name: 'theme' }).className).not.toMatch(/overflow-x-auto/);
+    expect(themeRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(themeRow.parentElement).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
+    );
+
+    // Descriptions are the muted 14px section footnote.
+    expect(screen.getByText('delegateProofSettingsDescription')).toHaveClass('text-body-sm', 'text-muted');
+    // No page footer: every setting applies as it is changed.
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });
 
   it('reflects non-default (disabled) toggle states from the helpers', () => {
@@ -227,12 +238,12 @@ describe('GeneralSettings', () => {
 
     render(<GeneralSettings />);
 
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('selecting the light theme tab persists it and updates the active tab', () => {
+  it('selecting the light theme persists it and moves the selection', () => {
     render(<GeneralSettings />);
 
     fireEvent.click(screen.getByTestId('theme-light'));
@@ -240,20 +251,20 @@ describe('GeneralSettings', () => {
     expect(mockSetTheme).toHaveBeenCalledTimes(1);
     expect(mockSetTheme).toHaveBeenCalledWith('light');
     // Local state updated -> the light tab is now active, system is not.
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('selecting the dark theme tab persists it', () => {
+  it('selecting the dark theme persists it', () => {
     render(<GeneralSettings />);
 
     fireEvent.click(screen.getByTestId('theme-dark'));
 
     expect(mockSetTheme).toHaveBeenCalledWith('dark');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('re-selecting the system theme tab persists it', () => {
+  it('re-selecting the system theme persists it', () => {
     // Start on a non-system theme so clicking system is a real change.
     mockGetThemeSetting.mockReturnValue('light');
     render(<GeneralSettings />);
@@ -261,13 +272,13 @@ describe('GeneralSettings', () => {
     fireEvent.click(screen.getByTestId('theme-system'));
 
     expect(mockSetTheme).toHaveBeenCalledWith('system');
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('ignores an out-of-range theme index without persisting (the `if (!next) return` guard)', () => {
+  it('ignores a tap on the theme that is already selected', () => {
     render(<GeneralSettings />);
 
-    fireEvent.click(screen.getByTestId('tab-invalid'));
+    fireEvent.click(screen.getByTestId('theme-system'));
 
     expect(mockSetTheme).not.toHaveBeenCalled();
   });
@@ -369,10 +380,10 @@ describe('GeneralSettings', () => {
       expect(screen.getByTestId(`${GeneralSettingsSelectors.TelemetryToggle}-title`)).toHaveTextContent(
         'helpImproveWallet'
       );
-      // The disclosure is what makes the opt-in informed, so it is not optional.
-      expect(screen.getByTestId(`${GeneralSettingsSelectors.TelemetryToggle}-desc`)).toHaveTextContent(
-        'helpImproveWalletDescription'
-      );
+      // The disclosure is what makes the opt-in informed, so it is not optional. It renders as
+      // the section's footnote rather than a toggle prop: SettingToggle deliberately has no
+      // `description`, because a footnote can wrap.
+      expect(screen.getByText('helpImproveWalletDescription')).toBeInTheDocument();
     });
 
     it('renders on when the user has already consented', () => {

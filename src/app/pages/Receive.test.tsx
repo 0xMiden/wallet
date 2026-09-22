@@ -2,10 +2,11 @@ import React from 'react';
 
 import { Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { waitFor } from '@testing-library/react';
+import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { hapticLight } from 'lib/mobile/haptics';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { Receive } from './Receive';
@@ -29,6 +30,14 @@ jest.mock('@capacitor/filesystem', () => ({
   Filesystem: { writeFile: jest.fn() }
 }));
 
+// The canonical CopyButton (AddressTab's tap-to-copy address) writes through
+// `@capacitor/clipboard`, which jsdom has no native implementation for; mock it the same way
+// CopyButton.test.tsx does so the copied-feedback test below resolves deterministically.
+const mockClipboardWrite = jest.fn().mockResolvedValue(undefined);
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
 jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
 
 jest.mock('app/env', () => ({
@@ -37,7 +46,14 @@ jest.mock('app/env', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { Add: 'Add', CrossChain: 'CrossChain', Share: 'Share', WarningFill: 'WarningFill' }
+  IconName: {
+    Add: 'Add',
+    Checkmark: 'Checkmark',
+    CopyNew: 'CopyNew',
+    CrossChain: 'CrossChain',
+    Share: 'Share',
+    WarningFill: 'WarningFill'
+  }
 }));
 
 let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
@@ -127,13 +143,6 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-// One copy spy for every render, so a test can see the fallback fire.
-const mockCopy = jest.fn();
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: false })
-}));
-
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
 }));
@@ -175,8 +184,9 @@ describe('Receive - Address', () => {
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
     mockQrError = null;
-    mockCopy.mockClear();
+    mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
+    jest.mocked(hapticLight).mockClear();
   });
 
   afterEach(async () => {
@@ -208,16 +218,107 @@ describe('Receive - Address', () => {
     expect(full?.textContent).toBe('test-account-123');
   });
 
-  it('warns about test funds before the share and bridge actions (#875)', async () => {
+  it('rolls the address to "copied" and morphs the glyph to a check for a beat, then reverts', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const container = await renderReceive();
+    const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
+
+    // The address is a full-width 44px pill on `fill`, aligned with the notice and actions.
+    expect(copyButton).toHaveClass('h-11', 'w-full', 'rounded-full', 'bg-fill', 'text-ink');
+    // The shared CopyButton: the animated glyph leads, the address label rolls to "copied".
+    const label = () => copyButton.querySelector('[data-copy-label] [data-present="true"]');
+    const glyph = () => copyButton.querySelector('[data-copy-icon] [data-present="true"]');
+    expect(copyButton.querySelector('[aria-live]')!.firstElementChild).toHaveAttribute('data-copy-icon');
+    expect(label()?.textContent).toBe('test-acc');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'idle');
+
+    await act(async () => {
+      fireEvent.click(copyButton);
+    });
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
+    expect(label()?.textContent).toBe('copied');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'copied');
+
+    act(() => {
+      jest.advanceTimersByTime(1500);
+    });
+    expect(label()?.textContent).toBe('test-acc');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'idle');
+
+    jest.useRealTimers();
+  });
+
+  it('warns about test funds in a warning Notice before the share and bridge actions (#875)', async () => {
     const container = await renderReceive();
 
     const warning = container.querySelector('[data-testid="receive-test-funds-warning"]')!;
-    expect(warning.textContent).toContain('receiveTestFundsTitle');
-    expect(warning.textContent).toContain('receiveTestFundsBody');
+    // The shared Notice: a tinted note on tokens, no dashed border, and the body alone (the
+    // network chip above already says which network).
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning).toHaveClass('bg-status-pending/10', 'rounded-2xl');
+    expect(warning.className).not.toContain('border-dashed');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('receiveTestFundsBody:testnet:');
+    expect(warning.querySelector('[data-slot="icon"]')).not.toBeNull();
     const shareButton = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'share')!;
     const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
     expect(warning.compareDocumentPosition(shareButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(warning.compareDocumentPosition(crossChain)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('renders Share and Cross-chain as rows of one ListGroup, with one haptic per tap', async () => {
+    const container = await renderReceive();
+
+    const actions = container.querySelector('[data-testid="receive-actions"]')!;
+    expect(actions).toHaveClass('rounded-2xl', 'bg-fill');
+    const share = actions.querySelector('[data-testid="receive-share"]')!;
+    const crossChain = actions.querySelector('[data-testid="receive-cross-chain"]')!;
+    expect(share.tagName).toBe('BUTTON');
+    expect(crossChain.tagName).toBe('BUTTON');
+    expect(share.querySelector('[data-slot="title"]')?.textContent).toBe('share');
+    expect(crossChain.querySelector('[data-slot="title"]')?.textContent).toBe('crossChain');
+    // Share opens the system sheet in place; only the cross-chain row goes somewhere.
+    expect(share.querySelector('[data-slot="chevron"]')).toBeNull();
+    expect(crossChain.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    // No label is sized by hand any more (the 40px `text-[2.5rem]` spans).
+    expect(container.querySelector('[class*="text-[2.5rem]"]')).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(crossChain);
+    });
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the network in a NetworkChip and keeps the caption to the shared QR image', async () => {
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-network"]')?.textContent).toBe('qrNetworkCaption:testnet:');
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ caption: 'qrNetworkCaption:testnet:', size: 300 })
+    );
+  });
+
+  it('sizes the QR from the height the layout leaves, square and capped, instead of scrolling', async () => {
+    const container = await renderReceive();
+
+    const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
+    expect(slot).toHaveClass('relative', 'flex-1', 'min-h-40', 'w-full');
+    const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+    expect(frame).toHaveClass('aspect-square', 'h-full', 'max-h-72', 'max-w-full');
+    // The QR block grows into the free height; the notice and actions keep their own.
+    expect(container.querySelector('[data-testid="receive-qr-block"]')).toHaveClass('flex-1');
+    // One column with the 16px gutter, clearing the floating tab bar off mobile.
+    const column = slot.closest('[data-testid="receive-qr-block"]')!.parentElement!;
+    expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-4', 'pb-20');
+  });
+
+  it('clears the docked tab bar on mobile', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const container = await renderReceive();
+
+    const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
+    expect(column).toHaveClass('pb-18');
+    expect(column).not.toHaveClass('pb-20');
   });
 
   it('does not render a pending tab switcher', async () => {
@@ -269,6 +370,7 @@ describe('Receive - Address', () => {
       // The QR still renders on mainnet; only the test-network copy goes away.
       expect(mockQRCodeProps).toHaveBeenCalled();
       expect(container.querySelector('[data-testid="receive-test-funds-warning"]')).toBeNull();
+      expect(container.querySelector('[data-testid="receive-network"]')).toBeNull();
       expect(mockQRCodeProps.mock.lastCall![0].caption).toBeUndefined();
     });
 
@@ -330,7 +432,7 @@ describe('Receive - Address', () => {
           await new Promise(resolve => setTimeout(resolve, 0));
         });
         expect(used).toHaveBeenCalledTimes(1);
-        expect(mockCopy).not.toHaveBeenCalled();
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
       }
     );
 
@@ -357,7 +459,7 @@ describe('Receive - Address', () => {
 
       await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
       expect(share).toHaveBeenCalledWith({ text: 'shareAddressText:devnet:test-account-123' });
-      expect(mockCopy).not.toHaveBeenCalled();
+      expect(mockClipboardWrite).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -381,7 +483,7 @@ describe('Receive - Address', () => {
         );
         expect(warn).toHaveBeenCalledWith('[Receive] failed to render QR image for share:', mockQrError);
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
-        expect(mockCopy).not.toHaveBeenCalled();
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
       } finally {
         warn.mockRestore();
       }
@@ -431,11 +533,32 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockCopy).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
         expect(warn.mock.calls).toEqual(warns ? dismissed : []);
       } finally {
         warn.mockRestore();
       }
+    });
+
+    // The fallback used to write to the clipboard unawaited and uncaught, so a rejected write was an
+    // unhandled promise rejection. It now goes through the hook the page's copy control uses, which
+    // catches - silently, by design: the address stays on screen to copy by hand. If the write goes
+    // uncaught again, Jest itself fails this test on the unhandled rejection; Node reports one only
+    // after a macrotask, hence the wait. (A process.on('unhandledRejection') listener here would
+    // never fire: each test file gets its own copy of `process`.)
+    it('handles a rejected clipboard write in the fallback', async () => {
+      mockIsMobile.mockReturnValue(false);
+      delete (navigator as { share?: unknown }).share;
+      mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
+      const container = await renderReceive();
+      await clickShare(container);
+
+      await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      });
     });
 
     it('copies the address when reading the QR image fails on native', async () => {
@@ -450,7 +573,8 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockCopy).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
         expect(warn).toHaveBeenCalledWith('[Receive] share dismissed:', expect.any(Error));
       } finally {

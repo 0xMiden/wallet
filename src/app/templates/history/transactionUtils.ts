@@ -6,7 +6,6 @@ import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
-  IEarnWithdrawPhase,
   ITransaction,
   ITransactionStatus,
   ITransactionType
@@ -195,13 +194,6 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   return entry.bridgeEpochStatus ?? 'pending';
 };
 
-/** i18n key for each bridge status (shared by the summary row + full Activity row). */
-export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {
-  pending: 'pending',
-  confirmed: 'confirmed',
-  failed: 'bridgeFailed'
-};
-
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
@@ -265,21 +257,6 @@ export const formatEarnWithdrawAmount = (human: string): string => {
   return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
 };
 
-/** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */
-export const earnWithdrawToneOf = (phase: IEarnWithdrawPhase | undefined): BridgeStatus => {
-  if (phase === 'received') return 'confirmed';
-  if (phase === 'failed') return 'failed';
-  return 'pending';
-};
-
-/** i18n key for each withdraw phase status chip. */
-export const EARN_WITHDRAW_STATUS_LABEL_KEY: Record<IEarnWithdrawPhase, string> = {
-  redeeming: 'earnWithdrawStatusRedeeming',
-  delivering: 'earnWithdrawStatusDelivering',
-  received: 'received',
-  failed: 'failed'
-};
-
 /** The amount/symbol pair an `earn-withdraw` row (and its detail hero) displays. */
 export interface EarnWithdrawAmountFields {
   amount?: string;
@@ -323,26 +300,24 @@ export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochSt
  * An `earn-deposit` row goes database-Completed the moment the Miden collateral
  * note lands, but the leg that actually opens the lending position is
  * solver-fulfilled and tracked separately — so an unstamped/pending leg must not
- * render as Confirmed. Mirrors `EarnDepositStatusPill` on the detail page.
+ * render as Confirmed. The detail page reads the same leg through its own badge.
  */
 export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
   entry.earnDepositStatus ?? 'pending';
-
-/** i18n key per deposit settlement state (reuses the shared status labels). */
-export const EARN_DEPOSIT_STATUS_LABEL_KEY: Record<EarnDepositSettlement, string> = {
-  pending: 'pending',
-  confirmed: 'confirmed',
-  failed: 'failed'
-};
 
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;
 };
 
 export const TRANSACTION_COLORS = {
-  send: '#91ACC1',
-  receive: '#99AC94',
-  faucet: '#891DB1'
+  // The Send and Receive action colours, through the activity tokens in main.css.
+  send: 'var(--tx-sent)',
+  receive: 'var(--tx-received)',
+  // A dusty rose distinct from Received's green and Swap's purple. The square carries a white glyph
+  // (HistoryView paints `[&_path]:fill-pure-white`), so it owes WCAG 1.4.11's 3:1: the original
+  // #CCA4B8 sat at 2.19:1, and this is the same hue taken down in lightness until it clears.
+  // Mirrors --tx-faucet in main.css - keep both in sync; the test below is what enforces it.
+  faucet: '#BA839F'
 } as const;
 
 export const formatDate = (timestamp: number | string): string => {

@@ -103,20 +103,20 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
           {breach !== undefined && assessment !== undefined ? (
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-xl bg-surface-secondary-token p-3 text-sm">
               <dt className="text-text-secondary-token">{t('amount')}</dt>
-              <dd className="text-right font-medium text-heading-gray">{formatUsdMicroAmount(assessment.usdAmount)}</dd>
+              <dd className="text-right font-medium text-ink">{formatUsdMicroAmount(assessment.usdAmount)}</dd>
               <dt className="text-text-secondary-token">{t('spendingLimitCap')}</dt>
-              <dd className="text-right text-heading-gray">{formatUsdMicroAmount(breach.limit)}</dd>
+              <dd className="text-right text-ink">{formatUsdMicroAmount(breach.limit)}</dd>
               <dt className="text-text-secondary-token">{t('spendingLimitOverBy')}</dt>
               <dd className="text-right text-status-negative">{formatUsdMicroAmount(breach.overBy)}</dd>
               <dt className="text-text-secondary-token">{t('spendingLimitResets')}</dt>
-              <dd className="text-right text-heading-gray">
+              <dd className="text-right text-ink">
                 {breach.resetAt === null
                   ? t('spendingLimitNoAutomaticReset')
                   : resetTimeFormatter.format(new Date(breach.resetAt * 1000))}
               </dd>
             </dl>
           ) : (
-            <p className="text-sm text-heading-gray">{t('spendingLimitPriceUnavailable')}</p>
+            <p className="text-sm text-muted">{t('spendingLimitPriceUnavailable')}</p>
           )}
           <p className="text-sm text-text-secondary-token">{t('spendingLimitChangeInSettings')}</p>
           <StrictActionAuthentication

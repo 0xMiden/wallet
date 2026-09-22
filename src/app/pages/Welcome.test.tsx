@@ -2048,6 +2048,74 @@ describe('Welcome — back navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  it('offers the header back on every step it can step back from', async () => {
+    await renderWelcome();
+    await setHash('#select-import-type');
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+    await setHash('#import-from-seed');
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+  });
+
+  it('offers back on Confirmation only for a file restore, the one step back that exists there', async () => {
+    await renderWelcome();
+    await stageFileRestore();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+  });
+
+  // Back exists so a user who staged the wrong FILE can pick another. Once a registration has
+  // landed, a wallet may already exist, so the picker would be a lie: it looks abandoned while the
+  // databases are written. The `register` resolved here and readiness never arrived - the one case
+  // where a failure is shown and the import is committed anyway.
+  it('withdraws back on Confirmation once a registration has landed, even when it reports failure', async () => {
+    jest.useFakeTimers();
+    try {
+      // Registration resolves; readiness never arrives. The screen shows a failure and the import is
+      // committed anyway - the one outcome the old `!isLoading` gate could not tell from a rejection.
+      mockFetchState.mockResolvedValue({ status: IDLE });
+      await renderWelcome();
+      await stageFileRestore();
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#confirmation');
+      expect(mockFlowProps.current.canGoBack).toBe(true);
+
+      let pending: Promise<void> | undefined;
+      await act(async () => {
+        pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(5_500);
+      });
+      await act(async () => {
+        await pending;
+      });
+
+      expect(mockFlowProps.current.recoveryError).toBe('walletSetupDidNotComplete');
+      expect(mockFlowProps.current.canGoBack).toBe(false);
+      // The hardware back reads the same predicate; it used to consult only `isLoading`, so it
+      // stayed open exactly where the chevron was closed.
+      mockNavigate.mockClear();
+      expect(mockBackHandlerRef.current?.()).toBe(true);
+      expect(mockNavigate).not.toHaveBeenCalledWith('/#import-from-file');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('hides back on Confirmation for a wallet being created from a seed', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-seed' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockFlowProps.current.canGoBack).toBe(false);
+  });
+
   it('returns a rejected file restore to file selection instead of stranding it on Confirmation', async () => {
     await renderWelcome();
     await stageFileRestore();

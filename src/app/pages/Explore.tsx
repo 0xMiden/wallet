@@ -283,7 +283,7 @@ const Explore: FC = () => {
         )}
 
         <div
-          className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-32 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
+          className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-24 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
           style={{ transform: `translateY(${pullDistance}px)` }}
         >
           <HomeOverview
@@ -337,6 +337,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
+            accountName={account.name}
             // Gap 16: until real prices have loaded, every token falls back to the
             // $1 default, so the "USD total" would be a fabricated number equal to
             // the raw token count. When no prices are available (feed down or still
@@ -352,7 +353,6 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // skeleton and not a "$0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
-            delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}
           />
         )}

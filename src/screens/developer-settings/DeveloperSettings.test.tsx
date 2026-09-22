@@ -18,7 +18,8 @@ jest.mock('react-i18next', () => ({
 const hapticMedium = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn(),
-  hapticMedium: () => hapticMedium()
+  hapticMedium: () => hapticMedium(),
+  hapticSelection: jest.fn()
 }));
 
 // `isExtension` gates which reload path handleReset takes; a mutable flag lets
@@ -39,9 +40,18 @@ jest.mock('webextension-polyfill', () => ({
 
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
+let mockHistoryPosition = 1;
+
 jest.mock('lib/woozie', () => ({
-  navigate: (p: string) => mockNavigate(p),
-  goBack: () => mockGoBack()
+  // Forwards EVERY argument: useBackWithFallback passes the history action as a second one, and a
+  // single-parameter stub would drop it and make any assertion about it fail on arity.
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  goBack: () => mockGoBack(),
+  // useBackWithFallback reads live history at call time, and useOncePerLocation calls listen() in a
+  // mount effect, so without these the whole suite throws on render.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/developer-settings' }),
+  listen: () => () => undefined,
+  HistoryAction: { Pop: 'popstate', Push: 'pushstate', Replace: 'replacestate' }
 }));
 
 // The destructive reset is gated behind the app's standard confirm dialog
@@ -56,10 +66,14 @@ const confirm = jest.fn();
 
 const applyEndpointOverride = jest.fn().mockResolvedValue(undefined);
 const clearEndpointOverride = jest.fn().mockResolvedValue(undefined);
+// The override the screen OPENS on. Null is the fresh-install case the rest of the suite wants;
+// opening on a SAVED custom override is a real entry path, and the one the mount-time half of the
+// restore is about, so it has to be settable.
+let activeOverride: unknown = null;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const { MIDEN_NETWORK_NAME } = jest.requireActual('lib/miden-chain/constants');
   return {
-    getActiveOverride: () => null,
+    getActiveOverride: () => activeOverride,
     applyEndpointOverride: (o: unknown) => applyEndpointOverride(o),
     clearEndpointOverride: () => clearEndpointOverride(),
     getEffectiveNetworkName: () => MIDEN_NETWORK_NAME.TESTNET,
@@ -78,8 +92,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   };
 });
 
-jest.mock('components/Checkbox', () => ({
-  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(value)} />
+jest.mock('components/ui/Checkbox', () => ({
+  CheckboxIndicator: ({ checked }: { checked: boolean }) => (
+    <span data-testid="checkbox" data-checked={String(checked)} />
+  )
 }));
 
 type HealthStatus = 'idle' | 'pending' | 'reachable' | 'error';
@@ -116,19 +132,11 @@ jest.mock('lib/store', () => {
 // House components — replace with lightweight stand-ins that forward the
 // props DeveloperSettings actually passes, so testids/values stay assertable
 // without pulling in framer-motion / icon assets.
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({
-    title,
-    onBack,
-    backLabel
-  }: {
-    title?: React.ReactNode;
-    onBack?: () => void;
-    backLabel?: string;
-  }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack }: { title?: React.ReactNode; onBack?: () => void }) => (
     <div data-testid="screen-header">
       <span>{title}</span>
-      <button type="button" aria-label={backLabel} onClick={onBack}>
+      <button type="button" aria-label="back" onClick={onBack}>
         back
       </button>
     </div>
@@ -136,78 +144,58 @@ jest.mock('components/ScreenHeader', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive', Ghost: 'ghost' },
   Button: ({
     title,
     onClick,
     isLoading,
     disabled,
+    variant,
     'data-testid': testId
   }: {
     title?: string;
     onClick?: () => void;
     isLoading?: boolean;
     disabled?: boolean;
+    variant?: string;
     'data-testid'?: string;
   }) => (
-    <button type="button" onClick={onClick} disabled={disabled} data-loading={String(!!isLoading)} data-testid={testId}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-loading={String(!!isLoading)}
+      data-variant={variant}
+      data-testid={testId}
+    >
       {title}
     </button>
   )
 }));
 
-jest.mock('components/Input', () => ({
-  Input: ({
-    label,
-    value,
-    onChange,
-    disabled,
-    'data-testid': testId
-  }: {
-    label?: string;
-    value?: string;
-    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    disabled?: boolean;
-    'data-testid'?: string;
-  }) => (
-    <label>
-      {label}
-      <input data-testid={testId} value={value} disabled={disabled} onChange={onChange} readOnly={!onChange} />
-    </label>
-  )
-}));
-
-jest.mock('components/TabPicker', () => ({
-  TabPicker: ({
-    tabs,
-    onTabChange
-  }: {
-    tabs: { id: string; title: string; active?: boolean }[];
-    onTabChange?: (index: number) => void;
-  }) => (
-    <div data-testid="tab-picker">
-      {tabs.map((tab, index) => (
-        <button
-          key={tab.id}
-          type="button"
-          data-testid={`tab-${tab.id}`}
-          data-active={String(!!tab.active)}
-          onClick={() => onTabChange?.(index)}
-        >
-          {tab.title}
-        </button>
-      ))}
-    </div>
-  )
-}));
-
 beforeEach(() => {
+  mockHistoryPosition = 1;
+  activeOverride = null;
   jest.clearAllMocks();
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
+});
+
+/** A stored override: testnet's defaults with one endpoint the user authored. `allowNoGuardian`
+ * differs from every preset's `false` in the case that asserts the restore carries URLs only. */
+const saved = (rpcUrl: string, allowNoGuardian = false) => ({
+  rpcUrl,
+  proverUrl: 'https://prover.testnet',
+  noteTransportUrl: 'https://ntl.testnet',
+  faucetUrl: 'https://faucet.testnet',
+  faucetApiUrl: 'https://faucet-api.testnet',
+  explorerUrl: 'https://scan.testnet',
+  guardianUrl: 'https://guardian.testnet',
+  allowNoGuardian,
+  networkName: 'testnet'
 });
 
 describe('DeveloperSettings', () => {
@@ -288,12 +276,135 @@ describe('DeveloperSettings', () => {
 
   it('switching to a different preset prefills the fields and marks it active', () => {
     render(<DeveloperSettings />);
-    const presetPicker = screen.getAllByTestId('tab-picker')[0]!;
-    fireEvent.click(within(presetPicker).getByTestId('tab-devnet'));
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    fireEvent.click(within(presetPicker).getByTestId('dev-endpoint-preset-devnet'));
 
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.devnet');
-    expect(within(presetPicker).getByTestId('tab-devnet')).toHaveAttribute('data-active', 'true');
-    expect(within(presetPicker).getByTestId('tab-testnet')).toHaveAttribute('data-active', 'false');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-devnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-testnet')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  // The picker is a radio group, so arrow keys commit every item they pass over. A typed endpoint
+  // must survive the trip away from Custom and back, however many presets it passes through.
+  it('gives back the typed endpoints when Custom is chosen again', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.devnet');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+  });
+
+  it('gives them back after a walk through more than one preset', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    // Not testnet's and not devnet's: what the user typed.
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+  });
+
+  // A control that flips the form to Custom without touching a URL - the Network ID picker, the
+  // no-guardian checkbox - leaves a PRESET's URLs in the fields. Those must never become "what the
+  // user typed", or the next preset hop stores them and the typed endpoints are gone.
+  it('keeps the typed endpoints when the Network ID is changed between two presets', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(within(networkPicker).getByTestId('dev-endpoint-network-localnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+    // Only the URL fields come back: the network id is the one the last preset set, not the
+    // localnet that a whole-form capture would have carried into the restore.
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-devnet')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('keeps the typed endpoints when the no-guardian toggle is used between two presets', () => {
+    render(<DeveloperSettings />);
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-testnet'));
+    fireEvent.click(screen.getByTestId('dev-allow-no-guardian'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+    // Likewise: the toggle reads what the last preset set, not the `true` a whole-form capture
+    // would have restored alongside the URLs.
+    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+  });
+
+  // The screen is most often opened ON a saved custom override, and those endpoints are remembered
+  // exactly like ones typed here: the restore reads them from the form it opened with.
+  it('gives back endpoints saved in an earlier session, after a hop through a preset', () => {
+    // `allowNoGuardian: true` differs from every preset's `false`, and the fixture's networkName
+    // ('testnet') differs from the devnet hop: between them they make the URL-ONLY half of the
+    // restore observable, which is otherwise invisible to a green suite.
+    activeOverride = { ...saved('https://saved.example', true), presetName: 'custom' };
+    render(<DeveloperSettings />);
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://saved.example');
+    // Only the URL fields come back: the network id and the toggle read what the last preset set.
+    expect(
+      within(screen.getByTestId('dev-endpoint-network-id')).getByTestId('dev-endpoint-network-devnet')
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+  });
+
+  // The two sources in one walk: what was typed here outranks what the screen opened with.
+  it('prefers an endpoint typed now over the one it opened with', () => {
+    activeOverride = { ...saved('https://saved.example'), presetName: 'custom' };
+    render(<DeveloperSettings />);
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://typed.example' } });
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
+  });
+
+  // The other side of the same rule, and what pins the guard: a screen opened on a PRESET has
+  // nothing authored to remember, so Custom must show the form as it stands - the LAST preset's
+  // URLs, not the one it opened on.
+  it('remembers nothing when it opened on a preset, so Custom keeps the last preset chosen', () => {
+    render(<DeveloperSettings />);
+    const picker = screen.getByTestId('dev-endpoint-preset');
+
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-devnet'));
+    fireEvent.click(within(picker).getByTestId('dev-endpoint-preset-custom'));
+
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.devnet');
+  });
+
+  // Reset to defaults shows the defaults; tapping Custom afterwards is an explicit request for the
+  // user's own endpoints, so they come back. Reset is not a discard.
+  it('brings saved endpoints back after Reset to defaults, when Custom is chosen again', () => {
+    activeOverride = { ...saved('https://saved.example'), presetName: 'custom' };
+    render(<DeveloperSettings />);
+
+    fireEvent.click(screen.getByTestId('dev-endpoints-reset-defaults'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.testnet');
+
+    fireEvent.click(within(screen.getByTestId('dev-endpoint-preset')).getByTestId('dev-endpoint-preset-custom'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://saved.example');
   });
 
   it('editing a field value flips the preset picker to custom', () => {
@@ -301,16 +412,16 @@ describe('DeveloperSettings', () => {
     fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://custom.example' } });
 
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://custom.example');
-    const presetPicker = screen.getAllByTestId('tab-picker')[0]!;
-    expect(within(presetPicker).getByTestId('tab-custom')).toHaveAttribute('data-active', 'true');
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('selecting the Custom preset tab directly marks it active without touching field values', () => {
     render(<DeveloperSettings />);
-    const presetPicker = screen.getAllByTestId('tab-picker')[0]!;
-    fireEvent.click(within(presetPicker).getByTestId('tab-custom'));
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    fireEvent.click(within(presetPicker).getByTestId('dev-endpoint-preset-custom'));
 
-    expect(within(presetPicker).getByTestId('tab-custom')).toHaveAttribute('data-active', 'true');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.testnet');
   });
 
@@ -324,41 +435,45 @@ describe('DeveloperSettings', () => {
 
   it('switching the Network ID picker updates the network and flips the preset to custom', () => {
     render(<DeveloperSettings />);
-    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
-    fireEvent.click(within(networkPicker!).getByTestId('tab-localnet'));
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+    fireEvent.click(within(networkPicker).getByTestId('dev-endpoint-network-localnet'));
 
-    expect(within(networkPicker!).getByTestId('tab-localnet')).toHaveAttribute('data-active', 'true');
-    expect(within(presetPicker!).getByTestId('tab-custom')).toHaveAttribute('data-active', 'true');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-localnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('offers Mainnet on the Network ID picker but not on the preset/URL-prefill picker', () => {
     render(<DeveloperSettings />);
-    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
 
-    expect(within(networkPicker!).getByTestId('tab-mainnet')).toBeInTheDocument();
-    expect(within(presetPicker!).queryByTestId('tab-mainnet')).not.toBeInTheDocument();
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toBeInTheDocument();
+    expect(within(presetPicker).queryByTestId('dev-endpoint-preset-mainnet')).not.toBeInTheDocument();
   });
 
   it('capitalizes the preset and network-id tab labels for display, keeping the raw id for logic', () => {
     render(<DeveloperSettings />);
-    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
 
-    expect(within(presetPicker!).getByTestId('tab-testnet')).toHaveTextContent('Testnet');
-    expect(within(presetPicker!).getByTestId('tab-devnet')).toHaveTextContent('Devnet');
-    expect(within(presetPicker!).getByTestId('tab-localnet')).toHaveTextContent('Localnet');
-    expect(within(presetPicker!).getByTestId('tab-custom')).toHaveTextContent('devEndpointCustom');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-testnet')).toHaveTextContent('Testnet');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-devnet')).toHaveTextContent('Devnet');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-localnet')).toHaveTextContent('Localnet');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveTextContent('devEndpointCustom');
 
-    expect(within(networkPicker!).getByTestId('tab-mainnet')).toHaveTextContent('Mainnet');
-    expect(within(networkPicker!).getByTestId('tab-testnet')).toHaveTextContent('Testnet');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toHaveTextContent('Mainnet');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-testnet')).toHaveTextContent('Testnet');
   });
 
   it('read-only mode leaves the Network ID picker inert', () => {
     render(<DeveloperSettings readOnly />);
-    const networkPicker = screen.getByTestId('tab-picker');
-    fireEvent.click(within(networkPicker).getByTestId('tab-devnet'));
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-devnet')).toBeDisabled();
+    fireEvent.click(within(networkPicker).getByTestId('dev-endpoint-network-devnet'));
 
-    expect(within(networkPicker).getByTestId('tab-testnet')).toHaveAttribute('data-active', 'true');
-    expect(within(networkPicker).getByTestId('tab-devnet')).toHaveAttribute('data-active', 'false');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-testnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-devnet')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('asks for confirmation before resetting, with a clearly-worded destructive message', async () => {
@@ -368,7 +483,9 @@ describe('DeveloperSettings', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(confirm).toHaveBeenCalledWith({
       title: 'actionConfirmation',
-      children: 'devEndpointResetConfirm'
+      children: 'devEndpointResetConfirm',
+      confirmLabel: 'reset',
+      destructive: true
     });
   });
 
@@ -429,10 +546,56 @@ describe('DeveloperSettings', () => {
     expect(screen.getAllByText('devEndpointNoResponse').length).toBeGreaterThan(0);
   });
 
+  // Both routes are full-screen pages outside the Settings host, so neither inherits its fallback:
+  // on a cold open goBack() is a no-op and the chevron has to route instead. Both arms are needed -
+  // with only the default one, replacing the ternary with a constant '/' would stay green.
+  it('routes to home when the standalone route is opened cold', () => {
+    mockHistoryPosition = 0;
+    render(<DeveloperSettings />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/', 'replacestate');
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('routes to the settings root when the read-only sub-page is opened cold', () => {
+    mockHistoryPosition = 0;
+    render(<DeveloperSettings readOnly />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replacestate');
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
   it('the back affordance calls goBack', () => {
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders through SubPageLayout: labelled sections, shared fields and the actions pinned in its footer', () => {
+    render(<DeveloperSettings />);
+
+    const page = screen.getByTestId('developer-settings');
+    const footer = page.querySelector('[data-slot="footer"]')!;
+    expect(footer).toContainElement(screen.getByTestId('dev-endpoints-save'));
+    expect(footer).toContainElement(screen.getByTestId('dev-endpoints-reset-defaults'));
+    expect(screen.getByTestId('dev-endpoints-reset-defaults')).toHaveAttribute('data-variant', 'secondary');
+    // The warning is a labelled section with muted copy, not a hand-painted card.
+    expect(screen.getByRole('heading', { name: 'developerSettingsWarningTitle' })).toHaveClass('text-muted');
+    expect(screen.getByText('developerSettingsWarning')).toHaveClass('text-body', 'text-muted');
+    // Every URL is the shared TextField, labelled, at 16px so iOS does not zoom.
+    expect(screen.getByLabelText('devEndpointRpc')).toBe(screen.getByTestId('dev-endpoint-rpcUrl'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveClass('text-body');
+    // The no-guardian option is a ListRow in a group.
+    expect(screen.getByTestId('dev-allow-no-guardian').parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+  });
+
+  it('makes the read-only reset destructive, since it wipes the wallet', () => {
+    render(<DeveloperSettings readOnly />);
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-variant', 'destructive');
   });
 
   it('renders no health note while idle', () => {

@@ -9,7 +9,12 @@ jest.mock('react-i18next', () => ({
     t: (key: string, params?: Record<string, string>) => (params?.value ? `${key}:${params.value}` : key)
   })
 }));
-jest.mock('lib/platform', () => ({ isMobile: () => true }));
+jest.mock('lib/platform', () => ({
+  isMobile: () => true,
+  isExtension: () => false,
+  isAndroid: () => false,
+  isIOS: () => true
+}));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span>{symbol}-logo</span>
@@ -111,9 +116,20 @@ describe('SendAmount', () => {
     const props = renderAmount({ error: 'insufficientFeeAsset' });
 
     expect(screen.getByTestId('send-fee-notice')).toHaveTextContent('insufficientFeeAsset');
+    expect(screen.getByTestId('send-fee-notice')).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(screen.getByTestId('send-fee-notice')).not.toHaveClass('border');
     expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'false');
     fireEvent.click(screen.getByTestId('send-fee-notice-receive'));
     expect(props.onReceive).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws Max and the Receive link in the Send ink, never the bare brand colour', () => {
+    renderAmount({ error: 'insufficientFeeAsset' });
+
+    // The brand #607c92 is 3.85:1 on fill: text in the Send colour takes its 4.5:1 ink.
+    expect(screen.getByTestId('send-amount-max')).toHaveClass('text-accent-send-ink');
+    expect(screen.getByTestId('send-fee-notice-receive')).toHaveClass('text-accent-send-ink');
+    expect(screen.getByTestId('send-amount-max')).not.toHaveClass('text-accent-send');
   });
 
   it('does not mark an empty field as an invalid amount', () => {
