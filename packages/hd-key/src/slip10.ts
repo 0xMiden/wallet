@@ -2,10 +2,38 @@
  * SLIP-0010 key derivation, hardened-only.
  *
  * This module implements the part of SLIP-0010 that the wallet uses: the
- * master key from a seed and hardened child keys. It uses the ed25519 rule
- * of the specification: the child secret is I_L, with no curve arithmetic
- * and no retry step. Every 32-byte sequence is a valid secret. The derived
- * secret is a seed for a key constructor, not a curve scalar.
+ * master key from a seed and hardened child keys.
+ *
+ * WHICH SLIP-0010 RULE, AND WHY
+ *
+ * SLIP-0010 has one HMAC-SHA512 chain and two rules to turn its output `I`
+ * into a child key, selected by curve:
+ *
+ * - secp256k1 / nist256p1: child secret = (I_L + k_parent) mod n. The result
+ *   must be in [1, n); if it is not, re-HMAC with `0x01 || I_R || ser32(i)`
+ *   and retry. The master key retries the same way with `I` as the new seed.
+ *   Non-hardened (public) derivation exists only under this rule.
+ * - ed25519 / curve25519: child secret = I_L, unchanged. Every 32-byte
+ *   sequence is a valid secret, even all zeros, so there is no validity check
+ *   and no retry. Hardened-only.
+ *
+ * This module uses the SECOND rule, for every wallet key, whatever curve the
+ * key ends up on. The name is only shorthand: nothing here touches the
+ * ed25519 curve. The reason is what the output is used for. The derived 32
+ * bytes are NOT a signing key. They are a seed for an SDK key constructor
+ * (`AuthSecretKey.ecdsaWithRNG`, `AuthSecretKey.rpoFalconWithRNG`), which
+ * runs its own key generation from that seed: the SDK reduces it into a
+ * valid secp256k1 scalar itself, and for Falcon the seed feeds a lattice
+ * sampler where "mod n" has no meaning. A `mod n` addition and a retry loop
+ * on bytes that are not a scalar would be meaningless work, and would tie
+ * one seed to one curve. The pre-#918 derivation the wallet shipped with
+ * (`@demox-labs/aleo-hd-key`) used this same rule, so the `legacy` scheme
+ * has to as well or its golden vectors would not reproduce. A derivation
+ * with no rejection path is also a fixed number of HMAC calls with no
+ * data-dependent branching.
+ *
+ * What this gives up is interoperability: a Miden ECDSA key will never equal
+ * a BIP-32 wallet's key for the same phrase. That is deliberate (issue #918).
  *
  * The HMAC label is a parameter. SLIP-0010 uses the label only for domain
  * separation, so a different label gives a disjoint key tree for the same

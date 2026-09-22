@@ -4,11 +4,30 @@ SLIP-0010 hardened-only key derivation and BIP-39 mnemonic helpers for the Miden
 
 ## Scope
 
-- `slip10.ts`: the master key from a seed and hardened child keys, with the ed25519 rule of SLIP-0010 (`k_i = I_L`, no curve arithmetic, no retry). The derived 32 bytes are a seed for an SDK key constructor, never a curve scalar. The HMAC label is a parameter: SLIP-0010 uses it only for domain separation.
+- `slip10.ts`: the master key from a seed and hardened child keys. See "Which SLIP-0010 rule" below. The HMAC label is a parameter: SLIP-0010 uses it only for domain separation.
 - `miden.ts`: the Miden account seed policy (labels, coin type, path layout, scheme versions).
 - `mnemonic.ts`: `@scure/bip39` with the English wordlist fixed.
 
 The package imports nothing from the wallet. The wallet maps its enums to the numeric path levels in `src/lib/miden/sdk/derive-seed.ts`.
+
+## Which SLIP-0010 rule
+
+SLIP-0010 has one HMAC-SHA512 chain and two rules for turning its output `I = I_L || I_R` into a child key, selected by curve:
+
+| Curve | Master secret | Hardened child secret | Validity | Retry | Non-hardened |
+|---|---|---|---|---|---|
+| secp256k1, nist256p1 | `I_L` | `(I_L + k_parent) mod n` | must be in `[1, n)` | yes, re-HMAC with `0x01 ‖ I_R ‖ ser32(i)` (master: with `I` as the new seed) | yes |
+| ed25519, curve25519 | `I_L` | `I_L` | every 32-byte string, all-zero included | never | no |
+
+This package uses the **second rule for every wallet key, whatever curve the key ends up on**. The name is shorthand only: nothing in the package touches the ed25519 curve.
+
+The reason is what the output is used for. The derived 32 bytes are **not a signing key**. They are a seed for an SDK key constructor (`AuthSecretKey.ecdsaWithRNG`, `AuthSecretKey.rpoFalconWithRNG`), which runs its own key generation from that seed. The SDK reduces the seed into a valid secp256k1 scalar itself, and for Falcon the seed feeds a lattice sampler where `mod n` has no meaning. So:
+
+- A `mod n` addition and a retry loop on bytes that are not a scalar would be meaningless work, and would tie one seed to one curve.
+- The derivation the wallet shipped with before #918 (`@demox-labs/aleo-hd-key`) used this same rule, so the `legacy` scheme must as well or its golden vectors would not reproduce.
+- With no rejection path the derivation is a fixed number of HMAC calls with no data-dependent branching.
+
+What this gives up is interoperability: a Miden ECDSA key never equals a BIP-32 wallet's key for the same phrase, and the spec's secp256k1 test vectors cannot be reproduced by the package as-is. That is deliberate (issue #918). `slip10.test.ts` still checks the hardened secp256k1 vector by applying the scalar addition inside the test, which proves the shared HMAC chain, the label handling and the data layout are correct for that curve too.
 
 ## Schemes
 
@@ -32,7 +51,7 @@ Both schemes must stay byte-for-byte stable forever. The derivation decides whic
 
 ## Reference
 
-The implementation follows MetaMask `key-tree` v10.1.1, audited by Cure53 in February 2023 and April 2024. The checks above map to audit findings MM-02-003 (seed length), MM-02-004 (master key bounds) and MM-02-007 (the all-zero ed25519 key is valid). `slip10.test.ts` runs the official SLIP-0010 ed25519 test vectors 1 and 2 with the standard `ed25519 seed` label.
+The implementation follows MetaMask `key-tree` v10.1.1, audited by Cure53 in February 2023 and April 2024. The checks above map to audit findings MM-02-003 (seed length), MM-02-004 (master key bounds) and MM-02-007 (the all-zero ed25519 key is valid). `slip10.test.ts` runs the official SLIP-0010 ed25519 test vectors 1 and 2 with the standard `ed25519 seed` label, and the hardened chains of secp256k1 test vector 1 with the `Bitcoin seed` label.
 
 ## Build
 
