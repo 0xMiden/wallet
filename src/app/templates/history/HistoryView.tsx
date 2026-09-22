@@ -311,7 +311,11 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
-  } else if (!entry.guardianRecovered && entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+  } else if (
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    earnDepositSettlementOf(entry) !== 'confirmed'
+  ) {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
     // the badge tracks that leg, as the details page does. Deliberately checked

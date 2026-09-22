@@ -35,7 +35,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const recovery = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending ? account.publicKey : null);
-  const isRecovering = recovery !== null && recovery.step !== 'history-partial';
+  const isRecovering = recovery !== null && recovery.step !== 'history-partial' && recovery.step !== 'history-failed';
   const isFetching = isLoadingNotes || isLoadingHistory || isRecovering;
   const reducedMotion = useReducedMotion();
   const loadingTransition = useMotion({

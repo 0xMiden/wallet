@@ -543,7 +543,7 @@ const Welcome: FC = () => {
     };
     const startImportFlow = () => {
       setOnboardingType(OnboardingType.Import);
-      navigate('/#select-import-type');
+      navigate('/#import-from-seed');
     };
 
     switch (action.id) {
@@ -860,9 +860,8 @@ const Welcome: FC = () => {
           // Key paste is reached FROM seed entry, so back returns there.
           navigate('/#import-from-seed');
         } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
-          // The import-type choice now precedes both, so back goes there rather
-          // than out of onboarding entirely.
-          navigate('/#select-import-type');
+          cancelOnLeavingOnboarding('/');
+          navigate('/');
         } else if (step === OnboardingStep.Confirmation && importType === ImportType.WalletFile) {
           // Confirmation is where a rejected file restore lands. Retrying in
           // place is already possible; this is the way out when the file itself
@@ -946,10 +945,8 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#select-import-type':
-        setOnboardingType(OnboardingType.Import);
-        setImportType(null);
-        setWalletFilePayload(null);
-        setStep(OnboardingStep.SelectImportType);
+      case '#import-from-file':
+        navigate('/#import-from-seed');
         break;
       case '#import-from-seed':
         setOnboardingType(OnboardingType.Import);
@@ -969,11 +966,6 @@ const Welcome: FC = () => {
         // Same invalidation as seed entry: a detection for the previous
         // credential must not outlive it.
         resetGuardianProbe();
-        break;
-      case '#import-from-file':
-        setOnboardingType(OnboardingType.Import);
-        setImportType(ImportType.WalletFile);
-        setStep(OnboardingStep.ImportFromFile);
         break;
       case '#create-password':
         // Onboarding state is in-memory only; reloading on this screen loses

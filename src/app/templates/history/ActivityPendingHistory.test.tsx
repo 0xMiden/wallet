@@ -2,9 +2,10 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { PendingActivityItem } from './PendingActivityCard';
-import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 
 const mockAccept = jest.fn();
 const mockAcceptMany = jest.fn();
@@ -146,6 +147,10 @@ it('uses one progress bar for notes, history rows, and Guardian recovery', () =>
   expect(screen.getByRole('progressbar')).toBeInTheDocument();
 
   mockRecovery = { accountId: 'account', step: 'history-partial' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'history-failed' };
   view.rerender(<ActivityPendingHistory search="" filter="all" />);
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 

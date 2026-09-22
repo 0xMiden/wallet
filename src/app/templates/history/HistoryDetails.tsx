@@ -528,9 +528,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
   // bounded interval and updates the receipt whenever a consume row changes.
-  const settlementNotes = useSwapSettlementNotes(
-    transaction?.type === 'swap' && !transaction.recovered ? transaction.id : undefined
-  );
+  const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
   const swapTracking = trackingEntry?.tracking ?? null;
   const trackingLoading =
@@ -662,7 +660,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
-        ) : entry.txType === 'swap' && requestedToken && !transaction?.recovered ? (
+        ) : entry.txType === 'swap' && requestedToken && (!transaction?.recovered || requestedToken.faucetId) ? (
           <SwapDetail
             entry={entry}
             requestedAmount={requestedToken.amount}
@@ -678,7 +676,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
+            onOpenPendingNotes={
+              receipt.offerClaimRoute && !transaction?.restoredFromBackup ? () => navigate('/pending-notes') : undefined
+            }
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
@@ -726,11 +726,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     data-testid="history-status-pill"
                   />
                 ) : (
-                  <StatusPill
-                    status={entry.status}
-                    isCancelled={entry.isCancelled}
-                    testId="history-status-pill"
-                  />
+                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
                 )}
               </div>
             </div>

@@ -281,6 +281,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           operator: noteRecoveryProgress.operator,
           count: noteRecoveryProgress.restored ?? 0
         });
+      case 'history-failed':
+        return t('guardianHistoryFailed');
       case 'history-partial':
         return t('guardianHistoryPartial', { count: noteRecoveryProgress.restored ?? 0 });
       case 'transport':
@@ -820,10 +822,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.GuardianNoteRecovery:
           return {
             body: noteRecoveryBody,
-            status: noteRecoveryProgress?.step === 'history-partial' ? 'failure' : 'loading',
-            dismissible: noteRecoveryProgress?.step === 'history-partial',
+            status:
+              noteRecoveryProgress?.step === 'history-partial' || noteRecoveryProgress?.step === 'history-failed'
+                ? 'failure'
+                : 'loading',
+            dismissible:
+              noteRecoveryProgress?.step === 'history-partial' || noteRecoveryProgress?.step === 'history-failed',
             onDismiss:
-              noteRecoveryProgress?.step === 'history-partial'
+              noteRecoveryProgress?.step === 'history-partial' || noteRecoveryProgress?.step === 'history-failed'
                 ? () => {
                     clearGuardianNoteRecoveryProgress(account.publicKey).catch(console.warn);
                   }
@@ -908,7 +914,6 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       bridgeTransactions,
       noteRecoveryBody,
       noteRecoveryProgress,
-      account.publicKey,
       copyHotKeyError,
       copyStatusIndicator,
       faucetError,

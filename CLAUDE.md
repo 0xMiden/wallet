@@ -52,6 +52,10 @@ Extension manifest version comes from `package.json`, NOT `public/manifest.json`
 
 ## Critical gotchas
 
+### Onboarding import
+
+New wallets must use a Guardian. Encrypted-file import is not needed in onboarding. Open seed-phrase entry directly when the user selects import, and keep hot-key import available from that screen. Do not add the import-type choice or encrypted-file import step back to onboarding. Redirect their old URLs to seed-phrase entry.
+
 ### WASM client concurrency
 Miden WASM client is single-threaded. Concurrent calls throw `recursive use of an object ... unsafe aliasing`. **Always** wrap in `withWasmClientLock`:
 ```typescript

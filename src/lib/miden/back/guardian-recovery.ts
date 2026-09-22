@@ -17,7 +17,7 @@ import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
-import { recoverGuardianHistory } from './guardian-history-recovery';
+import { hasFailedGuardianHistory, recoverGuardianHistory } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
@@ -683,6 +683,7 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
   // pass the check above while the first one's Dexie query is in flight.
   startedRecoveries.add(account.publicKey);
   try {
+    if (await hasFailedGuardianHistory(account)) return false;
     if (!(await isSafeToRunNow())) {
       startedRecoveries.delete(account.publicKey);
       return false;
@@ -756,6 +757,14 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     });
     if (history.deferred) {
       startedRecoveries.delete(account.publicKey);
+      return;
+    }
+    if (history.failed) {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history-failed',
+        restored: history.restored
+      });
       return;
     }
     if (history.sourceFailures > 0) {

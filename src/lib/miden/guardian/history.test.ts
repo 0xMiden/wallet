@@ -1,6 +1,12 @@
 import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/guardian-client';
 
-import { normalizeHistoryOperators, recoveredAction, recoveredHistoryRecord, sameNonemptyNotes } from './history';
+import {
+  normalizeHistoryOperators,
+  reconcileRecoveredSwaps,
+  recoveredAction,
+  recoveredHistoryRecord,
+  sameNonemptyNotes
+} from './history';
 import type { ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
@@ -320,4 +326,128 @@ it('normalizes operators and accepts only exact nonempty note sets', () => {
   expect(sameNonemptyNotes([], [])).toBe(false);
   expect(sameNonemptyNotes(['a'], ['a', 'b'])).toBe(false);
   expect(sameNonemptyNotes(['a', 'b'], ['b', 'a'])).toBe(true);
+});
+
+function recoveredSwapPair() {
+  const swap = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta({ proposalType: 'swap' }), {
+    ...summary,
+    outputNotes: [
+      {
+        id: 'order',
+        visibility: 'public',
+        assets: [{ faucetId: 'miden', amount: '70' }],
+        swap: { orderId: '42', requestedAsset: { faucetId: 'ieth', amount: '30' } }
+      }
+    ]
+  });
+  const consume = recoveredHistoryRecord(
+    'account',
+    '0x123',
+    'testnet',
+    'one',
+    entry,
+    delta({ proposalType: 'consume_notes' }),
+    {
+      ...summary,
+      outputNotes: [],
+      inputNotes: [
+        {
+          id: 'payback',
+          visibility: 'public',
+          recipient: 'account',
+          assets: [{ faucetId: 'ieth', amount: '30' }],
+          swap: { orderId: '42' }
+        }
+      ]
+    }
+  );
+  consume.id = 'consume';
+  return { swap, consume };
+}
+
+it('links a recovered receive to its swap by order ID', () => {
+  const { swap, consume } = recoveredSwapPair();
+  expect(reconcileRecoveredSwaps([consume, swap])).toHaveLength(2);
+  expect(swap.faucetId).toBe('miden');
+  expect(swap.extraInputs).toMatchObject({ requestedFaucetId: 'ieth', requestedAmount: 30n, autoConsume: false });
+  expect(consume.extraInputs).toMatchObject({ swapOrderTxId: swap.id, swapSettleKind: 'settle' });
+});
+
+it('keeps mixed batches and unrelated assets visible', () => {
+  const { swap, consume } = recoveredSwapPair();
+  if (!consume.recovery) throw new Error('Missing recovery data');
+  const note = consume.recovery.inputNotes[0];
+  if (!note) throw new Error('Missing input note');
+  consume.recovery.inputNotes.push({ ...note, id: 'unrelated', swap: undefined });
+  expect(reconcileRecoveredSwaps([consume, swap])).toEqual([]);
+  consume.recovery.inputNotes = [{ ...note, assets: [{ faucetId: 'other', amount: '30' }] }];
+  expect(reconcileRecoveredSwaps([consume, swap])).toEqual([]);
+});
+
+it('does not link across accounts or networks or ambiguous orders', () => {
+  const { swap, consume } = recoveredSwapPair();
+  expect(reconcileRecoveredSwaps([consume, { ...swap, accountId: 'other' }])).toEqual([]);
+  if (!swap.recovery) throw new Error('Missing recovery data');
+  expect(
+    reconcileRecoveredSwaps([
+      consume,
+      {
+        ...swap,
+        recovery: { ...swap.recovery, network: 'other' }
+      }
+    ])
+  ).toEqual([]);
+  expect(reconcileRecoveredSwaps([consume, swap, { ...swap, id: 'duplicate-order' }])).toEqual([]);
+});
+
+it('links a reclaimed PSWAP remainder without treating it as a fill', () => {
+  const { swap, consume } = recoveredSwapPair();
+  if (!consume.recovery) throw new Error('Missing recovery data');
+  consume.recovery.inputNotes = swap.recovery?.outputNotes ?? [];
+  reconcileRecoveredSwaps([consume, swap]);
+  expect(consume.extraInputs.swapSettleKind).toBe('reclaim');
+  expect(swap.extraInputs.reclaimedAt).toBeDefined();
+  expect(swap.extraInputs.settledAt).toBeUndefined();
+});
+
+it.each([
+  { proposalType: 'add_signer', description: 'Replace device (hot) signer' },
+  { proposalType: 'switch_guardian', newGuardianEndpoint: 'https://next' },
+  { proposalType: 'update_procedure_threshold', targetProcedure: 'send', targetThreshold: 2 }
+])('keeps account-management fees separate from transfer amounts: %s', proposal => {
+  const row = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta(proposal), summary);
+  expect(row.amount).toBeUndefined();
+  expect(row.faucetId).toBeUndefined();
+  expect(row.assetTotals).toEqual([]);
+  expect(row.feeAmount).toBe(5n);
+});
+
+it('labels a recovered device-key rotation', () => {
+  const proposal = { proposalType: 'add_signer', description: 'Replace device (hot) signer' };
+  const row = recoveredHistoryRecord('account', '0x123', 'testnet', 'one', entry, delta(proposal), summary);
+  expect(row.displayMessage).toBe('Device key rotated');
+});
+
+it('recovers a Guardian endpoint from matching payload metadata', () => {
+  const retained = delta({ proposalType: 'switch_guardian' });
+  retained.deltaPayload.metadata = { proposalType: 'switch_guardian', newGuardianEndpoint: 'https://new' };
+  const row = recoveredHistoryRecord('account', '0x123', 'testnet', 'https://old', entry, retained, summary);
+  expect(row).toBeInstanceOf(SwitchGuardianTransaction);
+  expect(row.extraInputs).toEqual({
+    previousGuardianEndpoint: 'https://old',
+    newGuardianEndpoint: 'https://new'
+  });
+});
+
+it('keeps a Guardian switch partial when its destination is missing', () => {
+  const row = recoveredHistoryRecord(
+    'account',
+    '0x123',
+    'testnet',
+    'https://old',
+    entry,
+    delta({ proposalType: 'switch_guardian' }),
+    summary
+  );
+  expect(row.recovery?.completeness).toBe('partial');
 });

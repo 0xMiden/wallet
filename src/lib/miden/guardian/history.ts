@@ -7,13 +7,14 @@ import {
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwitchGuardianTransaction,
+  SwapTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-history';
 import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
 
-export const GUARDIAN_HISTORY_VERSION = 1;
+export const GUARDIAN_HISTORY_VERSION = 4;
 export class GuardianHistoryDataError extends Error {}
 
 export interface GuardianHistoryRecovery {
@@ -30,6 +31,7 @@ export interface GuardianHistoryRecovery {
 }
 
 export type GuardianHistoryFailure =
+  | 'fee-metadata'
   | 'account-not-found'
   | 'authentication'
   | 'unsupported'
@@ -88,13 +90,14 @@ interface RecoveredTransactionInputs {
   recipient?: string;
   noteType: NoteType;
   inputNotes: GuardianHistoryNote[];
+  outputNotes: GuardianHistoryNote[];
 }
 
 /**
  * Build the concrete transaction class for a recovered action when the
  * Guardian data carries every field its constructor requires. The caller then
  * overrides the queue fields the constructor set. Returns `undefined` when the
- * class needs data the Guardian does not retain: the swap requested side, the
+ * class needs data the Guardian does not retain: the
  * bridge destination, the earn market, or the execute request bytes.
  *
  * A guardian switch records the retaining operator as the previous endpoint,
@@ -106,6 +109,19 @@ export function concreteRecoveredTransaction(inputs: RecoveredTransactionInputs)
     case 'send':
       if (inputs.amount === undefined || !inputs.faucetId || !inputs.recipient) return undefined;
       return new SendTransaction(accountId, inputs.amount, inputs.recipient, inputs.faucetId, inputs.noteType);
+    case 'swap': {
+      const swap = inputs.outputNotes.find(note => note.swap?.requestedAsset)?.swap;
+      if (!swap?.requestedAsset || inputs.amount === undefined || !inputs.faucetId) return undefined;
+      const tx = new SwapTransaction(
+        accountId,
+        inputs.faucetId,
+        inputs.amount,
+        swap.requestedAsset.faucetId,
+        BigInt(swap.requestedAsset.amount)
+      );
+      tx.extraInputs = { ...tx.extraInputs, orderId: swap.orderId, autoConsume: false };
+      return tx;
+    }
     case 'consume': {
       const notes: ConsumableNote[] = inputs.inputNotes.map(note => ({
         id: note.id,
@@ -167,6 +183,25 @@ export function historyCheckpointId(network: string, accountId: string, operator
   return JSON.stringify([network, accountId, operator, GUARDIAN_HISTORY_VERSION]);
 }
 
+function transferNotes(
+  type: ITransactionType,
+  inputNotes: GuardianHistoryNote[],
+  outputNotes: GuardianHistoryNote[]
+): GuardianHistoryNote[] {
+  switch (type) {
+    case 'consume':
+      return inputNotes;
+    case 'send':
+    case 'swap':
+    case 'bridged-send':
+    case 'earn-deposit':
+    case 'execute':
+      return outputNotes;
+    default:
+      return [];
+  }
+}
+
 export function recoveredHistoryRecord(
   accountId: string,
   canonicalAccountId: string,
@@ -191,8 +226,14 @@ export function recoveredHistoryRecord(
   const timestamp = Math.floor(Date.parse(delta.status.timestamp) / 1000);
   if (!Number.isFinite(timestamp) || timestamp <= 0)
     throw new GuardianHistoryDataError('Invalid Guardian canonical timestamp');
-  const proposal = delta.metadata?.proposal ?? delta.deltaPayload.metadata;
-  const type = recoveredAction(proposal);
+  const retainedProposal = delta.metadata?.proposal;
+  const payloadProposal = delta.deltaPayload.metadata;
+  const proposal = retainedProposal ?? payloadProposal;
+  const resolvedProposal =
+    proposal?.proposalType === 'switch_guardian' && payloadProposal?.proposalType === 'switch_guardian'
+      ? { ...proposal, newGuardianEndpoint: proposal.newGuardianEndpoint ?? payloadProposal.newGuardianEndpoint }
+      : proposal;
+  const type = recoveredAction(resolvedProposal);
   const inputNotes: GuardianHistoryNote[] =
     summary?.inputNotes ??
     entry.inputNotes.map(note => ({
@@ -207,7 +248,7 @@ export function recoveredHistoryRecord(
       assets: [],
       visibility: note.noteType
     }));
-  const selectedNotes = type === 'consume' ? inputNotes : outputNotes;
+  const selectedNotes = transferNotes(type, inputNotes, outputNotes);
   const totals = sumHistoryAssets(selectedNotes);
   const first = totals.length === 1 ? totals[0] : undefined;
   const finalCommitment = delta.newCommitment || entry.newCommitment || undefined;
@@ -229,12 +270,13 @@ export function recoveredHistoryRecord(
     accountId,
     type,
     operator,
-    proposal,
+    proposal: resolvedProposal,
     amount: first?.amount,
     faucetId: first?.faucetId,
     recipient: secondaryAccountId,
     noteType,
-    inputNotes
+    inputNotes,
+    outputNotes
   });
   const base: ITransaction = concrete ?? {
     id,
@@ -252,7 +294,7 @@ export function recoveredHistoryRecord(
     initiatedAt: timestamp,
     completedAt: timestamp,
     queuedSeq: undefined,
-    displayMessage: undefined,
+    displayMessage: type === 'replace-hot-key' ? 'Device key rotated' : undefined,
     amount: first?.amount,
     faucetId: first?.faucetId,
     assetTotals: totals,
@@ -273,11 +315,52 @@ export function recoveredHistoryRecord(
       operators: [operator],
       nonce: entry.nonce,
       finalCommitment,
-      proposal,
+      proposal: resolvedProposal,
       inputNotes,
       outputNotes,
-      completeness: summary && proposal ? 'decoded' : 'partial',
+      completeness: summary && resolvedProposal && (type !== 'switch-guardian' || concrete) ? 'decoded' : 'partial',
       reclaimed
     }
   });
+}
+
+// Link only complete consume batches for one order. Keep mixed batches visible.
+export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
+  const changed = new Map<string, ITransaction>();
+  for (const consume of rows) {
+    if (consume.type !== 'consume' || !consume.recovery || consume.status !== ITransactionStatus.Completed) continue;
+    const notes = consume.recovery.inputNotes;
+    const first = notes[0]?.swap;
+    if (!first || notes.some(note => note.swap?.orderId !== first.orderId)) continue;
+    const reclaim = first.requestedAsset !== undefined;
+    if (notes.some(note => (note.swap?.requestedAsset !== undefined) !== reclaim)) continue;
+    const orders = rows.filter(
+      row =>
+        row.type === 'swap' &&
+        row.accountId === consume.accountId &&
+        row.recovery?.network === consume.recovery?.network &&
+        row.extraInputs?.orderId === first.orderId
+    );
+    const order = orders[0];
+    if (orders.length !== 1 || !order) continue;
+    const faucetId = reclaim ? order.faucetId : order.extraInputs?.requestedFaucetId;
+    if (
+      !faucetId ||
+      notes.some(note => note.assets.length === 0 || note.assets.some(asset => asset.faucetId !== faucetId))
+    )
+      continue;
+    consume.extraInputs = {
+      ...consume.extraInputs,
+      swapOrderTxId: order.id,
+      swapSettleKind: reclaim ? 'reclaim' : 'settle'
+    };
+    const completedAt = consume.completedAt ?? consume.initiatedAt;
+    order.extraInputs = {
+      ...order.extraInputs,
+      ...(reclaim ? { reclaimedAt: completedAt } : { settledAt: completedAt })
+    };
+    changed.set(consume.id, consume);
+    changed.set(order.id, order);
+  }
+  return [...changed.values()];
 }

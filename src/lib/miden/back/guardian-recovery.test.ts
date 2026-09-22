@@ -9,7 +9,7 @@ import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { recoverGuardianHistory } from './guardian-history-recovery';
+import { hasFailedGuardianHistory, recoverGuardianHistory } from './guardian-history-recovery';
 import { maybeStartGuardianRecovery } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
@@ -55,6 +55,7 @@ jest.mock('./store', () => ({
   accountsUpdated: jest.fn()
 }));
 jest.mock('./guardian-history-recovery', () => ({
+  hasFailedGuardianHistory: jest.fn().mockResolvedValue(false),
   recoverGuardianHistory: jest.fn().mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0 })
 }));
 
@@ -165,6 +166,7 @@ async function drainDetachedRun() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(hasFailedGuardianHistory).mockResolvedValue(false);
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   setPendingFlag = jest.fn().mockResolvedValue([]);
@@ -941,4 +943,23 @@ describe('detached recovery run', () => {
 
     expect(peak).toBe(1);
   });
+});
+
+it('does not start recovery after a persisted fee-metadata failure', async () => {
+  jest.mocked(hasFailedGuardianHistory).mockResolvedValue(true);
+  await expect(maybeStartGuardianRecovery(pendingAccount())).resolves.toBe(false);
+  expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
+});
+
+it('reports a terminal history failure without clearing the account as recovered', async () => {
+  jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+    deferred: false,
+    sourceFailures: 1,
+    restored: 0,
+    failed: true
+  });
+  await maybeStartGuardianRecovery(pendingAccount({ coldPublicKey: '0xcold' }));
+  await drainDetachedRun();
+  expect(mockReportProgress).toHaveBeenCalledWith(expect.objectContaining({ step: 'history-failed' }));
+  expect(setPendingFlag).not.toHaveBeenCalled();
 });

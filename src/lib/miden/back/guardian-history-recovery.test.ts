@@ -1,13 +1,20 @@
-import { GuardianHttpClient, GuardianHttpError, type DeltaObject, type HistoryEntry, type HistoryPage } from '@openzeppelin/guardian-client';
+import {
+  GuardianHttpClient,
+  GuardianHttpError,
+  type DeltaObject,
+  type HistoryEntry,
+  type HistoryPage
+} from '@openzeppelin/guardian-client';
+
+import type { WalletAccount } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 import { ITransactionStatus } from '../db/types';
 import { clearGuardianHistoryCheckpoints, readGuardianHistoryState } from '../guardian/history-storage';
 import { exportDb, importDb, transactions } from '../repo';
-import type { WalletAccount } from 'lib/shared/types';
-import { WalletType } from 'screens/onboarding/types';
-
 import { classifyHistoryFailure, recoverGuardianHistory } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
+import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
 
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
@@ -16,7 +23,11 @@ jest.mock('@openzeppelin/guardian-client', () => ({
   },
   GuardianHttpError: class extends Error {
     code: string | null;
-    constructor(public status: number, public statusText: string, public body: string) {
+    constructor(
+      public status: number,
+      public statusText: string,
+      public body: string
+    ) {
       super(body);
       this.code = body === 'account_not_found' ? body : null;
     }
@@ -26,31 +37,52 @@ jest.mock('lib/miden/front/storage', () => {
   const values = new Map<string, object | string>();
   return {
     fetchFromStorage: async (key: string) => values.get(key) ?? null,
-    putToStorage: async (key: string, value: object | string) => { values.set(key, value); }
+    putToStorage: async (key: string, value: object | string) => {
+      values.set(key, value);
+    }
   };
 });
 jest.mock('lib/guardian-note-recovery-progress', () => ({ reportGuardianNoteRecoveryProgress: jest.fn() }));
-jest.mock('lib/miden-chain/constants', () => ({ MIDEN_GUARDIAN_ENDPOINTS: new Map([['testnet', ['https://one/', 'https://two']]]) }));
+jest.mock('lib/miden-chain/constants', () => ({
+  MIDEN_GUARDIAN_ENDPOINTS: new Map([['testnet', ['https://one/', 'https://two']]])
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: async () => 'https://one' }));
 jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
-jest.mock('./miden-client-proxy', () => ({ midenClientProxy: {
-  decodeGuardianHistory: jest.fn(), getGuardianResultCommitment: jest.fn()
-} }));
+jest.mock('./miden-client-proxy', () => ({
+  midenClientProxy: {
+    decodeGuardianHistory: jest.fn(),
+    getGuardianResultCommitment: jest.fn()
+  }
+}));
 
 const account: WalletAccount = {
-  publicKey: 'account', name: 'account', isPublic: false, type: WalletType.Guardian,
-  hdIndex: 0, authScheme: 'ecdsa', coldPublicKey: 'cold'
+  publicKey: 'account',
+  name: 'account',
+  isPublic: false,
+  type: WalletType.Guardian,
+  hdIndex: 0,
+  authScheme: 'ecdsa',
+  coldPublicKey: 'cold'
 };
 const timestamp = '2026-08-01T00:00:00Z';
 const entry = (nonce: number): HistoryEntry => ({
-  nonce, status: 'canonical', timestamp, newCommitment: `commitment-${nonce}`,
-  inputNotes: [], outputNotes: [], decodeWarnings: []
+  nonce,
+  status: 'canonical',
+  timestamp,
+  newCommitment: `commitment-${nonce}`,
+  inputNotes: [],
+  outputNotes: [],
+  decodeWarnings: []
 });
 const delta = (nonce: number): DeltaObject => ({
-  accountId: 'account', nonce, prevCommitment: '', newCommitment: `commitment-${nonce}`,
+  accountId: 'account',
+  nonce,
+  prevCommitment: '',
+  newCommitment: `commitment-${nonce}`,
   deltaPayload: { txSummary: { data: nonce.toString() }, signatures: [] },
-  status: { status: 'canonical', timestamp }, metadata: { proposal: { proposalType: 'swap' } }
+  status: { status: 'canonical', timestamp },
+  metadata: { proposal: { proposalType: 'swap' } }
 });
 let clients: Map<string, GuardianHttpClient>;
 const shouldYield = jest.fn<Promise<string | null>, []>();
@@ -79,7 +111,9 @@ beforeEach(async () => {
   source('https://two', [{ entries: [entry(2), entry(3)] }]);
   shouldYield.mockResolvedValue(null);
   jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
-    accountId: 'account', inputNotes: [], outputNotes: [{ id: `note-${encoded}`, visibility: 'public', assets: [{ faucetId: 'asset', amount: '7' }] }]
+    accountId: 'account',
+    inputNotes: [],
+    outputNotes: [{ id: `note-${encoded}`, visibility: 'public', assets: [{ faucetId: 'asset', amount: '7' }] }]
   }));
   jest.mocked(midenClientProxy.getGuardianResultCommitment).mockResolvedValue('commitment-2');
 });
@@ -90,7 +124,10 @@ it('paginates current source first, removes duplicate operators, and merges dupl
   const rows = await transactions.toArray();
   expect(rows).toHaveLength(3);
   expect(rows.find(row => row.recovery?.nonce === 2)?.recovery?.operators).toEqual(['https://one', 'https://two']);
-  expect(clients.get('https://one')?.getDeltaHistory).toHaveBeenNthCalledWith(2, 'account', { limit: 50, cursor: 'next' });
+  expect(clients.get('https://one')?.getDeltaHistory).toHaveBeenNthCalledWith(2, 'account', {
+    limit: 50,
+    cursor: 'next'
+  });
   createClient.mockClear();
   await run();
   expect(createClient).not.toHaveBeenCalled();
@@ -99,8 +136,14 @@ it('paginates current source first, removes duplicate operators, and merges dupl
 
 it('preserves a richer local action matched through its execution commitment', async () => {
   await transactions.add({
-    id: 'local-bridge', type: 'bridged-send', accountId: 'account', status: ITransactionStatus.Completed,
-    initiatedAt: 1, displayIcon: 'SEND', resultBytes: new Uint8Array([1]), extraInputs: { destinationAddress: 'evm-address' }
+    id: 'local-bridge',
+    type: 'bridged-send',
+    accountId: 'account',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    displayIcon: 'SEND',
+    resultBytes: new Uint8Array([1]),
+    extraInputs: { destinationAddress: 'evm-address' }
   });
   await run();
   expect(await transactions.count()).toBe(3);
@@ -112,7 +155,9 @@ it('preserves a richer local action matched through its execution commitment', a
 it('keeps the cursor for an interrupted page and resumes without duplicate rows', async () => {
   const client = clients.get('https://one');
   if (!client) throw new Error('Missing test source');
-  jest.spyOn(client, 'getDeltaHistory').mockReset()
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
     .mockResolvedValueOnce({ entries: [entry(2)], nextCursor: 'next' })
     .mockImplementationOnce(async () => {
       shouldYield.mockResolvedValue('wallet locked');
@@ -130,7 +175,10 @@ it('keeps the cursor for an interrupted page and resumes without duplicate rows'
 it('continues after an authentication failure and retries that source on the next run', async () => {
   const client = clients.get('https://one');
   if (!client) throw new Error('Missing test source');
-  jest.spyOn(client, 'getDeltaHistory').mockReset().mockRejectedValue(new GuardianHttpError(401, 'Unauthorized', 'auth'));
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockRejectedValue(new GuardianHttpError(401, 'Unauthorized', 'auth'));
   expect((await run()).sourceFailures).toBe(1);
   expect(client.getDeltaHistory).toHaveBeenCalledTimes(1);
   expect(await transactions.count()).toBe(2);
@@ -142,7 +190,9 @@ it('continues after an authentication failure and retries that source on the nex
 it('retries a transient failure only once and stops repeated cursors', async () => {
   const client = clients.get('https://one');
   if (!client) throw new Error('Missing test source');
-  jest.spyOn(client, 'getDeltaHistory').mockReset()
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
     .mockRejectedValueOnce(new GuardianHttpError(503, 'Unavailable', 'network'))
     .mockResolvedValueOnce({ entries: [entry(1)], nextCursor: 'loop' })
     .mockResolvedValue({ entries: [entry(2)], nextCursor: 'loop' });
@@ -161,9 +211,129 @@ it('clears checkpoints on import and retains recovered records in backups', asyn
 });
 
 it.each([
-  [404, 'account_not_found', 'account-not-found'], [404, '', 'unsupported'],
-  [401, '', 'authentication'], [403, '', 'authentication'], [503, '', 'network']
+  [404, 'account_not_found', 'account-not-found'],
+  [404, '', 'unsupported'],
+  [401, '', 'authentication'],
+  [403, '', 'authentication'],
+  [503, '', 'network']
 ])('classifies HTTP %s with body %s', (status, body, failure) => {
   if (typeof status !== 'number' || typeof body !== 'string') throw new Error('Invalid test case');
   expect(classifyHistoryFailure(new GuardianHttpError(status, '', body))).toBe(failure);
+});
+
+it('treats an absent account on another Guardian as an empty completed source', async () => {
+  const client = clients.get('https://two');
+  if (!client) throw new Error('Missing test source');
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockRejectedValue(new GuardianHttpError(404, 'Not Found', 'account_not_found'));
+  expect(await run()).toEqual({ deferred: false, sourceFailures: 0, restored: 2 });
+  const checkpoint = Object.values((await readGuardianHistoryState()).checkpoints).find(
+    value => value.operator === 'https://two'
+  );
+  expect(checkpoint).toMatchObject({ completed: true });
+  expect(checkpoint?.failure).toBeUndefined();
+  createClient.mockClear();
+  await run();
+  expect(createClient).not.toHaveBeenCalled();
+});
+
+it('does not treat a missing delta for a listed entry as an empty source', async () => {
+  const client = clients.get('https://two');
+  if (!client) throw new Error('Missing test source');
+  jest.spyOn(client, 'getDelta').mockRejectedValue(new GuardianHttpError(404, 'Not Found', 'account_not_found'));
+  expect((await run()).sourceFailures).toBe(1);
+});
+
+it('upgrades existing decoded rows and links a payback imported before its swap', async () => {
+  await run();
+  const oldRows = await transactions.toArray();
+  for (const row of oldRows) {
+    if (row.recovery) await transactions.update(row.id, { recovery: { ...row.recovery, version: 1 } });
+  }
+  await clearGuardianHistoryCheckpoints();
+  const client = source('https://one', [{ entries: [entry(3)] }, { entries: [entry(2)] }]);
+  jest
+    .spyOn(client, 'getDeltaHistory')
+    .mockReset()
+    .mockResolvedValueOnce({ entries: [entry(3)], nextCursor: 'swap' })
+    .mockResolvedValueOnce({ entries: [entry(2)] });
+  jest.spyOn(client, 'getDelta').mockImplementation(async (_account, nonce) => ({
+    ...delta(nonce),
+    metadata: { proposal: { proposalType: nonce === 3 ? 'consume_notes' : 'swap' } }
+  }));
+  source('https://two', []);
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
+    accountId: 'account',
+    inputNotes:
+      encoded === '3'
+        ? [
+            {
+              id: 'payback',
+              visibility: 'public',
+              recipient: 'account',
+              assets: [{ faucetId: 'ieth', amount: '30' }],
+              swap: { orderId: '42' }
+            }
+          ]
+        : [],
+    outputNotes:
+      encoded === '2'
+        ? [
+            {
+              id: 'order',
+              visibility: 'public',
+              assets: [{ faucetId: 'miden', amount: '70' }],
+              swap: { orderId: '42', requestedAsset: { faucetId: 'ieth', amount: '30' } }
+            }
+          ]
+        : []
+  }));
+  await run();
+  const rows = await transactions.toArray();
+  const swap = rows.find(row => row.recovery?.nonce === 2);
+  const consume = rows.find(row => row.recovery?.nonce === 3);
+  expect(swap?.extraInputs).toMatchObject({ requestedFaucetId: 'ieth', requestedAmount: 30n, autoConsume: false });
+  expect(swap?.extraInputs.settledAt).toBeDefined();
+  expect(consume?.extraInputs).toMatchObject({ swapOrderTxId: swap?.id, swapSettleKind: 'settle' });
+  expect(rows).toHaveLength(3);
+  expect(swap?.id).toBe(oldRows.find(row => row.recovery?.nonce === 2)?.id);
+});
+
+it('stops recovery and retains the failure when fee metadata is unavailable', async () => {
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
+  expect((await run()).sourceFailures).toBe(1);
+  const checkpoint = Object.values((await readGuardianHistoryState()).checkpoints).find(
+    value => value.operator === 'https://one'
+  );
+  expect(checkpoint?.completed).toBe(false);
+  expect(checkpoint?.failure).toBe('fee-metadata');
+  createClient.mockClear();
+  expect((await run()).failed).toBe(true);
+  expect(createClient).not.toHaveBeenCalled();
+  expect(await transactions.count()).toBe(0);
+});
+
+it('fills missing Guardian-switch endpoints from a richer copy on another source', async () => {
+  const first = source('https://one', [{ entries: [entry(2)] }]);
+  const second = source('https://two', [{ entries: [entry(2)] }]);
+  jest.spyOn(first, 'getDelta').mockResolvedValue({
+    ...delta(2),
+    metadata: { proposal: { proposalType: 'switch_guardian' } }
+  });
+  jest.spyOn(second, 'getDelta').mockResolvedValue({
+    ...delta(2),
+    metadata: {
+      proposal: { proposalType: 'switch_guardian', newGuardianEndpoint: 'https://new' }
+    }
+  });
+  await run();
+  const rows = await transactions.toArray();
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.extraInputs).toEqual({
+    previousGuardianEndpoint: 'https://two',
+    newGuardianEndpoint: 'https://new'
+  });
+  expect(rows[0]?.recovery?.operators).toEqual(['https://one', 'https://two']);
 });

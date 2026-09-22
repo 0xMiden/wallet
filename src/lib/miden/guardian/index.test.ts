@@ -11,6 +11,8 @@
  * All external collaborators are stubbed to keep tests hermetic.
  */
 
+import { Account } from '@miden-sdk/miden-sdk/lazy';
+
 import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS } from './serialize';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
@@ -128,10 +130,14 @@ const guardianConfig: {
   getPubkey: jest.Mock;
   getState: jest.Mock;
   setSigner: jest.Mock;
+  getDeltaProposal: jest.Mock;
+  pushDelta: jest.Mock;
 } = {
   getPubkey: jest.fn(),
   getState: jest.fn(),
-  setSigner: jest.fn()
+  setSigner: jest.fn(),
+  getDeltaProposal: jest.fn(),
+  pushDelta: jest.fn()
 };
 const multisigClientConfig: { load: jest.Mock } = {
   load: jest.fn()
@@ -153,7 +159,9 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   GuardianHttpClient: jest.fn().mockImplementation(() => ({
     getPubkey: (...a: unknown[]) => guardianConfig.getPubkey(...a),
     getState: (...a: unknown[]) => guardianConfig.getState(...a),
-    setSigner: (...a: unknown[]) => guardianConfig.setSigner(...a)
+    setSigner: (...a: unknown[]) => guardianConfig.setSigner(...a),
+    getDeltaProposal: guardianConfig.getDeltaProposal,
+    pushDelta: guardianConfig.pushDelta
   })),
   MultisigClient: jest.fn().mockImplementation(() => ({
     load: (...a: unknown[]) => multisigClientConfig.load(...a)
@@ -849,6 +857,37 @@ describe('MultisigService', () => {
 
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('malformed key commitment');
       expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])('records switch history before registration (old source fails: %s)', async fails => {
+      const multisig = makeMultisig({
+        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'switch_guardian' } }))
+      });
+      multisigClientConfig.load.mockResolvedValueOnce(multisig);
+      mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
+      const account = Account.deserialize(new Uint8Array());
+      const service = await MultisigService.init(account, 'key', 'commitment', jest.fn(), 'https://old');
+      const delta = {
+        accountId: 'acc-id',
+        nonce: 5,
+        prevCommitment: 'previous',
+        deltaPayload: { txSummary: { data: 'summary' }, signatures: [] }
+      };
+      guardianConfig.getDeltaProposal.mockResolvedValueOnce(delta);
+      guardianConfig.pushDelta.mockImplementationOnce(async () => {
+        expect(multisig.setGuardianClient).not.toHaveBeenCalled();
+        if (fails) throw new Error('Old Guardian is unavailable');
+      });
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT });
+
+      await service.signAndCreateTransactionRequest('proposal-id');
+      expect(guardianConfig.pushDelta).not.toHaveBeenCalled();
+      await service.finalizeGuardianSwitch('https://new');
+
+      expect(guardianConfig.getDeltaProposal).toHaveBeenCalledWith('acc-id', 'proposal-id');
+      expect(guardianConfig.pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: { data: 'summary' } });
+      expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
     });
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {

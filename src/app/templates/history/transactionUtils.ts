@@ -91,10 +91,13 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   // to re-discriminate them — which is how the scale check first went wrong,
   // testing a property (`name`) that a legitimate metadata record may omit.
   const offeredRegistry = getSwapTokenByFaucetId(tx.faucetId);
-  const offeredMetadata = offeredRegistry === undefined ? await getTokenMetadata(tx.faucetId ?? null) : undefined;
+  const offeredMetadata =
+    offeredRegistry === undefined && tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
   const requestedRegistry = getSwapTokenByFaucetId(extra.requestedFaucetId);
   const requestedMetadata =
-    requestedRegistry === undefined ? await getTokenMetadata(extra.requestedFaucetId ?? null) : undefined;
+    requestedRegistry === undefined && extra.requestedFaucetId
+      ? await getTokenMetadata(extra.requestedFaucetId)
+      : undefined;
   // A registry token declares its own decimals, so a registry hit is always
   // scalable. Off the registry, `getTokenMetadata` hands back the unknown-token
   // placeholder for a faucet it could not resolve, and its 6 decimals are a

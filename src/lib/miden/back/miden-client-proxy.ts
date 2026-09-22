@@ -1,4 +1,3 @@
-import { guardianSummarySchema } from '../sdk/guardian-history';
 // SW-side `MidenClientProxy` — the thin forwarder half of the offscreen
 // WASM-client rehost (issue #260, slice 1).
 //
@@ -63,6 +62,8 @@ import {
   isOffscreenAvailable
 } from './offscreen-prover';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
+import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
 
@@ -431,6 +432,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
       op.reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
+      op.reject(new GuardianHistoryFeeUnavailableError());
       return;
     }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);

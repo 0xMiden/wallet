@@ -18,7 +18,9 @@ const checkpointSchema = z.object({
   seenCursors: z.array(z.string()),
   completed: z.boolean(),
   restored: z.number().int().nonnegative(),
-  failure: z.enum(['account-not-found', 'authentication', 'unsupported', 'network', 'invalid-data']).optional()
+  failure: z
+    .enum(['fee-metadata', 'account-not-found', 'authentication', 'unsupported', 'network', 'invalid-data'])
+    .optional()
 });
 
 const stateSchema = z.object({
