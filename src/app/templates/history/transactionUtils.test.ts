@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import fs from 'fs';
 import path from 'path';
 
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -207,30 +208,21 @@ describe('resolveSwapHistoryFields', () => {
     expect(result.requestedToken).toBe('Unknown');
   });
 
-  it('falls back to wallet metadata, defaults missing faucet ids to null, and omits absent amounts', async () => {
-    // Registry misses on both sides => the `?? await getTokenMetadata(...)` path.
+  it('does not label missing swap assets as the native token', async () => {
     mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
-    mockGetTokenMetadata.mockImplementation(async (tokenId: string | null) => {
-      if (tokenId === null) return swapToken('NATIVE', 5) as any;
-      return swapToken('WALLET', 3) as any;
-    });
-
-    // No extraInputs (=> {}), no faucetId (=> null), no amount, no requestedAmount.
-    const tx: any = { amount: undefined };
-
+    const tx: ITransaction = {
+      id: 'recovered-swap',
+      accountId: 'account',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SWAP'
+    };
     const result = await resolveSwapHistoryFields(tx);
-
-    expect(result).toEqual({
-      amount: undefined,
-      token: 'NATIVE',
-      requestedAmount: undefined,
-      requestedToken: 'NATIVE',
-      requestedFaucetId: undefined
-    });
-    // Both faucet ids were undefined => coalesced to null for the metadata lookup.
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(1, null);
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(2, null);
-    expect(mockFormatAmount).not.toHaveBeenCalled();
+    expect(result.token).toBeUndefined();
+    expect(result.requestedToken).toBeUndefined();
+    expect(result.requestedAmount).toBeUndefined();
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('mixes a registry-resolved offered side with a wallet-metadata requested side', async () => {

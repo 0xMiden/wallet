@@ -273,9 +273,7 @@ async function dispatch(action: any) {
 
 async function stageFileRestore(payload: DecryptedWalletFile = VERSION_TWO_PAYLOAD) {
   await dispatch({ id: 'select-import-type' });
-  await setHash('#select-import-type');
-  await dispatch({ id: 'import-from-file' });
-  await setHash('#import-from-file');
+  await setHash('#create-password');
   await dispatch({ id: 'import-wallet-file-submit', payload });
 }
 
@@ -477,16 +475,12 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
   });
 
-  it('routes the import type and encrypted wallet file hashes', async () => {
+  it.each(['#select-import-type', '#import-from-file'])('redirects %s to seed entry', async hash => {
     await renderWelcome();
-
-    await setHash('#select-import-type');
-    expect(currentStep()).toBe(OnboardingStep.SelectImportType);
-    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
-
-    await setHash('#import-from-file');
-    expect(currentStep()).toBe(OnboardingStep.ImportFromFile);
-    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    await setHash(hash);
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#import-from-seed');
+    expect(currentStep()).not.toBe(OnboardingStep.SelectImportType);
+    expect(currentStep()).not.toBe(OnboardingStep.ImportFromFile);
   });
 
   it('redirects #create-password back to Welcome when onboarding state was lost', async () => {
@@ -565,7 +559,7 @@ describe('Welcome - network notice (#875)', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'network-notice-acknowledge' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
-    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-seed');
   });
 
   it('skips the notice on mainnet', async () => {
@@ -577,7 +571,7 @@ describe('Welcome - network notice (#875)', () => {
     expect(mockNavigate).toHaveBeenLastCalledWith('/#create-password');
 
     await dispatch({ id: 'select-import-type' });
-    expect(mockNavigate).toHaveBeenLastCalledWith('/#select-import-type');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#import-from-seed');
     expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
   });
 
@@ -652,13 +646,13 @@ describe('Welcome — onAction forward navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#choose-guardian');
   });
 
-  it('select-import-type goes through the notice to the import choice screen', async () => {
+  it('select-import-type goes through the notice to seed entry', async () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
     expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
     await dispatch({ id: 'network-notice-acknowledge' });
-    expect(mockNavigate).toHaveBeenLastCalledWith('/#select-import-type');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#import-from-seed');
   });
 
   it('ignores unrecognised action ids (default) without throwing', async () => {
@@ -2239,28 +2233,12 @@ describe('Welcome — back navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
   });
 
-  it('SelectImportType back returns to Welcome', async () => {
-    await renderWelcome();
-    await setHash('#select-import-type');
-    mockNavigate.mockClear();
-    await dispatch({ id: 'back' });
-    expect(mockNavigate).toHaveBeenCalledWith('/');
-  });
-
-  it('ImportFromSeed back returns to the import choice', async () => {
+  it('ImportFromSeed back returns to Welcome', async () => {
     await renderWelcome();
     await setHash('#import-from-seed');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
-    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
-  });
-
-  it('ImportFromFile back returns to the import choice', async () => {
-    await renderWelcome();
-    await setHash('#import-from-file');
-    mockNavigate.mockClear();
-    await dispatch({ id: 'back' });
-    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   it('file restore protection screens return to the file picker', async () => {
@@ -2702,7 +2680,7 @@ describe('Welcome — mobile back handler', () => {
       result = mockBackHandlerRef.current!();
     });
     expect(result).toBe(true);
-    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   it('consumes back without navigating while the confirmation is loading', async () => {
@@ -2906,14 +2884,6 @@ describe('Welcome — telemetry', () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     await setHash('#import-from-seed');
-    mockNavigate.mockClear();
-    await dispatch({ id: 'back' });
-
-    // Seed entry backs up to the import choice. That is still the import flow.
-    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
-    expect(handleFor('import').cancel).not.toHaveBeenCalled();
-
-    await setHash('#select-import-type');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
 

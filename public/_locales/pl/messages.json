@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "Pobieranie historii transakcji i „notes”",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Swap",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Przeniesienie na zewnątrz",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Zarabiaj na depozytach",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian zmieniono",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Klucz urządzenia został zmieniony",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Konto zabezpieczone",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Wykonano",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "Przywracanie historii z $operator$. Transakcje z $count$ zostały przywrócone.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "Nie udało się odtworzyć historii transakcji, ponieważ informacje o opłatach sieciowych są niedostępne. Odtworzenie nie zostanie powtórzone automatycznie.",
+    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ Transakcje zostały przywrócone. Nie udało się odczytać niektórych źródeł z pliku Guardian. Odzyskiwanie zostanie ponowione przy następnym odblokowaniu portfela.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Ładunek",
     "englishSource": "Payload"

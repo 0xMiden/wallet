@@ -62,6 +62,8 @@ import {
   isOffscreenAvailable
 } from './offscreen-prover';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
+import { GuardianHistoryFeeUnavailableError } from '../guardian/history-errors';
+import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
 
@@ -430,6 +432,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
       op.reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
+      op.reject(new GuardianHistoryFeeUnavailableError());
       return;
     }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
@@ -1423,6 +1429,24 @@ export const midenClientProxy = {
   },
 
   /** Pending-note recovery chunk: import proposal-embedded note bytes. */
+  async decodeGuardianHistory(encoded: string) {
+    if (!USE_OFFSCREEN_CLIENT) {
+      return withWasmClientLock(async () => (await getMidenClient()).decodeGuardianHistory(encoded));
+    }
+    const result = await this.call('decodeGuardianHistory', [encoded], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian summary response');
+    return guardianSummarySchema.parse(JSON.parse(new TextDecoder().decode(b64ToBytes(result))));
+  },
+
+  async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {
+    if (!USE_OFFSCREEN_CLIENT) {
+      return withWasmClientLock(async () => (await getMidenClient()).getGuardianResultCommitment(bytes));
+    }
+    const result = await this.call('getGuardianResultCommitment', [bytesToB64(bytes)], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian commitment response');
+    return new TextDecoder().decode(b64ToBytes(result));
+  },
+
   async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () => (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes));

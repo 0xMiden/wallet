@@ -203,6 +203,7 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
   const rows = await candidateRows(at);
 
   for (const row of rows) {
+    if (row.recovered) continue;
     const target = relayTargetOf(row);
     if (!target) {
       // Nothing to re-push with. Leave the row alone rather than counting an

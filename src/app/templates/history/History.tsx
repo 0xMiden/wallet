@@ -28,6 +28,7 @@ import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
 
+import { guardianHistoryIcon } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -58,6 +59,8 @@ type HistoryProps = {
    * this; the loading state lives here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
+  onLoadingChange?: (loading: boolean) => void;
+  externalLoading?: boolean;
 };
 
 // The chips above the activity list. `pending` shows only the notes that
@@ -77,7 +80,9 @@ const History = memo<HistoryProps>(
     filter,
     onInitialLoad,
     pendingItems,
-    renderPendingItem
+    renderPendingItem,
+    onLoadingChange,
+    externalLoading = false
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
@@ -150,6 +155,11 @@ const History = memo<HistoryProps>(
       onInitialLoad?.();
     }, [transactionsLoading, onInitialLoad]);
 
+    const historyLoading = reading && (transactionsLoading || isLoading);
+    useEffect(() => {
+      onLoadingChange?.(historyLoading);
+    }, [historyLoading, onLoadingChange]);
+    useEffect(() => () => onLoadingChange?.(false), [onLoadingChange]);
     // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
     // screen, or a filter moved off Pending.
     const wasReading = useRef(reading);
@@ -286,7 +296,8 @@ const History = memo<HistoryProps>(
       <HistoryView
         entries={entries ?? []}
         // Under Pending both reads are paused, and one that never ran reports loading until they resume.
-        initialLoading={filter !== 'pending' && transactionsLoading}
+        initialLoading={externalLoading || (filter !== 'pending' && transactionsLoading)}
+        hideLoadingSpinner={onLoadingChange !== undefined}
         loadMore={loadMore}
         // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
         // row is filtered out, and off screen.
@@ -325,7 +336,8 @@ async function fetchTransactionsAsHistoryEntries(
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
         : tx.displayMessage;
-    const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
+    const icon =
+      tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
@@ -347,6 +359,8 @@ async function fetchTransactionsAsHistoryEntries(
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
+      guardianRecovered: tx.recovered === true,
+      guardianReclaimed: tx.recovery?.reclaimed,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
       // detail view renders. A terminal row is not guaranteed to carry
       // `completedAt`, and the day grouping builds a Date from this with no

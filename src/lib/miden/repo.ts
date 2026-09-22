@@ -504,6 +504,8 @@ export async function importDb(dump: string): Promise<void> {
     // and `spendingLimits` (added in v1.7) is untouched by import - a wallet-file backup restores
     // transaction history, not local device settings. The rows are written into the current
     // schema either way.
+    const { clearGuardianHistoryCheckpoints } = await import('./guardian/history-storage');
+    await clearGuardianHistoryCheckpoints();
     await db.transaction('rw', transactions, async () => {
       await transactions.clear();
       await transactions.bulkAdd(transactionsToImport);

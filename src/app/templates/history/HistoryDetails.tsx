@@ -67,6 +67,7 @@ import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
+import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
@@ -370,10 +371,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
-          message: tx.displayMessage ?? '',
+          message: tx.recovery
+            ? t(guardianHistoryActionKey(tx.type, tx.recovery.reclaimed))
+            : (tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
-          transactionIcon: tx.displayIcon,
+          transactionIcon: tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
             : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
@@ -543,7 +546,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
-  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
+  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled && !transaction?.recovered;
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -657,7 +660,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
-        ) : entry.txType === 'swap' && requestedToken ? (
+        ) : entry.txType === 'swap' && requestedToken && (!transaction?.recovered || requestedToken.faucetId) ? (
           <SwapDetail
             entry={entry}
             requestedAmount={requestedToken.amount}
@@ -673,7 +676,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
+            onOpenPendingNotes={
+              receipt.offerClaimRoute && !transaction?.restoredFromBackup ? () => navigate('/pending-notes') : undefined
+            }
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">

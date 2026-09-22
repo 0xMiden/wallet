@@ -11,24 +11,21 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
+import { hasFailedGuardianHistory, recoverGuardianHistory } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
 import type { Vault } from './vault';
 
-// NOTE: transaction-history recovery from Guardian's retained deltas is NOT
-// implemented here. It cannot be built against today's Guardian API: the
-// server only lists PENDING proposals on GET /delta/proposal, `getDelta`
-// needs the exact proposer-chosen `Date.now()` nonces (unknowable after seed
-// recovery), and `getDeltaSince` merges the history into one metadata-less
-// blob — so completed history is unreachable until a Guardian release exposes
-// canonical delta history (OpenZeppelin/guardian#357).
+// Guardian exposes canonical deltas through getDeltaHistory. Recover history
+// after pending notes and the required device-key rotation.
 
 export interface GuardianPendingNoteRecoveryResult {
   proposalNotes: number;
@@ -86,7 +83,7 @@ function isWalletLocked(): boolean {
  * checkpoint on the next offer instead.
  */
 function isAbortedOp(error: unknown): boolean {
-  return error instanceof OperationAbortedError;
+  return error instanceof OperationAbortedError || error instanceof WasmClientPoisonedError;
 }
 
 async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' | null> {
@@ -157,7 +154,7 @@ function withHexPrefix(value: string): string {
   return value.startsWith('0x') ? value : `0x${value}`;
 }
 
-async function createGuardianClientContext(account: WalletAccount): Promise<GuardianClientContext> {
+async function createGuardianClientContext(account: WalletAccount, endpoint?: string): Promise<GuardianClientContext> {
   // Prefer the cold key when the account has one (seed-based recovery). A
   // hot-key-only import carries no cold key at all — its note recovery signs
   // with the hot key instead, which the guardian accepts for these read
@@ -175,7 +172,7 @@ async function createGuardianClientContext(account: WalletAccount): Promise<Guar
     return details.commitment;
   });
 
-  const guardianEndpoint = await resolveGuardianEndpoint(account);
+  const guardianEndpoint = endpoint ?? (await resolveGuardianEndpoint(account));
   registerGuardianOrigin(guardianEndpoint);
   const guardian = new GuardianHttpClient(guardianEndpoint);
   guardian.setSigner(
@@ -686,6 +683,7 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
   // pass the check above while the first one's Dexie query is in flight.
   startedRecoveries.add(account.publicKey);
   try {
+    if (await hasFailedGuardianHistory(account)) return false;
     if (!(await isSafeToRunNow())) {
       startedRecoveries.delete(account.publicKey);
       return false;
@@ -751,7 +749,34 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       );
       return;
     }
+    // History shares the seed-restore flag: the flag clears only once every
+    // Guardian source is read, so a failed source retries on the next session.
+    const history = await recoverGuardianHistory(account, {
+      createClient: createGuardianClientContext,
+      shouldYield
+    });
+    if (history.deferred) {
+      startedRecoveries.delete(account.publicKey);
+      return;
+    }
+    if (history.failed) {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history-failed',
+        restored: history.restored
+      });
+      return;
+    }
+    if (history.sourceFailures > 0) {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history-partial',
+        restored: history.restored
+      });
+      return;
+    }
     await clearPendingFlag(account);
+    await clearGuardianNoteRecoveryProgress(account.publicKey);
   } catch (error) {
     console.warn(`[GuardianRecovery] Detached pending-note recovery failed for ${account.publicKey}:`, error);
   }

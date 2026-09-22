@@ -2892,6 +2892,20 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     }
   );
 
+  it('preserves a terminal history fee error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian history fee metadata is unavailable',
+      errorName: 'GuardianHistoryFeeUnavailableError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary');
+    await flush();
+    fireReady();
+    await expect(result).rejects.toMatchObject({ name: 'GuardianHistoryFeeUnavailableError' });
+  });
+
   it('a poison reply whose errorReason is missing or garbled is still classified as an eviction', async () => {
     // The classification is what protects the funds; the mechanism name is only
     // diagnostic. An older or malformed payload must therefore degrade to "some

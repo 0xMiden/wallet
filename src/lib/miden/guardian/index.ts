@@ -102,8 +102,14 @@ export class MultisigService {
   // awaiting prior ticks, and the cached service instance is shared, so two ticks
   // could otherwise drive `syncState()` concurrently and clobber `syncRetryCount`.
   private syncInFlight: Promise<void> | null = null;
+  private switchProposalId?: string;
 
-  constructor(multisig: Multisig, client: MultisigClient, guardianEndpoint: string) {
+  constructor(
+    multisig: Multisig,
+    client: MultisigClient,
+    guardianEndpoint: string,
+    private readonly requestSigner?: WalletSigner
+  ) {
     this.multisig = multisig;
     this.client = client;
     this.guardianEndpoint = guardianEndpoint;
@@ -159,7 +165,7 @@ export class MultisigService {
         return { multisig: await multisigClient.load(account.id().toString(), signer), client: multisigClient };
       });
 
-      return new MultisigService(multisig, client, guardianEndpoint);
+      return new MultisigService(multisig, client, guardianEndpoint, signer);
     } catch (error) {
       console.log('Error initializing MultisigService:', error);
       throw error;
@@ -364,7 +370,9 @@ export class MultisigService {
       const request = TransactionRequest.deserialize(requestBytes);
       return request.extendAdviceMap(advice);
     }
-    return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
+    const request = await withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
+    if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
+    return request;
   }
 
   /**
@@ -642,6 +650,7 @@ export class MultisigService {
   async finalizeGuardianSwitch(newGuardianEndpoint: string): Promise<void> {
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
+      await this.recordCommittedGuardianSwitch();
       const updatedStateBase64 = await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
         // The sync is the canonical parking await (a node that never answers),
@@ -682,6 +691,29 @@ export class MultisigService {
     } catch (error) {
       console.error('Error finalizing guardian switch:', error);
       throw error;
+    }
+  }
+
+  private async recordCommittedGuardianSwitch(): Promise<void> {
+    if (!this.switchProposalId || !this.requestSigner) return;
+    const proposalId = this.switchProposalId;
+    try {
+      const guardian = new GuardianHttpClient(this.guardianEndpoint);
+      guardian.setSigner(this.requestSigner);
+      // Switch requests do not push a delta before submission. Record the
+      // committed switch on the old operator before changing endpoints.
+      await withTimeout(
+        (async () => {
+          const delta = await guardian.getDeltaProposal(this.accountId, proposalId);
+          await guardian.pushDelta({ ...delta, deltaPayload: delta.deltaPayload.txSummary });
+        })(),
+        POST_COMMIT_GUARDIAN_TIMEOUT_MS,
+        'Recording the committed Guardian switch'
+      );
+      this.switchProposalId = undefined;
+    } catch (error) {
+      // The switch has committed. A history failure must not stop registration.
+      console.warn('[Guardian] Failed to retain committed switch history on the old operator:', error);
     }
   }
 

@@ -458,6 +458,59 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  it('shows both Guardians on a recovered switch receipt', async () => {
+    setMockRow({
+      ...baseSendTx,
+      type: 'switch-guardian',
+      amount: undefined,
+      recovered: true,
+      restoredFromBackup: true,
+      extraInputs: { previousGuardianEndpoint: 'https://old', newGuardianEndpoint: 'https://new' }
+    });
+    await renderAndLoad();
+    expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-previous', 'https://old');
+    expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-new', 'https://new');
+    expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+  });
+
+  it.each(['send', 'consume', 'swap', 'bridged-send', 'earn-deposit'])(
+    'uses the standard detail card for a recovered %s without external actions',
+    async type => {
+      setMockRow({
+        id: 'recovered',
+        type,
+        accountId: 'acct-A',
+        status: 2,
+        initiatedAt: 1,
+        amount: 7n,
+        faucetId: 'faucet',
+        displayIcon: 'DEFAULT',
+        restoredFromBackup: true,
+        recovered: true,
+        recovery: {
+          version: 1,
+          network: 'testnet',
+          operators: ['https://guardian.example'],
+          nonce: 1,
+          inputNotes: [],
+          outputNotes: [],
+          completeness: 'partial',
+          reclaimed: false
+        }
+      });
+      const view = render(<HistoryDetails transactionId="recovered" />);
+      await act(async () => {});
+      expect(screen.getByTestId('page-layout')).toBeInTheDocument();
+      expect(
+        screen.getAllByTestId('detail-section').some(card => card.getAttribute('data-title') === 'transferDetails')
+      ).toBe(true);
+      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('guardian-history-details')).not.toBeInTheDocument();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  );
   it('shows the fee bound when retrying a Miden transaction', async () => {
     mockMaxNetworkFee = '0.3 MIDEN';
     setMockRow({ ...baseSendTx, status: 3 });
@@ -1192,6 +1245,38 @@ describe('HistoryDetails', () => {
       outputNoteIds: undefined,
       transactionId: undefined,
       extraInputs: { expiresAt: 1_700_000_120, ...extra }
+    });
+
+    it('shows a recovered swap with its requested token and linked receive', async () => {
+      mockGetSwapTokenByFaucetId.mockImplementation((faucetId: string) => ({
+        symbol: faucetId === 'req-faucet' ? 'IETH' : 'MIDEN',
+        decimals: 8
+      }));
+      setMockRow({
+        ...swapTx({ orderId: '42', requestedFaucetId: 'req-faucet', requestedAmount: 30n, autoConsume: false }),
+        recovered: true,
+        restoredFromBackup: true
+      });
+      setMockSettlementNotes({
+        settled: ['payback'],
+        reclaimed: [],
+        reclaimedTransactions: [],
+        settledTransactions: [
+          {
+            id: 'receive',
+            noteIds: ['payback'],
+            amount: 30n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          }
+        ]
+      });
+      await renderAndLoad();
+      expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_30_30_ IETH');
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('payback');
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
     });
 
     it('resolves the requested token via the swap registry and shows a filled order', async () => {
