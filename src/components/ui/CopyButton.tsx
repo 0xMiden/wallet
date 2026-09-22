@@ -7,7 +7,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { cn } from 'lib/ui/util';
 
-import { AnimatedCopyIcon, CopyLabel } from './CopyFeedback';
+import { AnimatedCopyIcon } from './AnimatedCopyIcon';
+import { CopyLabel } from './CopyLabel';
 
 export type CopyButtonIcon = 'leading' | 'trailing' | 'only';
 

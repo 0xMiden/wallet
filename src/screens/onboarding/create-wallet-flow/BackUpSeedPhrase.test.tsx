@@ -58,8 +58,10 @@ jest.mock('components/Button', () => ({
 
 // The shared copy confirmation (glyph morph + label roll) has its own suite; stub it to markers
 // that surface the `copied` state this screen feeds it.
-jest.mock('components/ui/CopyFeedback', () => ({
-  AnimatedCopyIcon: ({ copied }: { copied: boolean }) => <span data-testid="copy-glyph" data-copied={String(copied)} />,
+jest.mock('components/ui/AnimatedCopyIcon', () => ({
+  AnimatedCopyIcon: ({ copied }: { copied: boolean }) => <span data-testid="copy-glyph" data-copied={String(copied)} />
+}));
+jest.mock('components/ui/CopyLabel', () => ({
   CopyLabel: ({ copied, copiedLabel, children }: { copied: boolean; copiedLabel: string; children: string }) => (
     <span data-testid="copy-label">{copied ? copiedLabel : children}</span>
   )

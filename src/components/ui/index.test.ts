@@ -13,6 +13,7 @@ import path from 'path';
 import { AccountsDrawer } from './AccountsDrawer';
 import { ActivityRow } from './ActivityRow';
 import { AlertSheet } from './AlertSheet';
+import { AnimatedCopyIcon } from './AnimatedCopyIcon';
 import { AssetListItem } from './AssetListItem';
 import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
@@ -23,7 +24,7 @@ import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
-import { AnimatedCopyIcon, CopyLabel } from './CopyFeedback';
+import { CopyLabel } from './CopyLabel';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
 import { Hero } from './Hero';
@@ -114,9 +115,7 @@ describe('components/ui barrel', () => {
   // Runtime values the barrel forwards that are NOT components. `ButtonVariant` is a real `enum`,
   // so it is an object on the module - it belongs in the key set but would fail the renderable
   // check below.
-  // `CopyFeedback` is a module namespace, not a component: see the barrel for why that module
-  // has no single symbol to name it after.
-  const EXPECTED_NON_COMPONENT_VALUES = { ButtonVariant, CopyFeedback: UI.CopyFeedback } as const;
+  const EXPECTED_NON_COMPONENT_VALUES = { ButtonVariant } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {
     (Object.keys(EXPECTED_COMPONENTS) as Array<keyof typeof EXPECTED_COMPONENTS>).forEach(name => {

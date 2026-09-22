@@ -36,12 +36,11 @@ export type { CopyButtonIcon, CopyButtonProps } from './CopyButton';
 export { CopyChip } from './CopyChip';
 export type { CopyChipProps } from './CopyChip';
 
-export { AnimatedCopyIcon, CopyLabel } from './CopyFeedback';
-// Unlike every sibling, this module is a PAIR of peer primitives (four of its five callers use
-// both) and names a concept, not a component, so there is nothing honest to alias as
-// `CopyFeedback`. Its own name is therefore the module itself.
-export * as CopyFeedback from './CopyFeedback';
-export type { AnimatedCopyIconProps, CopyLabelProps } from './CopyFeedback';
+export { AnimatedCopyIcon } from './AnimatedCopyIcon';
+export type { AnimatedCopyIconProps } from './AnimatedCopyIcon';
+
+export { CopyLabel } from './CopyLabel';
+export type { CopyLabelProps } from './CopyLabel';
 
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';

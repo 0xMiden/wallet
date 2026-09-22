@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
+import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
+import { CopyLabel } from 'components/ui/CopyLabel';
 import { Pill } from 'components/ui/Pill';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';

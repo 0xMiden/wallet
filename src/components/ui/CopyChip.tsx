@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 
-import { AnimatedCopyIcon } from './CopyFeedback';
+import { AnimatedCopyIcon } from './AnimatedCopyIcon';
 import { Pill, PillSize } from './Pill';
 
 export interface CopyChipProps {
