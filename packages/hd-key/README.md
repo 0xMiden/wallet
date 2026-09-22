@@ -21,9 +21,9 @@ SLIP-0010 has one HMAC-SHA512 chain and two rules to make a child key from its o
 
 This package uses the **second rule for each wallet key, on each curve**. The name is only a label. The package does not use the ed25519 curve.
 
-The reason is the use of the output. The derived 32 bytes are **not a signing key**. They are a seed for an SDK key constructor (`AuthSecretKey.ecdsaWithRNG` or `AuthSecretKey.rpoFalconWithRNG`). The SDK makes the key from that seed. For ECDSA, the SDK reduces the seed into a valid secp256k1 scalar. For Falcon, the seed feeds a lattice sampler, and `mod n` has no meaning. Thus:
+The reason is the use of the output. The derived 32 bytes are **not a signing key**, and they are not a scalar. They are the seed of a random number generator (RNG). The wallet gives the seed to an SDK key constructor (`AuthSecretKey.ecdsaWithRNG` or `AuthSecretKey.rpoFalconWithRNG`). The constructor starts a `StdRng` from the seed. It then makes the key from that RNG, not from the seed bytes. For ECDSA, the secp256k1 library reads random bytes from the RNG until they are a valid non-zero scalar. The SDK does not reduce the seed bytes into a scalar, and the scalar is not equal to the seed. For Falcon, a lattice sampler reads the RNG. Thus:
 
-- A `mod n` addition and a retry loop on bytes that are not a scalar have no effect that we want. They also tie one seed to one curve.
+- A `mod n` addition or a retry loop on the seed bytes has no use. Such a step also ties one seed to one curve.
 - The derivation the wallet used before issue #918 (`@demox-labs/aleo-hd-key`) used the same rule. The `legacy` scheme must keep it, or its golden vectors do not match.
 - With no retry, the derivation is a fixed number of HMAC calls.
 
@@ -40,7 +40,7 @@ The cost is interoperability. A Miden ECDSA key is never equal to a BIP-32 walle
 - `authScheme`: 0 falcon, 1 ecdsa. The `legacy` scheme has no scheme level, so a Falcon key and an ECDSA key at the same index had the same seed. `v1` gives them different seeds.
 - `5063758` is the SLIP-44 coin type registered for Miden.
 
-Both schemes must stay byte-for-byte stable forever. The derivation decides which accounts a seed phrase recovers, so a change to a label or a path orphans every existing wallet. `miden.test.ts` freezes golden vectors for both schemes; do not recompute them from the code under test.
+Both schemes must stay byte-for-byte stable forever. The derivation decides which accounts a seed phrase recovers, so a change to a label or a path orphans every existing wallet. `miden.test.ts` freezes golden vectors for both schemes; do not recompute them from the code under test. This package does not import the SDK, so those vectors pin the seed only. The wallet test `src/lib/miden/sdk/derive-seed.keys.test.ts` pins the keys the SDK makes from each seed.
 
 ## Rules
 

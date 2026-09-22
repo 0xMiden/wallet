@@ -7,6 +7,10 @@
  * with, copied from `src/lib/miden/sdk/derive-seed.test.ts`. The `v1` vectors
  * were generated once when the scheme was introduced. Do not recompute either
  * set from the code under test.
+ *
+ * This package does not import the SDK. Thus these vectors pin the seed only.
+ * The keys the SDK makes from each seed are pinned in the wallet test
+ * `src/lib/miden/sdk/derive-seed.keys.test.ts`.
  */
 import {
   LEGACY_SEED_LABEL,
