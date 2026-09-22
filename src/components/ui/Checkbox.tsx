@@ -98,8 +98,9 @@ export const CheckboxRow: React.FC<CheckboxRowProps> = ({
     onCheckedChange(!checked);
   };
 
-  // A button already clicks on Space and Enter; Enter is handled here too so it does not submit a
-  // surrounding form.
+  // A button already activates on Space and Enter. Enter is handled here so the browser's own
+  // activation click does not toggle it a second time - which would make Enter a no-op. (It is
+  // `type="button"`, so there was never a form submit to suppress.)
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();

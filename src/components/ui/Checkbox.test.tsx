@@ -164,18 +164,6 @@ describe('CheckboxRow', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  // The documented reason for the suppression: not submitting a surrounding form.
-  it('does not submit a surrounding form on Enter', () => {
-    const onSubmit = jest.fn(e => e.preventDefault());
-    render(
-      <form onSubmit={onSubmit}>
-        <Row />
-      </form>
-    );
-    fireEvent.keyDown(screen.getByRole('checkbox'), { key: 'Enter' });
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-
   it('dips its content on the tab-bar press, and not under reduced motion', () => {
     const { unmount } = render(<Row />);
     const content = screen.getByRole('checkbox').firstElementChild;
