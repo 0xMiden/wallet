@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { tabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -63,7 +63,13 @@ const items: ChoiceCardItem<Choice>[] = [
     data: { 'data-guardian-endpoint': 'https://oz.example' }
   },
   { id: 'gateway', title: 'Gateway', subtitle: 'Operated by Gateway · EU' },
-  { id: 'kodax', title: 'Kodax', disabled: true, 'aria-label': 'Kodax, offline' },
+  {
+    id: 'kodax',
+    title: 'Kodax',
+    disabled: true,
+    'aria-label': 'Kodax, offline',
+    leading: <svg data-testid="logo-kodax" />
+  },
   { id: 'none', title: 'No guardian' }
 ];
 
@@ -161,6 +167,64 @@ describe('ChoiceCardGroup', () => {
     fireEvent.click(kodax);
     expect(onChange).not.toHaveBeenCalled();
     expect(kodax).not.toHaveAttribute('data-while-tap');
+    // "dimmed" is a third of this case's own title, and the classes that implement it were
+    // assertable by nothing: both could be deleted with the whole suite green.
+    expect(screen.getByTestId('logo-kodax').parentElement).toHaveClass('group-disabled:opacity-50');
+    expect(within(kodax).getByText('Kodax')).toHaveClass('group-disabled:text-muted');
+  });
+
+  // C-03: a disabled option can never be the answer, so it must not report itself as one.
+  it('reports no selection when the value names a disabled option', () => {
+    renderGroup({ value: 'kodax' });
+    expect(screen.queryByRole('radio', { checked: true })).toBeNull();
+    expect(radio('Kodax, offline')).toHaveAttribute('data-state', 'unchecked');
+    // The tab stop falls to the first option the user can actually choose.
+    expect(radio('OpenZeppelin')).toHaveAttribute('tabindex', '0');
+  });
+
+  // C-05: `data` is the caller's escape hatch, not a way to rewrite what the group reports.
+  it('does not let a caller forge the selection state through data', () => {
+    render(
+      <ChoiceCardGroup
+        items={[
+          { id: 'oz', title: 'Oz', data: { 'data-state': 'checked' } },
+          { id: 'gateway', title: 'Gateway' }
+        ]}
+        value="gateway"
+        onChange={jest.fn()}
+        aria-label="Guardians"
+      />
+    );
+    expect(radio('Oz')).toHaveAttribute('data-state', 'unchecked');
+    expect(radio('Gateway')).toHaveAttribute('data-state', 'checked');
+  });
+
+  // C-05: and a caller that supplies its testid only through `data` keeps it.
+  it('keeps a testid that arrives through data', () => {
+    render(
+      <ChoiceCardGroup
+        items={[{ id: 'oz', title: 'Oz', data: { 'data-testid': 'from-data' } }]}
+        value="oz"
+        onChange={jest.fn()}
+        aria-label="Guardians"
+      />
+    );
+    expect(screen.getByTestId('from-data')).not.toBeNull();
+  });
+
+  // C-09: the positional focus lookup is only safe while the options ARE the grid's children.
+  it("renders the options as the group's own children, one per item, in order", () => {
+    const { container } = renderGroup();
+    const group = container.querySelector('[role="radiogroup"]')!;
+    expect([...group.children]).toEqual(screen.getAllByRole('radio'));
+  });
+
+  // C-08: with nothing focused and nothing chosen, the first arrow lands on the FIRST option.
+  it('starts the keyboard walk at the first enabled option when nothing is chosen', () => {
+    const onChange = jest.fn();
+    renderGroup({ value: null, onChange });
+    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowDown' });
+    expect(onChange).toHaveBeenCalledWith('oz');
   });
 
   it('keeps only the chosen card in the tab order', () => {
@@ -209,6 +273,26 @@ describe('ChoiceCardGroup', () => {
     render(<Owner onChange={onChange} />);
     fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'a' });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  // The case above starts with a chosen option, so it never reaches the "no origin" path - where an
+  // unhandled key used to select the first option and swallow the event.
+  it('ignores other keys when nothing is chosen either', () => {
+    const onChange = jest.fn();
+    renderGroup({ value: null, onChange });
+    const event = createEvent.keyDown(screen.getByRole('radiogroup'), { key: 'a' });
+    fireEvent(screen.getByRole('radiogroup'), event);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  // G6b-01: with no origin, BOTH walks start at the first enabled option - ArrowUp must not wrap to
+  // the last one, which is what a naive mirror of the ArrowDown fallback would do.
+  it('starts either walk at the first enabled option when nothing is chosen', () => {
+    const onChange = jest.fn();
+    renderGroup({ value: null, onChange });
+    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenCalledWith('oz');
   });
 
   it('dips a pressed card on the tab-bar press and pops the check when a card becomes chosen', () => {
