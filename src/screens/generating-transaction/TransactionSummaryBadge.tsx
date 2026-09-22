@@ -61,7 +61,7 @@ const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
 /** Separator used when opening an earn position — an up "↑" arrow in the Earn action colour. */
 export const EarnDepositArrowGlyph: FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" style={{ fill: 'var(--action-earn)' }} />
+    <rect width="24" height="24" rx="12" style={{ fill: 'var(--tx-earn)' }} />
     <path d="M11.6523 17.5195L11.6523 7.23506" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
     <path
       d="M9.3418 9.08398L11.6529 6.65731L13.964 9.08398"
@@ -269,7 +269,7 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: parts.join(', '),
         rhs: t('consumed', { defaultValue: 'Consumed' }),
-        fillForArrow: 'var(--action-receive)'
+        fillForArrow: 'var(--tx-received)'
       };
     }
 

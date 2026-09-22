@@ -138,6 +138,10 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
   // the faucet was ever looked at; a per-token row is what keeps the next one
   // from shipping the same way. These carry no `ds-` prefix, so they are read
   // straight off `vars`.
+  //
+  // HistoryView is no longer the only consumer: the transaction summary badge
+  // paints white strokes on a disc filled with four of these five (every one but
+  // the faucet), so this set is what BOTH owe, and neither can be lowered alone.
   it.each(['tx-received', 'tx-sent', 'tx-swap', 'tx-earn', 'tx-faucet'])(
     'keeps the white activity glyph at 3:1 on %s',
     token => {
