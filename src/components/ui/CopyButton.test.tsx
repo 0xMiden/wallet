@@ -93,6 +93,10 @@ describe('the text action', () => {
   });
 
   it('hides the label that rolls out from assistive tech', async () => {
+    // Fake timers so the exit animation cannot advance while this asserts on it. The leaving slot
+    // exists only mid-roll, and on real timers a slow enough machine finishes the roll inside the
+    // `act` flush below, leaving nothing to query. `afterEach` restores real timers.
+    jest.useFakeTimers();
     render(<CopyButton text="0xabc123" data-testid="copy" />);
     const button = screen.getByTestId('copy');
 
