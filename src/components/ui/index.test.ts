@@ -112,7 +112,7 @@ describe('components/ui barrel', () => {
   } as const;
 
   // Runtime values the barrel forwards that are NOT components. `ButtonVariant` is a real `enum`,
-  // so it is an object on the module — it belongs in the key set but would fail the renderable
+  // so it is an object on the module - it belongs in the key set but would fail the renderable
   // check below.
   // `CopyFeedback` is a module namespace, not a component: see the barrel for why that module
   // has no single symbol to name it after.

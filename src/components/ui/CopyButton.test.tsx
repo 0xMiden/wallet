@@ -220,7 +220,7 @@ it('clears its feedback timer on unmount', async () => {
   expect(jest.getTimerCount()).toBe(1);
 
   unmount();
-  // `not.toThrow()` was the whole assertion here before, and it held with the cleanup deleted —
+  // `not.toThrow()` was the whole assertion here before, and it held with the cleanup deleted -
   // React 18 no-ops a setState after unmount, so nothing ever threw. Count the timer instead.
   expect(jest.getTimerCount()).toBe(0);
 });

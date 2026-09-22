@@ -1436,7 +1436,7 @@ describe('Vault.revealHotKey', () => {
 
   // Every guard below stands between the user and a screen that displays raw key material, so
   // assert the MESSAGE, never just `PublicError`. These functions run inside `withError`, which
-  // ends `throw err instanceof PublicError ? err : new PublicError(errMessage)` — so deleting a
+  // ends `throw err instanceof PublicError ? err : new PublicError(errMessage)` - so deleting a
   // guard lets the next line throw a TypeError, `withError` rewraps it as a PublicError, and a
   // `toThrow(PublicError)` assertion still passes. It pins nothing.
   it('rejects when no account carries the requested public key', async () => {

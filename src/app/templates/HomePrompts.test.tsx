@@ -2300,7 +2300,7 @@ describe('HomePrompts', () => {
 
     // A new note from a DIFFERENT faucet (e.g. an unrelated inbound transfer,
     // or a pre-existing note whose metadata only just resolved) must NOT play
-    // the success beat — the request only ever mints native MIDEN.
+    // the success beat - the request only ever mints native MIDEN.
     rerender(
       <HomePrompts
         account={account}
