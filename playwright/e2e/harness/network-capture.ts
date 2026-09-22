@@ -288,10 +288,32 @@ export const installFetchInstrumentation = (prefix: string): void => {
 
     const start = performance.now();
     try {
+      if (category === 'transport' && String(method).toUpperCase() === 'OPTIONS') {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Allow-Methods': '*',
+            'Access-Control-Expose-Headers': '*, grpc-status, grpc-message, grpc-status-details-bin'
+          }
+        });
+      }
       const res = await origFetch(input, init);
       const durationMs = Math.round(performance.now() - start);
       const reqBody = await encodeBody();
       console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody }));
+      if (category === 'transport') {
+        // NTS CorsLayer allows origin/headers/methods but does not expose
+        // grpc-status. WASM then treats a 200 as a CORS failure
+        // (`access-control-request-headers`). Re-wrap so the SW client can
+        // read the trailers.
+        const headers = new Headers(res.headers);
+        headers.set('Access-Control-Allow-Origin', '*');
+        headers.set('Access-Control-Allow-Headers', '*');
+        headers.set('Access-Control-Expose-Headers', '*, grpc-status, grpc-message, grpc-status-details-bin');
+        return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+      }
       return res;
     } catch (err) {
       const durationMs = Math.round(performance.now() - start);
