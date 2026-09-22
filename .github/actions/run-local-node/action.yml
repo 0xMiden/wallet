@@ -630,6 +630,16 @@ runs:
         [ "$n" -gt 0 ] || { echo "::error::no funder wallets were exposed by the node"; exit 1; }
         echo "assembled $n funder wallet(s) + native_faucet.mac in $dir"
         echo "MIDEN_E2E_FUNDER_DIR=$dir" >> "$GITHUB_ENV"
+        # 0.17 clients need this at WASM create. Bake it into the extension build
+        # (vite define); a runtime injector cannot reach the offscreen bundle.
+        log="$clone/target/test-node/data/logs/bootstrap.log"
+        faucet=$(grep -oE 'Native faucet account id: [^[:space:]]+' "$log" | awk '{print $NF}' | head -n1)
+        [ -n "$faucet" ] || {
+          echo "::error::no 'Native faucet account id' line in $log"
+          exit 1
+        }
+        echo "native fee faucet $faucet"
+        echo "MIDEN_FEE_FAUCET_ID=$faucet" >> "$GITHUB_ENV"
 
     - name: Verify genesis fee parameters
       shell: bash

@@ -318,6 +318,12 @@ describe('getEffectiveFeeFaucetId', () => {
     expect(m.getEffectiveFeeFaucetId()).toBeUndefined();
   });
 
+  it('reads MIDEN_FEE_FAUCET_ID from the environment', () => {
+    process.env.MIDEN_FEE_FAUCET_ID = '0xenvfaucet';
+    const m = loadModule();
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xenvfaucet');
+  });
+
   it('prefers the E2E injector over an override', async () => {
     const m = loadModule();
     const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
