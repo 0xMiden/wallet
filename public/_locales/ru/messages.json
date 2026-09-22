@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "Получение истории транзакций и «notes»",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Обмен",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Вывод через мост",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Заработать на депозите",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian изменено",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Ключ устройства сгенерирован заново",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Счёт защищён",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Выполнено",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "Восстановление истории с сайта $operator$. Транзакции $count$ восстановлены.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "Восстановление истории транзакций не удалось, поскольку информация о сетевых комиссиях недоступна. Повторная попытка восстановления не будет производиться автоматически.",
+    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ Транзакции восстановлены. Некоторые источники Guardian не удалось прочитать. Восстановление будет повторено при следующей разблокировке кошелька.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Полезная нагрузка",
     "englishSource": "Payload"

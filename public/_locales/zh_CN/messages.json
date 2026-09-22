@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "查询您的交易记录和notes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Swap",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "跨链转出",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "赚取存款",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian 已修改",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "设备密钥已轮换",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "账户已受保护",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "已执行",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "正在从 $operator$ 恢复历史数据。已恢复 $count$ 交易记录。",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "由于无法获取网络手续费信息，交易记录恢复失败。系统不会自动重试恢复操作。",
+    "englishSource": "Transaction history recovery failed because network fee information is unavailable. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ 交易已恢复。部分 Guardian 数据源无法读取。下次解锁钱包时，恢复功能将自动重试。",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "有效载荷",
     "englishSource": "Payload"
