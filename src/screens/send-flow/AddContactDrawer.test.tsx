@@ -8,7 +8,15 @@ const addContactMock = jest.fn();
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/ui/drawer', () => ({
-  Drawer: ({ open, children }: any) => (open ? <div>{children}</div> : null),
+  Drawer: ({ open, onOpenChange, children }: any) =>
+    open ? (
+      <div>
+        {/* vaul routes swipe, backdrop and Escape through onOpenChange; expose it so a dismiss
+            can be fired in tests. */}
+        <button type="button" data-testid="drawer-dismiss" onClick={() => onOpenChange(false)} />
+        {children}
+      </div>
+    ) : null,
   DrawerContent: ({ children }: any) => <div>{children}</div>,
   DrawerHeader: ({ children }: any) => <div>{children}</div>,
   DrawerTitle: ({ children }: any) => <h2>{children}</h2>
@@ -107,4 +115,45 @@ it('refuses an invalid address without saving', async () => {
 
   expect(screen.getByRole('alert')).toHaveTextContent('invalidAddress');
   expect(addContactMock).not.toHaveBeenCalled();
+});
+
+it('ignores a sheet dismiss while the save is in flight, so a failure still has somewhere to show', async () => {
+  let reject: (e: Error) => void = () => undefined;
+  addContactMock.mockReturnValueOnce(
+    new Promise<void>((_, rej) => {
+      reject = rej;
+    })
+  );
+  const onOpenChange = renderSheet();
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('address-book-add-contact'));
+  });
+
+  // The sheet body holds the only node that can report a failed save, and it is remounted per
+  // address - so a dismiss mid-write discards the rejection with nowhere to land.
+  fireEvent.click(screen.getByTestId('drawer-dismiss'));
+  expect(onOpenChange).not.toHaveBeenCalledWith(false);
+
+  await act(async () => {
+    reject(new Error('contact store unavailable'));
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
+});
+
+it('can still be dismissed after a successful save', async () => {
+  const onOpenChange = jest.fn();
+  const { rerender } = render(<AddContactDrawer open address={MIDEN} onOpenChange={onOpenChange} />);
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('address-book-add-contact'));
+  });
+  expect(addContactMock).toHaveBeenCalled();
+
+  // The busy flag lives in the parent, which outlives the sheet body and survives close/reopen.
+  // Raising it on save and clearing it only on failure left the sheet permanently undismissable.
+  onOpenChange.mockClear();
+  rerender(<AddContactDrawer open address={EVM} onOpenChange={onOpenChange} />);
+  fireEvent.click(screen.getByTestId('drawer-dismiss'));
+  expect(onOpenChange).toHaveBeenCalledWith(false);
 });

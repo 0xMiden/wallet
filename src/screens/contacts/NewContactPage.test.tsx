@@ -10,27 +10,51 @@ import { NewContactPage } from './NewContactPage';
 
 const addContactMock = jest.fn();
 const backMock = jest.fn();
+// Capture the page's mobile back handler so a test can fire the hardware/gesture back.
+let capturedMobileBack: (() => boolean) | undefined;
+let capturedMobileBackDeps: unknown[] | undefined;
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  // Registration happens inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately
+  // excluded, so the live handler is the one from the render that last CHANGED a dep. Capturing
+  // every render would hand tests the freshest closure and make a missing dep untestable.
+  useMobileBackHandler: (cb: () => boolean, deps: unknown[] = []) => {
+    const changed =
+      !capturedMobileBackDeps ||
+      deps.length !== capturedMobileBackDeps.length ||
+      deps.some((d, i) => !Object.is(d, capturedMobileBackDeps![i]));
+    if (changed) {
+      capturedMobileBackDeps = deps;
+      capturedMobileBack = cb;
+    }
+  }
+}));
+const navigateMock = jest.fn();
 const contactsMock = jest.fn();
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => ({ allContacts: contactsMock() })
 }));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => backMock }));
+jest.mock('lib/woozie', () => ({
+  navigate: (...args: unknown[]) => navigateMock(...args),
+  HistoryAction: { Push: 'pushstate', Replace: 'replacestate' }
+}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, string>) => (params ? `${key}:${JSON.stringify(params)}` : key)
   })
 }));
 jest.mock('components/flow/FlowLayout', () => ({
-  FlowLayout: ({ title, children, footer }: any) => (
+  FlowLayout: ({ title, onBack, children, footer }: any) => (
     <div>
+      <button type="button" onClick={onBack} data-testid="flow-back" />
       <h1>{title}</h1>
       {children}
       {footer}
     </div>
   )
 }));
-jest.mock('components/Button', () => ({
+jest.mock('components/ui/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
   Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
 }));
@@ -56,8 +80,12 @@ jest.mock('utils/miden', () => ({
 const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
 
 beforeEach(() => {
+  // Both must reset, or the previous test's deps make the first render of this one skip its capture.
+  capturedMobileBack = undefined;
+  capturedMobileBackDeps = undefined;
   addContactMock.mockReset().mockResolvedValue(undefined);
   backMock.mockReset();
+  navigateMock.mockReset();
   contactsMock.mockReturnValue([{ name: 'Alice', address: 'mtst1goodalice' }]);
   (isMobile as jest.Mock).mockReturnValue(false);
   (isScanAvailable as jest.Mock).mockReturnValue(false);
@@ -208,4 +236,54 @@ describe('TextField layout', () => {
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(field).toHaveAttribute('aria-describedby', alert.id);
   });
+});
+
+it('ignores the header back while the save is in flight, so the save navigates exactly once', async () => {
+  let resolveSave: () => void = () => undefined;
+  addContactMock.mockReturnValueOnce(
+    new Promise<void>(resolve => {
+      resolveSave = resolve;
+    })
+  );
+  render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paul' } });
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('address-book-add-contact'));
+  });
+
+  // `back` is claim-gated once per location. A tap here would navigate AND reset the claim, so the
+  // save's own back() would fire again and overshoot by a screen.
+  fireEvent.click(screen.getByTestId('flow-back'));
+  expect(backMock).not.toHaveBeenCalled();
+
+  await act(async () => {
+    resolveSave();
+  });
+  // Exactly once: the in-flight tap was ignored, and the save's own completion pops one entry.
+  expect(backMock).toHaveBeenCalledTimes(1);
+});
+
+it('consumes the mobile hardware back while the save is in flight', async () => {
+  let resolveSave: () => void = () => undefined;
+  addContactMock.mockReturnValueOnce(
+    new Promise<void>(resolve => {
+      resolveSave = resolve;
+    })
+  );
+  render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Paul' } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('address-book-add-contact'));
+  });
+
+  // Same rule as the detail page: the gated header back is not the only exit on mobile.
+  expect(capturedMobileBack!()).toBe(true);
+
+  await act(async () => {
+    resolveSave();
+  });
+  expect(backMock).toHaveBeenCalledTimes(1);
 });

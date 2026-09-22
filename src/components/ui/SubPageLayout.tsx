@@ -27,8 +27,6 @@ export const SubPageHeaderProvider: React.FC<{ value: SubPageHeaderConfig; child
 export interface SubPageLayoutProps extends SubPageHeaderConfig {
   /** The page's sections, 20px apart. */
   children: React.ReactNode;
-  /** Right side of the header row, e.g. an orange text action. */
-  headerActions?: React.ReactNode;
   /**
    * The page's actions, pinned under the body, 10px apart. Buttons here take `flex-1 max-w-none`
    * so a pair splits the row evenly and a single one spans it.
@@ -53,7 +51,6 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
  */
 export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   children,
-  headerActions,
   footer,
   footerLayout = 'row',
   'data-testid': dataTestId,
@@ -67,13 +64,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">
       {(title !== undefined || onBack) && (
-        <PageHeader
-          className="px-4"
-          title={title}
-          onBack={onBack}
-          actions={headerActions}
-          focusTitleOnMount={focusTitleOnMount}
-        />
+        <PageHeader className="px-4" title={title} onBack={onBack} focusTitleOnMount={focusTitleOnMount} />
       )}
 
       <div data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pt-2 pb-4">

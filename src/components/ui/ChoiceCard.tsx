@@ -14,9 +14,9 @@ export type ChoiceCardDataAttributes = Partial<Record<`data-${string}`, string>>
 
 export interface ChoiceCardItem<T extends string = string> {
   id: T;
-  /** 17px 800 `ink`. A text title is also the option's accessible name unless `aria-label` is set. */
+  /** `text-row-title` in `ink`. A text title is also the option's accessible name unless `aria-label` is set. */
   title: ReactNode;
-  /** 13px `muted` line under the title: a description, or a meta line such as "Operated by X · US". */
+  /** The `text-caption` line under the title: a description, or a meta line such as "Operated by X · US". */
   subtitle?: ReactNode;
   /** Leading visual: a 48px logo tile or an icon circle. Anything drawn on the card sits on `page`. */
   leading?: ReactNode;
@@ -90,9 +90,12 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
       aria-describedby={describedBy || undefined}
       tabIndex={focusable ? 0 : -1}
       disabled={item.disabled}
-      data-testid={item['data-testid']}
-      data-state={selected ? 'checked' : 'unchecked'}
+      // The caller's own hooks go on first, so what the GROUP reports cannot be forged: `data-state`
+      // is written after them. `data-testid` still falls back to a caller that supplies it only
+      // through `data`, rather than being blanked by an undefined prop that shadows the spread.
       {...item.data}
+      data-testid={item['data-testid'] ?? item.data?.['data-testid']}
+      data-state={selected ? 'checked' : 'unchecked'}
       onClick={() => onSelect(item.id)}
       {...(item.disabled ? {} : motionTokens.press)}
       className={card({ selected })}
@@ -139,12 +142,15 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
 
 /**
  * One choice out of a set of cards (a guardian operator, a recovery method, an import type): each
- * option a flat `fill` card with 16px corners and no border, a leading logo or icon, a 17px title,
+ * option a flat `fill` card with 16px corners and no border, a leading logo or icon, a `text-row-title` title,
  * a `muted` subtitle, an optional badge and a trailing radio mark.
  *
  * The chosen card takes an inset `accent` ring and the mark fills with a check. Not the raised
  * bubble: raised is for compact toggles, and cards stay flat (design-system.md, "Elevation"). The
- * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way:
+ * behaviour is the `SegmentedControl`'s, so every single choice in the wallet answers the same way,
+ * with two deliberate exceptions: a `value` naming a disabled option reports nothing selected here
+ * (the twin still reports it checked), and with nothing selected the first arrow key lands on the
+ * first option rather than the second. Both are the twin's unfixed defects, not a design split:
  * a `radiogroup` of `radio`s, only the chosen (or first choosable) option in the tab order, arrow
  * keys and Home/End moving focus and the choice together, one selection haptic per real change and
  * none for a tap on the chosen card, a press that dips on the tab-bar spring and a check that pops
@@ -161,9 +167,13 @@ export function ChoiceCardGroup<T extends string>({
 }: ChoiceCardGroupProps<T>) {
   const groupRef = useRef<HTMLDivElement>(null);
 
-  const selectedIndex = items.findIndex(item => item.id === value);
-  const focusIndex =
-    selectedIndex >= 0 && !items[selectedIndex]?.disabled ? selectedIndex : items.findIndex(item => !item.disabled);
+  // A disabled option can never be the answer, so it is not reported as one: `value` is normalised
+  // against the options the user can actually choose, and that one value feeds the check, the tab
+  // stop and the keyboard. Reading it raw let a disabled card render `aria-checked` while focus sat
+  // on a different card - a selection with no visible reason, reported to assistive tech as the
+  // answer.
+  const selectedIndex = items.findIndex(item => item.id === value && !item.disabled);
+  const focusIndex = selectedIndex >= 0 ? selectedIndex : items.findIndex(item => !item.disabled);
 
   const select = (id: T) => {
     if (id === value) return;
@@ -171,6 +181,9 @@ export function ChoiceCardGroup<T extends string>({
     onChange(id);
   };
 
+  // The options are the grid's own children, one per item and in item order - the group renders
+  // nothing else inside it. A divider, a section label or a per-row wrapper would break that, and
+  // focus would then land on a different card than the one selected, silently.
   const buttonAt = (index: number): HTMLElement | null => {
     const node = groupRef.current?.children[index];
     return node instanceof HTMLElement ? node : null;
@@ -181,17 +194,22 @@ export function ChoiceCardGroup<T extends string>({
     if (enabled.length === 0) return;
 
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
-    const from =
-      current >= 0
-        ? current
-        : Math.max(
-            0,
-            enabled.findIndex(({ item }) => item.id === value)
-          );
+    // With nothing focused and nothing selected there is no origin, so the first arrow key must land
+    // on the first enabled option. Clamping a -1 to 0 would make it land on the SECOND: 0 reads as
+    // "the first option is the origin", and the key then moves off it. SegmentedControl's copy of
+    // this engine still clamps, and it IS reachable there - through a value naming a disabled
+    // segment, or one naming no item at all, since its prop is not constrained to its items. That is
+    // left alone deliberately: it belongs to a cluster already merged, and is recorded for a routing
+    // decision rather than fixed in passing.
+    const selectedAmongEnabled = enabled.findIndex(({ item }) => item.id === value);
+    const from = current >= 0 ? current : selectedAmongEnabled;
 
     let to: number;
-    if (NEXT_KEYS.has(event.key)) to = (from + 1) % enabled.length;
-    else if (PREV_KEYS.has(event.key)) to = (from - 1 + enabled.length) % enabled.length;
+    // The key filter runs FIRST: a key this group does not handle must fall through to `return`,
+    // untouched. Starting from "no origin" ahead of the filter made every key - a letter, Escape -
+    // select the first option. Home and End are absolute, so only the two walks need the fallback.
+    if (NEXT_KEYS.has(event.key)) to = from < 0 ? 0 : (from + 1) % enabled.length;
+    else if (PREV_KEYS.has(event.key)) to = from < 0 ? 0 : (from - 1 + enabled.length) % enabled.length;
     else if (event.key === 'Home') to = 0;
     else if (event.key === 'End') to = enabled.length - 1;
     else return;

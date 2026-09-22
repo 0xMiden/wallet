@@ -185,7 +185,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
 /**
  * Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a positive
  * incoming amount and a phase-driven `StatusBadge` (Redeeming → Delivering → Received,
- * or Failed). Reuses the bridge status-dot palette.
+ * or Failed), the same badge the bridge row draws.
  */
 const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'lastEntry'>> = ({
   entry,

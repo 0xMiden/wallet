@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { createContext, FC, useCallback, useContext, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,23 @@ import { hapticLight } from 'lib/mobile/haptics';
  *
  * Tapping the banner opens the test-network explanation sheet (#875).
  */
+/**
+ * Set by a shell that already renders a banner over its whole subtree. A nested banner then stands
+ * down, so a screen rendered inside such a shell cannot show two.
+ *
+ * This exists because the first attempt suppressed the nested one with a step condition on the
+ * shell instead. That desynchronises during a route transition: `activeRoute` is live state read
+ * outside `AnimatePresence`, so on the way back the shell's banner mounts while the exiting card
+ * still renders its own, and on the way forward neither is up. A condition on ancestry cannot
+ * desynchronise, because the ancestor either wraps the subtree or it does not.
+ */
+const NetworkAlreadyNamed = createContext(false);
+
+/** Wrap a subtree whose shell already names the network, so nested banners stand down. */
+export const NetworkNamedByShell: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <NetworkAlreadyNamed.Provider value={true}>{children}</NetworkAlreadyNamed.Provider>
+);
+
 export const NetworkModeBanner: FC = () => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -25,8 +42,10 @@ export const NetworkModeBanner: FC = () => {
     setOpen(true);
   }, []);
 
+  const alreadyNamed = useContext(NetworkAlreadyNamed);
+
   const networkKey = getTestNetworkNameKey();
-  if (!networkKey) return null;
+  if (!networkKey || alreadyNamed) return null;
   const network = t(networkKey);
 
   return (

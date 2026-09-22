@@ -63,6 +63,34 @@ describe('Highlight — controlled children mode (the tab bars)', () => {
     expect(highlightIn(screen.getByRole('button', { name: 'c' }))).toBeNull();
   });
 
+  // A controlled change must apply in the commit that renders it. When it was mirrored into state
+  // by a passive effect, consumers rendered once with the stale value and again after the effect,
+  // so the highlight was still parented to the item the owner had already deselected. The counter
+  // has to sit in a CONTEXT CONSUMER: `children` identity does not change, so a plain child bails
+  // out of re-rendering and would read one render either way.
+  it('applies a controlled value in one commit, without a second pass from an effect', () => {
+    let renders = 0;
+    const Probe = () => {
+      useHighlight();
+      renders += 1;
+      return null;
+    };
+    const WithProbe = ({ value }: { value: string }) => (
+      <Highlight controlledItems value={value} click={false} exitDelay={0} transition={SPRING} className="pill">
+        <HighlightItem value="a" asChild as="span">
+          <button type="button" aria-label="a" />
+        </HighlightItem>
+        <Probe />
+      </Highlight>
+    );
+
+    const { rerender } = render(<WithProbe value="a" />);
+    renders = 0;
+    rerender(<WithProbe value="b" />);
+
+    expect(renders).toBe(1);
+  });
+
   it('moves to the new active item when the value changes, on one shared layoutId', () => {
     const { rerender } = render(<Bar value="a" />);
     const before = highlightIn(screen.getByRole('button', { name: 'a' }))!.getAttribute('data-layout-id');

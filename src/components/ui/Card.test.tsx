@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { presets } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { Card, CardButton, type CardPadding } from './Card';
+import { Card, CardButton, type CardPadding, FOCUSABLE_CLASSES } from './Card';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -94,18 +94,22 @@ describe('Card', () => {
     expect(hasBorderClass(article)).toBe(false);
   });
 
-  it('adds pressed feedback and a focus ring when interactive', () => {
+  it('adds pressed feedback when pressable, and no focus ring with it', () => {
     render(
-      <Card data-testid="card" interactive>
+      <Card data-testid="card" pressable>
         content
       </Card>
     );
 
     const card = screen.getByTestId('card');
-    expect(card).toHaveClass('active:bg-fill-pressed', 'focus-visible:ring-2', 'focus-visible:ring-accent-primary');
+    expect(card).toHaveClass('hover:bg-fill-pressed', 'active:bg-fill-pressed');
+    // The ring is the other half: claiming it on a child that cannot take focus advertises
+    // behaviour the card cannot deliver, and `select-none` would stop the text being selectable.
+    expect(card.className).not.toContain('focus-visible:ring-2');
+    expect(card.className).not.toContain('select-none');
   });
 
-  it('has no pressed feedback when not interactive', () => {
+  it('has no pressed feedback by default', () => {
     render(<Card data-testid="card">content</Card>);
     expect(screen.getByTestId('card').className).not.toContain('active:bg-fill-pressed');
   });
@@ -133,6 +137,39 @@ describe('CardButton', () => {
       'focus-visible:ring-accent-primary'
     );
     expect(hasBorderClass(button)).toBe(false);
+  });
+
+  // Enumerated on purpose, NOT derived from FOCUSABLE_CLASSES. An `it.each(FOCUSABLE_CLASSES)`
+  // reads its cases from the very constant it checks, so deleting a line just removes a case and
+  // the suite stays green - verified by mutation, which is how this assertion got written twice.
+  // The expectation has to be independent of the thing it pins.
+  it('gives CardButton every focusable class', () => {
+    render(<CardButton onClick={jest.fn()}>go</CardButton>);
+
+    const button = screen.getByRole('button');
+    expect(button).toHaveClass(
+      'select-none',
+      'outline-none',
+      'focus-visible:ring-2',
+      'focus-visible:ring-accent-primary',
+      'focus-visible:ring-offset-2',
+      'focus-visible:ring-offset-page',
+      // `disabled:` matches `:disabled`, so these are only real on the button. They used to be
+      // claimed by a `Card` variant that renders a `div`, where they could never fire.
+      'disabled:cursor-default',
+      'disabled:opacity-50',
+      'disabled:hover:bg-fill',
+      'disabled:active:bg-fill'
+    );
+  });
+
+  // The other half of the pin. Count CLASSES, not array entries: the constant groups several
+  // classes per string, so a class appended inside an existing entry leaves the entry count
+  // unchanged and would ship unpinned - which is what the first version of this guard missed.
+  it('has no focusable class the assertion above does not name', () => {
+    const classes = FOCUSABLE_CLASSES.flatMap(line => line.split(' ')).filter(Boolean);
+
+    expect(classes).toHaveLength(10);
   });
 
   it('fires the tap haptic and then the handler', () => {

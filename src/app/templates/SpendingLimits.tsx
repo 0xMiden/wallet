@@ -196,7 +196,7 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
   return (
     <section className="rounded-xl border border-border-faint bg-white p-4 flex flex-col gap-4">
       <div>
-        <h2 className="text-base font-bold text-heading-gray">{row.asset.symbol}</h2>
+        <h2 className="text-base font-bold text-ink">{row.asset.symbol}</h2>
         {row.asset.name && row.asset.name !== row.asset.symbol && (
           <p className="text-sm text-text-secondary-token">{row.asset.name}</p>
         )}
@@ -309,9 +309,9 @@ const SpendingLimits: FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-4 pb-6" data-testid="spending-limits-settings">
-      <div className="rounded-xl bg-gray-25 p-4 flex flex-col gap-2">
-        <p className="text-sm text-heading-gray">{t('spendingLimitLocalDisclosure')}</p>
-        <p className="text-sm text-heading-gray">{t('spendingLimitNotOnChain')}</p>
+      <div className="rounded-xl bg-fill p-4 flex flex-col gap-2">
+        <p className="text-sm text-ink">{t('spendingLimitLocalDisclosure')}</p>
+        <p className="text-sm text-ink">{t('spendingLimitNotOnChain')}</p>
       </div>
       {loading || balancesLoading ? (
         <p role="status" className="text-sm text-text-secondary-token">

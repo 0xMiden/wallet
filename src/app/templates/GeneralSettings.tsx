@@ -77,6 +77,9 @@ const GeneralSettings: FC = () => {
                 value={themeSetting}
                 onChange={handleThemeChange}
                 size="sm"
+                // A settings choice is a fill row (design-system): three equal segments, and a row
+                // that never scrolls cannot ask an ancestor to scroll for it.
+                layout="fill"
                 aria-label={t('theme')}
                 className="shrink-0"
               />

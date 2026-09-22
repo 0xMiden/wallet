@@ -116,6 +116,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // EVM destination networks are selected in a bottom sheet from the recipient step.
   // Saving an unknown-but-valid recipient to the address book, also a bottom sheet.
   const [showAddContactDrawer, setShowAddContactDrawer] = useState(false);
+  const [addContactSaving, setAddContactSaving] = useState(false);
   // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
   // step (mobile scans through its native plugin instead — see onScan below).
   const [showScanDrawer, setShowScanDrawer] = useState(false);
@@ -176,7 +177,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
     if (showAddContactDrawer) {
-      setShowAddContactDrawer(false);
+      // Consume the gesture either way, but do not tear the sheet down mid-write: SheetBody's
+      // error node is the only place a failed save can be reported, and this path does not go
+      // through the drawer's own dismiss guard.
+      if (!addContactSaving) setShowAddContactDrawer(false);
       return true;
     }
     if (showContactsDrawer) {
@@ -194,7 +198,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showAddContactDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+    // `addContactSaving` must stay in this list: the hook registers only when a dep changes, so a
+    // handler reading it without it here keeps the closure captured while the save had not started.
+  }, [showAddContactDrawer, addContactSaving, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on send-flow entry.
   //
@@ -840,6 +846,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       <AddContactDrawer
         open={showAddContactDrawer}
         onOpenChange={setShowAddContactDrawer}
+        onBusyChange={setAddContactSaving}
         address={recipientAddress ?? ''}
         network={isBridge ? bridgeNetwork : undefined}
       />

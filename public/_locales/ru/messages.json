@@ -3635,14 +3635,6 @@
     "message": "Открыть",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "Смотреть все",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "Свернуть",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Скоро в Miden",
     "englishSource": "Coming soon to Miden"
@@ -4834,10 +4826,6 @@
   "networkNoticeResetBody": {
     "message": "Сброс очищает балансы и историю. Тестовые балансы никогда не переносятся в Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Только тестовые токены",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
