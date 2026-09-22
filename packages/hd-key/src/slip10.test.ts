@@ -120,6 +120,57 @@ describe.each([
   });
 });
 
+/**
+ * SLIP-0010 secp256k1 test vector 1, hardened chains only.
+ *
+ * For secp256k1 the specification derives the child secret as
+ * `(I_L + k_parent) mod n`; this package returns `I_L` (the ed25519 rule),
+ * because the wallet uses the bytes as an RNG seed, not as a curve scalar.
+ * The chain code is `I_R` under both rules, and the master key is `I_L` under
+ * both, so this vector proves the label, the master step, and the hardened
+ * data layout (`0x00 || k || ser32(i)`) also hold for secp256k1: the test
+ * applies the scalar addition itself. Every deeper chain of the spec's
+ * secp256k1 vectors has a non-hardened segment, which this package rejects.
+ */
+const SECP256K1_LABEL = 'Bitcoin seed';
+const SECP256K1_ORDER = BigInt('0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141');
+const SECP256K1_VECTOR_1 = {
+  seed: '000102030405060708090a0b0c0d0e0f',
+  master: {
+    chainCode: '873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508',
+    secret: 'e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35'
+  },
+  child0Hardened: {
+    chainCode: '47fdacbd0f1097043b78c63c20c34ef4ed9a111d980047ad16282c7ae6236141',
+    secret: 'edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea'
+  }
+};
+
+const scalarAddModOrder = (left: Uint8Array, right: Uint8Array): string =>
+  ((BigInt(`0x${bytesToHex(left)}`) + BigInt(`0x${bytesToHex(right)}`)) % SECP256K1_ORDER)
+    .toString(16)
+    .padStart(64, '0');
+
+describe('SLIP-0010 secp256k1 test vector 1 (hardened chains)', () => {
+  it('derives the master key with the Bitcoin seed label', () => {
+    const master = masterKeyFromSeed(hexToBytes(SECP256K1_VECTOR_1.seed), SECP256K1_LABEL);
+    expect(bytesToHex(master.secret)).toBe(SECP256K1_VECTOR_1.master.secret);
+    expect(bytesToHex(master.chainCode)).toBe(SECP256K1_VECTOR_1.master.chainCode);
+  });
+
+  it("derives m/0' once the secp256k1 scalar addition is applied to I_L", () => {
+    const master = masterKeyFromSeed(hexToBytes(SECP256K1_VECTOR_1.seed), SECP256K1_LABEL);
+    const child = deriveHardenedChild(master, 0);
+    expect(bytesToHex(child.chainCode)).toBe(SECP256K1_VECTOR_1.child0Hardened.chainCode);
+    expect(scalarAddModOrder(child.secret, master.secret)).toBe(SECP256K1_VECTOR_1.child0Hardened.secret);
+  });
+
+  it('rejects the non-hardened segments the secp256k1 vectors continue with', () => {
+    expect(() => parseHardenedPath("m/0'/1")).toThrow('Invalid derivation path');
+    expect(() => parseHardenedPath("m/0/2147483647'")).toThrow('Invalid derivation path');
+  });
+});
+
 describe('masterKeyFromSeed', () => {
   it('rejects a seed shorter than 16 bytes or longer than 64 bytes', () => {
     expect(() => masterKeyFromSeed(new Uint8Array(15), ED25519_LABEL)).toThrow('between 16 and 64 bytes');
