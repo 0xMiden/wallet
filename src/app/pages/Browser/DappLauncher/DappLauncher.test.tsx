@@ -6,7 +6,7 @@ import type { ExploreCatalog, RecentDapp } from 'lib/dapp-browser';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import { DappLauncher } from './index';
-import { resetRevealed } from './reveal-once';
+import { markRevealed, resetRevealed } from './reveal-once';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
@@ -187,6 +187,18 @@ describe('DappLauncher', () => {
 
     expect(indexOf('recents')).toBeGreaterThan(indexOf('featured'));
     expect(indexOf('recents')).toBeGreaterThan(indexOf('helper-tools'));
+  });
+
+  // The launcher unmounts while a dApp is in the foreground and mounts again on the way back, so the
+  // reveal has already played this session. A section arriving late on that return is not part of a
+  // reveal that is not happening: it must not wait its turn behind sections that never animated.
+  it('gives a late-arriving section no stagger once the reveal has already played', async () => {
+    markRevealed();
+    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    await act(async () => {});
+
+    expect(screen.getByTestId('explore-section-recents')).toHaveAttribute('data-reveal-index', '0');
+    expect(screen.getByTestId('explore-section-featured')).toHaveAttribute('data-reveal-index', '0');
   });
 
   // A section entering because the user changed a chip is answering them, not being introduced.

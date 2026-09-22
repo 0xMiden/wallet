@@ -221,11 +221,13 @@ fn handle_dapp_request(app_handle: &AppHandle, request_json: &str, expected_toke
 
 /// Parse a URL the dApp window is allowed to load: `http`/`https` with a host.
 ///
-/// The launcher's `normalizeUrl` (`DappLauncher/HeroSearch.tsx`) is a string-prefix
+/// The launcher's `normalizeUrl` (`DappLauncher/search-url.ts`) is a string-prefix
 /// check, not a parse: it prepends `https://` unless the text already starts with
-/// `http://` or `https://`, so any `http(s)://…` string — quotes, spaces and all —
-/// arrives here verbatim, and every other entry point into `open_dapp_window`
-/// (recent-dApp tiles, `lib/desktop/index.ts`) passes its URL through untouched.
+/// `http://` or `https://`, so an `http(s)://…` string with quotes in it arrives here
+/// verbatim. Text with whitespace no longer does: it is treated as a search and routed
+/// to the fixed search destination percent-encoded. Every other entry point into
+/// `open_dapp_window` (recent-dApp tiles, `lib/desktop/index.ts`) passes its URL through
+/// untouched.
 /// Both branches validate through this BEFORE using the value, because the reuse
 /// branch navigates by evaluating JS inside the CURRENTLY loaded dApp's document:
 /// a `javascript:` URL assigned to `location.href` there runs under that dApp's

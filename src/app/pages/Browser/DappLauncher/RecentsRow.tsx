@@ -9,8 +9,6 @@ import { type RecentDapp } from 'lib/dapp-browser';
 
 import { DappTile, TileRow } from './DappTile';
 
-/** One screen and a bit: enough to show it scrolls. */
-
 interface RecentsRowProps {
   recents: RecentDapp[];
   onOpen: (url: string) => void;

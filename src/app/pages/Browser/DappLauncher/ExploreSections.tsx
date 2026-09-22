@@ -122,16 +122,19 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
         ) : (
           shown.map((resolved, index) => {
             const { section } = resolved;
+            const motionProps = sectionMotion(index);
             return (
               <motion.section
                 key={section.id}
-                {...sectionMotion(index)}
+                {...motionProps}
                 aria-label={t(section.titleKey)}
                 data-testid={`explore-section-${section.id}`}
                 data-kind={section.kind}
                 // The reveal order, rendered so it can be read: `style.opacity` is identical for
-                // every revealing section whatever its place in the sequence.
-                data-reveal-index={staggered ? firstRevealIndex + index : 0}
+                // every revealing section whatever its place in the sequence. It reads the property
+                // framer is given rather than recomputing it, so a test of the attribute is a test
+                // of the animation input and the two cannot drift.
+                data-reveal-index={motionProps.custom}
               >
                 <div className="px-4">
                   <SectionHeader size="xl" className="px-0 pb-3">

@@ -95,17 +95,39 @@ describe('DappActionsSheet', () => {
 
   // My dApps is a list of dApps. A web search the launcher produced is a page, not one - and this is
   // the SECOND writer of that store, so the rule has to hold here as well as in BrowserScreen.
-  it('never adds a web search to My dApps', async () => {
+  // A web search cannot become a recent dApp, so the add action is not offered rather than offered
+  // and silently refused: tapping it fired the confirmation haptic and closed the sheet while saving
+  // nothing. Remove stays offered, because it can still act.
+  it('offers no add action for a web search, and still offers copy and reopen', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only stand-in, as above
     const search: any = { url: 'https://duckduckgo.com/?q=nft%20games', origin: 'https://duckduckgo.com' };
     await act(async () => {
       render(<DappActionsSheet session={search} open onOpenChange={jest.fn()} onReopen={jest.fn()} />);
     });
 
+    expect(screen.queryByText('dappActionAddToMyDapps')).toBeNull();
+    expect(screen.queryByText('dappActionRemoveFromMyDapps')).toBeNull();
+    expect(screen.getByText('dappActionCopyLink')).not.toBeNull();
+    expect(screen.getByText('dappActionReopen')).not.toBeNull();
+    expect(mockHapticLight).not.toHaveBeenCalled();
+    expect(mockRecordRecentDapp).not.toHaveBeenCalled();
+  });
+
+  // This sheet is the only caller of `forgetRecentDapp`, so a search URL persisted by a build from
+  // before that rule existed would be unremovable if the whole control were hidden.
+  it('still offers remove for a web search that is already in My dApps', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only stand-in, as above
+    const search: any = { url: 'https://duckduckgo.com/?q=nft%20games', origin: 'https://duckduckgo.com' };
+    mockGetRecentDapps.mockResolvedValueOnce([{ url: search.url, name: 'nft games', origin: search.origin }]);
     await act(async () => {
-      fireEvent.click(screen.getByText('dappActionAddToMyDapps'));
+      render(<DappActionsSheet session={search} open onOpenChange={jest.fn()} onReopen={jest.fn()} />);
     });
 
+    await act(async () => {
+      fireEvent.click(screen.getByText('dappActionRemoveFromMyDapps'));
+    });
+
+    expect(mockForgetRecentDapp).toHaveBeenCalledWith(search.url);
     expect(mockRecordRecentDapp).not.toHaveBeenCalled();
   });
 

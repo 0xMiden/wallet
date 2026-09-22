@@ -99,7 +99,10 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     if (isInMyDapps) {
       void forgetRecentDapp(session.url).catch(() => {});
     } else if (!isSearchUrl(session.url)) {
-      // Same rule as BrowserScreen's: a web search never becomes a recent dApp.
+      // Same rule as BrowserScreen's: a web search never becomes a recent dApp. DEFENSIVE ONLY -
+      // the control is not rendered in the one case this guard rejects, so no DOM path reaches it
+      // and no test can pin it. It stays because this sheet is one of two writers, and it is what
+      // keeps the rule true if the control ever comes back.
       void recordRecentDapp({
         url: session.url,
         name: getDappDisplayName(session),
@@ -109,6 +112,12 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     }
     close();
   }, [session, isInMyDapps, close]);
+
+  // A web search cannot become a recent dApp, so the ADD action would report success and save
+  // nothing: it is not offered. Remove is offered, because it CAN act - this sheet is the only
+  // caller of `forgetRecentDapp`, so hiding it would strand a search URL an older build persisted.
+  // With no session the row is unchanged: all three actions render and each no-ops on tap.
+  const canToggleMyDapps = !session || isInMyDapps || !isSearchUrl(session.url);
 
   const handleReopen = useCallback(() => {
     if (!session) return;
@@ -128,16 +137,18 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
         </DrawerHeader>
         <div className="flex items-start justify-around gap-2 px-4 pb-8">
           <ActionButton icon={IconName.Copy} label={t('dappActionCopyLink')} onClick={handleCopyLink} />
-          <ActionButton
-            // Toggle: the AddCircle plus-in-outline-circle is the
-            // default, swapped for CheckboxCircleFill (filled check)
-            // when the dApp is already in the user's recents. The
-            // filled icon + "Remove" label reads as "this one is
-            // already saved; tap to un-save."
-            icon={isInMyDapps ? IconName.CheckboxCircleFill : IconName.AddCircle}
-            label={isInMyDapps ? t('dappActionRemoveFromMyDapps') : t('dappActionAddToMyDapps')}
-            onClick={handleToggleMyDapps}
-          />
+          {canToggleMyDapps && (
+            <ActionButton
+              // Toggle: the AddCircle plus-in-outline-circle is the
+              // default, swapped for CheckboxCircleFill (filled check)
+              // when the dApp is already in the user's recents. The
+              // filled icon + "Remove" label reads as "this one is
+              // already saved; tap to un-save."
+              icon={isInMyDapps ? IconName.CheckboxCircleFill : IconName.AddCircle}
+              label={isInMyDapps ? t('dappActionRemoveFromMyDapps') : t('dappActionAddToMyDapps')}
+              onClick={handleToggleMyDapps}
+            />
+          )}
           <ActionButton icon={IconName.Refresh} label={t('dappActionReopen')} onClick={handleReopen} />
         </div>
       </DrawerContent>
