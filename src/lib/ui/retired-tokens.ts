@@ -16,7 +16,19 @@ export const RETIRED_COLOUR_TOKENS: Record<string, string> = {
   'surface-interactive': 'fill',
   'surface-nav-button': 'fill',
   'button-secondary': 'fill',
-  'button-secondary-hover': 'fill-pressed'
+  'button-secondary-hover': 'fill-pressed',
+  // Retired by the balance-card redesign: the card is one tone now, so its second tone and the
+  // muted ink and divider that sat on it are gone.
+  'surface-balance-fg-muted': 'surface-balance-fg',
+  'surface-balance-divider': 'surface-balance-rule',
+  'card-slate-deep': 'card-slate',
+  'card-orange-deep': 'card-orange',
+  'card-blue-deep': 'card-blue',
+  'card-green-deep': 'card-green',
+  'card-purple-deep': 'card-purple',
+  // Overview is a tab colour, not a flow: it never had a surface or text of its own to tint.
+  'action-overview-tint': 'action-overview (the bare colour; only a flow has a tint)',
+  'action-overview-ink': 'action-overview (the bare colour; only a flow has an ink)'
 };
 
 /**
@@ -39,7 +51,19 @@ export const RETIRED_TOKEN_CSS_VARS: Record<string, string> = {
   'surface-interactive': 'surface-interactive',
   'surface-nav-button': 'surface-nav-button',
   'button-secondary': 'surface-button-secondary',
-  'button-secondary-hover': 'surface-button-secondary-hover'
+  'button-secondary-hover': 'surface-button-secondary-hover',
+  'surface-balance-fg-muted': 'surface-balance-fg-muted',
+  'card-slate-deep': 'card-slate-deep',
+  'card-orange-deep': 'card-orange-deep',
+  'card-blue-deep': 'card-blue-deep',
+  'card-green-deep': 'card-green-deep',
+  'card-purple-deep': 'card-purple-deep',
+  'action-overview-tint': 'action-overview-tint',
+  'action-overview-ink': 'action-overview-ink',
+  // This one never had a variable: it was a literal (#FFFFFF4D) in the config. It is listed because
+  // the two maps are pinned 1:1, and what this map really asserts is "no variable by this name is
+  // declared" - trivially true here, and it keeps the colour half of the guard.
+  'surface-balance-divider': 'surface-balance-divider'
 };
 
 /**

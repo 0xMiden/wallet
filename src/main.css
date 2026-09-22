@@ -410,12 +410,10 @@ body[data-hide-navbar]::after {
     --action-receive: var(--card-green);
     --action-earn: var(--card-slate);
     --action-swap: var(--card-purple);
-    --action-overview-tint: #fceee7;
     --action-send-tint: #eceff2;
     --action-receive-tint: #eff1ee;
     --action-earn-tint: #efeef0;
     --action-swap-tint: #f0eef2;
-    --action-overview-ink: #a95528;
     --action-send-ink: #566f83;
     --action-receive-ink: #60715c;
     --action-earn-ink: #6d697b;
@@ -548,13 +546,11 @@ body[data-hide-navbar]::after {
      * derive dark values by inverting text/surface and keeping action/status hues. */
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
-    --action-overview-tint: #32241d;
     --action-send-tint: #272b2d;
     --action-receive-tint: #2a2c2a;
     --action-earn-tint: #242426;
     --action-swap-tint: #2d2b2f;
     /* Dark mode's brand colours already read at 4.5:1 as text, all but the slate. */
-    --action-overview-ink: var(--action-overview);
     --action-send-ink: var(--action-send);
     --action-receive-ink: var(--action-receive);
     --action-earn-ink: #8d8a9a;

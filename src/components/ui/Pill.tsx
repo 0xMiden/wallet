@@ -20,7 +20,7 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `inactive`: a status that is neither good nor bad (cancelled, reclaimed, unavailable),
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
- * - `inverse` — on a colored surface (the balance card): a darker well of that surface with its
+ * - `inverse` - on a coloured surface: a darker well of that surface with its
  *   white ink, so it suits every card color and never brings a status hue of its own.
  *
  * A status is usually rendered through `StatusBadge`, which picks the tone and label for you.

@@ -142,7 +142,15 @@ describe('useTransactionSummaryBadgeContent', () => {
     return (
       <div data-testid="out">
         <span data-testid="lhs">{content.lhs}</span>
-        <TransactionSummaryBadge lhs={content.lhs} rhs={content.rhs} />
+        {/* The disc travels on `separator`/`fillForArrow`. A probe that forwards only lhs/rhs
+            asserts the text and lets the colour drift back unobserved, which is how a retired
+            hue survived in this file once already. */}
+        <TransactionSummaryBadge
+          lhs={content.lhs}
+          rhs={content.rhs}
+          separator={content.separator}
+          fillForArrow={content.fillForArrow}
+        />
       </div>
     );
   };
@@ -175,6 +183,27 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
     expect(container.textContent).toContain('Consumed');
+    act(() => root.unmount());
+  });
+
+  it('paints the consume disc in the received activity token', async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1' })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
+    act(() => root.unmount());
+  });
+
+  it('paints the earn-deposit disc in the earn activity token', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-earn)');
     act(() => root.unmount());
   });
 

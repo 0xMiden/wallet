@@ -138,6 +138,10 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
   // the faucet was ever looked at; a per-token row is what keeps the next one
   // from shipping the same way. These carry no `ds-` prefix, so they are read
   // straight off `vars`.
+  //
+  // HistoryView is no longer the only consumer: the transaction summary badge
+  // paints white strokes on a disc filled with four of these five (every one but
+  // the faucet), so this set is what BOTH owe, and neither can be lowered alone.
   it.each(['tx-received', 'tx-sent', 'tx-swap', 'tx-earn', 'tx-faucet'])(
     'keeps the white activity glyph at 3:1 on %s',
     token => {
@@ -345,10 +349,16 @@ describe('action colours', () => {
     }
   );
 
-  it.each(ACTION_CARD)('maps action-%s, its tint and its ink to Tailwind colors', action => {
+  it.each(ACTION_CARD)('maps action-%s to a Tailwind color', action => {
     expect(config).toContain(`'action-${action}': 'var(--action-${action})'`);
-    expect(config).toContain(`'action-${action}-tint': 'var(--action-${action}-tint)'`);
-    expect(config).toContain(`'action-${action}-ink': 'var(--action-${action}-ink)'`);
+  });
+
+  // Only a FLOW has a tint and an ink: they exist for a flow's surfaces and its text. Overview is a
+  // tab colour and nothing else, so it carries the bare colour alone - a pair nothing reads is a
+  // pair nothing can keep honest.
+  it.each(FLOWS)("maps action-%s's tint and ink to Tailwind colors", flow => {
+    expect(config).toContain(`'action-${flow}-tint': 'var(--action-${flow}-tint)'`);
+    expect(config).toContain(`'action-${flow}-ink': 'var(--action-${flow}-ink)'`);
   });
 });
 
@@ -359,7 +369,7 @@ describe('action colours', () => {
 describe.each([':root', '.dark'] as const)('action colour contrast in %s', selector => {
   const value = (name: string) => resolved(selector, name);
 
-  it.each(ACTION_CARD)('%s tint is the colour at 12%% over the page', action => {
+  it.each(FLOWS)('%s tint is the colour at 12%% over the page', action => {
     const [r, g, b] = rgba(value(`action-${action}`));
     expect(value(`action-${action}-tint`)).toBe(over(`rgba(${r}, ${g}, ${b}, 0.12)`, value('ds-page')));
   });
@@ -376,7 +386,7 @@ describe.each([':root', '.dark'] as const)('action colour contrast in %s', selec
     }
   });
 
-  it.each(ACTION_CARD)('%s ink reads as text at 4.5:1 on page, fill and its own tint', action => {
+  it.each(FLOWS)('%s ink reads as text at 4.5:1 on page, fill and its own tint', action => {
     for (const surface of ['ds-page', 'ds-fill', `action-${action}-tint`]) {
       expect(contrast(value(`action-${action}-ink`), value(surface))).toBeGreaterThanOrEqual(4.5);
     }

@@ -3635,14 +3635,6 @@
     "message": "Otwórz",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "Zobacz wszystko",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "Pokaż mniej",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Wkrótce w Miden",
     "englishSource": "Coming soon to Miden"

@@ -27,6 +27,7 @@ import { isDesktop } from 'lib/platform';
 
 import { DappActive } from './DappActive';
 import { DappLauncher } from './DappLauncher';
+import { isSearchUrl } from './DappLauncher/search-url';
 
 export const BrowserScreen: FC = () => {
   const { mode, open } = useDappBrowser();
@@ -58,6 +59,10 @@ export const BrowserScreen: FC = () => {
       // in lib/dapp-browser so the bubble, switcher card, and capsule
       // all derive the same name from the same source of truth.
       const displayName = getDappDisplayName(session);
+
+      // Recents is a list of dApps the user chose, so a web search this app produced is not one -
+      // the other writer, DappActionsSheet's My-dApps toggle, holds the same rule.
+      if (isSearchUrl(url)) return;
 
       recordRecentDapp({
         url,

@@ -19,9 +19,6 @@ import { isSwapEnabled } from 'lib/feature-flags';
 
 import { FEATURED_DAPPS } from './featured-dapps';
 
-/** What an item is. Decides nothing about layout; a section's `kind` does that. */
-export type ExploreItemType = 'dapp' | 'tool' | 'game' | 'defi' | 'nft' | 'article';
-
 /** The chip an item answers to. */
 export type ExploreCategory = 'tools' | 'defi' | 'games' | 'nft' | 'learn';
 
@@ -30,7 +27,6 @@ export type ExploreFilter = 'all' | ExploreCategory;
 
 export interface ExploreItem {
   id: string;
-  type: ExploreItemType;
   category: ExploreCategory;
   name: string;
   /** One line under the name, in English: the fallback, and what search matches. */
@@ -61,20 +57,13 @@ export interface FeaturedSection extends SectionBase {
 export interface ListSection extends SectionBase {
   kind: 'list';
   itemIds: string[];
-  /** Rows shown before "See all". Every row when unset. */
-  limit?: number;
-}
-
-export interface RowSection extends SectionBase {
-  kind: 'row';
-  itemIds: string[];
 }
 
 export interface RecentsSection extends SectionBase {
   kind: 'recents';
 }
 
-export type ExploreSection = FeaturedSection | ListSection | RowSection | RecentsSection;
+export type ExploreSection = FeaturedSection | ListSection | RecentsSection;
 
 export type ExploreSectionKind = ExploreSection['kind'];
 
@@ -104,13 +93,11 @@ export const EXPLORE_FILTERS: ExploreFilterDescriptor[] = [
 /** A catalog item from a `FEATURED_DAPPS` entry, with any fields the catalog words differently. */
 function fromDapp(
   id: string,
-  type: ExploreItemType,
   category: ExploreCategory,
   overrides: Partial<Pick<ExploreItem, 'tagline' | 'taglineKey'>> = {}
 ): ExploreItem[] {
   return FEATURED_DAPPS.filter(dapp => dapp.id === id).map(dapp => ({
     id: dapp.id,
-    type,
     category,
     name: dapp.name,
     tagline: dapp.shortDescription,
@@ -124,8 +111,8 @@ function fromDapp(
 
 export const EXPLORE_CATALOG: ExploreCatalog = {
   items: [
-    ...fromDapp('faucet', 'tool', 'tools'),
-    ...fromDapp('forkchoice-faucet', 'tool', 'tools', {
+    ...fromDapp('faucet', 'tools'),
+    ...fromDapp('forkchoice-faucet', 'tools', {
       tagline: 'Get testnet tokens for swap',
       taglineKey: 'exploreForkchoiceFaucetTagline'
     })
@@ -138,9 +125,10 @@ export const EXPLORE_CATALOG: ExploreCatalog = {
 };
 
 /**
- * The catalog for this platform. On iOS, where the app ships without a swap surface (App Store
- * Guideline 3.1.5(iii)), exchange items are dropped so Explore does not promote one. Call at
- * render time, after Capacitor is initialized.
+ * The catalog for this platform: it follows `isSwapEnabled`, so if swap is ever gated again (it was
+ * once gated on iOS for App Store Guideline 3.1.5(iii), and is enabled everywhere today), exchange
+ * items drop out of Explore with it rather than needing a second switch. Call at render time, after
+ * Capacitor is initialized.
  */
 export function getExploreCatalog(catalog: ExploreCatalog = EXPLORE_CATALOG): ExploreCatalog {
   if (isSwapEnabled()) return catalog;
@@ -149,7 +137,7 @@ export function getExploreCatalog(catalog: ExploreCatalog = EXPLORE_CATALOG): Ex
 
 /** A section with its items resolved and filtered, ready to render. */
 export type ResolvedExploreSection =
-  | { section: FeaturedSection | ListSection | RowSection; items: ExploreItem[] }
+  | { section: FeaturedSection | ListSection; items: ExploreItem[] }
   | { section: RecentsSection; items: [] };
 
 /**
