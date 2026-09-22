@@ -237,6 +237,20 @@ it('names the network it will commit on', () => {
   expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
 });
 
+// The credential step is a separate render branch, reached by an early return, and it is the one
+// that actually commits: submitting here unlocks and initiates the switch. A banner on the review
+// branch alone leaves this screen unwarned, and the case above cannot see that, because it never
+// leaves the default state.
+it('still names the network on the credential step, where the rotation is submitted', async () => {
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  expect(await screen.findByTestId('rotate-guardian-auth-submit')).toBeInTheDocument();
+  expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+});
+
 it('renders the current and destination endpoints in the shared transition hero', async () => {
   render(<RotateGuardianReview />);
 

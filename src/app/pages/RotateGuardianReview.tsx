@@ -9,6 +9,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
@@ -308,6 +309,9 @@ const RotateGuardianReview: FC = () => {
   if (authStep) {
     return (
       <PageLayout hideToolbar>
+        {/* This branch is where the rotation is committed, so it names the network too. A single
+            banner on the review branch below would have left exactly this screen unwarned. */}
+        <NetworkModeBanner />
         <SubPageLayout
           title={t(isMobile() ? 'enterYourPasscode' : 'enterPassword')}
           onBack={handleAuthBack}
@@ -359,6 +363,9 @@ const RotateGuardianReview: FC = () => {
 
   return (
     <PageLayout hideToolbar>
+      {/* Rotating a guardian replaces the account's recovery custodian, so this screen names the
+          network it commits on. Outside SubPageLayout's body, which is the scroll region. */}
+      <NetworkModeBanner />
       {/* Continue and its error are pinned in the footer, outside the scroll region (#463): the
           illustration and the hero cost ~220px of the 600px popup, which pushed a CTA inside the
           scroller below the fold. */}
