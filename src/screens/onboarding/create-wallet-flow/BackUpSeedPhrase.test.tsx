@@ -258,6 +258,14 @@ describe('BackUpSeedPhraseScreen', () => {
     });
   });
 
+  // The navigator owns the one back chevron; a step no longer carries its own footer Back. The
+  // navigator's suite cannot pin this - it mocks every step to a bare div, so the count it used to
+  // assert was 1 by construction. Here the real step renders.
+  it('renders no back button of its own inside the step', () => {
+    renderComponent();
+    expect(screen.queryByRole('button', { name: /back/i })).toBeNull();
+  });
+
   describe('copy to clipboard', () => {
     it('writes the space-joined seed phrase and hands the shared copy confirmation the copied state', async () => {
       renderComponent();

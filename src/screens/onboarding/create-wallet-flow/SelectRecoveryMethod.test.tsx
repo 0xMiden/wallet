@@ -83,11 +83,20 @@ describe('SelectRecoveryMethodScreen', () => {
       expect(radio('guardianRecovery')).toHaveAttribute('aria-checked', 'false');
     });
 
+    // This screen decides whether the wallet has recovery at all, so "how many times" matters as
+    // much as "with what": the rewrite dropped every call count and the at-mount guard together.
+    it('submits nothing before the user interacts', () => {
+      const onSubmit = jest.fn();
+      render(<SelectRecoveryMethodScreen onSubmit={onSubmit} />);
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
     it('submits the pre-selected (Guardian) wallet type when Continue is clicked', () => {
       const onSubmit = jest.fn();
       render(<SelectRecoveryMethodScreen onSubmit={onSubmit} />);
       fireEvent.click(screen.getByTestId('continue-button'));
       expect(onSubmit).toHaveBeenCalledWith(WalletType.Guardian);
+      expect(onSubmit).toHaveBeenCalledTimes(1);
     });
 
     it('submits the newly-selected wallet type after choosing another option', () => {
@@ -96,6 +105,7 @@ describe('SelectRecoveryMethodScreen', () => {
       fireEvent.click(radio('fullyPrivateRecovery'));
       fireEvent.click(screen.getByTestId('continue-button'));
       expect(onSubmit).toHaveBeenCalledWith(WalletType.OffChain);
+      expect(onSubmit).toHaveBeenCalledTimes(1);
     });
 
     it('does not throw on Continue without an onSubmit handler', () => {
@@ -124,6 +134,7 @@ describe('SelectRecoveryMethodScreen', () => {
       expect(radio('Public')).toHaveAttribute('aria-checked', 'true');
       fireEvent.click(screen.getByTestId('continue-button'));
       expect(onSubmit).toHaveBeenCalledWith(WalletType.OnChain);
+      expect(onSubmit).toHaveBeenCalledTimes(1);
     });
   });
 });
