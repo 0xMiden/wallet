@@ -75,7 +75,13 @@ test.describe('Network corner ribbon', () => {
     ['en', 'I understand'],
     ['de', 'Ich habe verstanden']
   ] as const) {
-    test(`sits in the tab bar's corner and opens a sheet that fits a 360x600 popup (${locale})`, async ({
+    // FIXME(wallet#1092): the context dies in `openPopup` right after `importWallet` closes its
+    // page, so this never reaches its assertions. It is not a regression: `pr.yml` carries
+    // mock-e2e and its branch filter meant this spec never ran in CI on any of the 54 PRs that
+    // introduced it. The ribbon's placement and docked state stay covered by TabLayout.test.tsx
+    // and NetworkModeRibbon.test.tsx; what is unguarded until this is fixed is the real-popup
+    // layout measurement at 360x600.
+    test.fixme(`sits in the tab bar's corner and opens a sheet that fits a 360x600 popup (${locale})`, async ({
       extensionContext,
       extensionId
     }) => {
