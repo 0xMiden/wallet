@@ -262,6 +262,18 @@ describe('simulateCustomTransaction', () => {
     expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
+  it.each([
+    ['the 0.17 create-time message', new Error('no fee faucet is known for network `mlcl`')],
+    ['the option name', new Error('pass `feeFaucetId` when creating the client')]
+  ])('falls back to a local execution when the summary client has no fee faucet (%s)', async (_label, err) => {
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(err);
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
+  });
+
   it('still reports a genuine execution failure as { error } rather than executing locally', async () => {
     (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
 

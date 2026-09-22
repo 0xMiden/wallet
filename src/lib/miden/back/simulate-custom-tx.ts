@@ -106,6 +106,17 @@ function isSummarySigningUnavailable(err: unknown): boolean {
   return message.includes('failed to generate signature') || message.includes('Failed to get secret key');
 }
 
+/**
+ * `executeForSummary` builds a second WASM client (`getRawMidenClient`) that does
+ * not receive `feeFaucetId`. On 0.17 that client cannot be created for `mlcl`.
+ * The wallet's own client already has the faucet, so local `executeRequest` is
+ * the same fallback as a missing signer.
+ */
+function isSummaryFeeFaucetMissing(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? '');
+  return message.includes('no fee faucet is known') || message.includes('pass `feeFaucetId`');
+}
+
 /** Upper bound on how long the confirm UI will wait for the dry run before giving up. */
 const SIMULATION_TIMEOUT_MS = 20_000;
 
@@ -293,11 +304,15 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // authorized, and the summary client could not sign for it. Anything else - a genuine
         // execution failure, an eviction, an abort - is reported as it stands, because retrying it
         // would either mask the real error or borrow a client a successor already owns.
-        if (!isAlreadyAuthorizedError(summaryFailure) && !isSummarySigningUnavailable(summaryFailure)) {
+        if (
+          !isAlreadyAuthorizedError(summaryFailure) &&
+          !isSummarySigningUnavailable(summaryFailure) &&
+          !isSummaryFeeFaucetMissing(summaryFailure)
+        ) {
           throw summaryFailure;
         }
-        if (isSummarySigningUnavailable(summaryFailure)) {
-          console.warn('[simulate-custom-tx] the summary client cannot sign; falling back to local execution');
+        if (isSummarySigningUnavailable(summaryFailure) || isSummaryFeeFaucetMissing(summaryFailure)) {
+          console.warn('[simulate-custom-tx] the summary client cannot execute; falling back to local execution');
         }
         // The rejection still ends the executeForSummary parking await, so re-check before the
         // fallback executes anything.
