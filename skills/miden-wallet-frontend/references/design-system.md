@@ -185,7 +185,7 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 | `text-badge` | Nunito | 12 / 1 | 700 | `Pill` `sm` and `xs` (`xs` adds `font-semibold`), `StatusBadge` |
 | `text-body` | Inter | 16 / 24 | 400 | Paragraphs (a `SubPageSection` description, an alert's sentence), inputs |
 | `text-body-strong` | Inter | 16 / 24 | 600 | Emphasis inside body copy (`<b>` in a translation) — never the heading face |
-| `text-explainer` | Inter | 15 / 22 | 400 | The muted line under a heading: an onboarding step's description, a status line while the wallet works |
+| `text-explainer` | Inter | 15 / 22 | 400 | The muted line under a heading: an onboarding step's description, a pushed page's explainer line (Choose Guardian, Rotate Guardian) |
 | `text-body-sm` | Inter | 14 / 20 | 400 | Secondary copy: `DetailRow` labels, the `Hero` line, `EmptyState` body, a footnote under a control, a list row's trailing setting |
 | `text-label` | Inter | 13 / 17 | 700 | Section labels (`SectionHeader`), field labels, `Notice` titles, balance card labels |
 | `text-caption` | Inter | 13 / 17 | 400 | Row subtitles, `Notice` body, field hints and errors, a `DetailRow` sub-line |

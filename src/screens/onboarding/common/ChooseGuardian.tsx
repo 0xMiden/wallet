@@ -43,7 +43,7 @@ export interface ChooseGuardianScreenProps {
   // own box rather than growing the footer and pushing Continue off screen (#463).
   error?: string | null;
   // Renders the picker as a pushed page (Rotate Guardian): a header with this
-  // back action and the title, instead of an onboarding step's 28px heading.
+  // back action and the title, instead of an onboarding step's `text-title-tab` heading.
   onBack?: () => void;
 }
 
