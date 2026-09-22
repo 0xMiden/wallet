@@ -1328,12 +1328,13 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    // 0.17: `notes.sendPrivateOutput({ noteId, to })` is gone. `sendPrivateOutputNote`
-    // derives the scan-after hint from the output note's stored expected_height.
-    await this.client.sendPrivateOutputNote(
-      note.id().toString(),
-      Address.fromAccountId(accountRefToSdk(to), 'BasicWallet')
-    );
+    // 0.17 still exposes notes.sendPrivateOutput; `to` must be an AccountRef.
+    // Composite `publicKey` (`bech32_suffix`) throws inside the SDK parse, so
+    // split it first. The scan-after hint still comes from expected_height.
+    await this.client.notes.sendPrivateOutput({
+      noteId: note.id().toString(),
+      to: accountRefToSdk(to)
+    });
   }
 
   /**
@@ -1349,7 +1350,7 @@ export class MidenClientInterface {
    * however late it runs.
    */
   async relayPrivateNoteById(noteId: string, to: string): Promise<void> {
-    await this.client.sendPrivateOutputNote(noteId, Address.fromAccountId(accountRefToSdk(to), 'BasicWallet'));
+    await this.client.notes.sendPrivateOutput({ noteId, to: accountRefToSdk(to) });
   }
 
   /**

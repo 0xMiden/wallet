@@ -64,7 +64,6 @@ describe('MidenClientInterface', () => {
         sendPrivateOutput: jest.fn(async () => undefined),
         ...overrides.notes
       },
-      sendPrivateOutputNote: jest.fn(async () => undefined),
       transactions: {
         send: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
         consume: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
@@ -471,7 +470,7 @@ describe('MidenClientInterface', () => {
 
   it('sends private note', async () => {
     const fakeMidenClient = buildFakeMidenClient();
-    const addr = { kind: 'addr' };
+    const acct = { kind: 'acct' };
 
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -479,11 +478,7 @@ describe('MidenClientInterface', () => {
     }));
     jest.doMock('./helpers', () => ({
       ...jest.requireActual('./helpers'),
-      accountRefToSdk: jest.fn(() => 'acct')
-    }));
-    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-      ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-      Address: { fromAccountId: jest.fn(() => addr) }
+      accountRefToSdk: jest.fn(() => acct)
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -492,7 +487,10 @@ describe('MidenClientInterface', () => {
     const mockNote = { id: () => 'note-id', assets: () => [] } as any;
     await client.sendPrivateNote(mockNote, 'recipient-bech32');
 
-    expect(fakeMidenClient.sendPrivateOutputNote).toHaveBeenCalledWith('note-id', addr);
+    expect(fakeMidenClient.notes.sendPrivateOutput).toHaveBeenCalledWith({
+      noteId: 'note-id',
+      to: acct
+    });
   });
 
   it('executes new transaction and returns TransactionResult', async () => {
