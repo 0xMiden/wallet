@@ -451,8 +451,8 @@ dependencies { implementation 'com.google.firebase:firebase-analytics:22.1.0' }`
     edits: [
       {
         file: CRASH,
-        find: `import wordlist from 'bip39/src/wordlists/english.json';`,
-        replace: `import wordlist from 'bip39/src/wordlists/english.json';\nimport { nanoid } from 'nanoid';\n\nexport const CRASH_SESSION = nanoid();`
+        find: `import { englishWordlist } from '@miden/hd-key';`,
+        replace: `import { englishWordlist } from '@miden/hd-key';\nimport { nanoid } from 'nanoid';\n\nexport const CRASH_SESSION = nanoid();`
       }
     ]
   },

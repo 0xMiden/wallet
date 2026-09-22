@@ -31,7 +31,7 @@ import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
 import { GuardianProbeState, ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
 
 export interface OnboardingFlowProps {
-  wordslist: string[];
+  wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
   step: OnboardingStep;
