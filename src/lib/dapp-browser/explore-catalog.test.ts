@@ -14,22 +14,21 @@ jest.mock('lib/feature-flags', () => ({
 
 const catalog: ExploreCatalog = {
   items: [
-    { id: 'faucet', type: 'tool', category: 'tools', name: 'Faucet', tagline: 'Mint', url: 'https://faucet.example' },
+    { id: 'faucet', category: 'tools', name: 'Faucet', tagline: 'Mint', url: 'https://faucet.example' },
     {
       id: 'dex',
-      type: 'defi',
       category: 'defi',
       name: 'Dex',
       tagline: 'Swap',
       url: 'https://dex.example',
       isExchange: true
     },
-    { id: 'quest', type: 'game', category: 'games', name: 'Quest', tagline: 'Play', url: 'https://quest.example' }
+    { id: 'quest', category: 'games', name: 'Quest', tagline: 'Play', url: 'https://quest.example' }
   ],
   sections: [
     { id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet'] },
     { id: 'tools', kind: 'list', titleKey: 'exploreHelperTools', itemIds: ['faucet', 'missing'] },
-    { id: 'more', kind: 'row', titleKey: 'more', itemIds: ['dex', 'quest'] },
+    { id: 'more', kind: 'list', titleKey: 'more', itemIds: ['dex', 'quest'] },
     { id: 'recents', kind: 'recents', titleKey: 'recents' }
   ]
 };

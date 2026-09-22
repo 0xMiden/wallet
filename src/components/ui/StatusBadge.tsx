@@ -111,15 +111,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
-  const { labelKey, tone } = STATUS_BADGE[status];
+  // Restored rows render the lifecycle strings a backup recorded, by design (see repo.ts), and a
+  // backup written by a newer version can carry a status this build does not know. The badge sits
+  // inside list maps, so an unknown key destructuring undefined would take the whole page down
+  // through its ErrorBoundary; it reads as "unavailable" instead. Every path into the table goes
+  // through this one line, so this is the only guard needed - the union still types every call site,
+  // so a typo in new code stays a compile error.
+  const { labelKey, tone } = STATUS_BADGE[status] ?? STATUS_BADGE.unavailable;
   return (
-    <Pill
-      size={PILL_SIZE[size]}
-      tone={PILL_TONE[tone]}
-      role={live ? 'status' : undefined}
-      className={className}
-      data-testid={dataTestId}
-    >
+    <Pill size={PILL_SIZE[size]} tone={PILL_TONE[tone]} live={live} className={className} data-testid={dataTestId}>
       {t(labelKey)}
     </Pill>
   );

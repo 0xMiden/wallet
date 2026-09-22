@@ -169,7 +169,7 @@ it('requires the explicit funds warning acknowledgement and password before desk
   await renderReady();
 
   expect(screen.getByText(messages.exportAccountFileWarningBody)).toBeInTheDocument();
-  expect(screen.getByTestId('account-banner')).toHaveClass('text-heading-gray');
+  expect(screen.getByTestId('account-banner')).toHaveClass('text-ink');
   const saveButton = screen.getByRole('button', { name: messages.saveAccountFile });
   expect(saveButton).toBeDisabled();
 

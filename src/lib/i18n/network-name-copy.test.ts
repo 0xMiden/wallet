@@ -55,7 +55,6 @@ const UNPUNCTUATED_KEYS = [
   'networkNoticeNoRealFundsTitle',
   'networkNoticeResetTitle',
   'iUnderstand',
-  'receiveTestFundsTitle',
   'crossChainFromNetwork',
   'ethereumSepolia',
   'bridgeTestFundsTitle',

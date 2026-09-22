@@ -1434,10 +1434,11 @@ describe('Vault.revealHotKey', () => {
     await expect(Vault.revealHotKey('guardian-recovered', 'pw')).rejects.toThrow(PublicError);
   });
 
-  // Every guard below stands between the user and a screen that displays raw key
-  // material. Each one has to end as a PublicError: an unhandled TypeError out of
-  // this path is a reveal screen stuck mid-render with the step-up already spent,
-  // and `getMessage` is not reached at all so the user is told nothing.
+  // Every guard below stands between the user and a screen that displays raw key material, so
+  // assert the MESSAGE, never just `PublicError`. These functions run inside `withError`, which
+  // ends `throw err instanceof PublicError ? err : new PublicError(errMessage)` — so deleting a
+  // guard lets the next line throw a TypeError, `withError` rewraps it as a PublicError, and a
+  // `toThrow(PublicError)` assertion still passes. It pins nothing.
   it('rejects when no account carries the requested public key', async () => {
     const vault = await seedVault('pw');
     const vaultKey = (vault as any).vaultKey as CryptoKey;
@@ -1452,7 +1453,7 @@ describe('Vault.revealHotKey', () => {
     };
     await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
 
-    await expect(Vault.revealHotKey('guardian-acc-unknown', 'pw')).rejects.toThrow(PublicError);
+    await expect(Vault.revealHotKey('guardian-acc-unknown', 'pw')).rejects.toThrow('Account not found');
   });
 
   it('rejects when the stored hot ciphertext is empty', async () => {
@@ -1654,7 +1655,7 @@ describe('Vault.revealGuardianKeys', () => {
     };
     await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
 
-    await expect(Vault.revealGuardianKeys('guardian-acc-unknown', 'pw')).rejects.toThrow(PublicError);
+    await expect(Vault.revealGuardianKeys('guardian-acc-unknown', 'pw')).rejects.toThrow('Account not found');
   });
 
   it('rejects when the account names a cold key that decrypts to nothing', async () => {

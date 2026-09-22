@@ -7,6 +7,7 @@ import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
@@ -443,6 +444,7 @@ export const ReviewTransaction: React.FC = () => {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg">
+      <NetworkModeBanner />
       <SendStepLayout
         title={t('reviewDetails')}
         onBack={() => goBack()}

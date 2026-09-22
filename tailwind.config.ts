@@ -138,8 +138,6 @@ export default {
         'accent-primary': 'var(--accent-primary)',
         'accent-primary-hover': 'var(--accent-primary-hover)',
         'action-overview': 'var(--action-overview)',
-        'action-overview-tint': 'var(--action-overview-tint)',
-        'action-overview-ink': 'var(--action-overview-ink)',
         'action-send': 'var(--action-send)',
         'action-send-tint': 'var(--action-send-tint)',
         'action-send-ink': 'var(--action-send-ink)',

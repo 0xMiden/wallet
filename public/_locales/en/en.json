@@ -824,8 +824,6 @@
   "exploreFeatured": "Featured",
   "exploreHelperTools": "Helper tools",
   "exploreOpen": "Open",
-  "exploreSeeAll": "See all",
-  "exploreShowLess": "Show less",
   "exploreComingSoonTitle": "Coming soon to Miden",
   "exploreComingSoonDescription": "New apps show up here as they launch on Miden.",
   "exploreSearch": "Search dApps",
@@ -1097,7 +1095,6 @@
   "networkNoticeResetTitle": "The network can reset",
   "activityCheckingTransfer": "Checking…",
   "networkNoticeResetBody": "A reset clears balances and history. Test balances never carry over to Mainnet.",
-  "receiveTestFundsTitle": "Test tokens only",
   "withdrawalCheckingDescription": "Checking your withdrawal. Keep the wallet open while delivery is confirmed.",
   "retryEarnDelivery": "Retry delivery",
   "activityTransferDetails": "Details",
@@ -1177,5 +1174,6 @@
   "editContact": "Edit contact",
   "deleteContact": "Delete contact",
   "saveContact": "Save",
-  "contactAdded": "Added"
+  "contactAdded": "Added",
+  "couldNotCheckUnlockMethod": "Couldn't check this wallet's unlock method. Check your connection and try again."
 }
