@@ -274,6 +274,44 @@ describe('useCopyToClipboard', () => {
     clearSpy.mockRestore();
   });
 
+  // A `navigator.clipboard` that is absent makes the DEREFERENCE throw, before any promise exists,
+  // so a bare `void navigator.clipboard.writeText(...).catch(...).finally(...)` never builds the
+  // chain: the throw escapes into the click handler and the in-flight latch is never released,
+  // leaving every later activation a no-op for the life of the component. The stub is installed
+  // once at module scope, so this case removes it and restores it in a `finally` - an assertion
+  // failing here (which is what happens on the unfixed hook) must not poison every later case.
+  it('survives an absent Clipboard API and leaves the control usable', async () => {
+    const stub = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
+    // Model a surface that exposes no Clipboard API at all.
+    delete (window.navigator as { clipboard?: unknown }).clipboard;
+
+    try {
+      const field = makeField('s3cret');
+      const { result } = renderHook(() => useCopyToClipboard());
+      act(() => {
+        setFieldRef(result.current.fieldRef, field);
+      });
+
+      // It does not throw into the caller ...
+      await act(async () => {
+        expect(() => result.current.copy()).not.toThrow();
+      });
+      // ... and nothing claims the secret reached the clipboard.
+      expect(result.current.copied).toBe(false);
+
+      // The latch is released, not merely never taken: the microtask flush above has let the
+      // rejection settle, so a second activation must reach the field again. Re-selecting it is
+      // the observable, since there is no clipboard to count calls on.
+      field.blur();
+      await act(async () => {
+        result.current.copy();
+      });
+      expect(document.activeElement).toBe(field);
+    } finally {
+      if (stub) Object.defineProperty(window.navigator, 'clipboard', stub);
+    }
+  });
+
   it('exposes setCopied to drive the copied state directly', async () => {
     const { result } = renderHook(() => useCopyToClipboard());
 

@@ -39,12 +39,20 @@ export default function useCopyToClipboard<T extends HTMLInputElement | HTMLText
       textarea.select();
       inFlightRef.current = true;
       // The confirmation follows the WRITE. Reporting it beforehand told the user their secret was
-      // on the clipboard whenever the write was refused - the costliest place to be wrong. `copy`
-      // stays void-returning and owns the promise, so no caller's signature changes and it can
-      // never reject; on a failure the value stays selected, to be copied by hand.
-      void navigator.clipboard
-        .writeText(textarea.value)
-        .then(() => setCopied(true))
+      // on the clipboard whenever the write was refused - the costliest place to be wrong.
+      //
+      // The write is owned by an async function rather than chained off the bare call, so that a
+      // `navigator.clipboard` that is absent - which makes the DEREFERENCE throw, before any
+      // promise exists - becomes a rejection `.catch` swallows and `.finally` releases, instead of
+      // throwing into the click handler and stranding the latch for the life of the component.
+      // An async body runs synchronously to its first `await`, so `writeText` is still called in
+      // the activation's own stack (WebKit refuses a clipboard write outside it) and
+      // `textarea.value` is still read at click time. `copy` stays void-returning, so no caller's
+      // signature changes; on a failure the value stays selected, to be copied by hand.
+      void (async () => {
+        await navigator.clipboard.writeText(textarea.value);
+        setCopied(true);
+      })()
         .catch(() => {})
         .finally(() => {
           inFlightRef.current = false;
