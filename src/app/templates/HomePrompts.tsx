@@ -371,8 +371,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
 
   const copyHotKeyError = useCallback(() => {
     const text = hotKeyError ?? 'Hot-key secure hardware unavailable';
-    void navigator.clipboard
-      .writeText(text)
+    // The write is owned by an async function: a bare `navigator.clipboard` dereference throws
+    // synchronously where the API is absent, and the `.catch` below - the only thing that reports
+    // a failure - would never have been attached to anything.
+    void (async () => {
+      await navigator.clipboard.writeText(text);
+    })()
       .then(() => {
         // The timer below is armed AFTER the awaited write, so the unmount cleanup has already run
         // and found nothing to clear by the time this continuation lands. Liveness has to be

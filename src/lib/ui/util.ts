@@ -3,8 +3,23 @@ import { extendTailwindMerge } from 'tailwind-merge';
 
 import { TYPE_STYLES } from './type-styles';
 
-export const clearClipboard = () => {
-  window.navigator.clipboard.writeText('');
+/**
+ * Wipes the clipboard, used after a secret is pasted (see `ImportAccount`'s private-key field).
+ *
+ * The write is owned by an async function, so an absent `navigator.clipboard` - where the
+ * DEREFERENCE throws before any promise exists - becomes a rejection rather than an exception out
+ * of the paste handler. The settled promise is returned so a caller, and a test, can observe
+ * whether the wipe actually happened: a browser refusing the write for lack of transient
+ * activation is the common case, and it leaves the secret on the clipboard. It never rejects, so
+ * a caller that ignores it (React ignores a handler's return value) creates nothing floating.
+ */
+export const clearClipboard = async (): Promise<void> => {
+  try {
+    await window.navigator.clipboard.writeText('');
+  } catch (error) {
+    // Nothing on screen can report this, but it must not vanish: the secret is still there.
+    console.error('[clipboard] failed to clear the clipboard after a secret was pasted:', error);
+  }
 };
 
 /**

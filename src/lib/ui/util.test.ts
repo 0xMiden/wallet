@@ -13,6 +13,37 @@ describe('ui utilities', () => {
     expect(writeText).toHaveBeenCalledWith('');
   });
 
+  // The stub above returns undefined, not a promise, which is why the implementation awaits
+  // inside try/catch rather than chaining .catch onto writeText('') - that would be undefined.catch.
+
+  it('does not throw where the Clipboard API is absent, so a paste handler survives it', async () => {
+    const stub = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
+    delete (window.navigator as { clipboard?: unknown }).clipboard;
+
+    try {
+      await expect(clearClipboard()).resolves.toBeUndefined();
+    } finally {
+      if (stub) Object.defineProperty(window.navigator, 'clipboard', stub);
+    }
+  });
+
+  // The half that matters most: a browser refusing the write leaves the secret on the clipboard.
+  // `clearClipboard` returns its settled promise so that outcome is observable at all.
+  it('reports a refused write instead of leaving it unhandled', async () => {
+    const writeText = jest.fn().mockRejectedValue(new Error('denied'));
+    const stub = Object.getOwnPropertyDescriptor(window.navigator, 'clipboard');
+    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const logged = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      await expect(clearClipboard()).resolves.toBeUndefined();
+      expect(logged).toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+      if (stub) Object.defineProperty(window.navigator, 'clipboard', stub);
+    }
+  });
+
   it('merges conditional and conflicting Tailwind classes', () => {
     expect(cn('px-2 text-sm', false && 'hidden', { block: true }, 'px-4')).toBe('text-sm block px-4');
   });

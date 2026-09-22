@@ -2876,6 +2876,42 @@ describe('HomePrompts', () => {
     errorSpy.mockRestore();
   });
 
+  // Where the Clipboard API is absent the DEREFERENCE throws, so before the write was owned by an
+  // async function the `.catch` that sets this indicator was never attached to anything.
+  it('marks the copy action failed where the Clipboard API is absent entirely', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const stub = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    delete (navigator as { clipboard?: unknown }).clipboard;
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+    });
+    errorSpy.mockRestore();
+    if (stub) Object.defineProperty(navigator, 'clipboard', stub);
+  });
+
   it('initiates a hot-key rotation and routes to the generating-transaction page from the rotation prompt', async () => {
     const completePrompt = jest.fn();
     mockInitiateReplaceHotKeyTransaction.mockResolvedValue('tx-rotate-1');
