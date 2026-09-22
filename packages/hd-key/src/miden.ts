@@ -1,8 +1,9 @@
 /**
  * Miden account seed derivation policy.
  *
- * Two schemes exist. Both must stay byte-for-byte stable forever, because the
- * derivation decides which accounts a seed phrase recovers.
+ * Two schemes exist. Do not change either scheme. The derivation decides which
+ * accounts a seed phrase recovers, so a change makes existing accounts
+ * unreachable.
  *
  * | Scheme   | HMAC label       | Path                                                        |
  * |----------|------------------|-------------------------------------------------------------|
@@ -10,8 +11,8 @@
  * | `v1`     | `miden seed`     | `m/44'/5063758'/<walletType>'/<authScheme>'/<accountIndex>'` |
  *
  * `5063758` is the SLIP-44 coin type registered for Miden. The `authScheme`
- * level makes a Falcon key and an ECDSA key at the same index diverge, so two
- * key types never share a secret (issue #918).
+ * level gives a Falcon key and an ECDSA key at the same index different
+ * seeds. Thus two key types never share a secret (issue #918).
  */
 import { deriveHardenedPath } from './slip10';
 
@@ -53,7 +54,7 @@ export function midenDerivationPath(spec: MidenDerivationSpec): string {
 
 /**
  * Derive the 32-byte account seed for `spec` from the 64-byte BIP-39 master
- * seed. A negative `accountIndex` throws, because the path is not valid.
+ * seed. A negative `accountIndex` gives an invalid path and throws.
  */
 export function deriveMidenAccountSeed(masterSeed: Uint8Array, spec: MidenDerivationSpec): Uint8Array {
   const node = deriveHardenedPath(masterSeed, seedLabel(spec.keyDerivation), midenDerivationPath(spec));

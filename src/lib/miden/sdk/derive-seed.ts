@@ -1,12 +1,11 @@
 /**
  * BIP-39 / SLIP-0010 HD seed derivation for Miden accounts.
  *
- * The derivation itself lives in `@miden/hd-key`. This module maps the
- * wallet's enums (`WalletType`, `AuthScheme`, `KeyDerivation`) to the numeric
- * path levels the package takes, so there is exactly one place that decides
- * which path an account uses. It is shared with frontend-only callers (the
- * guardian auto-detect probe) without dragging the vault module graph into the
- * popup bundle; `vault.ts` imports these back.
+ * The derivation is in `@miden/hd-key`. This module maps the wallet enums
+ * (`WalletType`, `AuthScheme`, `KeyDerivation`) to the numeric path levels
+ * the package takes. Thus one place decides which path an account uses.
+ * Frontend-only callers (the guardian auto-detect probe) import this module
+ * without the vault module graph; `vault.ts` imports it too.
  */
 import { deriveMidenAccountSeed, midenDerivationPath, mnemonicToSeed } from '@miden/hd-key';
 import type { AuthScheme, KeyDerivation } from 'lib/shared/types';
@@ -72,14 +71,13 @@ export function deriveClientSeed(mnemonic: string, spec: ClientSeedSpec): Uint8A
 }
 
 /**
- * Build a `deriveSeed(spec)` closure that memoizes the expensive part —
- * `mnemonicToSeed` runs 2048 rounds of PBKDF2-HMAC-SHA512 — across every spec
- * it is asked for. Callers that derive under several schemes or walk a range
- * of HD indices (the restore probes, guardian recovery, the guardian discovery
- * probe) would otherwise pay that cost once per derivation, which is very
- * visible when it happens on the UI thread.
+ * Build a `deriveSeed(spec)` closure that computes the master seed once.
+ * `mnemonicToSeed` runs 2048 rounds of PBKDF2-HMAC-SHA512, which is slow on
+ * the UI thread. Callers that derive under several schemes or walk a range of
+ * HD indices (the restore probes, guardian recovery, the guardian discovery
+ * probe) pay that cost once instead of once per derivation.
  *
- * Byte-for-byte equivalent to calling {@link deriveClientSeed} per spec.
+ * The output is equal to {@link deriveClientSeed} for the same spec.
  */
 export function makeSeedDeriver(mnemonic: string): (spec: ClientSeedSpec) => Uint8Array {
   let masterSeed: Uint8Array | null = null;
@@ -96,8 +94,8 @@ const COLD_KEY_AUTH_SCHEME: AuthScheme = 'ecdsa';
 
 /**
  * Build a `deriveColdSeed(hdIndex, keyDerivation)` closure for Guardian cold
- * keys. One closure serves both a `v1` scan and a `legacy` scan, and pays the
- * PBKDF2 cost once (see {@link makeSeedDeriver}).
+ * keys. One closure serves a `v1` scan and a `legacy` scan, and computes the
+ * master seed once (see {@link makeSeedDeriver}).
  */
 export function makeColdSeedDeriver(
   mnemonic: string,

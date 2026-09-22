@@ -12,22 +12,22 @@ The package imports nothing from the wallet. The wallet maps its enums to the nu
 
 ## Which SLIP-0010 rule
 
-SLIP-0010 has one HMAC-SHA512 chain and two rules for turning its output `I = I_L || I_R` into a child key, selected by curve:
+SLIP-0010 has one HMAC-SHA512 chain and two rules to make a child key from its output `I = I_L || I_R`. The curve selects the rule:
 
 | Curve | Master secret | Hardened child secret | Validity | Retry | Non-hardened |
 |---|---|---|---|---|---|
 | secp256k1, nist256p1 | `I_L` | `(I_L + k_parent) mod n` | must be in `[1, n)` | yes, re-HMAC with `0x01 ‖ I_R ‖ ser32(i)` (master: with `I` as the new seed) | yes |
-| ed25519, curve25519 | `I_L` | `I_L` | every 32-byte string, all-zero included | never | no |
+| ed25519, curve25519 | `I_L` | `I_L` | each 32-byte string, the all-zero string included | no | no |
 
-This package uses the **second rule for every wallet key, whatever curve the key ends up on**. The name is shorthand only: nothing in the package touches the ed25519 curve.
+This package uses the **second rule for each wallet key, on each curve**. The name is only a label. The package does not use the ed25519 curve.
 
-The reason is what the output is used for. The derived 32 bytes are **not a signing key**. They are a seed for an SDK key constructor (`AuthSecretKey.ecdsaWithRNG`, `AuthSecretKey.rpoFalconWithRNG`), which runs its own key generation from that seed. The SDK reduces the seed into a valid secp256k1 scalar itself, and for Falcon the seed feeds a lattice sampler where `mod n` has no meaning. So:
+The reason is the use of the output. The derived 32 bytes are **not a signing key**. They are a seed for an SDK key constructor (`AuthSecretKey.ecdsaWithRNG` or `AuthSecretKey.rpoFalconWithRNG`). The SDK makes the key from that seed. For ECDSA, the SDK reduces the seed into a valid secp256k1 scalar. For Falcon, the seed feeds a lattice sampler, and `mod n` has no meaning. Thus:
 
-- A `mod n` addition and a retry loop on bytes that are not a scalar would be meaningless work, and would tie one seed to one curve.
-- The derivation the wallet shipped with before #918 (`@demox-labs/aleo-hd-key`) used this same rule, so the `legacy` scheme must as well or its golden vectors would not reproduce.
-- With no rejection path the derivation is a fixed number of HMAC calls with no data-dependent branching.
+- A `mod n` addition and a retry loop on bytes that are not a scalar have no effect that we want. They also tie one seed to one curve.
+- The derivation the wallet used before issue #918 (`@demox-labs/aleo-hd-key`) used the same rule. The `legacy` scheme must keep it, or its golden vectors do not match.
+- With no retry, the derivation is a fixed number of HMAC calls.
 
-What this gives up is interoperability: a Miden ECDSA key never equals a BIP-32 wallet's key for the same phrase, and the spec's secp256k1 test vectors cannot be reproduced by the package as-is. That is deliberate (issue #918). `slip10.test.ts` still checks the hardened secp256k1 vector by applying the scalar addition inside the test, which proves the shared HMAC chain, the label handling and the data layout are correct for that curve too.
+The cost is interoperability. A Miden ECDSA key is never equal to a BIP-32 wallet key for the same phrase. The package cannot reproduce the secp256k1 test vectors of the specification as-is. This is a decision (issue #918). `slip10.test.ts` checks the hardened secp256k1 vector with the scalar addition applied in the test. This shows that the HMAC chain, the label and the data layout are correct for that curve.
 
 ## Schemes
 
@@ -37,21 +37,21 @@ What this gives up is interoperability: a Miden ECDSA key never equals a BIP-32 
 | `v1`     | `miden seed`     | `m/44'/5063758'/<walletType>'/<authScheme>'/<accountIndex>'` |
 
 - `walletType`: 0 on-chain, 1 off-chain, 2 guardian.
-- `authScheme`: 0 falcon, 1 ecdsa. The `legacy` scheme has no scheme level, so a Falcon key and an ECDSA key at the same index shared a secret. `v1` separates them.
+- `authScheme`: 0 falcon, 1 ecdsa. The `legacy` scheme has no scheme level, so a Falcon key and an ECDSA key at the same index had the same seed. `v1` gives them different seeds.
 - `5063758` is the SLIP-44 coin type registered for Miden.
 
 Both schemes must stay byte-for-byte stable forever. The derivation decides which accounts a seed phrase recovers, so a change to a label or a path orphans every existing wallet. `miden.test.ts` freezes golden vectors for both schemes; do not recompute them from the code under test.
 
 ## Rules
 
-- The seed must be 16 to 64 bytes (128 to 512 bits). Every 32-byte secret is valid, the all-zero secret included.
-- An index must be an integer from 0 to 2^31 - 1. The hardened offset is applied inside the package and is not a parameter.
-- Every path segment must be hardened and must not have a leading zero. The master path `m` is valid.
-- Inputs are `Uint8Array`, never hex strings. Intermediate buffers are cleared after use.
+- The seed must be 16 to 64 bytes (128 to 512 bits). Each 32-byte secret is valid, the all-zero secret included.
+- An index must be an integer from 0 to 2^31 - 1. The package applies the hardened offset. The offset is not a parameter.
+- Each path segment must be hardened. A segment must not have a leading zero. The master path `m` is valid.
+- Inputs are `Uint8Array`, not hex strings. The package clears each intermediate buffer after use.
 
 ## Reference
 
-The implementation follows MetaMask `key-tree` v10.1.1, audited by Cure53 in February 2023 and April 2024. The checks above map to audit findings MM-02-003 (seed length), MM-02-004 (master key bounds) and MM-02-007 (the all-zero ed25519 key is valid). `slip10.test.ts` runs the official SLIP-0010 ed25519 test vectors 1 and 2 with the standard `ed25519 seed` label, and the hardened chains of secp256k1 test vector 1 with the `Bitcoin seed` label.
+The code was checked against the audited MetaMask `key-tree` package to make sure it does not repeat known bugs. `slip10.test.ts` runs the official SLIP-0010 ed25519 test vectors 1 and 2 with the standard `ed25519 seed` label, and the hardened chains of secp256k1 test vector 1 with the `Bitcoin seed` label.
 
 ## Build
 
@@ -59,4 +59,4 @@ The implementation follows MetaMask `key-tree` v10.1.1, audited by Cure53 in Feb
 yarn build:hd-key   # from the repo root: tsc -> packages/hd-key/dist/, also run by the root postinstall
 ```
 
-The wallet consumes the package through a `link:` dependency and its built `dist/`. Jest maps `@miden/hd-key` to `src/` so unit tests need no build step. Do not run `yarn install` inside the package; its dependencies resolve from the root `node_modules`.
+The wallet uses the package through a `link:` dependency and its built `dist/`. Jest maps `@miden/hd-key` to `src/`, so unit tests need no build step. Do not run `yarn install` inside the package. Its dependencies resolve from the root `node_modules`.
