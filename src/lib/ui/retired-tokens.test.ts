@@ -268,7 +268,7 @@ describe('retired colour tokens', () => {
       'text-ink',
       'ring-offset-2', // live, and exercises the ring-offset arm
       'ring-offset-page', // live at Button.tsx and IconButton.tsx
-      'border-t-surface-balance-divider', // live, and shares the `surface-` stem with three retired keys
+      'bg-surface-balance-pill', // live at Pill.tsx, and shares the `surface-balance-` stem with two retired keys
       'border-b-border-card', // live
       '  --text-gray-secondary: #8e8e93;', // a custom-property DECLARATION, not a class
       '  --text-gray: #808080;'
