@@ -3635,14 +3635,6 @@
     "message": "열기",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "모두 보기",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "간단히 보기",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Miden에 곧 출시",
     "englishSource": "Coming soon to Miden"
