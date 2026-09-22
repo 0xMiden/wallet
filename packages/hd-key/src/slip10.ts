@@ -19,7 +19,18 @@
 import { hmac } from '@noble/hashes/hmac';
 import { sha512 } from '@noble/hashes/sha512';
 
-/** A SLIP-0010 extended private key: a 32-byte secret and a 32-byte chain code. */
+/**
+ * A SLIP-0010 extended private key: a 32-byte secret and a 32-byte chain code.
+ *
+ * Both halves come from one HMAC-SHA512 output: the first 32 bytes are the
+ * secret, the last 32 bytes are the chain code (BIP-32 terms). The chain code
+ * is the HMAC key for the next derivation step, so a child depends on both
+ * halves of its parent. In BIP-32 it also lets a public key derive
+ * non-hardened child public keys; this package never does that. Here the
+ * chain code is only the intermediate state between path levels: it is
+ * consumed to derive the next child and then cleared. The wallet keeps only
+ * the final `secret`, as an RNG seed for the SDK key constructors.
+ */
 export interface ExtendedKey {
   readonly secret: Uint8Array;
   readonly chainCode: Uint8Array;
