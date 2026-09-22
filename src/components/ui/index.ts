@@ -76,6 +76,9 @@ export type { TextFieldProps, TextFieldElement } from './TextField';
 export { Card, CardButton } from './Card';
 export type { CardProps, CardButtonProps, CardPadding } from './Card';
 
+export { CheckboxIndicator, CheckboxRow } from './Checkbox';
+export type { CheckboxIndicatorProps, CheckboxRowProps } from './Checkbox';
+
 export { ChoiceCardGroup } from './ChoiceCard';
 export type { ChoiceCardGroupProps, ChoiceCardItem, ChoiceCardDataAttributes } from './ChoiceCard';
 

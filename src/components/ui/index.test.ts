@@ -14,6 +14,7 @@ import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
 import { Card, CardButton } from './Card';
+import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import { ChoiceCardGroup } from './ChoiceCard';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
@@ -80,6 +81,8 @@ describe('components/ui barrel', () => {
     TextField,
     Card,
     CardButton,
+    CheckboxIndicator,
+    CheckboxRow,
     ChoiceCardGroup,
     TextAction
   } as const;
