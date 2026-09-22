@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 
 import { reducedMotionTransition, springs, tabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -138,10 +138,42 @@ describe('CheckboxRow', () => {
     const box = screen.getByRole('checkbox');
     expect(box.tagName).toBe('BUTTON');
     expect(box).toHaveAttribute('type', 'button');
-    fireEvent.keyDown(box, { key: 'Enter' });
+    // The suppression is the point of the handler, so it is what gets asserted: a button already
+    // activates on Enter, and jsdom does not perform that default, so a test that only watches
+    // `aria-checked` stays green with the preventDefault deleted - while a real browser would
+    // toggle twice and Enter would do nothing at all.
+    const enter = createEvent.keyDown(box, { key: 'Enter' });
+    fireEvent(box, enter);
+    expect(enter.defaultPrevented).toBe(true);
     expect(box).toHaveAttribute('aria-checked', 'true');
     fireEvent.keyDown(box, { key: 'a' });
     expect(box).toHaveAttribute('aria-checked', 'true');
+  });
+
+  // What the browser actually does: keydown, and then the activation click only if nothing stopped
+  // it. Replaying both unconditionally would fail on correct code too.
+  it('toggles once when the browser follows Enter with its activation click', () => {
+    const onChange = jest.fn();
+    render(<Row onChange={onChange} />);
+    const box = screen.getByRole('checkbox');
+
+    const enter = createEvent.keyDown(box, { key: 'Enter' });
+    fireEvent(box, enter);
+    if (!enter.defaultPrevented) fireEvent.click(box);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  // The documented reason for the suppression: not submitting a surrounding form.
+  it('does not submit a surrounding form on Enter', () => {
+    const onSubmit = jest.fn(e => e.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <Row />
+      </form>
+    );
+    fireEvent.keyDown(screen.getByRole('checkbox'), { key: 'Enter' });
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('dips its content on the tab-bar press, and not under reduced motion', () => {
