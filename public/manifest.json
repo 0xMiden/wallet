@@ -26,6 +26,7 @@
   ],
   "host_permissions": [
     "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://faucet-api.forkchoice.xyz/*",
     "https://*.miden.fi/*",
     "https://*.miden.io/*"
