@@ -88,9 +88,12 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// jsdom exposes no `navigator.clipboard`; install a spy so `onCopyToClipboard`
-// can be verified.
+// The copy goes through @capacitor/clipboard (its own web implementation makes the same call right
+// on every surface), so that is the boundary to assert. `navigator.clipboard` is still stubbed
+// because jsdom exposes none and unrelated code may reach for it.
 const mockWriteText = jest.fn();
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) } }));
 Object.defineProperty(navigator, 'clipboard', {
   value: { writeText: mockWriteText },
   configurable: true
@@ -254,26 +257,60 @@ describe('BackUpSeedPhraseScreen', () => {
   });
 
   describe('copy to clipboard', () => {
-    it('writes the space-joined seed phrase and hands the shared copy confirmation the copied state', () => {
+    it('writes the space-joined seed phrase and hands the shared copy confirmation the copied state', async () => {
       renderComponent();
 
       const copyBtn = screen.getByTestId('btn-copyToClipboard');
       expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
       expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
 
-      fireEvent.click(copyBtn);
+      await act(async () => {
+        fireEvent.click(copyBtn);
+      });
 
-      expect(mockWriteText).toHaveBeenCalledTimes(1);
-      expect(mockWriteText).toHaveBeenCalledWith(SEED.join(' '));
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(mockClipboardWrite).toHaveBeenCalledWith({ string: SEED.join(' ') });
       expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
       expect(screen.getByTestId('copy-label')).toHaveTextContent('copied');
     });
 
-    it('reverts to the default copy state after the shared 1.5s feedback window', () => {
+    // The whole point of the shared implementation: the confirmation follows the WRITE. The screen
+    // used to report success without awaiting it, on the one value where that costs the most.
+    it('says nothing was copied when the write fails', async () => {
+      mockClipboardWrite.mockRejectedValueOnce(new Error('denied'));
+      renderComponent();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
+
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
+    });
+
+    // The local version armed a timeout it never cleared, so a Continue inside the window left it
+    // firing into a detached tree. React 18 reports nothing for that, so the timer is the evidence.
+    it('leaves no timer behind when the step is left inside the feedback window', async () => {
+      jest.useFakeTimers();
+      const { unmount } = renderComponent();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      unmount();
+
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('reverts to the default copy state after the shared 1.5s feedback window', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
       expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
 
       act(() => {
@@ -284,11 +321,13 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
     });
 
-    it('stays in the copied state before the timeout elapses', () => {
+    it('stays in the copied state before the timeout elapses', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
 
       act(() => {
         jest.advanceTimersByTime(1499);
