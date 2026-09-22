@@ -1176,5 +1176,6 @@
   "deleteContact": "Excluir contato",
   "saveContact": "Salvar",
   "contactAdded": "Adicionado",
-  "guardianCardMeta": "Operado por $operator$ · $location$"
+  "guardianCardMeta": "Operado por $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente."
 }

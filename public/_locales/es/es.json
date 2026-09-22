@@ -1176,5 +1176,6 @@
   "deleteContact": "Eliminar contacto",
   "saveContact": "Guardar",
   "contactAdded": "Añadido",
-  "guardianCardMeta": "Operado por $operator$ · $location$"
+  "guardianCardMeta": "Operado por $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo."
 }

@@ -5210,5 +5210,9 @@
         "content": "$2"
       }
     }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

@@ -1176,5 +1176,6 @@
   "deleteContact": "Kişiyi sil",
   "saveContact": "Kaydet",
   "contactAdded": "Eklendi",
-  "guardianCardMeta": "İşleten: $operator$ · $location$"
+  "guardianCardMeta": "İşleten: $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin."
 }

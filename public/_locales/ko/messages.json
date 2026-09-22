@@ -5210,5 +5210,9 @@
         "content": "$2"
       }
     }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

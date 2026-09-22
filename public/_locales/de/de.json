@@ -1176,5 +1176,6 @@
   "deleteContact": "Kontakt löschen",
   "saveContact": "Speichern",
   "contactAdded": "Hinzugefügt",
-  "guardianCardMeta": "Betrieben von $operator$ · $location$"
+  "guardianCardMeta": "Betrieben von $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut."
 }

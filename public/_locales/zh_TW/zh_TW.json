@@ -1176,5 +1176,6 @@
   "deleteContact": "刪除聯絡人",
   "saveContact": "儲存",
   "contactAdded": "新增時間",
-  "guardianCardMeta": "營運方：$operator$ · $location$"
+  "guardianCardMeta": "營運方：$operator$ · $location$",
+  "couldNotCheckUnlockMethod": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。"
 }

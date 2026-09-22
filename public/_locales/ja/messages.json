@@ -5210,5 +5210,9 @@
         "content": "$2"
       }
     }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

@@ -5210,5 +5210,9 @@
         "content": "$2"
       }
     }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

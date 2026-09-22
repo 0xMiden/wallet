@@ -1176,5 +1176,6 @@
   "deleteContact": "Delete contact",
   "saveContact": "Save",
   "contactAdded": "Added",
-  "guardianCardMeta": "Operated by $operator$ · $location$"
+  "guardianCardMeta": "Operated by $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Couldn't check this wallet's unlock method. Check your connection and try again."
 }

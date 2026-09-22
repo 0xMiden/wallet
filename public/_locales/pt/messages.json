@@ -5210,5 +5210,9 @@
         "content": "$2"
       }
     }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

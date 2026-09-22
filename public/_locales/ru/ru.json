@@ -1176,5 +1176,6 @@
   "deleteContact": "Удалить контакт",
   "saveContact": "Сохранить",
   "contactAdded": "Добавлен",
-  "guardianCardMeta": "Оператор: $operator$ · $location$"
+  "guardianCardMeta": "Оператор: $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку."
 }

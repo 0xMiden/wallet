@@ -5210,5 +5210,9 @@
         "content": "$2"
       }
     }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

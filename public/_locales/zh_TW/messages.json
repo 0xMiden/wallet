@@ -5210,5 +5210,9 @@
         "content": "$2"
       }
     }
+  },
+  "couldNotCheckUnlockMethod": {
+    "message": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
+    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
   }
 }

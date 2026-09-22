@@ -1176,5 +1176,6 @@
   "deleteContact": "연락처 삭제",
   "saveContact": "저장",
   "contactAdded": "추가됨",
-  "guardianCardMeta": "운영: $operator$ · $location$"
+  "guardianCardMeta": "운영: $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요."
 }

@@ -1176,5 +1176,6 @@
   "deleteContact": "Видалити контакт",
   "saveContact": "Зберегти",
   "contactAdded": "Додано",
-  "guardianCardMeta": "Оператор: $operator$ · $location$"
+  "guardianCardMeta": "Оператор: $operator$ · $location$",
+  "couldNotCheckUnlockMethod": "Не вдалося перевірити спосіб розблокування цього гаманця. Перевірте з’єднання та спробуйте ще раз."
 }

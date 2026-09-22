@@ -1176,5 +1176,6 @@
   "deleteContact": "删除联系人",
   "saveContact": "保存",
   "contactAdded": "添加时间",
-  "guardianCardMeta": "运营方：$operator$ · $location$"
+  "guardianCardMeta": "运营方：$operator$ · $location$",
+  "couldNotCheckUnlockMethod": "无法验证此钱包的解锁方式。请检查您的网络连接并重试。"
 }
