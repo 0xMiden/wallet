@@ -129,6 +129,12 @@ export const EXPLORE_CATALOG: ExploreCatalog = {
  * once gated on iOS for App Store Guideline 3.1.5(iii), and is enabled everywhere today), exchange
  * items drop out of Explore with it rather than needing a second switch. Call at render time, after
  * Capacitor is initialized.
+ *
+ * Hands back the module singleton BY REFERENCE while swap is on, which is every platform today, and
+ * `resolveExploreSections` / `searchExploreCatalog` return fresh ARRAYS over that singleton's own
+ * section and item objects. The aliasing survives all three, so nothing anywhere may mutate a
+ * catalogue item or section in place. A copy here would not help: a shallow spread still shares
+ * every item, so it would read as safety without being it.
  */
 export function getExploreCatalog(catalog: ExploreCatalog = EXPLORE_CATALOG): ExploreCatalog {
   if (isSwapEnabled()) return catalog;
