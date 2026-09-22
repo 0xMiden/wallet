@@ -134,12 +134,6 @@ button:disabled,
   line-height: var(--tw-leading, 52px);
   font-weight: var(--tw-font-weight, 800);
 }
-@utility text-entry {
-  font-family: var(--font-heading);
-  font-size: 48px;
-  line-height: var(--tw-leading, 56px);
-  font-weight: var(--tw-font-weight, 800);
-}
 @utility text-entry-unit {
   font-family: var(--font-heading);
   font-size: 22px;
@@ -230,6 +224,12 @@ button:disabled,
   font-size: 16px;
   line-height: var(--tw-leading, 24px);
   font-weight: var(--tw-font-weight, 600);
+}
+@utility text-explainer {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: var(--tw-leading, 22px);
+  font-weight: var(--tw-font-weight, 400);
 }
 @utility text-body-sm {
   font-family: var(--font-sans);
@@ -544,12 +544,10 @@ body[data-hide-navbar]::after {
     --action-receive: var(--card-green);
     --action-earn: var(--card-slate);
     --action-swap: var(--card-purple);
-    --action-overview-tint: #fceee7;
     --action-send-tint: #eceff2;
     --action-receive-tint: #eff1ee;
     --action-earn-tint: #efeef0;
     --action-swap-tint: #f0eef2;
-    --action-overview-ink: #a95528;
     --action-send-ink: #566f83;
     --action-receive-ink: #60715c;
     --action-earn-ink: #6d697b;
@@ -586,13 +584,19 @@ body[data-hide-navbar]::after {
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #ff5500;
-    /* Activity icon squares (a white glyph on top): each kind of row is its action's colour, so a
-     * sent row matches the Send tab. The faucet has no tab and keeps its dusty rose. */
+    /* Activity icon squares: each kind of row is its action's colour, so a sent row matches the Send
+     * tab. The square renders a WHITE glyph on top (HistoryView paints `[&_path]:fill-pure-white`),
+     * so it owes WCAG 1.4.11's 3:1 while the artwork, a coloured icon on the page, does not. The
+     * light action colours clear it (3.63:1 to 4.58:1); the faucet has no tab, and its dusty rose
+     * sat at 2.19:1, so it takes the darker shade of the same hue. `.dark` gives these their own
+     * values rather than following the card colours, which flip to pastels there.
+     * `transactionUtils.ts` mirrors sent/received/faucet in JS because TransactionIcon draws those
+     * circles from constants; its test enforces the sync. */
     --tx-received: var(--action-receive);
     --tx-sent: var(--action-send);
     --tx-swap: var(--action-swap);
     --tx-earn: var(--action-earn);
-    --tx-faucet: #cca4b8;
+    --tx-faucet: #ba839f;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -676,13 +680,11 @@ body[data-hide-navbar]::after {
      * derive dark values by inverting text/surface and keeping action/status hues. */
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
-    --action-overview-tint: #32241d;
     --action-send-tint: #272b2d;
     --action-receive-tint: #2a2c2a;
     --action-earn-tint: #242426;
     --action-swap-tint: #2d2b2f;
     /* Dark mode's brand colours already read at 4.5:1 as text, all but the slate. */
-    --action-overview-ink: var(--action-overview);
     --action-send-ink: var(--action-send);
     --action-receive-ink: var(--action-receive);
     --action-earn-ink: #8d8a9a;
@@ -705,7 +707,14 @@ body[data-hide-navbar]::after {
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
-    --tx-faucet: #cca4b8;
+    /* The activity square keeps a white glyph in dark mode too, so it cannot follow `--card-*`,
+     * which flips to the light pastels here (2.04:1 to 2.37:1 against white). These are the same
+     * hues taken down in lightness until they clear 3:1. */
+    --tx-received: #839a7d;
+    --tx-sent: #7697b2;
+    --tx-swap: #a289bf;
+    --tx-earn: #777487;
+    --tx-faucet: #ba839f;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;

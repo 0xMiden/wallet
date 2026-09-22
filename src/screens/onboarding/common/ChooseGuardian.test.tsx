@@ -250,6 +250,10 @@ describe('ChooseGuardianScreen', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('Guardian rejected the request');
     expect(alert.compareDocumentPosition(screen.getByTestId('continue-button'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // The error sits in the PINNED footer, not the scrolling body, so it is bounded and scrolls
+    // inside its own box. Without the bound a long backend error grows the footer and pushes
+    // Continue off the screen (#463) - the sibling rotate-guardian screen already caps it.
+    expect(alert).toHaveClass('max-h-24', 'overflow-y-auto');
   });
 
   it('renders no error region when the caller has no error', () => {

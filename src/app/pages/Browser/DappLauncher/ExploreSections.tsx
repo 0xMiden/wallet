@@ -8,7 +8,7 @@
  * tab bars' spring, and sections it shows rise in without the stagger.
  */
 
-import React, { type FC, useState } from 'react';
+import React, { type FC } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -17,24 +17,20 @@ import { type IconName } from 'app/icons/v2';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
-import { type ExploreItem, type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
-import { hapticLight } from 'lib/mobile/haptics';
+import { type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
 
 import { AppList } from './AppRow';
-import { DappTile, TileRow } from './DappTile';
+import { TileRow } from './DappTile';
 import { FeaturedCard } from './FeaturedCard';
 import { RecentsRow } from './RecentsRow';
-
-const NONE: ReadonlySet<string> = new Set();
 
 interface SectionBodyProps {
   resolved: ResolvedExploreSection;
   recents: RecentDapp[];
-  expanded: boolean;
   onOpen: (url: string) => void;
 }
 
-const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, expanded, onOpen }) => {
+const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, onOpen }) => {
   const { section, items } = resolved;
 
   switch (section.kind) {
@@ -56,25 +52,13 @@ const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, expanded, onOpen
     case 'list':
       return (
         <div className="px-4">
-          <AppList items={visibleListItems(items, section.limit, expanded)} onOpen={onOpen} />
+          <AppList items={items} onOpen={onOpen} />
         </div>
-      );
-    case 'row':
-      return (
-        <TileRow>
-          {items.map(item => (
-            <DappTile key={item.id} url={item.url} name={item.name} icon={item.icon} onOpen={onOpen} />
-          ))}
-        </TileRow>
       );
     case 'recents':
       return <RecentsRow recents={recents} onOpen={onOpen} />;
   }
 };
-
-function visibleListItems(items: ExploreItem[], limit: number | undefined, expanded: boolean): ExploreItem[] {
-  return expanded || limit === undefined ? items : items.slice(0, limit);
-}
 
 export interface ExploreEmptyState {
   /** Keys the state, so a different one animates in. */
@@ -110,19 +94,8 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
 }) => {
   const { t } = useTranslation();
   const motionTokens = useExploreMotion();
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(NONE);
 
   const shown = sections.filter(({ section }) => section.kind !== 'recents' || recents.length > 0);
-
-  const toggle = (id: string) => {
-    hapticLight();
-    setExpanded(current => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const sectionMotion = (index: number) => ({
     layout: true,
@@ -148,38 +121,27 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
           </motion.div>
         ) : (
           shown.map((resolved, index) => {
-            const { section, items } = resolved;
-            const isExpanded = expanded.has(section.id);
-            const canExpand = section.kind === 'list' && section.limit !== undefined && items.length > section.limit;
+            const { section } = resolved;
+            const motionProps = sectionMotion(index);
             return (
               <motion.section
                 key={section.id}
-                {...sectionMotion(index)}
+                {...motionProps}
                 aria-label={t(section.titleKey)}
                 data-testid={`explore-section-${section.id}`}
                 data-kind={section.kind}
+                // The reveal order, rendered so it can be read: `style.opacity` is identical for
+                // every revealing section whatever its place in the sequence. It reads the property
+                // framer is given rather than recomputing it, so a test of the attribute is a test
+                // of the animation input and the two cannot drift.
+                data-reveal-index={motionProps.custom}
               >
                 <div className="px-4">
-                  <SectionHeader
-                    size="xl"
-                    className="px-0 pb-3"
-                    action={
-                      canExpand && (
-                        <button
-                          type="button"
-                          onClick={() => toggle(section.id)}
-                          aria-expanded={isExpanded}
-                          className="-my-2 py-2 text-action text-accent-tint-ink"
-                        >
-                          {t(isExpanded ? 'exploreShowLess' : 'exploreSeeAll')}
-                        </button>
-                      )
-                    }
-                  >
+                  <SectionHeader size="xl" className="px-0 pb-3">
                     {t(section.titleKey)}
                   </SectionHeader>
                 </div>
-                <SectionBody resolved={resolved} recents={recents} expanded={isExpanded} onOpen={onOpen} />
+                <SectionBody resolved={resolved} recents={recents} onOpen={onOpen} />
               </motion.section>
             );
           })

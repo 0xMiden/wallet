@@ -44,7 +44,7 @@ describe('ChooseProtectionScreen', () => {
     const svg = container.querySelector('svg');
     expect(svg).toHaveClass('max-w-[278px]');
     expect(svg).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-[28px]');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
     const buttons = screen.getAllByRole('button');
     buttons.forEach(b => expect(b.closest('[data-slot="footer"]')).not.toBeNull());
   });

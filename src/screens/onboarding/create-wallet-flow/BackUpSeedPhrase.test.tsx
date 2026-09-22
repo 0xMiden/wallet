@@ -79,13 +79,12 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// jsdom exposes no `navigator.clipboard`; install a spy so `onCopyToClipboard`
-// can be verified.
+// The seed copy goes through `@capacitor/clipboard`, which has its own web implementation, so the
+// same call is correct on desktop, the extension and every mobile webview.
 const mockWriteText = jest.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  value: { writeText: mockWriteText },
-  configurable: true
-});
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: ({ string }: { string: string }) => mockWriteText(string) }
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -124,6 +123,7 @@ const dispatchCopy = ({
 
 beforeEach(() => {
   mockWriteText.mockClear();
+  mockWriteText.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -245,13 +245,15 @@ describe('BackUpSeedPhraseScreen', () => {
   });
 
   describe('copy to clipboard', () => {
-    it('writes the space-joined seed phrase and flips the button to the "copied" state', () => {
+    it('writes the space-joined seed phrase and flips the button to the "copied" state', async () => {
       renderComponent();
 
       const copyBtn = screen.getByTestId('btn-copyToClipboard');
       expect(copyBtn).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
 
-      fireEvent.click(copyBtn);
+      await act(async () => {
+        fireEvent.click(copyBtn);
+      });
 
       expect(mockWriteText).toHaveBeenCalledTimes(1);
       expect(mockWriteText).toHaveBeenCalledWith(SEED.join(' '));
@@ -260,11 +262,13 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(copied).toHaveAttribute('data-icon', 'ICON_CHECK');
     });
 
-    it('reverts to the default copy state after the 2s timeout', () => {
+    it('reverts to the default copy state after the 2s timeout', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
       expect(screen.getByTestId('btn-copied')).toBeInTheDocument();
 
       act(() => {
@@ -276,11 +280,13 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(screen.getByTestId('btn-copyToClipboard')).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
     });
 
-    it('stays in the copied state before the timeout elapses', () => {
+    it('stays in the copied state before the timeout elapses', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
 
       act(() => {
         jest.advanceTimersByTime(1999);
@@ -343,14 +349,39 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(result!.preventDefaultSpy).toHaveBeenCalled();
     });
 
-    it('removes its copy listener on unmount without throwing', () => {
+    it('removes the SAME copy listener it added, so the handler cannot outlive the screen', () => {
+      // `expect.any(Function)` used to sit in this slot, which is exactly the thing the bug changed:
+      // the old cleanup passed a freshly allocated `() => {}`, so removeEventListener was still
+      // called with a Function and the assertion passed while the real handler stayed on document
+      // for the life of the realm, rewriting every later copy.
+      const addSpy = jest.spyOn(document, 'addEventListener');
       const removeSpy = jest.spyOn(document, 'removeEventListener');
       const { unmount } = renderComponent();
 
-      expect(() => unmount()).not.toThrow();
-      expect(removeSpy).toHaveBeenCalledWith('copy', expect.any(Function));
+      const added = addSpy.mock.calls.find(([type]) => type === 'copy')?.[1];
+      expect(added).toBeInstanceOf(Function);
 
+      unmount();
+      expect(removeSpy).toHaveBeenCalledWith('copy', added);
+
+      addSpy.mockRestore();
       removeSpy.mockRestore();
+    });
+
+    it('stops rewriting the clipboard once unmounted', () => {
+      const { unmount } = renderComponent();
+      unmount();
+
+      const setData = jest.fn();
+      const { preventDefaultSpy } = dispatchCopy({
+        selection: { toString: () => 'Send 123 MIDEN to mtst1abc' },
+        clipboardData: { setData }
+      });
+
+      // Behavioural mirror of the identity check: a leaked handler would strip the digits and
+      // preventDefault() on a copy that has nothing to do with this screen.
+      expect(setData).not.toHaveBeenCalled();
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
     });
   });
 });

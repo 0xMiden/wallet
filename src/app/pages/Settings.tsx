@@ -125,6 +125,18 @@ type Tab = {
   // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
   // set on the WalletAccount or it'll fail immediately on the vault lookup.
   requiresActivatedHotKey?: boolean;
+  /**
+   * A row that only ever performs an action from the menu - it has no sub-page, so its
+   * `Component` is `() => null`. Such a tab must NOT resolve as a route: the generic
+   * `/settings/:tabSlug?` would otherwise match a deep link or restored history and
+   * render the title over an empty body, which this file already rejects for
+   * reveal-private-key ("worse than invalidTab's bounce, not better"). Excluded from
+   * `activeTab` so `invalidTab` bounces it instead.
+   *
+   * Only single-segment slugs need it. The external rows carry an absolute URL as their
+   * slug, which one path segment cannot match, so no route reaches them in the first place.
+   */
+  actionOnly?: boolean;
 };
 
 type TabGroup = {
@@ -268,6 +280,7 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'support',
         titleI18nKey: 'support',
         Component: () => null,
+        actionOnly: true,
         testID: SettingsSelectors.SupportButton
       },
       {
@@ -277,6 +290,7 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'send-feedback',
         titleI18nKey: 'sendFeedback',
         Component: () => null,
+        actionOnly: true,
         testID: SettingsSelectors.SendFeedbackButton,
         onClick: () => {
           openExternalUrl({ url: FEEDBACK_URL, title: 'Send feedback' });
@@ -433,7 +447,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     [tabGroups, tabIsVisible, tabIsRoutable]
   );
 
-  const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);
+  const activeTab = useMemo(
+    () => allTabs.find(tab => tab.slug === tabSlug && !tab.actionOnly) || null,
+    [allTabs, tabSlug]
+  );
   const handleSubPageBack = useBackWithFallback('/settings');
   const languageLabel = getCurrentLanguageLabel();
   // PageRouter owns the root offset because changing between TabLayout and
@@ -486,10 +503,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
 
   if (activeTab?.rendersSubPageLayout) {
     return (
-      // Keyed on the slug so a sibling-to-sibling move remounts the page, its header's focus
-      // effect re-runs and the new body opens at its top.
+      // No key: every sub-page tab has its own Component, so a sibling-to-sibling move already
+      // remounts the page and re-runs its header's focus effect. A key here claimed to cause that
+      // and changed nothing - removing it left the test written to pin it green.
       <SubPageHeaderProvider
-        key={activeTab.slug}
         value={{ title: subPageTitle, onBack: handleSubPageBack, focusTitleOnMount: focusSubPageTitle }}
       >
         <activeTab.Component />

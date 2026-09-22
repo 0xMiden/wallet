@@ -28,7 +28,14 @@ const FILES = [
     .filter(f => f.endsWith('.tsx') && !f.endsWith('.test.tsx'))
     .map(f => path.join('components/ui', f)),
   'components/PageHeader.tsx',
-  'lib/ui/drawer.tsx'
+  'lib/ui/drawer.tsx',
+  // The rule is about text, not about a directory, so the files this change rewrote onto the scale
+  // are listed by name. A glob over `components/` or `screens/` would sweep in a dozen files this
+  // change never touched and turn a green suite red, and it would still miss the one that lives
+  // under `app/pages/`.
+  'screens/onboarding/common/OnboardingStepLayout.tsx',
+  'screens/onboarding/common/ChooseGuardian.tsx',
+  'app/pages/RotateGuardianReview.tsx'
 ];
 
 describe('type scale guard', () => {

@@ -18,6 +18,10 @@
  *   children.
  * - Items no longer get `aria-selected`: whether it applies depends on the item's role (a tab takes
  *   `aria-selected`, a navigation link `aria-current`), so the caller sets it.
+ * - A controlled `value` is derived during render rather than mirrored into state by a passive
+ *   effect, so it applies in the same commit as the items that read it. Two deltas from upstream
+ *   follow: `defaultValue` is now seed-only for the uncontrolled path (the deleted effect also
+ *   re-applied it when it changed), and `onValueChange` is called outside the state updater.
  * - Parent mode installs its bounds setter in a layout effect: installed in a passive effect it
  *   arrived after the items had measured on mount, so the first active item got no highlight.
  *
@@ -220,18 +224,22 @@ const Highlight = React.forwardRef<HTMLElement, HighlightProps>(function Highlig
     };
   }, [boundsOffsetTop, boundsOffsetLeft, boundsOffsetWidth, boundsOffsetHeight]);
 
-  const [activeValue, setActiveValue] = React.useState<string | null>(value ?? defaultValue ?? null);
+  // Derived during render, not mirrored into state by an effect. Mirroring made a controlled
+  // `value` land one commit late, so the highlight was still parented to the item the owner had
+  // already deselected, and in a bar whose items resize, that is a commit where the projected
+  // box is the wrong size.
+  const [uncontrolled, setUncontrolled] = React.useState<string | null>(defaultValue ?? null);
+  const activeValue = value !== undefined ? value : uncontrolled;
   const [boundsState, setBoundsState] = React.useState<Bounds | null>(null);
   const [activeClassNameState, setActiveClassNameState] = React.useState<string>('');
 
+  // Compared against the DERIVED value, so a controlled owner that declines a change cannot leave
+  // an uncontrolled shadow behind and swallow the next selection. `onValueChange` is called here
+  // rather than inside a state updater, which must be pure.
   const safeSetActiveValue = (id: string | null) => {
-    setActiveValue(prev => {
-      if (prev !== id) {
-        onValueChange?.(id);
-        return id;
-      }
-      return prev;
-    });
+    if (activeValue === id) return;
+    onValueChange?.(id);
+    if (value === undefined) setUncontrolled(id);
   };
 
   const safeSetBoundsRef = React.useRef<((bounds: DOMRect) => void) | undefined>(undefined);
@@ -272,11 +280,6 @@ const Highlight = React.forwardRef<HTMLElement, HighlightProps>(function Highlig
   const clearBounds = React.useCallback(() => {
     setBoundsState(prev => (prev === null ? prev : null));
   }, []);
-
-  React.useEffect(() => {
-    if (value !== undefined) setActiveValue(value);
-    else if (defaultValue !== undefined) setActiveValue(defaultValue);
-  }, [value, defaultValue]);
 
   const id = React.useId();
 

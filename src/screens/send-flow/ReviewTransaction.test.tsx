@@ -43,6 +43,15 @@ const mockWalletStoreState = {
 
 // RpcClient lives on the lazy SDK subpath (mapped to wasmMock, which has no
 // RpcClient). Provide a controllable class + expose its header fn.
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const getBlockHeaderByNumber = jest.fn();
   class RpcClient {
@@ -948,5 +957,16 @@ describe('ReviewTransaction — E2E share-privately hook', () => {
 
     unmount();
     expect((globalThis as any).__TEST_SET_SHARE_PRIVATELY__).toBeUndefined();
+  });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - which is the distinction a source match could
+  // not make, and how a banner once shipped behind an early return.
+  it('names the network it will commit on', () => {
+    // Without params the screen redirects and renders nothing, so the params are the test.
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    render(<ReviewTransaction />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });

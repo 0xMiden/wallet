@@ -2,8 +2,10 @@ import React, { useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SearchInput } from 'components/ui/SearchInput';
@@ -48,7 +50,6 @@ const AddressBook: React.FC = () => {
     };
   }, [allContacts, query]);
 
-  const hasSavedContacts = allContacts.some(c => !c.accountInWallet);
   const nothingFound = Boolean(query) && contacts.length === 0 && accounts.length === 0;
 
   return (
@@ -84,15 +85,12 @@ const AddressBook: React.FC = () => {
                     ))}
                   </ListGroup>
                 ) : (
-                  !hasSavedContacts && (
-                    <div
-                      data-testid="address-book-empty"
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-fill px-6 py-8 text-center"
-                    >
-                      <span className="text-row-title text-ink">{t('noContactsYet')}</span>
-                      <span className="text-sm text-muted">{t('noContactsYetHint')}</span>
-                    </div>
-                  )
+                  <EmptyState
+                    data-testid="address-book-empty"
+                    icon={IconName.Users}
+                    title={t('noContactsYet')}
+                    description={t('noContactsYetHint')}
+                  />
                 )}
               </section>
             )}
