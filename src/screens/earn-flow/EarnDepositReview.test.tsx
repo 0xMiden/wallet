@@ -323,14 +323,12 @@ describe('EarnDepositReview', () => {
       fireEvent.click(screen.getByTestId('open-position-btn'));
       await waitFor(() => expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalled());
 
-      // The drawer does render for the one commit before the guard's effect discards it - let the
-      // assessment settle and React flush both that render and the effect, then assert the final
-      // state. Asserting earlier passes vacuously (the promise hasn't settled yet); asserting in
-      // between races the effect.
+      // Asserting before the pre-check settles passes vacuously. A mismatched assessment must
+      // not open the drawer at all, including the commit before the staleness effect runs.
       await act(async () => {
         await mockWalletStoreState.assessSpendingLimit.mock.results[0]!.value;
       });
-      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument());
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 

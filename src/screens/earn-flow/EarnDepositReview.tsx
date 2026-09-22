@@ -135,7 +135,11 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     } catch (e) {
       const assessment = spendingLimitAssessmentFromError(e);
       if (assessment !== undefined) {
-        setSpendingLimitChallenge({ assessment, spends: [{ faucetId, amount: amountBaseUnits }] });
+        // An assessment for another account can never authorize this deposit. Opening it and
+        // letting the effect below close it paints the drawer for one commit.
+        if (assessment.accountId === account.publicKey) {
+          setSpendingLimitChallenge({ assessment, spends: [{ faucetId, amount: amountBaseUnits }] });
+        }
         return;
       }
       // `openUnpricedChallenge` reads spending-limit config and can itself throw. The outer
@@ -172,7 +176,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       const spends = [{ faucetId, amount: amountBaseUnits }];
       const assessment = await assessSpendingLimit(account.publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
-        setSpendingLimitChallenge({ assessment, spends });
+        // Same as the submit catch: a mismatched assessment is not this deposit's challenge.
+        if (assessment.accountId === account.publicKey) {
+          setSpendingLimitChallenge({ assessment, spends });
+        }
         setIsSubmitting(false);
         return;
       }
