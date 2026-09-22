@@ -3,6 +3,8 @@ import path from 'path';
 
 import { CARD_COLORS } from 'lib/settings/constants';
 
+import { escapeForRegExp, RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
+
 const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
 const config = fs.readFileSync(path.join(__dirname, '../../../tailwind.config.ts'), 'utf8');
 
@@ -95,7 +97,7 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     ['negative-tint-ink', 'fill'],
     ['positive-tint-ink', 'page'],
     ['negative-tint-ink', 'page'],
-    // StatusBadge's neutral tone (cancelled, reclaimed, checking).
+    // StatusBadge's neutral tone (cancelled, reclaimed, unavailable, not connected).
     ['ink', 'fill-pressed']
   ])('%s on %s reads at 4.5:1 or better', (text, surface) => {
     expect(contrast(vRequired(text), vRequired(surface))).toBeGreaterThanOrEqual(4.5);
@@ -129,10 +131,36 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     if (!accentPrimaryHover) throw new Error('accent-primary-hover not defined');
     expect(contrast('#FFFFFF', accentPrimaryHover)).toBeGreaterThanOrEqual(3);
   });
+
+  // HistoryView paints every activity glyph white over its token
+  // (`[&_path]:fill-pure-white`), so each square is non-text contrast under WCAG
+  // 1.4.11 and owes 3:1. Four of the five sat between 2.10 and 2.42:1 and only
+  // the faucet was ever looked at; a per-token row is what keeps the next one
+  // from shipping the same way. These carry no `ds-` prefix, so they are read
+  // straight off `vars`.
+  //
+  // HistoryView is no longer the only consumer: the transaction summary badge
+  // paints white strokes on a disc filled with four of these five (every one but
+  // the faucet), so this set is what BOTH owe, and neither can be lowered alone.
+  it.each(['tx-received', 'tx-sent', 'tx-swap', 'tx-earn', 'tx-faucet'])(
+    'keeps the white activity glyph at 3:1 on %s',
+    token => {
+      // RESOLVED, not as declared: these alias the action colours in `:root`, so reading the
+      // declaration would compare a `var(--...)` string and pass on anything. The alias is exactly
+      // what has to be checked - an action colour that flips light in one theme lands here.
+      expect(contrast('#FFFFFF', resolved(selector, token))).toBeGreaterThanOrEqual(3);
+    }
+  );
 });
 
 it('maps every token to a Tailwind color', () => {
-  for (const name of TOKENS) expect(config).toMatch(new RegExp(`'?${name}'?: 'var\\(--ds-${name}\\)'`));
+  for (const name of TOKENS) {
+    // Escaped through the shared helper like every other regex built from a token name: a future
+    // dotted name would otherwise make `.` match any character and this would PASS against a typo'd
+    // config key, which is the silent direction.
+    const escaped = escapeForRegExp(name);
+    expect(config).toMatch(new RegExp(`'?${escaped}'?: 'var\\(--ds-${escaped}\\)'`));
+  }
 });
 
 describe.each([':root', '.dark'] as const)('legacy muted text in %s', selector => {
@@ -143,46 +171,32 @@ describe.each([':root', '.dark'] as const)('legacy muted text in %s', selector =
 });
 
 describe('retired legacy surfaces', () => {
-  it.each(['surface-input', 'surface-interactive', 'surface-nav-button', 'button-secondary', 'button-secondary-hover'])(
-    'no longer maps %s to a Tailwind color (use fill / fill-pressed)',
-    name => {
-      expect(config).not.toMatch(new RegExp(`'${name}':`));
-    }
-  );
-
+  // The "still declared in tailwind.config.ts" half is owned by retired-tokens.test.ts, driven off
+  // the shared RETIRED_COLOUR_TOKENS list. This one case stays because it is NOT subsumed: the
+  // survivor scans `gray:` blocks and the quoted flat form, while this is a file-wide line-anchored
+  // check on the specific retired VALUES, and the two are incomparable.
   it('no longer defines the gray-25 / gray-50 surfaces', () => {
     expect(config).not.toMatch(/^\s*(25|50): 'var\(--color-surface-(secondary|tertiary)\)'/m);
   });
 
   it.each([':root', '.dark'] as const)('declares none of the retired surface vars in %s', selector => {
     const vars = themeVars(selector);
-    for (const name of [
-      'color-surface-secondary',
-      'color-surface-tertiary',
-      'surface-input',
-      'surface-interactive',
-      'surface-nav-button',
-      'surface-button-secondary',
-      'surface-button-secondary-hover'
-    ]) {
+    // Driven off the shared list, so retiring a ninth token cannot leave its variable unchecked.
+    // The list previously lived here as a literal, which is why the module docstring claiming two
+    // consumers was false: this suite maintained its own parallel copy.
+    for (const name of Object.values(RETIRED_TOKEN_CSS_VARS)) {
       expect(vars[name]).toBeUndefined();
     }
   });
 });
 
 describe('legacy ink', () => {
-  it('no longer maps heading-gray to a Tailwind color (use ink)', () => {
-    expect(config).not.toMatch(/'heading-gray':/);
+  it.each([':root', '.dark'] as const)('aliases the legacy black to ink in %s', selector => {
+    const vars = themeVars(selector);
+    // `color-text-secondary` moved into the shared iteration above; this case keeps the live
+    // alias fact, which no retired-token list can carry.
+    expect(vars['color-text-primary']).toBe('var(--ds-ink)');
   });
-
-  it.each([':root', '.dark'] as const)(
-    'drops the heading-gray var and aliases the legacy black to ink in %s',
-    selector => {
-      const vars = themeVars(selector);
-      expect(vars['color-text-secondary']).toBeUndefined();
-      expect(vars['color-text-primary']).toBe('var(--ds-ink)');
-    }
-  );
 
   it('still routes the legacy black through that aliased var', () => {
     expect(config).toMatch(/\bblack: 'var\(--color-text-primary\)'/);
@@ -307,9 +321,13 @@ describe('action colours', () => {
     ['received', 'receive'],
     ['swap', 'swap'],
     ['earn', 'earn']
-  ])('draws the %s activity icon in the %s action colour', (row, action) => {
+  ])('draws the %s activity icon in the %s action colour, and keeps its own value in dark', (row, action) => {
     expect(root[`tx-${row}`]).toBe(`var(--action-${action})`);
-    expect(themeVars('.dark')[`tx-${row}`]).toBeUndefined();
+    // The square paints a WHITE glyph, so it owes 3:1 (pinned above, resolved). The card colours it
+    // aliases flip to pastels in dark (2.04:1 to 2.37:1 against white), so the activity token takes
+    // its own darker value there rather than following them. That is the one place the row and its
+    // tab deliberately differ, and why this token is not simply an alias in both themes.
+    expect(themeVars('.dark')[`tx-${row}`]).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it('leaves the dark theme no flow accent of its own to drift', () => {
@@ -331,10 +349,16 @@ describe('action colours', () => {
     }
   );
 
-  it.each(ACTION_CARD)('maps action-%s, its tint and its ink to Tailwind colors', action => {
+  it.each(ACTION_CARD)('maps action-%s to a Tailwind color', action => {
     expect(config).toContain(`'action-${action}': 'var(--action-${action})'`);
-    expect(config).toContain(`'action-${action}-tint': 'var(--action-${action}-tint)'`);
-    expect(config).toContain(`'action-${action}-ink': 'var(--action-${action}-ink)'`);
+  });
+
+  // Only a FLOW has a tint and an ink: they exist for a flow's surfaces and its text. Overview is a
+  // tab colour and nothing else, so it carries the bare colour alone - a pair nothing reads is a
+  // pair nothing can keep honest.
+  it.each(FLOWS)("maps action-%s's tint and ink to Tailwind colors", flow => {
+    expect(config).toContain(`'action-${flow}-tint': 'var(--action-${flow}-tint)'`);
+    expect(config).toContain(`'action-${flow}-ink': 'var(--action-${flow}-ink)'`);
   });
 });
 
@@ -345,7 +369,7 @@ describe('action colours', () => {
 describe.each([':root', '.dark'] as const)('action colour contrast in %s', selector => {
   const value = (name: string) => resolved(selector, name);
 
-  it.each(ACTION_CARD)('%s tint is the colour at 12%% over the page', action => {
+  it.each(FLOWS)('%s tint is the colour at 12%% over the page', action => {
     const [r, g, b] = rgba(value(`action-${action}`));
     expect(value(`action-${action}-tint`)).toBe(over(`rgba(${r}, ${g}, ${b}, 0.12)`, value('ds-page')));
   });
@@ -362,7 +386,7 @@ describe.each([':root', '.dark'] as const)('action colour contrast in %s', selec
     }
   });
 
-  it.each(ACTION_CARD)('%s ink reads as text at 4.5:1 on page, fill and its own tint', action => {
+  it.each(FLOWS)('%s ink reads as text at 4.5:1 on page, fill and its own tint', action => {
     for (const surface of ['ds-page', 'ds-fill', `action-${action}-tint`]) {
       expect(contrast(value(`action-${action}-ink`), value(surface))).toBeGreaterThanOrEqual(4.5);
     }

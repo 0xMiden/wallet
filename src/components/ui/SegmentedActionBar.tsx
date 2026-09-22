@@ -50,6 +50,9 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
         layout
         transition={motionTokens.highlight}
         {...motionTokens.press}
+        // Same reason as the pill above: this button's width really does change between states, so
+        // its radius has to be readable by the scale corrector. It shapes the focus ring.
+        style={{ borderRadius: '9999px' }}
         className={cn(
           // `group` drives the raised pill's pressed shadow; no overflow clip, or it would cut the
           // pill's shadow off at the segment's edge.
@@ -113,6 +116,10 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
+        // Framer can only undo a layout projection's corner distortion for a radius it reads from
+        // `style` or a motion value; one that lives only in a class is invisible to the scale
+        // corrector. The primitive spreads this onto the projected pill.
+        style={{ borderRadius: '9999px' }}
         className={cn('inset-0', raisedBubbleClassName)}
       >
         {items.map(item => (

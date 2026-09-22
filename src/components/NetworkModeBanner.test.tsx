@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { NetworkModeBanner } from './NetworkModeBanner';
+import { NetworkModeBanner, NetworkNamedByShell } from './NetworkModeBanner';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -87,5 +87,26 @@ describe('NetworkModeBanner (the dApp confirm window)', () => {
 
     expect(screen.queryByTestId('network-mode-sheet')).not.toBeInTheDocument();
     expect(screen.getByTestId('network-mode-banner')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // A shell that already names the network wraps its subtree, and a nested banner stands down.
+  // The alternative - the shell suppressing the nested one with a route condition - cannot hold
+  // during a transition, because the condition and the exiting card update on different clocks.
+  describe('nested under a shell that already names the network', () => {
+    it('renders nothing', () => {
+      render(
+        <NetworkNamedByShell>
+          <NetworkModeBanner />
+        </NetworkNamedByShell>
+      );
+
+      expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
+    });
+
+    it('still renders outside that shell, so every other consumer is unaffected', () => {
+      render(<NetworkModeBanner />);
+
+      expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    });
   });
 });

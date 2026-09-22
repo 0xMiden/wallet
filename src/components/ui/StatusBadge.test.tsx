@@ -110,3 +110,13 @@ describe('StatusBadge', () => {
     expect(screen.getByTestId('badge')).toHaveClass('mt-2', 'bg-negative-tint');
   });
 });
+
+// A status this build does not know can reach the badge from a restored backup row, and the badge is
+// drawn inside list maps: a throw here takes the whole screen down.
+it('renders a status it does not know as the neutral badge, without throwing', () => {
+  render(<StatusBadge status={'refunded' as Status} data-testid="badge" />);
+
+  const badge = screen.getByTestId('badge');
+  expect(badge).toHaveTextContent('t:trackingUnavailable');
+  expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
+});

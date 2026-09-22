@@ -42,8 +42,6 @@ import { urlForQuery } from './search-url';
 
 interface DappLauncherProps {
   onOpen: (url: string) => void;
-  /** PR-1's BrowserScreen still passes this; PR-2 reads recents from storage instead.  */
-  recentUrls?: string[];
   /** The catalog to show. Defaults to this platform's (`getExploreCatalog`). */
   catalog?: ExploreCatalog;
 }
@@ -107,11 +105,25 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
   // The reveal plays on the first mount of the session only (see `reveal-once.ts`); after that
   // first commit, a section that enters is answering a chip and comes in without the stagger.
   const [reveal] = useState(() => motionTokens.reveal && !hasRevealed());
+  // The first reveal ends when the USER replaces what is on the page (a chip, a query), not on the
+  // first commit. Recents arrive from a promise that resolves after mount, so ending it on the
+  // commit made the LAST section rise first, ahead of every section above it. The stagger belongs
+  // to a reveal that is actually playing: on a return from a dApp `reveal` is already false, and a
+  // section arriving late then enters like one answering a chip, with no delay in front of it.
   const [settled, setSettled] = useState(false);
   useEffect(() => {
     markRevealed();
-    setSettled(true);
   }, []);
+
+  const chooseFilter = (next: ExploreFilter) => {
+    setSettled(true);
+    setFilter(next);
+  };
+
+  const changeQuery = (next: string) => {
+    setSettled(true);
+    setQuery(next);
+  };
 
   // Load recents from preferences on mount.
   useEffect(() => {
@@ -142,7 +154,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
         search={{
           open: searchOpen,
           value: query,
-          onChange: setQuery,
+          onChange: changeQuery,
           placeholder: t('searchDapps'),
           onSubmit: submitSearch,
           onEscape: closeSearch,
@@ -169,7 +181,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
       >
         <div className="flex flex-col gap-5">
           <motion.div {...revealProps(CHIPS_REVEAL)}>
-            <CategoryChips filters={EXPLORE_FILTERS} value={filter} onChange={setFilter} />
+            <CategoryChips filters={EXPLORE_FILTERS} value={filter} onChange={chooseFilter} />
           </motion.div>
 
           <ExploreSections
@@ -179,7 +191,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
             onOpen={onOpen}
             reveal={reveal}
             firstRevealIndex={FIRST_SECTION_REVEAL}
-            staggered={!settled}
+            staggered={reveal && !settled}
           />
         </div>
       </motion.main>

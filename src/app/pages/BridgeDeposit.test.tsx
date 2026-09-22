@@ -4,6 +4,15 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { BridgeDeposit } from './BridgeDeposit';
 
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -67,6 +76,17 @@ describe('BridgeDeposit (#875)', () => {
     mockNavigate.mockClear();
   });
 
+  // The NOT-YET-CONNECTED prompt. `beforeEach` sets `connected: false`, and this suite stubs
+  // EvmBridgeDepositScreen, so this case covers only that prompt - the connected flow that
+  // actually commits is EvmBridgeDepositScreen's own shell, registered in the banner registry.
+  // Named honestly because the first version of this test claimed to cover the committing screen
+  // and asserted against the one that commits nothing.
+  it('names the network on the connect-your-wallet prompt', () => {
+    render(<BridgeDeposit />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
+
   it('closes via the header, falling back to /receive with no onClose prop', () => {
     render(<BridgeDeposit />);
 
@@ -78,8 +98,10 @@ describe('BridgeDeposit (#875)', () => {
     render(<BridgeDeposit />);
 
     const warning = screen.getByTestId('evm-connect-test-wallet-warning');
-    expect(warning).toHaveTextContent('evmConnectTestWalletTitle');
-    expect(warning).toHaveTextContent('evmConnectTestWalletBody');
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
   });
 
   it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {

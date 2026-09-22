@@ -3,7 +3,6 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, use
 import QRCodeStyling, { type Options } from 'qr-code-styling';
 
 import { encodeAddress } from 'lib/qr/format';
-import { cn } from 'lib/ui/util';
 
 import midenLogoUrl from '../../public/misc/brand/new-bread.svg?url';
 
@@ -11,23 +10,15 @@ export interface QRCodeProps {
   /** The Miden address to encode in the QR code */
   address: string;
   /**
-   * Size of the QR code in pixels: the drawn size, or with `fluid` only the
-   * resolution of the exported PNG (the SVG scales through its viewBox).
+   * Resolution in pixels the QR renders and exports at. On screen it fills its parent as a square,
+   * scaling through the SVG's viewBox.
    */
   size: number;
   /**
-   * Short label painted into the exported PNG, so a shared QR image says which
-   * network it belongs to (#875). Also drawn under the modules on screen unless
-   * `showCaption` is false (a page that names the network itself).
+   * Short label painted into the exported PNG, so a shared QR image says which network it belongs
+   * to (#875). Export only: the page that shows the QR names the network itself.
    */
   caption?: string;
-  /** Draw `caption` on screen too. Defaults to true; the exported PNG always carries it. */
-  showCaption?: boolean;
-  /**
-   * Fill the parent's width as a square instead of drawing at `size`, so the
-   * caller sizes the QR from its layout (e.g. the height left on screen).
-   */
-  fluid?: boolean;
 }
 
 export interface QRCodeHandle {
@@ -87,7 +78,7 @@ async function composeCaptionedPng(qrPng: Blob, size: number, caption: string, c
  * Renders a styled QR (circular dots, accent-primary color, Miden logo centered)
  * encoding the address in miden:<address> format via qr-code-styling.
  */
-export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, caption, showCaption, fluid }, ref) => {
+export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, caption }, ref) => {
   const qrValue = encodeAddress(address);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -169,24 +160,15 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, ca
     // payload and the repo has no QR *decoder* (qr-code-styling is an encoder;
     // qrcode/qrcode-generator are transitive-only). It exposes nothing new — the
     // same address already renders in `receive-address-full` and the copy button.
+    // Always fills its parent as a square: the layout sizes the QR, and `size` is only the resolution
+    // it renders and exports at. The caption is painted into the EXPORTED image only - the page names
+    // the network itself, so an on-screen copy of it had no caller.
     <div
-      className={cn('flex flex-col items-center bg-pure-white rounded-2xl p-2', fluid && 'w-full')}
+      className="flex w-full flex-col items-center bg-pure-white rounded-2xl p-2"
       data-testid="qr-code"
       data-qr-payload={paintedValue || undefined}
     >
-      {fluid ? (
-        <div ref={containerRef} className="aspect-square w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full" />
-      ) : (
-        <div ref={containerRef} style={{ width: size, height: size }} />
-      )}
-      {caption && showCaption !== false && (
-        <span
-          className="pb-2 font-heading text-sm font-bold uppercase tracking-wider text-accent-primary"
-          data-testid="qr-code-caption"
-        >
-          {caption}
-        </span>
-      )}
+      <div ref={containerRef} className="aspect-square w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full" />
     </div>
   );
 });

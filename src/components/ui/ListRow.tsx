@@ -8,7 +8,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { Link } from 'lib/woozie';
 
-export interface ListRowProps {
+interface ListRowBaseProps {
   title: React.ReactNode;
   /** 13px `muted` line under the title. A row with one is 64px tall, 56px without. */
   subtitle?: React.ReactNode;
@@ -38,7 +38,6 @@ export interface ListRowProps {
    * anywhere on the row flips it. The control brings its own haptic, so the row adds none.
    */
   htmlFor?: string;
-  disabled?: boolean;
   /**
    * A choice in a `radiogroup` (a tapped row with `checked`): announced as a radio with
    * `aria-checked` rather than as a pressed toggle, which a single-select list is not.
@@ -97,6 +96,17 @@ const rowVariants = cva(
  * then a trailing value, control, check or chevron. It is a `button` when tapped, the wallet
  * `Link` for a route, an anchor for an outside page, and a plain `div` otherwise.
  */
+/**
+ * `disabled` is meaningful only on a TAPPED row, and the type says so rather than accepting it and
+ * ignoring it. The native attribute on the `button` branch blocks activation, removes the row from
+ * the tab order and matches the `disabled:` classes. On a `htmlFor` row none of that holds: the
+ * control lives INSIDE the label, so the implicit label association survives whatever the row does,
+ * a `<label>` can never match `:disabled`, and React queues a checkbox's `onChange` from the click
+ * before any ancestor handler runs. The only thing that can disable that control is the control
+ * itself, so the caller disables its own `trailing`.
+ */
+export type ListRowProps = ListRowBaseProps & ({ disabled?: undefined } | { disabled: boolean; onClick: () => void });
+
 export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(function ListRow(
   {
     title,

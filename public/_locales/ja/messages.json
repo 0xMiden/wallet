@@ -3635,14 +3635,6 @@
     "message": "開く",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "すべて表示",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "表示を減らす",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Midenに近日登場",
     "englishSource": "Coming soon to Miden"
@@ -4834,10 +4826,6 @@
   "networkNoticeResetBody": {
     "message": "リセットを行うと、残高と履歴がクリアされます。テスト環境の残高はメインネットには引き継がれません。",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "テスト用トークンのみ",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "出金状況を確認しています。資金の受け取りが確認されるまで、ウォレットを開いたままにしてください。",

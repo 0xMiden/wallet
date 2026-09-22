@@ -3635,14 +3635,6 @@
     "message": "Open",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "See all",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "Show less",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Coming soon to Miden",
     "englishSource": "Coming soon to Miden"
@@ -4834,10 +4826,6 @@
   "networkNoticeResetBody": {
     "message": "A reset clears balances and history. Test balances never carry over to Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Test tokens only",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Checking your withdrawal. Keep the wallet open while delivery is confirmed.",

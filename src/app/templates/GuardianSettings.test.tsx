@@ -196,6 +196,9 @@ it('draws a wordmark-only provider on the same brand tile in the hero', () => {
   expect(logo.parentElement).toHaveClass('bg-pure-white', 'size-22', 'rounded-full');
 
   expect(screen.getByRole('heading', { name: 'Lambda One' })).toBeInTheDocument();
+  // The pill renders in both hero branches. Adding a Mark moved the default fixture onto the
+  // Hero branch, so without this the legacy branch's copy of it was no longer covered anywhere.
+  expect(screen.getByRole('status')).toHaveTextContent('guardianCheckingLabel');
 });
 
 it('shows the offline pill while the sync loop reports a guardian outage', () => {
@@ -570,8 +573,9 @@ it('renders through SubPageLayout: section labels, muted copy, details card, Rot
     screen.getByRole('button', { name: 'rotateGuardian' })
   );
   // Section labels are the shared SectionHeader, not grey chips; no rule between sections.
+  // No `bg-gray-25` assertion here: that token is retired, and the registry in lib/ui now forbids
+  // ANY source file from naming it, which is a stronger guarantee than one element's class list.
   expect(screen.getByText('about')).toHaveClass('text-label', 'text-muted');
-  expect(screen.getByText('about')).not.toHaveClass('bg-gray-25');
   expect(page.querySelector('hr')).toBeNull();
   // The explanation is a muted body paragraph; the details sit in the shared DetailCard.
   expect(screen.getByText('guardianInfoDescription').closest('.text-muted')).toHaveClass('text-body');

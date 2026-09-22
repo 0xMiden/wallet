@@ -3635,14 +3635,6 @@
     "message": "Abrir",
     "englishSource": "Open"
   },
-  "exploreSeeAll": {
-    "message": "Ver todo",
-    "englishSource": "See all"
-  },
-  "exploreShowLess": {
-    "message": "Ver menos",
-    "englishSource": "Show less"
-  },
   "exploreComingSoonTitle": {
     "message": "Próximamente en Miden",
     "englishSource": "Coming soon to Miden"
@@ -4834,10 +4826,6 @@
   "networkNoticeResetBody": {
     "message": "Un reinicio borra los saldos y el historial. Los saldos de prueba nunca se transfieren a Mainnet.",
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "receiveTestFundsTitle": {
-    "message": "Solo tokens de prueba",
-    "englishSource": "Test tokens only"
   },
   "withdrawalCheckingDescription": {
     "message": "Comprobando tu retirada. Mantén el monedero abierto hasta que se confirme la entrega.",
