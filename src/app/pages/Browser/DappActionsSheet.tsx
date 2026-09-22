@@ -28,6 +28,8 @@ import {
 import { hapticLight } from 'lib/mobile/haptics';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
+import { isSearchUrl } from './DappLauncher/search-url';
+
 interface DappActionsSheetProps {
   session: DappSession | null;
   open: boolean;
@@ -96,7 +98,8 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     hapticLight();
     if (isInMyDapps) {
       void forgetRecentDapp(session.url).catch(() => {});
-    } else {
+    } else if (!isSearchUrl(session.url)) {
+      // Same rule as BrowserScreen's: a web search never becomes a recent dApp.
       void recordRecentDapp({
         url: session.url,
         name: getDappDisplayName(session),

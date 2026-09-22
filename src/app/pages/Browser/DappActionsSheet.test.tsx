@@ -81,6 +81,34 @@ describe('DappActionsSheet', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it('adds the open dApp to My dApps', async () => {
+    await act(async () => {
+      render(<DappActionsSheet session={SESSION} open onOpenChange={jest.fn()} onReopen={jest.fn()} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('dappActionAddToMyDapps'));
+    });
+
+    expect(mockRecordRecentDapp).toHaveBeenCalledWith(expect.objectContaining({ url: SESSION.url }));
+  });
+
+  // My dApps is a list of dApps. A web search the launcher produced is a page, not one - and this is
+  // the SECOND writer of that store, so the rule has to hold here as well as in BrowserScreen.
+  it('never adds a web search to My dApps', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only stand-in, as above
+    const search: any = { url: 'https://duckduckgo.com/?q=nft%20games', origin: 'https://duckduckgo.com' };
+    await act(async () => {
+      render(<DappActionsSheet session={search} open onOpenChange={jest.fn()} onReopen={jest.fn()} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('dappActionAddToMyDapps'));
+    });
+
+    expect(mockRecordRecentDapp).not.toHaveBeenCalled();
+  });
+
   it('does nothing when tapped with no active session', async () => {
     const onOpenChange = jest.fn();
 
