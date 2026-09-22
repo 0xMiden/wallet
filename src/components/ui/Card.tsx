@@ -23,18 +23,32 @@ const cardVariants = cva('rounded-2xl bg-fill text-left', {
       row: 'px-4 py-3',
       tile: 'p-4'
     },
-    interactive: {
+    // Press feedback works on anything tappable, so it stays a variant: `Card` takes it from a
+    // caller (HistoryView's rows). The focus ring and the disabled states do not - they only mean
+    // something on an element that can take focus, `CardButton` is the only thing here that is
+    // one, and `disabled:` matches `:disabled`, which a `div` never is. They live on CardButton
+    // directly rather than as a variant nothing else can ask for.
+    pressable: {
       true: [
-        'cursor-pointer select-none outline-none transition-colors duration-150 ease-hover',
-        'hover:bg-fill-pressed active:bg-fill-pressed',
-        'focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-page',
-        'disabled:cursor-default disabled:opacity-50 disabled:hover:bg-fill disabled:active:bg-fill'
+        'cursor-pointer transition-colors duration-150 ease-hover',
+        'hover:bg-fill-pressed active:bg-fill-pressed'
       ],
       false: ''
     }
   },
-  defaultVariants: { padding: 'tile', interactive: false }
+  defaultVariants: { padding: 'tile', pressable: false }
 });
+
+/**
+ * The focusable half of the old split: real on a `button`, inert on anything that cannot focus.
+ * Exported so the test can iterate it rather than restating its lines, which is what let half of
+ * it go unpinned when it moved off the cva variant.
+ */
+export const FOCUSABLE_CLASSES = [
+  'select-none outline-none',
+  'focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-page',
+  'disabled:cursor-default disabled:opacity-50 disabled:hover:bg-fill disabled:active:bg-fill'
+];
 
 export interface CardProps {
   children: React.ReactNode;
@@ -45,10 +59,10 @@ export interface CardProps {
    */
   asChild?: boolean;
   /**
-   * Pressed feedback and a focus ring, for an `asChild` child that owns its own tap. A card that
-   * is itself the tap target is a `CardButton`.
+   * Pressed feedback, for an `asChild` child that owns its own tap. A card that is itself the tap
+   * target is a `CardButton`.
    */
-  interactive?: boolean;
+  pressable?: boolean;
   /** Layout only (margins, width, flex). */
   className?: string;
   'aria-label'?: string;
@@ -64,7 +78,7 @@ export const Card: React.FC<CardProps> = ({
   children,
   padding,
   asChild = false,
-  interactive = false,
+  pressable = false,
   className,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
@@ -72,7 +86,7 @@ export const Card: React.FC<CardProps> = ({
   const Comp = asChild ? Slot : 'div';
   return (
     <Comp
-      className={cn(cardVariants({ padding, interactive }), className)}
+      className={cn(cardVariants({ padding, pressable }), className)}
       aria-label={ariaLabel}
       data-testid={dataTestId}
     >
@@ -112,7 +126,7 @@ export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(f
       disabled={disabled}
       whileTap={disabled ? undefined : press.whileTap}
       transition={press.transition}
-      className={cn(cardVariants({ padding, interactive: true }), className)}
+      className={cn(cardVariants({ padding, pressable: true }), FOCUSABLE_CLASSES, className)}
       {...props}
       onClick={e => {
         hapticLight();

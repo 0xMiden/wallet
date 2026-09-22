@@ -22,7 +22,6 @@ const SANS = 'var(--font-sans)';
 /** The spec's type scale (design-system.md, Foundations, Type): family, size, line-height, weight. */
 const EXPECTED: Record<(typeof TYPE_STYLES)[number], [string, string, string, string]> = {
   display: [HEADING, '48px', '52px', '800'],
-  entry: [HEADING, '48px', '56px', '800'],
   'entry-unit': [HEADING, '22px', '28px', '700'],
   'title-tab': [HEADING, '28px', '36px', '800'],
   'hero-value': [HEADING, '32px', '36px', '900'],
@@ -38,6 +37,7 @@ const EXPECTED: Record<(typeof TYPE_STYLES)[number], [string, string, string, st
   badge: [HEADING, '12px', '1', '700'],
   body: [SANS, '16px', '24px', '400'],
   'body-strong': [SANS, '16px', '24px', '600'],
+  explainer: [SANS, '15px', '22px', '400'],
   'body-sm': [SANS, '14px', '20px', '400'],
   label: [SANS, '13px', '17px', '700'],
   caption: [SANS, '13px', '17px', '400']

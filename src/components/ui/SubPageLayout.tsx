@@ -29,8 +29,6 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
   onClose?: () => void;
   /** The page's sections, 20px apart. */
   children: React.ReactNode;
-  /** Right side of the header row, e.g. an orange text action. */
-  headerActions?: React.ReactNode;
   /**
    * The page's actions, pinned under the body, 10px apart. Buttons here take `flex-1 max-w-none`
    * so a pair splits the row evenly and a single one spans it.
@@ -55,7 +53,6 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
  */
 export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   children,
-  headerActions,
   footer,
   footerLayout = 'row',
   onClose,
@@ -75,7 +72,6 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
           title={title}
           onBack={onBack}
           onClose={onClose}
-          actions={headerActions}
           focusTitleOnMount={focusTitleOnMount}
         />
       )}

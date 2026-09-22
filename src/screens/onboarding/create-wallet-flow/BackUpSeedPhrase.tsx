@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +10,7 @@ import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
 import { Pill } from 'components/ui/Pill';
 import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import useIsMounted from 'lib/ui/useIsMounted';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -31,27 +33,45 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   // The words are only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard();
 
-  const onCopyToClipboard = useCallback(() => {
-    navigator.clipboard.writeText(seedPhrase.join(' '));
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
+  // Shared hook rather than a local ref: it sets the flag in the effect BODY, so StrictMode's
+  // setup/cleanup/setup cannot latch it false for the life of the component (DeadletteredNotesNotice.tsx:54).
+  const isMounted = useIsMounted();
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
+
+  // Report "Copied" only once the write has landed. This is the recovery phrase: telling the user
+  // it is on the clipboard when the write was refused is the one lie this screen must not tell.
+  const onCopyToClipboard = useCallback(async () => {
+    try {
+      await Clipboard.write({ string: seedPhrase.join(' ') });
+    } catch {
+      return; // The words are on screen to copy by hand.
+    }
+    if (!isMounted()) return;
     setIsCopied(true);
-    setTimeout(() => setIsCopied(false), COPY_FEEDBACK_MS);
-  }, [seedPhrase]);
+    clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setIsCopied(false), COPY_FEEDBACK_MS);
+  }, [seedPhrase, isMounted]);
 
   const onWordsVisibilityToggle = useCallback(() => {
     setIsWordsVisible(prev => !prev);
   }, []);
 
+  // The handler must be the SAME reference on the way out: the cleanup used to pass a freshly
+  // allocated arrow, which matches nothing, so this listener stayed on `document` for the life of
+  // the realm and one more was added per mount. Since it rewrites the clipboard payload to letters
+  // and spaces and calls preventDefault(), a leaked copy of it silently mangled every later
+  // select-and-copy in the app - an address or a transaction id included.
   useEffect(() => {
-    document.addEventListener('copy', event => {
+    const onDocumentCopy = (event: ClipboardEvent) => {
       const selectedText = window.getSelection()?.toString();
       const formattedText = selectedText?.replace(/[^a-zA-Z\s]/g, '').replace(/\s+/g, ' ');
       event.clipboardData?.setData('text/plain', formattedText || '');
       event.preventDefault(); // Prevent the default copy action
-    });
-
-    return () => {
-      document.removeEventListener('copy', () => {});
     };
+
+    document.addEventListener('copy', onDocumentCopy);
+    return () => document.removeEventListener('copy', onDocumentCopy);
   }, []);
 
   return (
@@ -107,7 +127,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
             className="flex-1"
             variant={ButtonVariant.Secondary}
             title={t('copyToClipboard')}
-            onClick={onCopyToClipboard}
+            onClick={() => void onCopyToClipboard()}
           >
             <AnimatedCopyIcon copied={isCopied} size="sm" />
             <CopyLabel copied={isCopied} copiedLabel={t('copied')}>

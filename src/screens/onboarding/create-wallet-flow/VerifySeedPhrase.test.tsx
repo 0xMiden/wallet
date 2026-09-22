@@ -22,12 +22,10 @@ jest.mock('lodash', () => ({
   shuffle: (arr: unknown[]) => [...arr]
 }));
 
-// Haptics touch native Capacitor plugins; stub to a spy. `Pill` also imports
-// `hapticSelection` (for its `haptic="selection"` mode, unused here since this
-// screen's words use the default `haptic="light"`), so both are stubbed.
+// Haptics touch native Capacitor plugins; stub to a spy. The word chips are `Pill`s, which fire
+// the light tap haptic and nothing else.
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn(),
-  hapticSelection: jest.fn()
+  hapticLight: jest.fn()
 }));
 
 // The word chips use the real `Pill` (not a stub): selecting a word is a Pill

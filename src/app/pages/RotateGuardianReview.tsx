@@ -278,9 +278,9 @@ const RotateGuardianReview: FC = () => {
 
   // No `submitting` gate here either. This is the step `unlock` is actually called
   // from on the password path, so a hung request left the user with nothing: this
-  // handler returned early, and the step's on-screen chevron is PageLayout's
-  // `onStepBack`, which routes straight back into it — and `navigationStyle="back"`
-  // renders no close button beside it.
+  // handler returned early, and the step's on-screen chevron routes straight back into
+  // it - `SubPageLayout`'s `onBack`, on a screen that hides PageLayout's toolbar and so
+  // has no close button beside it.
   const handleAuthBack = useCallback(() => {
     abandoned.current = true;
     setPassword('');
@@ -324,9 +324,7 @@ const RotateGuardianReview: FC = () => {
             )
           }
         >
-          <p className="px-1 font-sans text-[15px] leading-[22px] text-muted">
-            {t('guardianSwitchAuthenticationDescription')}
-          </p>
+          <p className="px-1 text-explainer text-muted">{t('guardianSwitchAuthenticationDescription')}</p>
           {isMobile() ? (
             <PasscodeEntry
               onSubmit={code => void authenticateAndSwitch(code)}

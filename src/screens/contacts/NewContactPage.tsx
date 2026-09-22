@@ -1,22 +1,25 @@
 import React, { useCallback, useState } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ReactComponent as ScanFrameIcon } from 'app/icons/scan-frame.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { Button, ButtonVariant } from 'components/ui/Button';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { TextField } from 'components/ui/TextField';
+import { usePreset } from 'lib/animation';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
+import useIsMounted from 'lib/ui/useIsMounted';
 import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
@@ -32,10 +35,11 @@ import { ContactNameInput } from './ContactNameInput';
  */
 export const NewContactPage: React.FC = () => {
   const { t } = useTranslation();
-  const reduceMotion = useReducedMotion();
+  const reveal = usePreset('reveal');
   const { addContact } = useContacts();
   const { allContacts } = useFilteredContacts();
   const back = useBackWithFallback(ADDRESS_BOOK_PATH);
+  const isMounted = useIsMounted();
 
   const [address, setAddress] = useState('');
   // The invalid-address message waits until the field is left (or filled by paste or scan), so it
@@ -48,6 +52,9 @@ export const NewContactPage: React.FC = () => {
   const [saveError, setSaveError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [showScanDrawer, setShowScanDrawer] = useState(false);
+
+  // Same rule as the contact detail page: the gated header back is not the only exit on mobile.
+  useMobileBackHandler(() => saving, [saving]);
 
   const trimmedAddress = address.trim();
   const trimmedName = name.trim();
@@ -112,7 +119,9 @@ export const NewContactPage: React.FC = () => {
         addedAt: Date.now(),
         ...(isEvm ? { network } : {})
       });
-      back();
+      // Pop our own entry, and only while this page is still live - see the delete in
+      // ContactDetailPage for why a named Replace duplicates the address book in history.
+      if (isMounted()) back();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : String(err));
       setSaving(false);
@@ -123,7 +132,13 @@ export const NewContactPage: React.FC = () => {
     <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="contact-new">
       <FlowLayout
         title={t('newContact')}
-        onBack={back}
+        // `back` is claim-gated once per location, and `save()` calls it again when the write
+        // lands. A tap while the save is in flight consumes the claim AND navigates, which resets
+        // the claim — so the save's own `back()` then fires a second time and overshoots by a
+        // screen. The save navigates on completion regardless, so ignore the tap while it runs.
+        onBack={() => {
+          if (!saving) back();
+        }}
         footer={
           <Button
             title={t('addContact')}
@@ -207,14 +222,7 @@ export const NewContactPage: React.FC = () => {
 
           <AnimatePresence initial={false}>
             {isValid && (
-              <motion.div
-                key="network"
-                initial={reduceMotion ? false : { opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
+              <motion.div key="network" {...reveal} className="overflow-hidden">
                 <NetworkField
                   chain={isEvm ? 'ethereum' : 'miden'}
                   network={network}

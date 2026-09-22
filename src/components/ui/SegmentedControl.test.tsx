@@ -5,11 +5,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
-import SegmentedControlDefault, {
-  SegmentedControl,
-  SegmentedControlItem,
-  SegmentedControlProps
-} from './SegmentedControl';
+import { SegmentedControl, SegmentedControlItem, SegmentedControlProps } from './SegmentedControl';
 
 let mockReduce = false;
 
@@ -66,8 +62,8 @@ type Filter = 'all' | 'pending' | 'sent' | 'received';
 
 const items: SegmentedControlItem<Filter>[] = [
   { id: 'all', label: 'All', 'data-testid': 'filter-all' },
-  { id: 'pending', label: 'Pending', count: 3 },
-  { id: 'sent', label: 'Sent', icon: <svg data-testid="icon-sent" /> },
+  { id: 'pending', label: 'Pending' },
+  { id: 'sent', label: 'Sent' },
   { id: 'received', label: 'Received' }
 ];
 
@@ -111,10 +107,6 @@ afterEach(() => {
 });
 
 describe('SegmentedControl — structure and semantics', () => {
-  it('exposes the same component as the default and named export', () => {
-    expect(SegmentedControlDefault).toBe(SegmentedControl);
-  });
-
   it('is a labelled radiogroup of radios by default, aria-checked on the selected one only', () => {
     renderControl({ value: 'sent' });
 
@@ -127,27 +119,11 @@ describe('SegmentedControl — structure and semantics', () => {
     screen.getAllByRole('radio').forEach(radio => expect(radio).toHaveAttribute('type', 'button'));
   });
 
-  it('is a tablist of tabs with aria-selected when it switches panels', () => {
-    renderControl({ role: 'tablist', value: 'pending' });
-
-    expect(screen.getByRole('tablist', { name: 'Filters' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Pending 3' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'false');
-    expect(screen.getByRole('tab', { name: 'All' })).not.toHaveAttribute('aria-checked');
-  });
-
   it('keeps item and control test ids', () => {
     renderControl({ 'data-testid': 'filters' });
 
     expect(screen.getByTestId('filters')).toHaveAttribute('role', 'radiogroup');
     expect(screen.getByTestId('filter-all')).toBe(getRadio('All'));
-  });
-
-  it('renders an optional icon (hidden from assistive tech) and count', () => {
-    renderControl();
-
-    expect(screen.getByTestId('icon-sent').parentElement).toHaveAttribute('aria-hidden', 'true');
-    expect(screen.getByText('3')).toHaveClass('tabular-nums');
   });
 
   it('sits on no strip: the row has no background, only layout classes from the caller', () => {
@@ -163,7 +139,7 @@ describe('SegmentedControl — the raised bubble', () => {
   it('draws the bubble only in the selected item, raised and sinking while pressed', () => {
     renderControl({ value: 'pending' });
 
-    const selected = getRadio('Pending 3');
+    const selected = getRadio('Pending');
     const bubble = bubbleIn(selected)!;
     expect(bubble).toHaveClass('inset-0', 'rounded-full', 'bg-raised', 'shadow-raised');
     expect(bubble).toHaveClass('group-active:shadow-raised-pressed');
@@ -297,11 +273,21 @@ describe('SegmentedControl — keyboard', () => {
     expect(getRadio('Received')).toHaveAttribute('tabindex', '-1');
   });
 
-  it('falls back to the first enabled item when the value matches none', () => {
+  it('falls back to the first enabled item when the selected one is disabled', () => {
     const list: SegmentedControlItem<Filter>[] = [{ id: 'all', label: 'All', disabled: true }, ...items.slice(1)];
     render(<SegmentedControl items={list} value="all" onChange={jest.fn()} />);
 
-    expect(getRadio('Pending 3')).toHaveAttribute('tabindex', '0');
+    expect(getRadio('Pending')).toHaveAttribute('tabindex', '0');
+  });
+
+  // A value the items do not hold: a stored setting from another build, or a list that shrank. The
+  // row must stay reachable by Tab, with nothing selected.
+  it('keeps the first item tabbable when the value matches no item', () => {
+    render(<SegmentedControl items={items.slice(0, 3)} value={'received' as Filter} onChange={jest.fn()} />);
+
+    expect(getRadio('All')).toHaveAttribute('tabindex', '0');
+    expect(screen.getAllByRole('radio').every(radio => radio.getAttribute('aria-checked') === 'false')).toBe(true);
+    expect(document.querySelector('[data-slot="motion-highlight"]')).toBeNull();
   });
 
   it('moves focus and selection with the arrows, wrapping, with one haptic per move', () => {
@@ -310,10 +296,10 @@ describe('SegmentedControl — keyboard', () => {
     getRadio('All').focus();
 
     fireEvent.keyDown(getRadio('All'), { key: 'ArrowRight' });
-    expect(getRadio('Pending 3')).toHaveFocus();
-    expect(getRadio('Pending 3')).toHaveAttribute('aria-checked', 'true');
+    expect(getRadio('Pending')).toHaveFocus();
+    expect(getRadio('Pending')).toHaveAttribute('aria-checked', 'true');
 
-    fireEvent.keyDown(getRadio('Pending 3'), { key: 'ArrowLeft' });
+    fireEvent.keyDown(getRadio('Pending'), { key: 'ArrowLeft' });
     fireEvent.keyDown(getRadio('All'), { key: 'ArrowLeft' });
     expect(getRadio('Received')).toHaveFocus();
     expect(onChange).toHaveBeenLastCalledWith('received');
@@ -335,11 +321,11 @@ describe('SegmentedControl — keyboard', () => {
     expect(getRadio('Sent')).toHaveFocus();
     expect(getRadio('Sent')).toHaveAttribute('aria-checked', 'true');
 
-    fireEvent.keyDown(getRadio('Sent'), { key: 'ArrowRight' });
+    // Home from the far end, so the key has somewhere to move: pressed on the item it would land on
+    // anyway, the assertion holds with the Home branch deleted.
+    fireEvent.keyDown(getRadio('Sent'), { key: 'Home' });
     expect(getRadio('All')).toHaveFocus();
-
-    fireEvent.keyDown(getRadio('All'), { key: 'Home' });
-    expect(getRadio('All')).toHaveFocus();
+    expect(getRadio('All')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('ignores other keys and shows a focus ring', () => {
@@ -382,13 +368,10 @@ describe('SegmentedControl — layouts', () => {
     expect(getRadio('All')).toHaveClass('h-10', 'px-4');
   });
 
-  it('scrolls the selected item into view in the scroll layout, instantly under reduced motion', () => {
+  it('scrolls the selected item into view on a change, but never on mount', () => {
     const { rerender } = renderControl({ value: 'all' });
-    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenLastCalledWith({
-      behavior: 'smooth',
-      block: 'nearest',
-      inline: 'nearest'
-    });
+    // Mounting a page is not a selection change, and this call would scroll the page, not the row.
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
 
     const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
     scrollSpy.mockClear();
@@ -399,6 +382,32 @@ describe('SegmentedControl — layouts', () => {
     mockReduce = true;
     rerender(<SegmentedControl items={items} value="sent" onChange={jest.fn()} />);
     expect(scrollSpy).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+  });
+
+  // A stored setting from another build, or a list that loads after the value: nothing is selected at
+  // mount, so the user's FIRST real selection is a move and has to be kept in view. A latch that
+  // armed itself on the first render WITH a match swallowed exactly this one.
+  it('scrolls the first real selection when it mounted with a value matching no item', () => {
+    const { rerender } = render(<SegmentedControl items={items} value={'nope' as Filter} onChange={jest.fn()} />);
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    rerender(<SegmentedControl items={items} value="received" onChange={jest.fn()} />);
+
+    const scrollSpy = jest.mocked(HTMLElement.prototype.scrollIntoView);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(scrollSpy.mock.contexts[0]).toBe(getRadio('Received'));
+  });
+
+  // `reduceMotion` is a dep of the same effect, so a flip re-runs it with the selection unchanged.
+  // Nothing moved, so nothing scrolls.
+  it('does not scroll when only the reduced-motion preference changes', () => {
+    const { rerender } = renderControl({ value: 'received' });
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    mockReduce = true;
+    rerender(<SegmentedControl items={items} value="received" onChange={jest.fn()} aria-label="Filters" />);
+
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('does not scroll in the fill layout', () => {

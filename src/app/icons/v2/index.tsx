@@ -101,6 +101,7 @@ import { ReactComponent as Users } from './users.svg';
 import { ReactComponent as Wallet } from './wallet.svg';
 import { ReactComponent as WarningFill } from './warning-fill.svg';
 import { ReactComponent as Warning } from './warning.svg';
+import { ReactComponent as Fingerprint } from '../onboarding/fingerprint.svg';
 
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 
@@ -152,6 +153,7 @@ export enum IconName {
   EyeOff = 'eye-off',
   Eye = 'eye',
   FaceId = 'face-id',
+  Fingerprint = 'fingerprint',
   Faucet = 'faucet',
   FileCopy = 'file-copy',
   FileSettings = 'file-settings',
@@ -306,6 +308,8 @@ const IconSwitch = (props: IconProps) => {
       return <Eye {...props} />;
     case IconName.FaceId:
       return <FaceId {...props} />;
+    case IconName.Fingerprint:
+      return <Fingerprint {...props} />;
     case IconName.Faucet:
       return <Faucet {...props} />;
     case IconName.FileCopy:
