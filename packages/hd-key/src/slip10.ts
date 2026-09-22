@@ -17,7 +17,7 @@
  * valid). Unlike key-tree this module also clears intermediate buffers.
  */
 import { hmac } from '@noble/hashes/hmac';
-import { sha512 } from '@noble/hashes/sha512';
+import { sha512 } from '@noble/hashes/sha2';
 
 /**
  * A SLIP-0010 extended private key: a 32-byte secret and a 32-byte chain code.
