@@ -107,7 +107,6 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => (
     <div data-testid="spending-limit-challenge">
       <span>{props.assessment.revision}</span>
-      <span>{props.asset.symbol}</span>
       <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
         authenticate-limit
       </button>
@@ -601,20 +600,17 @@ describe('transaction payload', () => {
       ...txPayload(),
       spendingLimitAssessment: {
         accountId: ACCOUNT.publicKey,
-        faucetId: 'mtst1faucet',
-        amount: '5',
+        usdAmount: '5000000',
         revision: 'revision-1',
         assessedAt: 100,
-        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
-      },
-      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+        breach: { spent: '8000000', proposedTotal: '13000000', limit: '10000000', overBy: '3000000', resetAt: 200 }
+      }
     });
     render(<ConfirmPage />);
 
     fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
 
     expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
-    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('MIDEN');
     expect(ctx.confirmDAppTransaction).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -633,13 +629,11 @@ describe('transaction payload', () => {
       ...txPayload(),
       spendingLimitAssessment: {
         accountId: ACCOUNT.publicKey,
-        faucetId: 'mtst1faucet',
-        amount: '5',
+        usdAmount: '5000000',
         revision: 'revision-1',
         assessedAt: 100,
-        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
-      },
-      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+        breach: { spent: '8000000', proposedTotal: '13000000', limit: '10000000', overBy: '3000000', resetAt: 200 }
+      }
     });
     render(<ConfirmPage />);
 

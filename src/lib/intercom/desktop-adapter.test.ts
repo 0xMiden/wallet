@@ -29,19 +29,15 @@ jest.mock('lib/miden/back/actions', () => ({
   editAccount: jest.fn().mockResolvedValue(undefined),
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
-  listSpendingLimits: jest.fn().mockResolvedValue([
-    {
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      dailyLimit: '100',
-      asset: { symbol: 'MIDEN', decimals: 8 },
-      revision: 'revision-1',
-      createdAt: 1,
-      updatedAt: 1
-    }
-  ]),
+  getSpendingLimit: jest.fn().mockResolvedValue({
+    accountId: 'account-a',
+    limit: '100',
+    revision: 'revision-1',
+    createdAt: 1,
+    updatedAt: 1
+  }),
   saveSpendingLimit: jest.fn().mockResolvedValue(undefined),
-  assessOutgoingSpendingLimit: jest.fn().mockResolvedValue({ revision: 'revision-1', breaches: [{}] }),
+  assessOutgoingSpendingLimit: jest.fn().mockResolvedValue({ usdAmount: '20', revision: 'revision-1' }),
   getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: false, password: true }),
   verifyStrictActionAuthentication: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
@@ -354,15 +350,11 @@ describe('DesktopIntercomAdapter', () => {
       expect(response).toEqual({ type: WalletMessageType.UpdateSettingsResponse });
     });
 
-    it('handles spending-limit list and disable requests', async () => {
-      const draft = {
-        accountId: 'account-a',
-        faucetId: 'faucet-a',
-        asset: { symbol: 'MIDEN', decimals: 8 }
-      };
+    it('handles spending-limit get and save requests', async () => {
+      const draft = { accountId: 'account-a' };
 
-      const listed = await adapter.request({
-        type: WalletMessageType.GetSpendingLimitsRequest,
+      const got = await adapter.request({
+        type: WalletMessageType.GetSpendingLimitRequest,
         accountId: 'account-a'
       });
       const saved = await adapter.request({
@@ -372,9 +364,12 @@ describe('DesktopIntercomAdapter', () => {
         strictlyAuthenticated: true
       });
 
-      expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+      expect(Actions.getSpendingLimit).toHaveBeenCalledWith('account-a');
       expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', true);
-      expect(listed).toMatchObject({ type: WalletMessageType.GetSpendingLimitsResponse, configurations: [{}] });
+      expect(got).toMatchObject({
+        type: WalletMessageType.GetSpendingLimitResponse,
+        configuration: { revision: 'revision-1' }
+      });
       expect(saved).toEqual({ type: WalletMessageType.SaveSpendingLimitResponse });
     });
 
@@ -397,13 +392,12 @@ describe('DesktopIntercomAdapter', () => {
       const response = await adapter.request({
         type: WalletMessageType.AssessSpendingLimitRequest,
         accountId: 'account-a',
-        faucetId: 'faucet-a',
-        amount: '20'
+        spends: [{ faucetId: 'faucet-a', amount: '20' }]
       });
 
       expect(response).toEqual({
         type: WalletMessageType.AssessSpendingLimitResponse,
-        assessment: { revision: 'revision-1', breaches: [{}] }
+        assessment: { usdAmount: '20', revision: 'revision-1' }
       });
     });
 

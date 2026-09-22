@@ -191,10 +191,15 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  /**
+   * Save an E2E spending limit through the same store transport the settings UI uses.
+   *
+   * One account-scoped USD cap, not a per-asset native-unit one: `tokenSymbol` only picks which
+   * balance row to read the faucet id off, for callers that go on to spend that asset.
+   */
   configureSpendingLimitForTest(params: {
     tokenSymbol: string;
-    dailyLimitBaseUnits?: string;
-    weeklyLimitBaseUnits?: string;
+    dailyLimitUsdMicro?: string;
   }): Promise<{ accountId: string; faucetId: string; decimals: number }>;
   runSpendingLimitRaceForTest(params: {
     recipientAddress: string;
@@ -2755,28 +2760,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   async configureSpendingLimitForTest(params: {
     tokenSymbol: string;
-    dailyLimitBaseUnits?: string;
-    weeklyLimitBaseUnits?: string;
+    dailyLimitUsdMicro?: string;
   }): Promise<{ accountId: string; faucetId: string; decimals: number }> {
     return this.page.evaluate(async input => {
       type Balance = {
         tokenId: string;
         metadata: { symbol: string; decimals: number; name?: string };
       };
-      type ExistingLimit = { faucetId: string; revision: string; asset: { symbol: string } };
+      type Configuration = { accountId: string; limit: bigint; revision: string };
       type TestStore = {
         getState(): {
           currentAccount: { publicKey: string } | null;
           balances: Record<string, Balance[]>;
-          listSpendingLimits(accountId: string): Promise<ExistingLimit[]>;
+          readSpendingLimit(accountId: string): Promise<Configuration | undefined>;
           saveSpendingLimit(
-            draft: {
-              accountId: string;
-              faucetId: string;
-              asset: { symbol: string; decimals: number; name?: string };
-              dailyLimit?: bigint;
-              weeklyLimit?: bigint;
-            },
+            draft: { accountId: string; limit?: bigint },
             observedRevision: string | undefined,
             strictlyAuthenticated: boolean
           ): Promise<unknown>;
@@ -2792,19 +2790,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       if (balance === undefined) {
         throw new Error(`configureSpendingLimitForTest found no ${input.tokenSymbol} balance row`);
       }
-      // Match the saved configuration by the asset it was saved for, not by faucet id.
-      // `saveSpendingLimit` canonicalizes the faucet id before it stores the row, so
-      // `listSpendingLimits` hands back the canonical form while `balance.tokenId` is the raw
-      // balance form; a raw `===` misses, the revision goes in as undefined, and the optimistic
-      // concurrency guard then refuses every save after the first with a conflict.
-      const existing = (await state.listSpendingLimits(accountId)).find(row => row.asset.symbol === input.tokenSymbol);
+      const existing = await state.readSpendingLimit(accountId);
       await state.saveSpendingLimit(
         {
           accountId,
-          faucetId: balance.tokenId,
-          asset: balance.metadata,
-          ...(input.dailyLimitBaseUnits === undefined ? {} : { dailyLimit: BigInt(input.dailyLimitBaseUnits) }),
-          ...(input.weeklyLimitBaseUnits === undefined ? {} : { weeklyLimit: BigInt(input.weeklyLimitBaseUnits) })
+          ...(input.dailyLimitUsdMicro === undefined ? {} : { limit: BigInt(input.dailyLimitUsdMicro) })
         },
         existing?.revision,
         true

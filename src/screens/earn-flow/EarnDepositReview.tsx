@@ -6,7 +6,7 @@ import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
-import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
 import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
@@ -14,7 +14,7 @@ import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import {
-  type SpendingLimitAssessment,
+  isSpendingLimitPriceUnavailable,
   type SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
@@ -59,8 +59,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
+  const [spendingLimitChallenge, setSpendingLimitChallenge] =
+    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
+  const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   const amountBaseUnits = useMemo(() => {
     try {
       return stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS);
@@ -80,15 +82,27 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     return () => settleRouteFlow('earn', flow => flow.cancel());
   }, []);
 
+  // The account's spending-limit revision never crosses the intercom port - `serializeError` /
+  // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
+  // - so the unpriced challenge reads the account's current revision fresh, the same value
+  // `authorizationMatches` re-reads server-side at redemption.
+  const openUnpricedChallenge = async (depositAmount: bigint): Promise<boolean> => {
+    const configuration = await readSpendingLimit(account.publicKey);
+    if (configuration === undefined) return false;
+    setSpendingLimitChallenge({
+      unpriced: {
+        accountId: account.publicKey,
+        spends: [{ faucetId, amount: depositAmount }],
+        revision: configuration.revision
+      }
+    });
+    return true;
+  };
+
   const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
     if (amountBaseUnits === undefined) return;
-    if (
-      authorization !== undefined &&
-      (authorization.accountId !== account.publicKey ||
-        authorization.faucetId !== faucetId ||
-        authorization.amount !== amountBaseUnits)
-    ) {
-      setSpendingLimitAssessment(undefined);
+    if (authorization !== undefined && authorization.accountId !== account.publicKey) {
+      setSpendingLimitChallenge(undefined);
       return;
     }
     if (!account.evmAddress) {
@@ -121,11 +135,21 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     } catch (e) {
       const assessment = spendingLimitAssessmentFromError(e);
       if (assessment !== undefined) {
-        setSpendingLimitAssessment(assessment);
-      } else {
-        settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
-        setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
+        setSpendingLimitChallenge({ assessment, spends: [{ faucetId, amount: amountBaseUnits }] });
+        return;
       }
+      // `openUnpricedChallenge` reads spending-limit config and can itself throw. The outer
+      // `finally` already releases `isSubmitting` either way, but without this it does so
+      // silently, with no error shown for what actually failed.
+      try {
+        if (isSpendingLimitPriceUnavailable(e) && (await openUnpricedChallenge(amountBaseUnits))) {
+          return;
+        }
+      } catch (challengeError) {
+        console.error(challengeError);
+      }
+      settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
+      setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
     } finally {
       setIsSubmitting(false);
     }
@@ -145,29 +169,43 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const assessment = await assessSpendingLimit(account.publicKey, faucetId, amountBaseUnits);
-      if (assessment !== undefined && assessment.breaches.length > 0) {
-        setSpendingLimitAssessment(assessment);
+      const spends = [{ faucetId, amount: amountBaseUnits }];
+      const assessment = await assessSpendingLimit(account.publicKey, spends);
+      if (assessment !== undefined && assessment.breach !== undefined) {
+        setSpendingLimitChallenge({ assessment, spends });
         setIsSubmitting(false);
         return;
       }
       await runOpenPosition();
     } catch (error) {
+      // See `runOpenPosition`: guard against `openUnpricedChallenge` itself throwing, or a
+      // storage read failure here leaves the CTA disabled forever with no visible error.
+      let opened = false;
+      try {
+        opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(amountBaseUnits));
+      } catch (challengeError) {
+        console.error(challengeError);
+      }
+      if (opened) {
+        setIsSubmitting(false);
+        return;
+      }
       setSubmitError(error instanceof Error ? error.message : t('earnFailedToOpenPosition'));
       setIsSubmitting(false);
     }
   };
 
+  // The account is the only identity both the `assessment` and `unpriced` challenge shapes carry
+  // (usd/spends amounts don't survive as comparable fields on the domain types any more), so this
+  // guard closes the drawer if the active account changes while it's open; a stale credential for
+  // any other reason is still caught by the backend's own authorization re-check at redemption.
   useEffect(() => {
-    if (
-      spendingLimitAssessment !== undefined &&
-      (spendingLimitAssessment.accountId !== account.publicKey ||
-        spendingLimitAssessment.faucetId !== faucetId ||
-        spendingLimitAssessment.amount !== amountBaseUnits)
-    ) {
-      setSpendingLimitAssessment(undefined);
+    if (spendingLimitChallenge === undefined) return;
+    const accountId = spendingLimitChallenge.assessment?.accountId ?? spendingLimitChallenge.unpriced?.accountId;
+    if (accountId !== account.publicKey) {
+      setSpendingLimitChallenge(undefined);
     }
-  }, [account.publicKey, amountBaseUnits, faucetId, spendingLimitAssessment]);
+  }, [account.publicKey, spendingLimitChallenge]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-review-page">
@@ -201,12 +239,13 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
-      {spendingLimitAssessment !== undefined && (
+      {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge
-          assessment={spendingLimitAssessment}
-          asset={{ symbol: depositSymbol, decimals: MIDEN_USDC_DECIMALS }}
+          assessment={spendingLimitChallenge.assessment}
+          spends={spendingLimitChallenge.spends}
+          unpriced={spendingLimitChallenge.unpriced}
           onResult={authorization => {
-            setSpendingLimitAssessment(undefined);
+            setSpendingLimitChallenge(undefined);
             if (authorization !== undefined) void runOpenPosition(authorization);
           }}
         />

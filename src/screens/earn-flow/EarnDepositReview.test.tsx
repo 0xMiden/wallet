@@ -50,36 +50,45 @@ jest.mock('lib/epoch', () => ({
   openEarnPosition: jest.fn(() => Promise.resolve())
 }));
 
-const mockWalletStoreState = { assessSpendingLimit: jest.fn() };
+const mockWalletStoreState = { assessSpendingLimit: jest.fn(), readSpendingLimit: jest.fn() };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockWalletStoreState) => unknown) => selector(mockWalletStoreState)
 }));
 
+// Set by a test that needs the mock challenge to hand back an authorization for a DIFFERENT
+// account than the one the challenge itself was opened for - a stale/forged credential, which the
+// real `SpendingLimitChallenge` never produces (its authorization always carries the challenge's
+// own `source.accountId`) but which `runOpenPosition` must independently refuse.
+let mockAuthorizationAccountOverride: string | undefined;
+
 jest.mock('components/SpendingLimitChallenge', () => ({
-  SpendingLimitChallenge: (props: any) => (
-    <div data-testid="spending-limit-challenge">
-      <span>{props.assessment.revision}</span>
-      <button
-        type="button"
-        onClick={() =>
-          props.onResult({
-            id: 'authorization-1',
-            accountId: props.assessment.accountId,
-            faucetId: props.assessment.faucetId,
-            amount: props.assessment.amount,
-            revision: props.assessment.revision,
-            issuedAt: 100,
-            expiresAt: 220
-          })
-        }
-      >
-        authorize-limit
-      </button>
-      <button type="button" onClick={() => props.onResult(undefined)}>
-        cancel-limit
-      </button>
-    </div>
-  )
+  SpendingLimitChallenge: (props: any) => {
+    const source = props.assessment ?? props.unpriced;
+    return (
+      <div data-testid="spending-limit-challenge">
+        <span>{source.revision}</span>
+        <span data-testid="challenge-kind">{props.assessment !== undefined ? 'assessment' : 'unpriced'}</span>
+        <button
+          type="button"
+          onClick={() =>
+            props.onResult({
+              kind: props.assessment !== undefined ? 'usd' : 'unpriced',
+              id: 'authorization-1',
+              accountId: mockAuthorizationAccountOverride ?? source.accountId,
+              revision: source.revision,
+              issuedAt: 100,
+              expiresAt: 220
+            })
+          }
+        >
+          authorize-limit
+        </button>
+        <button type="button" onClick={() => props.onResult(undefined)}>
+          cancel-limit
+        </button>
+      </div>
+    );
+  }
 }));
 
 // --- Wallet context: the screen needs the account's EVM address (the deposit
@@ -172,15 +181,32 @@ const renderReview = (vaultId: string, search = '') => {
   return render(<EarnDepositReview vaultId={vaultId} />);
 };
 
+const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
+  accountId: 'mm1testaccount',
+  usdAmount: 1_000_000_000n,
+  revision: 'revision-1',
+  assessedAt: 100,
+  breach: { spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 },
+  ...overrides
+});
+
 describe('EarnDepositReview', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthorizationAccountOverride = undefined;
     mockLocation.search = '';
     mockAccount.evmAddress = '0xdeadbeef';
     mockAccount.type = undefined;
     (isMobile as jest.Mock).mockReturnValue(false);
     mockOpenEarnPosition.mockResolvedValue(undefined);
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
+    mockWalletStoreState.readSpendingLimit.mockResolvedValue({
+      accountId: 'mm1testaccount',
+      limit: 100_000_000n,
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 2
+    });
   });
 
   describe('deposit amount header', () => {
@@ -268,16 +294,7 @@ describe('EarnDepositReview', () => {
     });
 
     it('requires strict authentication before any Earn quote or intent work when over limit', async () => {
-      mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'mm1testaccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '24h', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 }
-        ]
-      });
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
@@ -296,28 +313,20 @@ describe('EarnDepositReview', () => {
 
     it('discards an authorization that no longer matches the deposit it was minted for', async () => {
       // The assessment names another account, so the authorization the challenge returns is bound
-      // to a different (account, faucet, amount) than the one about to be opened. Honouring it
-      // would spend this deposit against a credential issued for something else.
-      mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'mm1someotheraccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '24h', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 }
-        ]
-      });
+      // to an account other than the one opening this deposit. Honouring it would spend this
+      // deposit against a credential issued for something else.
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
+        breachAssessment({ accountId: 'mm1someotheraccount' })
+      );
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
-
       await waitFor(() => expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalled());
 
-      // The drawer does render for the one commit before the guard's effect discards it. Let the
+      // The drawer does render for the one commit before the guard's effect discards it - let the
       // assessment settle and React flush both that render and the effect, then assert the final
       // state. Asserting earlier passes vacuously (the promise hasn't settled yet); asserting in
-      // between races the effect. A challenge for another account is not one this deposit may satisfy.
+      // between races the effect.
       await act(async () => {
         await mockWalletStoreState.assessSpendingLimit.mock.results[0]!.value;
       });
@@ -325,17 +334,113 @@ describe('EarnDepositReview', () => {
       expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
-    it('cancels the Earn challenge before quote or intent work and preserves the amount', async () => {
-      mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
-        accountId: 'mm1testaccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '24h', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 }
-        ]
+    it('discards a forged authorization for a different account instead of depositing against it', async () => {
+      // `SpendingLimitChallenge` always mints an authorization bound to the account its own
+      // assessment named; this plants a forged/stale one directly to prove `runOpenPosition`
+      // refuses it on its own, independently of the staleness guard above.
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockAuthorizationAccountOverride = 'mm1someotheraccount';
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+      fireEvent.click(await screen.findByRole('button', { name: 'authorize-limit' }));
+
+      await waitFor(() => expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument());
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('opens the unvalued challenge when the pre-check cannot price the deposit', async () => {
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'USDC'
       });
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() => expect(mockWalletStoreState.readSpendingLimit).toHaveBeenCalledWith('mm1testaccount'));
+      expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the generic error when the pre-check itself cannot open the unpriced challenge', async () => {
+      // Distinct from the success case above: `readSpendingLimit` fails outright (a storage
+      // fault), reached from `handleOpenPosition`'s own catch before `runOpenPosition` is entered.
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'USDC'
+      });
+      mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      // The outer catch's `error` is still the original price-unavailable object (not an Error),
+      // so this is the fallback copy, not the inner storage failure's own message.
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('shows a real Error rejection from the pre-check by its own message', async () => {
+      // Not price-unavailable and not an authorization-required breach - a genuine pre-check
+      // failure, which must surface as itself rather than the generic fallback copy.
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('assessment backend down')).toBeInTheDocument();
+    });
+
+    it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
+      mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'USDC'
+      });
+      mockWalletStoreState.readSpendingLimit.mockResolvedValue(undefined);
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
+    it('opens the unvalued challenge when the actual deposit cannot be priced', async () => {
+      mockOpenEarnPosition.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'USDC' });
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+    });
+
+    it('re-enables the CTA when the drawer authorize path cannot open the unpriced challenge', async () => {
+      // `runOpenPosition`'s own `openUnpricedChallenge` attempt throws here, not the pre-check's -
+      // reached only once a breach already opened the challenge and the user re-authorizes into an
+      // actual deposit that itself cannot be priced.
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockOpenEarnPosition.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'USDC' });
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+      expect(await screen.findByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+
+      // Same reasoning as the pre-check case above: the outer catch's `error` is the original
+      // price-unavailable object, so this is the fallback copy, not the storage failure's message.
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    });
+
+    it('cancels the Earn challenge before quote or intent work and preserves the amount', async () => {
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
@@ -347,16 +452,9 @@ describe('EarnDepositReview', () => {
     });
 
     it('reopens the challenge after a stale Earn authorization without losing the deposit amount', async () => {
-      const firstAssessment = {
-        accountId: 'mm1testaccount',
-        faucetId: 'mtst1usdc',
-        amount: 1_000_000_000n,
-        revision: 'revision-1',
-        assessedAt: 100,
-        breaches: [
-          { period: '7d', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: null }
-        ]
-      };
+      const firstAssessment = breachAssessment({
+        breach: { spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: null }
+      });
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
       mockOpenEarnPosition.mockRejectedValue({
         code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',

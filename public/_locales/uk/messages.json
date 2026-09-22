@@ -5071,18 +5071,6 @@
     "message": "Ліміти витрат",
     "englishSource": "Spending limits"
   },
-  "spendingLimitDaily": {
-    "message": "Ковзний ліміт за 24 години",
-    "englishSource": "Rolling 24-hour limit"
-  },
-  "spendingLimitWeekly": {
-    "message": "Ковзний ліміт за 7 днів",
-    "englishSource": "Rolling 7-day limit"
-  },
-  "spendingLimitUnknownDecimals": {
-    "message": "Ліміти недоступні, доки не буде отримано метадані про десяткові знаки цього активу.",
-    "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
-  },
   "spendingLimitAuthenticationReason": {
     "message": "Пройдіть автентифікацію, щоб застосувати зміну, яка послаблює захист цього ліміту витрат.",
     "englishSource": "Authenticate to apply a change that weakens this spending limit."
@@ -5107,10 +5095,6 @@
     "message": "Ці ліміти є локальною перевіркою безпеки, а не обмеженням on-chain. Кожен, хто має прямий доступ до ваших ключів, може їх обійти.",
     "englishSource": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them."
   },
-  "spendingLimitNoAssets": {
-    "message": "Немає активів, доступних для налаштування.",
-    "englishSource": "No assets are available to configure."
-  },
   "spendingLimitSave": {
     "message": "Зберегти",
     "englishSource": "Save"
@@ -5119,17 +5103,21 @@
     "message": "Ліміт витрат перевищено",
     "englishSource": "Spending limit exceeded"
   },
-  "spendingLimitPeriod24h": {
-    "message": "Останні 24 години",
-    "englishSource": "Past 24 hours"
-  },
-  "spendingLimitPeriod7d": {
-    "message": "Останні 7 днів",
-    "englishSource": "Past 7 days"
-  },
   "spendingLimitCap": {
     "message": "Ліміт",
     "englishSource": "Limit"
+  },
+  "spendingLimitUsdCap": {
+    "message": "Daily limit (USD)",
+    "englishSource": "Daily limit (USD)"
+  },
+  "spendingLimitCoverage": {
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+  },
+  "spendingLimitPriceUnavailable": {
+    "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
+    "englishSource": "This transaction's value cannot be checked right now. Authenticate to send it anyway."
   },
   "spendingLimitOverBy": {
     "message": "Перевищення",

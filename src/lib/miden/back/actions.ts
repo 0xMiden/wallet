@@ -36,15 +36,14 @@ import {
   withWasmClientLock
 } from 'lib/miden/sdk/miden-client';
 import {
-  listSpendingLimits as listStoredSpendingLimits,
+  readSpendingLimit as readStoredSpendingLimit,
   saveSpendingLimit as saveStoredSpendingLimit
 } from 'lib/miden/spending-limits/config';
-import { assessOutgoingSpendingLimit as assessStoredOutgoingSpendingLimit } from 'lib/miden/spending-limits/queue';
+import { assessOutgoingSpendingLimitDetails } from 'lib/miden/spending-limits/queue';
 import {
   PersistedSpendingLimit,
   SerializedSpendingLimitAssessment,
   SerializedSpendingLimitDraft,
-  SpendingLimitPolicyUnavailableError,
   parseSerializedSpendingAmount,
   parseSerializedSpendingLimitDraft,
   toPersistedSpendingLimit,
@@ -58,6 +57,7 @@ import {
   ImportedAccountBackup,
   ReportTelemetryEventRequest,
   ReportTelemetryEventResponse,
+  SerializedSpend,
   SignEvmOperation,
   WalletAccount,
   WalletMessageType,
@@ -567,18 +567,9 @@ export function updateSettings(settings: Partial<WalletSettings>) {
   });
 }
 
-const serializeSpendingLimit = (
-  configuration: Awaited<ReturnType<typeof listStoredSpendingLimits>>[number]
-): PersistedSpendingLimit => {
-  const persisted = toPersistedSpendingLimit(configuration);
-  if (persisted === undefined) {
-    throw new SpendingLimitPolicyUnavailableError('A stored spending limit has no configured period');
-  }
-  return persisted;
-};
-
-export async function listSpendingLimits(accountId: string): Promise<PersistedSpendingLimit[]> {
-  return (await listStoredSpendingLimits(accountId)).map(serializeSpendingLimit);
+export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
+  const configuration = await readStoredSpendingLimit(accountId);
+  return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);
 }
 
 export async function saveSpendingLimit(
@@ -590,20 +581,18 @@ export async function saveSpendingLimit(
     observedRevision,
     strictlyAuthenticated
   });
-  return saved === undefined ? undefined : serializeSpendingLimit(saved);
+  return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
 }
 
 export async function assessOutgoingSpendingLimit(
   accountId: string,
-  faucetId: string,
-  serializedAmount: string
+  spends: readonly SerializedSpend[]
 ): Promise<SerializedSpendingLimitAssessment | undefined> {
-  const assessment = await assessStoredOutgoingSpendingLimit({
+  const details = await assessOutgoingSpendingLimitDetails({
     accountId,
-    faucetId,
-    amount: parseSerializedSpendingAmount(serializedAmount)
+    spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
   });
-  return assessment === undefined ? undefined : toSerializedSpendingLimitAssessment(assessment);
+  return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
 }
 
 export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {

@@ -6,15 +6,16 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
-  SpendingLimitAssessment,
+  isSpendingLimitPriceUnavailable,
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
@@ -62,16 +63,34 @@ const SwapManager: React.FC = () => {
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
+  const [spendingLimitChallenge, setSpendingLimitChallenge] =
+    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
+  const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  // The account's spending-limit revision never crosses the intercom port - `serializeError` /
+  // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
+  // - so the unpriced challenge reads the account's current revision fresh, the same value
+  // `authorizationMatches` re-reads server-side at redemption.
+  const openUnpricedChallenge = useCallback(
+    async (spends: readonly IConsumedAssetTotal[]): Promise<boolean> => {
+      if (!publicKey) return false;
+      const configuration = await readSpendingLimit(publicKey);
+      if (configuration === undefined) return false;
+      setSpendingLimitChallenge({
+        unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision }
+      });
+      return true;
+    },
+    [publicKey, readSpendingLimit]
+  );
 
   const onClose = useCallback(() => navigate('/'), []);
 
   // Handle mobile hardware/swipe back: close the token drawer first, then step
   // back inside the flow, else close it.
   useMobileBackHandler(() => {
-    if (spendingLimitAssessment !== undefined) {
-      setSpendingLimitAssessment(undefined);
+    if (spendingLimitChallenge !== undefined) {
+      setSpendingLimitChallenge(undefined);
       return true;
     }
     if (showTokenDrawer) {
@@ -84,7 +103,7 @@ const SwapManager: React.FC = () => {
     }
     onClose();
     return true;
-  }, [spendingLimitAssessment, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [spendingLimitChallenge, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on flow entry (see SendManager for the
   // full rationale — entering a swap is a clear "starting a new tx" signal).
@@ -285,18 +304,13 @@ const SwapManager: React.FC = () => {
   const runSwap = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
       if (!publicKey || offerAmountBaseUnits === undefined) return;
-      if (
-        authorization !== undefined &&
-        (authorization.accountId !== publicKey ||
-          authorization.faucetId !== offerToken.faucetId ||
-          authorization.amount !== offerAmountBaseUnits)
-      ) {
-        setSpendingLimitAssessment(undefined);
+      if (authorization !== undefined && authorization.accountId !== publicKey) {
+        setSpendingLimitChallenge(undefined);
         return;
       }
       setSubmitting(true);
       setSubmitError(null);
-      setSpendingLimitAssessment(undefined);
+      setSpendingLimitChallenge(undefined);
       // Past the point of no return for both the review button and a spending-limit
       // authorization. A failure inside this try is ours, not a change of mind.
       flowRef.current?.step('submitting');
@@ -322,13 +336,28 @@ const SwapManager: React.FC = () => {
         settleSwap(flow => flow.complete());
         navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
       } catch (error) {
+        const spends = [{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitAssessment(assessment);
-        } else {
-          settleSwap(flow => flow.fail(classifyError(error)));
-          setSubmitError(error instanceof Error ? error.message : String(error));
+          setSpendingLimitChallenge({ assessment, spends });
+          setSubmitting(false);
+          return;
         }
+        // `openUnpricedChallenge` reads spending-limit config and can itself throw. Caught here so
+        // that failure still lands on the fallback error message and a re-enabled button below,
+        // rather than skipping past both `setSubmitting(false)` calls and freezing the CTA.
+        let opened = false;
+        try {
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+        if (opened) {
+          setSubmitting(false);
+          return;
+        }
+        settleSwap(flow => flow.fail(classifyError(error)));
+        setSubmitError(error instanceof Error ? error.message : String(error));
         setSubmitting(false);
       }
     },
@@ -337,6 +366,7 @@ const SwapManager: React.FC = () => {
       expirySecondsValue,
       offerAmountBaseUnits,
       offerToken.faucetId,
+      openUnpricedChallenge,
       publicKey,
       requestAmount,
       requestToken.decimals,
@@ -379,9 +409,10 @@ const SwapManager: React.FC = () => {
     setSubmitting(true);
     try {
       if (offerAmountBaseUnits === undefined) throw new Error(t('swapInvalidAmounts'));
-      const assessment = await assessSpendingLimit(publicKey, offerToken.faucetId, offerAmountBaseUnits);
-      if (assessment !== undefined && assessment.breaches.length > 0) {
-        setSpendingLimitAssessment(assessment);
+      const spends = [{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }];
+      const assessment = await assessSpendingLimit(publicKey, spends);
+      if (assessment !== undefined && assessment.breach !== undefined) {
+        setSpendingLimitChallenge({ assessment, spends });
         setSubmitting(false);
         return;
       }
@@ -391,12 +422,29 @@ const SwapManager: React.FC = () => {
       }
       await runSwap();
     } catch (error) {
+      // See `runSwap`: guard against `openUnpricedChallenge` itself throwing, or a storage read
+      // failure here leaves the CTA disabled forever with no visible error.
+      let opened = false;
+      if (offerAmountBaseUnits !== undefined) {
+        try {
+          opened =
+            isSpendingLimitPriceUnavailable(error) &&
+            (await openUnpricedChallenge([{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }]));
+        } catch (challengeError) {
+          console.error(challengeError);
+        }
+      }
+      if (opened) {
+        setSubmitting(false);
+        return;
+      }
       setSubmitError(error instanceof Error ? error.message : String(error));
       setSubmitting(false);
     }
   }, [
     assessSpendingLimit,
     offerAmountBaseUnits,
+    openUnpricedChallenge,
     submitting,
     publicKey,
     sameToken,
@@ -415,22 +463,23 @@ const SwapManager: React.FC = () => {
 
   const handleSpendingLimitResult = useCallback(
     (authorization: SpendingLimitAuthorization | undefined) => {
-      setSpendingLimitAssessment(undefined);
+      setSpendingLimitChallenge(undefined);
       if (authorization !== undefined) void runSwap(authorization);
     },
     [runSwap]
   );
 
+  // The account is the only identity both the `assessment` and `unpriced` challenge shapes carry
+  // (usd/spends amounts don't survive as comparable fields on the domain types any more), so this
+  // guard closes the drawer if the active account changes while it's open; a stale credential for
+  // any other reason is still caught by the backend's own authorization re-check at redemption.
   useEffect(() => {
-    if (
-      spendingLimitAssessment !== undefined &&
-      (spendingLimitAssessment.accountId !== publicKey ||
-        spendingLimitAssessment.faucetId !== offerToken.faucetId ||
-        spendingLimitAssessment.amount !== offerAmountBaseUnits)
-    ) {
-      setSpendingLimitAssessment(undefined);
+    if (spendingLimitChallenge === undefined) return;
+    const accountId = spendingLimitChallenge.assessment?.accountId ?? spendingLimitChallenge.unpriced?.accountId;
+    if (accountId !== publicKey) {
+      setSpendingLimitChallenge(undefined);
     }
-  }, [offerAmountBaseUnits, offerToken.faucetId, publicKey, spendingLimitAssessment]);
+  }, [publicKey, spendingLimitChallenge]);
 
   const statusMessage = useMemo(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true };
@@ -529,10 +578,11 @@ const SwapManager: React.FC = () => {
         currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
         onSelect={onTokenSelected}
       />
-      {spendingLimitAssessment !== undefined && (
+      {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge
-          assessment={spendingLimitAssessment}
-          asset={{ symbol: offerToken.symbol, decimals: offerToken.decimals }}
+          assessment={spendingLimitChallenge.assessment}
+          spends={spendingLimitChallenge.spends}
+          unpriced={spendingLimitChallenge.unpriced}
           onResult={handleSpendingLimitResult}
         />
       )}

@@ -23,7 +23,7 @@
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 
-import type { SpendingLimitAssessment, SpendingLimitAssetSnapshot } from 'lib/miden/spending-limits/types';
+import type { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { DappMetadata } from 'lib/miden/types';
 
 export interface DAppConfirmationRequest {
@@ -59,7 +59,6 @@ export interface DAppConfirmationRequest {
   transactionMessages?: string[];
   sourcePublicKey?: string;
   spendingLimitAssessment?: SpendingLimitAssessment;
-  spendingLimitAsset?: SpendingLimitAssetSnapshot;
 }
 
 /**
