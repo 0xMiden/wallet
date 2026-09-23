@@ -15,7 +15,7 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
-import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
+import MidenNameSettings from 'app/templates/MidenNameSettings';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import SpendingLimits from 'app/templates/SpendingLimits';
@@ -29,6 +29,7 @@ import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayou
 // page's test suite mocks only partially.
 import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
+import { isMidenNameSupported } from 'lib/miden/name/config';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
@@ -134,6 +135,8 @@ type Tab = {
   // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
   // set on the WalletAccount or it'll fail immediately on the vault lookup.
   requiresActivatedHotKey?: boolean;
+  /** Hide the row and the route on a network with no Miden Name deployment. */
+  requiresMidenName?: boolean;
   /**
    * A row that only ever performs an action from the menu - it has no sub-page, so its
    * `Component` is `() => null`. Such a tab must NOT resolve as a route: the generic
@@ -176,7 +179,16 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'language',
         titleI18nKey: 'language',
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton
+        testID: SettingsSelectors.LanguageButton,
+        rendersSubPageLayout: true
+      },
+      {
+        slug: 'miden-name',
+        titleI18nKey: 'midenName',
+        Component: MidenNameSettings,
+        testID: SettingsSelectors.MidenNameButton,
+        rendersSubPageLayout: true,
+        requiresMidenName: true
       }
     ]
   },
@@ -388,6 +400,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
       if (tab.standardOnly && isGuardianAccount) return false;
       if (tab.requiresFileBackup && !walletNeedsFileBackup) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
+      if (tab.requiresMidenName && !isMidenNameSupported()) return false;
       return true;
     },
     [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey]
