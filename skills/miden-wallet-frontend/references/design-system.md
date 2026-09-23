@@ -305,8 +305,10 @@ The bottom nav, the top action bar and every `SegmentedControl` move alike, thro
 
 - **Anatomy.** No strip behind the items: they sit on the page. The selected item carries the
   raised bubble (`bg-raised` + `shadow-raised`, full radius), one bubble per control, drawn by the
-  shared `Highlight` (`components/ui/animate/highlight`) under the item's content. A selected item
-  is `ink`, the others `muted`; a 2px focus ring in `accent-primary` at 30%. A segmented control
+  shared `Highlight` (`components/ui/animate/highlight`) under the item's content; a `pills`
+  control draws an `accent-tint` pill there instead. A selected item is `ink` (the bottom nav's
+  icon is `accent-primary`, a pill's label `accent-tint-ink`), the others `muted`; a 2px focus ring
+  in `accent-primary` at 30%. A segmented control
   keeps 4px above and below its items so a scrolling row clips neither the bubble's shadow nor the
   ring.
 - **Switch.** The bubble slides to the new item on `springs.tabSwitch`, one visible overshoot; its
