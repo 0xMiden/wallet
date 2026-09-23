@@ -102,7 +102,8 @@ const segment = cva(
       }
     },
     compoundVariants: [
-      { appearance: 'pills', active: true, class: 'px-6 text-accent-tint-ink' },
+      // A transparent 1px border on the selection keeps a pill's width the same in both states.
+      { appearance: 'pills', active: true, class: 'px-6 border border-transparent text-accent-tint-ink' },
       { appearance: 'pills', active: false, class: 'px-6 border border-hairline bg-page text-ink' }
     ],
     defaultVariants: { size: 'md', layout: 'scroll', active: false, appearance: 'bubble' }
@@ -301,6 +302,9 @@ export function SegmentedControl<T extends string>({
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
+        // Unselected pills paint an opaque `page` fill, so the sliding pill is lifted above them;
+        // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
+        style={appearance === 'pills' ? { zIndex: 1 } : undefined}
         className={cn('inset-0', appearance === 'pills' ? accentPillClassName : raisedBubbleClassName)}
       >
         {items.map((item, index) => (

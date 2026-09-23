@@ -426,6 +426,15 @@ describe('SegmentedControl pills appearance', () => {
     expect(screen.getByRole('radiogroup')).toHaveClass('gap-2');
   });
 
+  it('keeps every pill the same width whether selected or not, and slides the selection above the other pills', () => {
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance="pills" />);
+    const all = screen.getByRole('radio', { name: 'All' });
+    expect(all).toHaveClass('border', 'border-transparent');
+    expect(screen.getByRole('radio', { name: 'Sent' })).toHaveClass('border');
+    // Later pills paint an opaque `page` fill, so the moving pill must sit above them.
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveStyle({ zIndex: '1' });
+  });
+
   it('keeps the raised bubble by default', () => {
     render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
     const all = screen.getByRole('radio', { name: 'All' });
