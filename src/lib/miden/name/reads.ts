@@ -38,6 +38,7 @@ import {
   type MidenNameConfig,
   getMidenNameConfig
 } from './config';
+import { traceRegistryStep } from './debug';
 import { type Felts4, encodeDomainFelts, priceKeyFelts } from './encoding';
 import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
 import { feltsFromWord, idPartsFromHex, statusKeyFeltsForLabel, wordFromFelts } from './sdk-words';
@@ -108,16 +109,24 @@ export async function readRegistryStorage(
   requests: RegistryMapRequest[],
   label: string
 ): Promise<RegistryStorageRead> {
-  const rpc = await newRpcClient();
+  const trace = label.startsWith('midenNameResolve');
+  const rpc = await traceRegistryStep('resolve.rpc-ready', newRpcClient, { read: label }, trace);
   const registryHex = config.registryAccountIdHex.toLowerCase();
+  let attempt = 0;
 
   const proof = await withRpcTimeout(
     () =>
-      rpc.getAccountProof(
-        AccountId.fromHex(config.registryAccountIdHex),
-        AccountStorageRequirements.fromSlotAndKeysArray(
-          requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
-        )
+      traceRegistryStep(
+        'resolve.account-proof',
+        () =>
+          rpc.getAccountProof(
+            AccountId.fromHex(config.registryAccountIdHex),
+            AccountStorageRequirements.fromSlotAndKeysArray(
+              requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
+            )
+          ),
+        { read: label, attempt: ++attempt },
+        trace
       ),
     label
   );

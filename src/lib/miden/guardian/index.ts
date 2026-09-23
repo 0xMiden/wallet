@@ -23,14 +23,10 @@ import {
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
-import {
-  GuardianProbeTimeoutError,
-  isGuardianAccountAlreadyRegistered,
-  OUTGOING_GUARDIAN_DEADLINE_MS,
-  withTimeout
-} from './discover';
-import { registerGuardianOrigin, withGuardianProbe } from './native-http';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
+import { registerGuardianOrigin } from './native-http';
+import { guardianRegisterBackoffMs } from './serialize';
+import { bindGuardianWriteClient, type GuardianClientRequest } from './shared-client';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
@@ -165,8 +161,7 @@ export class MultisigService {
     signerCommitment: string,
     signWordFn: SignWordFunction,
     guardianEndpoint: string,
-    lockOptions?: WasmClientLockOptions,
-    onHeld?: (ms: number) => void
+    guardianClientRequest?: GuardianClientRequest
   ): Promise<MultisigService> {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
@@ -178,12 +173,9 @@ export class MultisigService {
       // this caller drove a client that no longer existed (issue #775; the same
       // shape vault already fixed).
       //
-      // Reuse the shared singleton client instead of spinning up a fresh
-      // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
-      // that is never terminated). Reusing the singleton also lets the multisig
-      // lib's rawClientCache WeakMap (keyed by this client instance) hit across
-      // every init, so at most ONE shared raw worker is created total.
-      const loadUnderHold = async (hold: WasmLockHold) => {
+      // Use one writer for Guardian imports, sync, and transactions.
+      // The adapter also routes extension operations to the offscreen client.
+      const { multisig, client } = await withWasmClientLock(async hold => {
         const webClient = (await getMidenClient()).client;
         // The build above is an await, and on the #777 path it is the long one: this
         // initializer is reachable from the unattended guardian sync loop, whose whole
@@ -198,6 +190,7 @@ export class MultisigService {
           );
         }
         registerGuardianOrigin(guardianEndpoint);
+        bindGuardianWriteClient(webClient, guardianClientRequest);
         const multisigClient = new MultisigClient(webClient, {
           guardianEndpoint,
           midenRpcEndpoint: getEffectiveRpcUrl()
@@ -234,7 +227,7 @@ export class MultisigService {
     account: Account,
     walletAccount: WalletAccount,
     signWordFn: SignWordFunction,
-    lockOptions?: WasmClientLockOptions
+    guardianClientRequest?: GuardianClientRequest
   ): Promise<MultisigService> {
     if (!walletAccount.coldPublicKey) {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
@@ -247,7 +240,7 @@ export class MultisigService {
       `0x${commitment}`,
       signWordFn,
       guardianEndpoint,
-      lockOptions
+      guardianClientRequest
     );
   }
 

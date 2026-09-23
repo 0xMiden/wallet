@@ -69,6 +69,7 @@ export class MobileIntercomAdapter {
    * Process a request directly. Delegates to the ONE switch shared with the
    * desktop adapter (`processInProcessRequest`); see that module for why the
    * switch no longer lives in the adapters themselves.
+   * Guardian client requests also use this shared handler.
    */
   private async processRequest(req: WalletRequest): Promise<WalletResponse | void> {
     return processInProcessRequest(req, 'MobileIntercomAdapter');

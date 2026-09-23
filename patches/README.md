@@ -3,33 +3,17 @@
 Everything except `inspect-cli-cdp-fix.patch` is applied automatically by
 `patch-package` from the `postinstall` script.
 
-## @miden-sdk/miden-sdk 0.16.1
+## @openzeppelin/miden-multisig-client 0.17.0
 
-Treat the note transport's stored-note duplicate as a successful `SendNote`, so the
-SDK removes the relay payload from its outbox. The transport sends it as headers
-only: `grpc-status` 13 with `Failed to store note: ConstraintViolation("Unique
-constraint violation: UNIQUE constraint failed: notes.id")`, or a future
-`AlreadyExists` (6). This also drains entries already stranded by an earlier
-duplicate rejection on the next sync. No response body is read, and every other
-response passes through unchanged.
+Reuse the supplied SDK client instead of opening another client against the same store.
+The wallet adapter routes Guardian imports, sync, and transaction previews through the
+transaction writer, including the extension offscreen client. This prevents a stale
+storage tree from overwriting the map root after another client imports an account.
+The extension UI uses an intercom request to the backend; its local offscreen flag
+is off and must not select a local writer. Mobile and desktop keep their shared in-process client.
+Upstream: https://github.com/OpenZeppelin/guardian/issues/481.
 
-The patch covers both WASM fetch imports in all six single-threaded and
-multithreaded bundles, including classic workers. The canonical helper is
-`src/lib/miden/sdk/note-relay-fetch.mjs`; it is inlined because classic workers
-cannot depend on a new module import. After editing it, regenerate with
-`node scripts/generate-note-relay-patch.mjs`. Its `--check` flag verifies the
-installed bundles, which postinstall built from the committed patch, and that the
-patch lists only the six bundles; it never compares the patch text, because GNU and
-BSD `diff` print the same edit differently. When `--check` reports a stale bundle after
-a pull, reinstall the package (`rm -rf node_modules/@miden-sdk/miden-sdk && yarn install
---check-files`): patch-package cannot repair a bundle that already carries an older
-relay patch. Updating the SDK requires checking these seams again.
-
-A linked web-sdk build (`Web SDK PR: #N`, `scripts/dev-with-web-sdk-pr.sh`) installs a
-`file:` source build the patch cannot apply to, so that build runs without the relay
-fix. The CI action removes the patch before installing, since patch-package fails the
-install under CI; locally patch-package only warns. `--check` and the tests that read
-the installed bundles skip on a `file:` SDK dependency.
+Run `node --test scripts/guardian-shared-client.test.mjs` to check the patched adapter.
 
 ## inspect-cli-cdp-fix.patch
 

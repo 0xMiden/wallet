@@ -68,6 +68,8 @@ import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-
  * manager doesn't drag `lib/store` into the SW init chain.
  */
 export const zustandProvider: GuardianAccountProvider = {
+  // Extension UI operations must reach the backend writer, even when its local proxy flag is off.
+  guardianClientRequest: isExtension() ? operation => useWalletStore.getState().guardianClientRequest(operation) : undefined,
   prepareRecoveryTransaction: id => useWalletStore.getState().prepareRecoveryTransaction(id),
   releaseRecoveryAuthorization: id => useWalletStore.getState().releaseRecoveryAuthorization(id),
   getAccounts: async () => useWalletStore.getState().accounts,
@@ -1079,7 +1081,7 @@ async function attemptColdReRegisterSelfHeal(
       staleAccount,
       account,
       zustandProvider.signWord,
-      GUARDIAN_SELF_HEAL_INIT_LOCK_OPTIONS
+      zustandProvider.guardianClientRequest
     );
     const adopted = await coldService
       .adoptGuardianStateOnce()
