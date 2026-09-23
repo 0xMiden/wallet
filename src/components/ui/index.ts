@@ -40,7 +40,8 @@ export type {
   SegmentedControlItem,
   SegmentedControlSize,
   SegmentedControlLayout,
-  SegmentedControlRole
+  SegmentedControlRole,
+  SegmentedControlAppearance
 } from './SegmentedControl';
 
 export { BottomNav } from './BottomNav';

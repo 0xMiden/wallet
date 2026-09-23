@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import type { SegmentedControlAppearance } from 'components/ui';
 import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
@@ -409,13 +410,15 @@ describe('SegmentedControl — layouts', () => {
 });
 
 describe('SegmentedControl pills appearance', () => {
+  // Typed through the barrel, where callers take it from.
+  const pills: SegmentedControlAppearance = 'pills';
   const pillItems = [
     { id: 'all', label: 'All' },
     { id: 'sent', label: 'Sent' }
   ];
 
   it('draws the selection as a tinted accent pill with a tint-ink label and outlines the rest', () => {
-    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance="pills" />);
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance={pills} />);
     const all = screen.getByRole('radio', { name: 'All' });
     const sent = screen.getByRole('radio', { name: 'Sent' });
     expect(all).toHaveClass('text-accent-tint-ink', 'px-6');
@@ -427,7 +430,7 @@ describe('SegmentedControl pills appearance', () => {
   });
 
   it('keeps every pill the same width whether selected or not, and slides the selection above the other pills', () => {
-    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance="pills" />);
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance={pills} />);
     const all = screen.getByRole('radio', { name: 'All' });
     expect(all).toHaveClass('border', 'border-transparent');
     expect(screen.getByRole('radio', { name: 'Sent' })).toHaveClass('border');
