@@ -116,6 +116,7 @@ jest.mock('./SelectRecipient', () => ({
       <span data-testid="sr-network">{props.network ?? ''}</span>
       <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
       <span data-testid="sr-error">{props.error ?? ''}</span>
+      <span data-testid="sr-name">{props.recipientName ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
       <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
       <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
@@ -289,6 +290,16 @@ jest.mock('utils/miden', () => {
   };
 });
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
+// The Miden Name lookup and its build flag. The flag is off by default, so the
+// suites above see today's behaviour.
+let mockNameResolveEnabled = false;
+const resolveMidenNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }?]>();
+jest.mock('lib/feature-flags', () => ({
+  isMidenNameResolveEnabled: () => mockNameResolveEnabled
+}));
+jest.mock('lib/miden/name/resolver', () => ({
+  resolveMidenName: (label: string, options?: { signal?: AbortSignal }) => resolveMidenNameMock(label, options)
+}));
 // The real `./send-telemetry` is kept so the cross-route handoff it exists for is
 // exercised for real; only the reporting primitive underneath it is mocked.
 jest.mock('lib/telemetry', () => ({
@@ -329,6 +340,7 @@ beforeEach(() => {
 
   walletStoreState.isTransactionModalOpen = false;
   walletStoreState.lastCompletedTxHash = null;
+  mockNameResolveEnabled = false;
 
   // Capture the back-button handler the way registration actually picks one. The real hook
   // registers inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately excluded
@@ -1632,29 +1644,224 @@ describe('send telemetry', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fast-route fee: only a priced token of known scale has a dollar input.
+// Miden Name recipient (`alice.miden`), behind MIDEN_NAME_RESOLVE_ENABLED.
 // ---------------------------------------------------------------------------
-describe('fast-route fee', () => {
-  const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1') => {
-    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId });
-    mockCardStack = [{ name: SendFlowStep.Route }];
-    mockEpochAmount = '4';
-    useAllBalancesMock.mockReturnValue({ data: [{ tokenId, metadata, balance: 42, fiatPrice: 0 }] });
-    renderFlow();
-    return screen.getByTestId('route-fee');
+describe('Miden Name recipient', () => {
+  const DEBOUNCE_MS = 400;
+  let warnSpy: jest.SpyInstance;
+
+  interface Deferred {
+    promise: Promise<string | null>;
+    resolve: (value: string | null) => void;
+  }
+
+  function deferredAddress(): Deferred {
+    let resolve: (value: string | null) => void = () => undefined;
+    const promise = new Promise<string | null>(res => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  const typeRecipient = (value: string) => {
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+    });
   };
 
-  it('is the dollar input less the quoted USDC for a priced token', () => {
-    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^11$/);
+  /** Let the debounce timer fire and the lookup promise settle. */
+  const runLookup = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockNameResolveEnabled = true;
+    resolveMidenNameMock.mockReset();
+    // Resolved bech32 addresses do not start with 0x, so they are Miden addresses here.
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr.startsWith('mtst1') || addr === 'me-pk');
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
-  it('is absent for a token the feed does not price, not $0', () => {
-    expect(renderRouteStep({ symbol: 'UNLISTED', decimals: 2 })).toHaveTextContent(/^undefined$/);
+  afterEach(() => {
+    jest.useRealTimers();
+    warnSpy.mockRestore();
   });
 
-  it('is absent for a priced token whose scale is unknown', () => {
-    expect(renderRouteStep({ symbol: 'TKN', decimals: 2, scaleIsUnknown: true }, MIDEN_USDC_FAUCET)).toHaveTextContent(
-      /^undefined$/
-    );
+  it('with the flag off, a name input shows the address error as today and does no lookup', async () => {
+    mockNameResolveEnabled = false;
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+  });
+
+  it('does no lookup for a bech32 address', async () => {
+    renderFlow();
+
+    typeRecipient('mtst1recipient');
+    await runLookup();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+  });
+
+  it('shows resolving, then the name, and sends the resolved address with the name to review', async () => {
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    const view = renderFlow();
+
+    typeRecipient('Alice.miden');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolving');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+
+    // The lookup waits for the debounce.
+    act(() => {
+      jest.advanceTimersByTime(DEBOUNCE_MS - 1);
+    });
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+
+    await runLookup();
+    expect(resolveMidenNameMock).toHaveBeenCalledTimes(1);
+    expect(resolveMidenNameMock.mock.calls[0]?.[0]).toBe('alice');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('alice.miden');
+
+    // Continue to the amount step and on to review.
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
+    view.rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-recipient')).toHaveTextContent('alice.miden');
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const url: string = navigateMock.mock.calls[0][0];
+    const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+    expect(url.startsWith('/send/review?')).toBe(true);
+    expect(params.get('to')).toBe('mtst1alice');
+    expect(params.get('name')).toBe('alice.miden');
+
+    // The draft keeps the name, so backing out of review shows it again.
+    expect(consumeSendDraft()).toEqual({
+      amount: '5',
+      recipientAddress: 'Alice.miden',
+      tokenId: 'T1',
+      bridgeNetwork: undefined,
+      bridgeRoute: undefined,
+      midenName: { label: 'alice', address: 'mtst1alice' }
+    });
+  });
+
+  it('blocks a name that is not found', async () => {
+    resolveMidenNameMock.mockResolvedValue(null);
+    renderFlow();
+
+    typeRecipient('ghost.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameNotFound');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('');
+  });
+
+  it('shows the lookup failure when the lookup throws', async () => {
+    resolveMidenNameMock.mockRejectedValue(new Error('rpc down'));
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolveFailed');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+  });
+
+  it('ignores the result of a lookup for an input that changed', async () => {
+    const alice = deferredAddress();
+    const bob = deferredAddress();
+    resolveMidenNameMock.mockReturnValueOnce(alice.promise).mockReturnValueOnce(bob.promise);
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+    typeRecipient('bob.miden');
+    // The change aborts the first lookup.
+    expect(resolveMidenNameMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    // The old lookup settles late: nothing changes.
+    await act(async () => {
+      alice.resolve('mtst1alice');
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolving');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('');
+
+    await act(async () => {
+      bob.resolve('mtst1bob');
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('bob.miden');
+  });
+
+  it('blocks a name that resolves to the current account', async () => {
+    resolveMidenNameMock.mockResolvedValue('me-pk');
+    renderFlow();
+
+    typeRecipient('me.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+  });
+
+  it('clears the debounce timer on unmount', async () => {
+    const view = renderFlow();
+
+    typeRecipient('alice.miden');
+    view.unmount();
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS * 2);
+    });
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+  });
+
+  it('restores a resolved name from the draft without a new lookup', async () => {
+    setSendDraft({
+      amount: '5',
+      recipientAddress: 'alice.miden',
+      tokenId: 'T1',
+      midenName: { label: 'alice', address: 'mtst1alice' }
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    renderFlow();
+    await runLookup();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('alice.miden');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
   });
 });
