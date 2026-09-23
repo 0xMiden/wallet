@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
-import { validateMnemonic } from 'bip39';
 import { useTranslation } from 'react-i18next';
 
+import { validateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
 import { Button } from 'components/Button';
 import { Notice } from 'components/ui/Notice';
@@ -23,7 +23,7 @@ export interface ImportSeedPhraseScreenProps {
   titleKey?: string;
   descriptionKey?: string;
   submitting?: boolean;
-  wordslist: string[];
+  wordslist: readonly string[];
   isError?: boolean;
   onSubmit?: (seedPhrase: string) => void;
   /**

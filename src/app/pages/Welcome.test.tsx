@@ -18,7 +18,7 @@ import Welcome from './Welcome';
 // the props Welcome forwards and, crucially, exposes the `onAction` callback so
 // each test can drive a specific branch. Every leaf dependency (router, store,
 // Miden context, platform detection, native secure-storage/biometric
-// dynamic imports, bip39, mobile back handler, fonts gate) is mocked so the test
+// dynamic imports, mnemonic helpers, mobile back handler, fonts gate) is mocked so the test
 // exercises ONLY Welcome.tsx's own branching.
 // ---------------------------------------------------------------------------
 
@@ -135,10 +135,10 @@ jest.mock('app/defaults', () => ({
 }));
 
 // Deterministic 12-word mnemonic so seed generation is assertable.
-jest.mock('bip39', () => ({
-  generateMnemonic: () => 'aa bb cc dd ee ff gg hh ii jj kk ll'
+jest.mock('@miden/hd-key', () => ({
+  generateMnemonic: () => 'aa bb cc dd ee ff gg hh ii jj kk ll',
+  englishWordlist: ['aa', 'bb', 'cc']
 }));
-jest.mock('bip39/src/wordlists/english.json', () => ['aa', 'bb', 'cc'], { virtual: true });
 
 // Capture the latest registered mobile back handler so tests can invoke it.
 const mockBackHandlerRef: { current: (() => boolean | void) | null } = { current: null };

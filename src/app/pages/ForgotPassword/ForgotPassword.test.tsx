@@ -80,12 +80,11 @@ jest.mock('app/defaults', () => ({
   formatMnemonic: (m: string) => `fmt:${m}`
 }));
 
-jest.mock('bip39', () => ({
-  generateMnemonic: (...args: unknown[]) => mockGenerateMnemonic(...(args as [])),
+jest.mock('@miden/hd-key', () => ({
+  generateMnemonic: () => mockGenerateMnemonic(),
+  englishWordlist: ['abandon', 'ability', 'able'],
   __esModule: true
 }));
-
-jest.mock('bip39/src/wordlists/english.json', () => ['abandon', 'ability', 'able']);
 
 // Guardian auto-detection: the real hook dynamically imports the WASM SDK.
 // Stub it with a controllable start() so tests can steer what the probe found.
@@ -203,7 +202,7 @@ describe('ForgotPassword', () => {
     const { container } = renderPage();
     await dispatch({ id: 'create-wallet' });
     const el = flow(container);
-    expect(mockGenerateMnemonic).toHaveBeenCalledWith(128);
+    expect(mockGenerateMnemonic).toHaveBeenCalledTimes(1);
     expect(el.getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
     expect(el.getAttribute('data-type')).toBe(OnboardingType.Create);
     expect(el.getAttribute('data-step')).toBe(OnboardingStep.BackupSeedPhrase);

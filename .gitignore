@@ -96,3 +96,6 @@ MidenWallet.*/
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/miden-wallet-frontend
+
+# Built output of the in-house key-derivation package (rebuilt by postinstall)
+/packages/hd-key/dist

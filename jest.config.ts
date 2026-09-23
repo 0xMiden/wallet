@@ -17,6 +17,8 @@ export default {
     // extension: the update-catalog validator ships as ESM so a plain `node` CI
     // step can share it with the app bundle.
     'src/**/*.{ts,tsx,mjs}',
+    'packages/hd-key/src/**/*.ts',
+    '!packages/hd-key/src/**/*.test.ts',
     '!src/**/*.d.ts',
     '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
@@ -123,6 +125,10 @@ export default {
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
+    // The in-house key-derivation package is consumed from source so unit
+    // tests need no build step; the app bundles resolve it through the
+    // `link:` symlink and its built `dist/` instead.
+    '^@miden/hd-key$': '<rootDir>/packages/hd-key/src/index.ts',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',
