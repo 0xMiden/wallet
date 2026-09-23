@@ -392,12 +392,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
-  const selectedContact = useMemo(() => {
-    const normalizedAddress = recipientAddress?.trim().toLowerCase();
-    if (!normalizedAddress) return undefined;
-    return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
-  }, [allContactsList, recipientAddress]);
-
   // The name and address of a recipient input that is a resolved Miden Name.
   // Undefined for every other input.
   const resolvedMidenName = useMemo(() => {
@@ -408,6 +402,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // The address that the send goes to: the resolved address for a Miden Name,
   // else the input.
   const effectiveRecipientAddress = resolvedMidenName?.address ?? recipientAddress;
+  const selectedContact = useMemo(() => {
+    const normalizedAddress = effectiveRecipientAddress?.trim().toLowerCase();
+    if (!normalizedAddress) return undefined;
+    return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
+  }, [allContactsList, effectiveRecipientAddress]);
   const recipientName = resolvedMidenName ? formatMidenName(resolvedMidenName.label) : selectedContact?.name;
 
   const isValidRecipient =
@@ -1096,6 +1095,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         onOpenChange={setShowAddContactDrawer}
         onBusyChange={setAddContactSaving}
         address={effectiveRecipientAddress ?? ''}
+        initialName={resolvedMidenName ? formatMidenName(resolvedMidenName.label) : undefined}
         network={isBridge ? bridgeNetwork : undefined}
       />
 

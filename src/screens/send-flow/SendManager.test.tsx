@@ -1548,6 +1548,16 @@ describe('Miden Name recipient', () => {
     });
   });
 
+  it('recognizes a saved contact by the resolved name address', async () => {
+    useFilteredContactsMock.mockReturnValue({ contacts: [{ address: 'mtst1alice', name: 'Alice' }] });
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    renderFlow();
+    typeRecipient('alice.miden');
+    await runLookup();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('false');
+  });
+
   it('blocks a name that is not found', async () => {
     resolveMidenNameMock.mockResolvedValue(null);
     renderFlow();

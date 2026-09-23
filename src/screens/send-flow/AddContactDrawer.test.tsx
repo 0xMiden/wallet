@@ -67,6 +67,15 @@ it('shows the known address in full and asks only for a name', () => {
   expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
 });
 
+it('suggests the resolved Miden Name as an editable label and saves the actual address', async () => {
+  render(<AddContactDrawer open address={MIDEN} initialName="alice.miden" onOpenChange={jest.fn()} />);
+  expect(screen.getByTestId('address-book-name-input')).toHaveValue('alice.miden');
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('address-book-add-contact'));
+  });
+  expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ address: MIDEN, name: 'alice.miden' }));
+});
+
 it('saves a Miden contact with a trimmed name and closes', async () => {
   const onOpenChange = renderSheet();
   fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: '  Alice  ' } });

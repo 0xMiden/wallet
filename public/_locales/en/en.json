@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "Miden Name is not available on this network.",
+  "contactAddressOrMidenName": "Address or Miden Name",
+  "contactAddressOrMidenNamePlaceholder": "Enter an address or name.miden",
+  "contactResolvedAddress": "Resolved address: $address$",
   "midenNameReceiptTransaction": "Name receipt transaction",
   "payload": "Payload",
   "bridgeDepositTitle": "Miden Bridge",
