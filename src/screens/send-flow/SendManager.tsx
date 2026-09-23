@@ -335,6 +335,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
       : IDLE_NAME_RESOLUTION
   );
   const nameResolutionRef = useRef(nameResolution);
+  const nameLookupTimingRef = useRef<{ input: string; startedAt: number } | null>(null);
+  const logNameLookupStage = useCallback((input: string, stage: string) => {
+    const timing = nameLookupTimingRef.current;
+    if (timing?.input !== input) return;
+    console.log(`[registry-debug] resolve.ui:${stage}`, {
+      elapsedMs: Math.round(performance.now() - timing.startedAt)
+    });
+  }, []);
   nameResolutionRef.current = nameResolution;
   const resolvedMidenNameInput = nameResolution.status === 'resolved' ? nameResolution.input : undefined;
   const recipientValidationContext = useMemo<RecipientValidationContext>(
@@ -717,6 +725,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     // A restored draft is resolved already.
     if (current.input === input && current.status === 'resolved') return;
 
+    if (nameLookupTimingRef.current?.input !== input) {
+      nameLookupTimingRef.current = { input, startedAt: performance.now() };
+    }
+    logNameLookupStage(input, 'effect');
+
     const label = normalizeMidenNameInput(input);
     const applyForInput = (next: MidenNameResolution) =>
       setNameResolution(prev => (prev.input === input ? next : prev));
@@ -724,11 +737,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
     const controller = new AbortController();
     const timer = setTimeout(async () => {
+      logNameLookupStage(input, 'debounce-fired');
       try {
         const address = await resolveMidenName(label, { signal: controller.signal });
+        logNameLookupStage(input, 'resolver-returned');
         if (controller.signal.aborted) return;
         applyForInput(address ? { input, status: 'resolved', label, address } : { input, status: 'not-found', label });
       } catch (error) {
+        logNameLookupStage(input, 'resolver-failed');
         if (controller.signal.aborted || isMidenNameAbortedError(error)) return;
         console.warn('Miden Name lookup failed', error);
         applyForInput({ input, status: 'error', label });
@@ -738,8 +754,17 @@ export const SendManager: React.FC<SendManagerProps> = ({
     return () => {
       clearTimeout(timer);
       controller.abort();
+      logNameLookupStage(input, 'cancelled');
     };
-  }, [recipientAddress]);
+  }, [recipientAddress, logNameLookupStage]);
+
+  useEffect(() => {
+    if (nameResolution.status !== 'resolved' || !isValidRecipient) return;
+    const input = nameResolution.input;
+    logNameLookupStage(input, 'confirm-enabled');
+    const frame = requestAnimationFrame(() => logNameLookupStage(input, 'next-frame'));
+    return () => cancelAnimationFrame(frame);
+  }, [nameResolution, isValidRecipient, logNameLookupStage]);
 
   // Show the new lookup state on the recipient field when it is for the
   // current input.
@@ -755,6 +780,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const address = event.target.value;
+      if (looksLikeMidenName(address.trim())) {
+        const startedAt = performance.now();
+        nameLookupTimingRef.current = { input: address.trim(), startedAt };
+        console.log('[registry-debug] resolve.ui:input', {
+          eventLagMs: Math.max(0, Math.round(startedAt - event.timeStamp))
+        });
+      }
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }

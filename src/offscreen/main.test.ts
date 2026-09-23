@@ -43,6 +43,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
     getWasmOrThrow: (...a: any[]) => g.__off.getWasmOrThrow(...a),
+    Account: { deserialize: (bytes: Uint8Array) => ({ bytes }) },
     WebClient: class {
       constructor() {
         g.__off.webClientCtorCount++;
@@ -462,7 +463,12 @@ function resetControl() {
         // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
         // reads drive directly.
         client: {
+          accounts: {
+            insert: (options: { account: object; overwrite: boolean }) => G.__off.guardianInsertAccount(options)
+          },
           transactions: {
+            preview: (options: object) => G.__off.guardianPreview(options),
+            captureAnchor: (request: object) => G.__off.guardianCaptureAnchor(request),
             executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
             // Follow-up #1: id-filtered transaction list the commit-wait poll loop reads.
             list: (...a: any[]) => {
@@ -838,6 +844,41 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     deadline_ms: 1000,
     argsB64: [],
     ...extra
+  });
+
+  it('uses one offscreen client for the Guardian import, sync, and next preview', async () => {
+    await loadModule();
+    let imported = false;
+    G.__off.guardianInsertAccount = jest.fn(async () => {
+      imported = true;
+    });
+    G.__off.clientSync = jest.fn(async () => ({ serialize: () => new Uint8Array([4]) }));
+    G.__off.guardianPreview = jest.fn(async () => {
+      expect(imported).toBe(true);
+      return { serialize: () => new Uint8Array([5]) };
+    });
+    const responses = [];
+    for (const request of [
+      callReq({ method: 'insertAccount', argsB64: [encodeArg(new Uint8Array([4])), encodeArg(true)] }),
+      callReq({ method: 'syncGuardianState', argsB64: [encodeArg(false)] }),
+      callReq({
+        method: 'previewGuardianRequest',
+        argsB64: [encodeArg('account'), encodeArg(new Uint8Array([5])), encodeArg(null)]
+      })
+    ]) {
+      const response = jest.fn();
+      capturedListener!(request, {}, response);
+      await flush();
+      responses.push(response);
+    }
+    for (const response of responses) expect(response.mock.calls[0][0].ok).toBe(true);
+    expect(G.__off.guardianInsertAccount).toHaveBeenCalledWith({
+      account: { bytes: new Uint8Array([4]) },
+      overwrite: true
+    });
+    expect(G.__off.clientSync).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianPreview).toHaveBeenCalledTimes(1);
+    expect(G.__off.getMidenClient).toHaveBeenCalledTimes(1);
   });
 
   it('dispatches getAccount, serializes the Account, and echoes op_id (ok:true)', async () => {

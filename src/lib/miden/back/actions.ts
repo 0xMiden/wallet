@@ -728,6 +728,13 @@ export function checkGuardianDrift(accountPublicKey: string) {
   });
 }
 
+export function guardianClientRequest(operation: import('lib/shared/types').GuardianClientOperation) {
+  return withUnlocked(async () => {
+    const { runGuardianClientOperation } = await import('./guardian-client');
+    return runGuardianClientOperation(operation);
+  });
+}
+
 /**
  * Persist a user-supplied Guardian URL for an account flagged
  * `needs-user-input`, verifying it against the on-chain guardian commitment

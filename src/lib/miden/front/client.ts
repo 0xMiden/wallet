@@ -68,6 +68,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeSetGuardianOperatorCommitment = useWalletStore(s => s.setGuardianOperatorCommitment);
   const storeSetGuardianSyncStatus = useWalletStore(s => s.setGuardianSyncStatus);
   const storeCheckGuardianDrift = useWalletStore(s => s.checkGuardianDrift);
+  const guardianClientRequest = useWalletStore(s => s.guardianClientRequest);
   const storeApplyUserGuardianEndpoint = useWalletStore(s => s.applyUserGuardianEndpoint);
   const storeStartGuardianRecovery = useWalletStore(s => s.startGuardianRecovery);
   const storeImportAccount = useWalletStore(s => s.importAccount);
@@ -430,6 +431,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     setGuardianOperatorCommitment,
     setGuardianSyncStatus,
     checkGuardianDrift,
+    guardianClientRequest,
     applyUserGuardianEndpoint,
     startGuardianRecovery,
     revealMnemonic,

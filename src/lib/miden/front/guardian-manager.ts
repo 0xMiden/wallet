@@ -42,6 +42,7 @@ const guardianServiceInflight = new Map<string, InflightEntry>();
  * The Zustand-backed default provider lives in `./guardian-sync.ts` (frontend-only).
  */
 export interface GuardianAccountProvider {
+  guardianClientRequest?: import('../guardian/shared-client').GuardianClientRequest;
   prepareRecoveryTransaction?: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
@@ -175,7 +176,8 @@ export async function getOrCreateMultisigService(
       `0x${hotPublicKey}`,
       `0x${commitment}`,
       provider.signWord,
-      currentEndpoint
+      currentEndpoint,
+      provider.guardianClientRequest
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the

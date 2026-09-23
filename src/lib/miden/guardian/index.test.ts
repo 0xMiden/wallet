@@ -150,6 +150,7 @@ const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
 const mockChainAnchorToBase64 = jest.fn((_anchor: unknown) => 'anchor-b64');
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
+  setRawClientAdapter: jest.fn(),
   GuardianHttpClient: jest.fn().mockImplementation(() => ({
     getPubkey: (...a: unknown[]) => guardianConfig.getPubkey(...a),
     getState: (...a: unknown[]) => guardianConfig.getState(...a),

@@ -104,7 +104,8 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         // The resolved per-account endpoint is now passed through to init.
-        'https://default.guardian.test'
+        'https://default.guardian.test',
+        provider.guardianClientRequest
       );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
@@ -164,7 +165,8 @@ describe('guardian-manager', () => {
         `0x${HOT_PK}`,
         '0xabc',
         provider.signWord,
-        'https://per-account.guardian'
+        'https://per-account.guardian',
+        provider.guardianClientRequest
       );
       // The per-account field short-circuits the global-key lookup.
       expect(mockFetchFromStorage).not.toHaveBeenCalled();

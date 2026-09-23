@@ -547,6 +547,36 @@ type DispatchContext = {
 };
 
 const DISPATCH: Record<string, DispatchFn> = {
+  insertAccount: async (_context, client, accountBytes: Uint8Array, overwrite: boolean) => {
+    await client.client.accounts.insert({ account: sdk.Account.deserialize(accountBytes), overwrite });
+    return null;
+  },
+  syncGuardianState: async (context, client, chainOnly: boolean) => {
+    const summary = await (chainOnly ? client.client.syncChain() : client.client.sync());
+    assertWasmHoldCurrent(context.hold, 'sync Guardian state');
+    return summary.serialize();
+  },
+  captureGuardianAnchor: async (context, client, requestBytes: Uint8Array) => {
+    const anchor = await client.client.transactions.captureAnchor(sdk.TransactionRequest.deserialize(requestBytes));
+    assertWasmHoldCurrent(context.hold, 'capture Guardian anchor');
+    return anchor.serialize();
+  },
+  previewGuardianRequest: async (
+    context,
+    client,
+    accountId: string,
+    requestBytes: Uint8Array,
+    anchorBytes: Uint8Array | null
+  ) => {
+    const summary = await client.client.transactions.preview({
+      operation: 'custom',
+      account: accountId,
+      request: sdk.TransactionRequest.deserialize(requestBytes),
+      anchor: anchorBytes ? sdk.ChainAnchor.deserialize(anchorBytes) : undefined
+    });
+    assertWasmHoldCurrent(context.hold, 'preview Guardian request');
+    return summary.serialize();
+  },
   getAccount: async (context, client, accountId: string) => {
     const account = await client.getAccount(accountId);
     // The Account is a borrow of the shared client's RefCell, not a snapshot — if

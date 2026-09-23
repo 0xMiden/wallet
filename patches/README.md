@@ -3,6 +3,18 @@
 Everything except `inspect-cli-cdp-fix.patch` is applied automatically by
 `patch-package` from the `postinstall` script.
 
+## @openzeppelin/miden-multisig-client 0.17.0
+
+Reuse the supplied SDK client instead of opening another client against the same store.
+The wallet adapter routes Guardian imports, sync, and transaction previews through the
+transaction writer, including the extension offscreen client. This prevents a stale
+storage tree from overwriting the map root after another client imports an account.
+The extension UI uses an intercom request to the backend; its local offscreen flag
+is off and must not select a local writer. Mobile and desktop keep their shared in-process client.
+Upstream: https://github.com/OpenZeppelin/guardian/issues/481.
+
+Run `node --test scripts/guardian-shared-client.test.mjs` to check the patched adapter.
+
 ## inspect-cli-cdp-fix.patch
 
 Fixes the "single-use" CDP bug in `@inspectdotdev/cli@2.1.1` where WebSocket

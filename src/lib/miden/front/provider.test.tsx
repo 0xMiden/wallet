@@ -60,7 +60,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));
 
-// The provider gates SdkMidenProvider on WASM readiness via
+// The provider waits for WASM before it renders children. Use
 // ensureSdkWasmReady(); resolve immediately in jsdom (no WASM here),
 // keep the real constants for everything else.
 jest.mock('lib/miden-chain/constants', () => ({

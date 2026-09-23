@@ -665,6 +665,11 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.CheckGuardianDriftResponse,
         guardianSyncStatus: driftStatus
       };
+    case WalletMessageType.GuardianClientRequest:
+      return {
+        type: WalletMessageType.GuardianClientResponse,
+        result: await Actions.guardianClientRequest(req.operation)
+      };
     case WalletMessageType.ApplyUserGuardianEndpointRequest:
       const outcome = await Actions.applyUserGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
