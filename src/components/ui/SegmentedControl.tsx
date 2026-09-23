@@ -46,8 +46,8 @@ export interface SegmentedControlProps<T extends string = string> {
   role?: SegmentedControlRole;
   /**
    * `bubble` (default): the tab bars' raised white bubble under the selection, `ink` on `muted`.
-   * `pills`: every item is a pill — the selection a solid `accent` pill with a white label, the
-   * rest outlined by a hairline on `page` with an `ink` label (Activity's filters).
+   * `pills`: every item is a pill. The selection is an `accent-tint` pill with an `accent-tint-ink`
+   * label, the rest outlined by a hairline on `page` with an `ink` label (Activity's filters).
    */
   appearance?: SegmentedControlAppearance;
   'aria-label'?: string;
@@ -102,16 +102,15 @@ const segment = cva(
       }
     },
     compoundVariants: [
-      // White reads 3:1 on the accent, so a pill label stays at the bold `text-pill` size.
-      { appearance: 'pills', active: true, class: 'px-6 text-pure-white' },
+      { appearance: 'pills', active: true, class: 'px-6 text-accent-tint-ink' },
       { appearance: 'pills', active: false, class: 'px-6 border border-hairline bg-page text-ink' }
     ],
     defaultVariants: { size: 'md', layout: 'scroll', active: false, appearance: 'bubble' }
   }
 );
 
-// The pills look draws the selection as a solid accent pill, not the raised bubble.
-const accentPillClassName = 'rounded-full bg-accent-primary';
+// The pills look draws the selection as a tinted accent pill, not the raised bubble.
+const accentPillClassName = 'rounded-full bg-accent-tint';
 
 const content = cva('flex min-w-0 items-center', {
   variants: {

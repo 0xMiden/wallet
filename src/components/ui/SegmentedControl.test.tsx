@@ -414,12 +414,13 @@ describe('SegmentedControl pills appearance', () => {
     { id: 'sent', label: 'Sent' }
   ];
 
-  it('draws the selection as a solid accent pill with a white label and outlines the rest', () => {
+  it('draws the selection as a tinted accent pill with a tint-ink label and outlines the rest', () => {
     render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance="pills" />);
     const all = screen.getByRole('radio', { name: 'All' });
     const sent = screen.getByRole('radio', { name: 'Sent' });
-    expect(all).toHaveClass('text-pure-white', 'px-6');
-    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary', 'rounded-full');
+    expect(all).toHaveClass('text-accent-tint-ink', 'px-6');
+    expect(all).not.toHaveClass('text-pure-white');
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-tint', 'rounded-full');
     expect(sent).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink', 'px-6');
     expect(sent.querySelector('[data-slot="motion-highlight"]')).toBeNull();
     expect(screen.getByRole('radiogroup')).toHaveClass('gap-2');
@@ -428,7 +429,7 @@ describe('SegmentedControl pills appearance', () => {
   it('keeps the raised bubble by default', () => {
     render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
     const all = screen.getByRole('radio', { name: 'All' });
-    expect(all).not.toHaveClass('text-pure-white');
-    expect(all.querySelector('[data-slot="motion-highlight"]')).not.toHaveClass('bg-accent-primary');
+    expect(all).not.toHaveClass('text-accent-tint-ink');
+    expect(all.querySelector('[data-slot="motion-highlight"]')).not.toHaveClass('bg-accent-tint');
   });
 });
