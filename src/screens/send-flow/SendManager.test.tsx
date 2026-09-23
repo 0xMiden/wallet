@@ -273,12 +273,13 @@ jest.mock('utils/miden', () => {
   };
 });
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
-// The Miden Name lookup and its build flag. The flag is off by default, so the
-// suites above see today's behaviour.
-let mockNameResolveEnabled = false;
+// The Miden Name lookup and the network deployment check. By default the network
+// has no deployment, so the suites above see the plain address behaviour.
+let mockNameSupported = false;
 const resolveMidenNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }?]>();
-jest.mock('lib/feature-flags', () => ({
-  isMidenNameResolveEnabled: () => mockNameResolveEnabled
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
 }));
 jest.mock('lib/miden/name/resolver', () => ({
   resolveMidenName: (label: string, options?: { signal?: AbortSignal }) => resolveMidenNameMock(label, options)
@@ -322,7 +323,7 @@ beforeEach(() => {
 
   walletStoreState.isTransactionModalOpen = false;
   walletStoreState.lastCompletedTxHash = null;
-  mockNameResolveEnabled = false;
+  mockNameSupported = false;
 
   // Capture the back-button handler the way registration actually picks one. The real hook
   // registers inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately excluded
@@ -1422,7 +1423,7 @@ describe('send telemetry', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Miden Name recipient (`alice.miden`), behind MIDEN_NAME_RESOLVE_ENABLED.
+// Miden Name recipient (`alice.miden`), on a network with a Miden Name deployment.
 // ---------------------------------------------------------------------------
 describe('Miden Name recipient', () => {
   const DEBOUNCE_MS = 400;
@@ -1459,7 +1460,7 @@ describe('Miden Name recipient', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
-    mockNameResolveEnabled = true;
+    mockNameSupported = true;
     resolveMidenNameMock.mockReset();
     // Resolved bech32 addresses do not start with 0x, so they are Miden addresses here.
     isValidMidenAddressMock.mockImplementation((addr: string) => addr.startsWith('mtst1') || addr === 'me-pk');
@@ -1471,8 +1472,8 @@ describe('Miden Name recipient', () => {
     warnSpy.mockRestore();
   });
 
-  it('with the flag off, a name input shows the address error as today and does no lookup', async () => {
-    mockNameResolveEnabled = false;
+  it('on a network without a deployment, a name input shows the address error and does no lookup', async () => {
+    mockNameSupported = false;
     renderFlow();
 
     typeRecipient('alice.miden');

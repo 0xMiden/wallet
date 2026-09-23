@@ -72,7 +72,7 @@ moves it into Rust.
 | `encoding.ts` | Pure bigint code, no SDK import: label validation and normalisation, domain word encode/decode, commitment preimage, map-key felts, `registerNoteInputs`. Fully unit tested with on-chain fixtures (`miden` → `[0, 0, 60213692685, 5]`). |
 | `sdk-words.ts` | The only SDK glue for felts: `Word` conversions, `Poseidon2` commitment, `decodeAccountWord`. Makes NEW wasm objects on every call. |
 | `reads.ts` | `fetchMidenNameQuote` (availability + price + allowlist + fee in ONE proof, 30 s cache, `fresh` bypass), `fetchMidenNameIssued`, `fetchRegistrationNoteState` (network-note status; a not-found id is reported as `unknown`), `findRegistryDeliveryNoteIds` (`syncNotes` cursor scan for notes the registry sent us), `getChainTip`. |
-| `resolver.ts` | `resolveMidenName(label)` → bech32 or null, accepted only when the forward map and the reverse map agree; `reverseResolveMidenName(account)`. 60 s cache. RPC errors are thrown, not cached. Gated at the call sites by the build flag `MIDEN_NAME_RESOLVE_ENABLED` (`isMidenNameResolveEnabled()` in `src/lib/feature-flags.ts`, default off). |
+| `resolver.ts` | `resolveMidenName(label)` → bech32 or null, accepted only when the forward map and the reverse map agree; `reverseResolveMidenName(account)`. 60 s cache. RPC errors are thrown, not cached. Always on where the network has a deployment: the send flow and the reverse check gate on `isMidenNameSupported()` only. Until the registry maps have records, a name gives "Name not found" (`midenNameNotFound`). |
 | `register-domain-script.ts` | GENERATED. The serialized register script and its root. Do not edit by hand. |
 | `script.ts` | `loadRegisterDomainScript()`: deserializes the script and refuses a root mismatch. |
 | `note.ts` | `buildRegisterNameRequest()`: fresh chain tip, reclaim height, random fee salt, then under `withWasmClientLock` (`assertWasmHoldCurrent` after the account read) builds the note and serializes the request. Build ONCE per tap and keep the bytes on the row: the serial and the salt are random, and a rebuild changes the note id. |
@@ -80,7 +80,7 @@ moves it into Rust.
 | `registrations.ts` | Dexie live queries over `register-name` rows: `phaseOf`, `uiStateOf`, `useMidenNameRegistrations`, `useOwnedMidenName`. A `Completed` row still at phase `requested` counts as `submitted`. |
 | `tracker.ts` | `reconcileMidenNameRegistrations()`: one pass over the non-terminal rows (see "State machine"). RPC and Dexie only; the only WASM entry is `initiateConsumeTransactionFromId`. |
 | `MidenNameWatcher.tsx` | Mounted in `src/lib/miden/front/provider.tsx`. Runs the tracker every 10 s while a wallet UI is open, skips when the document is hidden, single-flight through `navigator.locks` (`ifAvailable`). |
-| `useMidenNameResolvesHere.ts` | Reverse check for the "resolves to this account" pill. Always false in v1 (flag off, maps empty). |
+| `useMidenNameResolvesHere.ts` | Reverse check for the "resolves to this account" pill. Runs where the network has a deployment; false until the registry has a reverse record for the account. |
 | `nfa.ts` | Stubs for the parts that need the SDK NFA binding: `accountHoldsDomainNfa` → `'unsupported'`, `publishRegistryRecord` throws, `REGISTRY_PUBLISHING_SUPPORTED = false`. The UI binds its disabled "Publish" / "Clear" controls to this flag. |
 | `errors.ts` | Typed errors (`MidenNameTakenError`, `MidenNamePriceChangedError`, `MidenNameScriptNotAllowedError`, …). |
 | `test-support/fake-sdk.ts` | Typed fake of the SDK classes for the unit tests. |
@@ -152,10 +152,10 @@ Blocked on two external items:
   modelled on `register-name` (the returned NFA P2ID is consumed like the delivery note).
 
 When both land: run the publish step automatically after `owned` (with the user's consent
-shown once on the claim screen), enable the fourth step of the status page, turn on
-`MIDEN_NAME_RESOLVE_ENABLED` by default, and verify the domain-side key derivation of
-`domain_to_account` on chain (the resolver tries the commitment key first, then the raw
-domain word).
+shown once on the claim screen), enable the fourth step of the status page, and verify the
+domain-side key derivation of `domain_to_account` on chain (the resolver tries the
+commitment key first, then the raw domain word). Resolution in the send flow is already on
+for every network with a deployment; until records exist it gives "Name not found".
 
 ### 2. Exact ownership
 

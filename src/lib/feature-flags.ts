@@ -36,15 +36,3 @@ export function isBridgeDepositEnabled(): boolean {
 export function isUpdateNotificationsEnabled(): boolean {
   return process.env.MIDEN_UPDATE_NOTIFICATIONS === 'true';
 }
-
-/**
- * Miden Name resolver in the send flow (`alice.miden` as a recipient).
- *
- * The build flag `MIDEN_NAME_RESOLVE_ENABLED` sets it. The default is 'false'
- * because the on-chain registry maps have no records at this time. All five
- * `vite.*.config.ts` files define the flag. If one config does not define it,
- * that bundle reads `undefined` and the flag is off.
- */
-export function isMidenNameResolveEnabled(): boolean {
-  return process.env.MIDEN_NAME_RESOLVE_ENABLED === 'true';
-}

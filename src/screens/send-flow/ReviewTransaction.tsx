@@ -17,7 +17,6 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
-import { isMidenNameResolveEnabled } from 'lib/feature-flags';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -25,6 +24,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';
 import { resolveMidenName } from 'lib/miden/name/resolver';
@@ -54,15 +54,15 @@ import { useEpochQuote } from './useEpochQuote';
 /**
  * Return the formatted Miden Name (`alice.miden`) of the `name` URL value when
  * a new lookup of it gives `to`. Return undefined while the lookup runs, when
- * the flag is off, or when the name does not resolve to `to`. A name that is
- * dropped is logged.
+ * the network has no Miden Name deployment, or when the name does not resolve
+ * to `to`. A name that is dropped is logged.
  */
 function useVerifiedMidenName(nameParam: string, to: string): string | undefined {
   const [verified, setVerified] = useState<{ nameParam: string; to: string; name: string }>();
 
   useEffect(() => {
     if (!nameParam) return;
-    if (!isMidenNameResolveEnabled() || !looksLikeMidenName(nameParam)) {
+    if (!isMidenNameSupported() || !looksLikeMidenName(nameParam)) {
       console.warn('Review: dropped the recipient name because name lookup is not available for it');
       return;
     }
@@ -123,8 +123,8 @@ export const ReviewTransaction: React.FC = () => {
   }, [search]);
 
   // The Miden Name of the recipient, for display only. The URL is not trusted:
-  // the name shows only when the flag is on and a new lookup of the name gives
-  // the same address as `to`. Else the name is dropped. The send always signs
+  // the name shows only when the network has a Miden Name deployment and a new
+  // lookup of the name gives the same address as `to`. Else the name is dropped. The send always signs
   // `to`, never the name.
   const verifiedName = useVerifiedMidenName(nameParam, to);
 

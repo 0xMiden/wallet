@@ -72,7 +72,13 @@ jest.mock('lib/miden/name/registrations', () => ({
   useOwnedMidenName: () => mockOwnedLabel
 }));
 
-let mockResolveEnabled = false;
+// The network deployment check. By default the network has no deployment.
+let mockNameSupported = false;
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
+}));
+
 let mockReverseLabel: string | null = null;
 const mockReverseResolve = jest.fn(async (_accountId: string) => mockReverseLabel);
 jest.mock('lib/miden/name/resolver', () => ({
@@ -154,8 +160,7 @@ jest.mock('lib/platform', () => ({
 
 jest.mock('lib/feature-flags', () => ({
   ...jest.requireActual('lib/feature-flags'),
-  isBridgeDepositEnabled: () => true,
-  isMidenNameResolveEnabled: () => mockResolveEnabled
+  isBridgeDepositEnabled: () => true
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -207,7 +212,7 @@ describe('Receive - Address', () => {
     mockIsMobile.mockReturnValue(false);
     jest.mocked(hapticLight).mockClear();
     mockOwnedLabel = undefined;
-    mockResolveEnabled = false;
+    mockNameSupported = false;
     mockReverseLabel = null;
     mockReverseResolve.mockClear();
   });
@@ -271,7 +276,7 @@ describe('Receive - Address', () => {
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
     });
 
-    it('does not reverse-resolve while name resolution is disabled', async () => {
+    it('does not reverse-resolve on a network without a deployment', async () => {
       mockOwnedLabel = 'alice';
       mockReverseLabel = 'alice';
       await renderReceive();
@@ -281,7 +286,7 @@ describe('Receive - Address', () => {
 
     it('shows the resolves pill only when the reverse record is the owned name', async () => {
       mockOwnedLabel = 'alice';
-      mockResolveEnabled = true;
+      mockNameSupported = true;
       mockReverseLabel = 'alice';
       const container = await renderReceive();
 
@@ -296,7 +301,7 @@ describe('Receive - Address', () => {
 
     it('keeps the muted pill when the reverse record names another label', async () => {
       mockOwnedLabel = 'alice';
-      mockResolveEnabled = true;
+      mockNameSupported = true;
       mockReverseLabel = 'bob';
       const container = await renderReceive();
 

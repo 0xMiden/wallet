@@ -9,12 +9,12 @@ import * as yup from 'yup';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { isMidenNameResolveEnabled } from 'lib/feature-flags';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';
 import { resolveMidenName } from 'lib/miden/name/resolver';
@@ -604,7 +604,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // signs `to`. An unresolved name cannot go to review.
   const goToReview = useCallback(() => {
     if (!token || !amount || !recipientAddress) return;
-    if (!resolvedMidenName && isMidenNameResolveEnabled() && looksLikeMidenName(recipientAddress)) return;
+    if (!resolvedMidenName && isMidenNameSupported() && looksLikeMidenName(recipientAddress)) return;
     reviewHandoffRef.current = true;
     setSendDraft({
       amount,
@@ -647,7 +647,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // chain, and a well-formed address for a different Miden network gets its own
   // message instead of failing later in the transaction pipeline.
   //
-  // A Miden Name input (flag on) shows the lookup state until it resolves.
+  // A Miden Name input (on a network with a Miden Name deployment) shows the
+  // lookup state until it resolves.
   // After that, the same checks apply to the RESOLVED address. The state for a
   // different input means that the lookup for this input did not start yet.
   const recipientErrorKey = useCallback(
@@ -658,7 +659,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
       }
       let address = trimmed;
-      if (isMidenNameResolveEnabled() && looksLikeMidenName(trimmed)) {
+      if (isMidenNameSupported() && looksLikeMidenName(trimmed)) {
         const status = nameResolution.input === trimmed ? nameResolution.status : 'resolving';
         switch (status) {
           case 'resolved':
@@ -702,13 +703,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [recipientErrorKey, setError, clearErrors]
   );
 
-  // Look up a Miden Name recipient (flag on). The lookup starts 400 ms after
-  // the last change of the input. A change of the input or an unmount stops
+  // Look up a Miden Name recipient (on a network with a Miden Name deployment).
+  // The lookup starts 400 ms after the last change of the input. A change of the input or an unmount stops
   // the timer and aborts the lookup. A result for an input that is not the
   // current input is ignored. A bech32 or 0x input starts no lookup.
   useEffect(() => {
     const input = (recipientAddress ?? '').trim();
-    if (!isMidenNameResolveEnabled() || !looksLikeMidenName(input)) {
+    if (!isMidenNameSupported() || !looksLikeMidenName(input)) {
       setNameResolution(prev => (prev.status === 'idle' ? prev : IDLE_NAME_RESOLUTION));
       return;
     }

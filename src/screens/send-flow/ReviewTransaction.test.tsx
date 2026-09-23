@@ -261,12 +261,13 @@ jest.mock('./send-draft', () => ({
   clearSendDraft: jest.fn()
 }));
 
-// The Miden Name lookup and its build flag. The flag is off by default, so the
-// suites above see today's behaviour.
-let mockNameResolveEnabled = false;
+// The Miden Name lookup and the network deployment check. By default the network
+// has no deployment, so the suites above see the plain address behaviour.
+let mockNameSupported = false;
 const resolveMidenNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }?]>();
-jest.mock('lib/feature-flags', () => ({
-  isMidenNameResolveEnabled: () => mockNameResolveEnabled
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
 }));
 jest.mock('lib/miden/name/resolver', () => ({
   resolveMidenName: (label: string, options?: { signal?: AbortSignal }) => resolveMidenNameMock(label, options)
@@ -386,7 +387,7 @@ beforeEach(() => {
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null };
-  mockNameResolveEnabled = false;
+  mockNameSupported = false;
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -1469,7 +1470,7 @@ describe('ReviewTransaction — Miden Name recipient', () => {
   };
 
   beforeEach(() => {
-    mockNameResolveEnabled = true;
+    mockNameSupported = true;
     mockSearch = 'amount=5&to=mtst1alice&tokenId=tok1&name=alice.miden';
     mockBalanceData = [VALID_TOKEN];
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -1512,8 +1513,8 @@ describe('ReviewTransaction — Miden Name recipient', () => {
     expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
   });
 
-  it('drops the name without a lookup when the flag is off', async () => {
-    mockNameResolveEnabled = false;
+  it('drops the name without a lookup on a network without a deployment', async () => {
+    mockNameSupported = false;
     render(<ReviewTransaction />);
     await flush();
 
