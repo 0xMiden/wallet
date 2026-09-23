@@ -1,60 +1,7 @@
 {
-  "activityFetchingHistoryAndNotes": {
-    "message": "Fetching your transaction history and notes",
-    "englishSource": "Fetching your transaction history and notes"
-  },
-  "guardianHistorySwap": {
-    "message": "Swap",
-    "englishSource": "Swap"
-  },
-  "guardianHistoryBridgeOut": {
-    "message": "Bridge out",
-    "englishSource": "Bridge out"
-  },
-  "guardianHistoryEarnDeposit": {
-    "message": "Earn deposit",
-    "englishSource": "Earn deposit"
-  },
-  "guardianHistoryGuardianChanged": {
-    "message": "Guardian changed",
-    "englishSource": "Guardian changed"
-  },
-  "guardianHistoryDeviceReplaced": {
-    "message": "Device key rotated",
-    "englishSource": "Device key rotated"
-  },
-  "guardianHistoryAccountSecured": {
-    "message": "Account secured",
-    "englishSource": "Account secured"
-  },
-  "guardianHistoryExecuted": {
-    "message": "Executed",
-    "englishSource": "Executed"
-  },
-  "guardianHistoryProgress": {
-    "message": "Recovering history from $operator$. $count$ transactions restored.",
-    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
-    "placeholders": {
-      "operator": {
-        "content": "$1"
-      },
-      "count": {
-        "content": "$2"
-      }
-    }
-  },
-  "guardianHistoryFailed": {
-    "message": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically.",
-    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
-  },
-  "guardianHistoryPartial": {
-    "message": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
-    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "midenNameReceiptTransaction": {
+    "message": "Name receipt transaction",
+    "englishSource": "Name receipt transaction"
   },
   "payload": {
     "message": "Payload",

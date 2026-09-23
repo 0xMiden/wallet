@@ -1,60 +1,7 @@
 {
-  "activityFetchingHistoryAndNotes": {
-    "message": "Como consultar seu histórico de transações e notes",
-    "englishSource": "Fetching your transaction history and notes"
-  },
-  "guardianHistorySwap": {
-    "message": "Troca",
-    "englishSource": "Swap"
-  },
-  "guardianHistoryBridgeOut": {
-    "message": "Transferência de saída",
-    "englishSource": "Bridge out"
-  },
-  "guardianHistoryEarnDeposit": {
-    "message": "Ganhe com depósitos",
-    "englishSource": "Earn deposit"
-  },
-  "guardianHistoryGuardianChanged": {
-    "message": "Guardian alterado",
-    "englishSource": "Guardian changed"
-  },
-  "guardianHistoryDeviceReplaced": {
-    "message": "Chave do dispositivo atualizada",
-    "englishSource": "Device key rotated"
-  },
-  "guardianHistoryAccountSecured": {
-    "message": "Conta protegida",
-    "englishSource": "Account secured"
-  },
-  "guardianHistoryExecuted": {
-    "message": "Executado",
-    "englishSource": "Executed"
-  },
-  "guardianHistoryProgress": {
-    "message": "Recuperando o histórico de $operator$. Transações de $count$ restauradas.",
-    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
-    "placeholders": {
-      "operator": {
-        "content": "$1"
-      },
-      "count": {
-        "content": "$2"
-      }
-    }
-  },
-  "guardianHistoryFailed": {
-    "message": "A recuperação do histórico de transações foi interrompida porque a rede ou um operador Guardian não pode fornecê-lo. A recuperação não será repetida automaticamente.",
-    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
-  },
-  "guardianHistoryPartial": {
-    "message": "$count$ Transações restauradas. Algumas fontes Guardian não puderam ser lidas. A recuperação tentará novamente quando você desbloquear a carteira pela próxima vez.",
-    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "midenNameReceiptTransaction": {
+    "message": "Nome da transação de recebimento",
+    "englishSource": "Name receipt transaction"
   },
   "payload": {
     "message": "Carga útil",

@@ -1,60 +1,7 @@
 {
-  "activityFetchingHistoryAndNotes": {
-    "message": "İşlem geçmişinizi ve notes adresini alma",
-    "englishSource": "Fetching your transaction history and notes"
-  },
-  "guardianHistorySwap": {
-    "message": "Takas",
-    "englishSource": "Swap"
-  },
-  "guardianHistoryBridgeOut": {
-    "message": "Köprüden Çıkış",
-    "englishSource": "Bridge out"
-  },
-  "guardianHistoryEarnDeposit": {
-    "message": "Mevduat kazanın",
-    "englishSource": "Earn deposit"
-  },
-  "guardianHistoryGuardianChanged": {
-    "message": "Guardian değiştirildi",
-    "englishSource": "Guardian changed"
-  },
-  "guardianHistoryDeviceReplaced": {
-    "message": "Cihaz anahtarı değiştirildi",
-    "englishSource": "Device key rotated"
-  },
-  "guardianHistoryAccountSecured": {
-    "message": "Hesap güvence altında",
-    "englishSource": "Account secured"
-  },
-  "guardianHistoryExecuted": {
-    "message": "Yürütüldü",
-    "englishSource": "Executed"
-  },
-  "guardianHistoryProgress": {
-    "message": "$operator$ adresinden geçmiş veriler geri yüklendi. $count$ adresindeki işlemler geri yüklendi.",
-    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
-    "placeholders": {
-      "operator": {
-        "content": "$1"
-      },
-      "count": {
-        "content": "$2"
-      }
-    }
-  },
-  "guardianHistoryFailed": {
-    "message": "İşlem geçmişinin kurtarılması, ağın veya bir Guardian operatörünün bunu sağlayamaması nedeniyle durduruldu. Kurtarma işlemi otomatik olarak yeniden denenmeyecektir.",
-    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
-  },
-  "guardianHistoryPartial": {
-    "message": "$count$ İşlemler geri yüklendi. Bazı Guardian kaynakları okunamadı. Cüzdanın kilidini bir sonraki sefer açtığınızda kurtarma işlemi yeniden denenecektir.",
-    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
+  "midenNameReceiptTransaction": {
+    "message": "Adlı makbuz işlemi",
+    "englishSource": "Name receipt transaction"
   },
   "payload": {
     "message": "Yük",
