@@ -3783,163 +3783,86 @@ describe('HistoryDetails earn-deposit', () => {
   });
 });
 
-describe('HistoryDetails swap order actions', () => {
-  const OPEN_ORDER_EXPIRY = Math.floor(Date.now() / 1000) + 600;
-
-  const openSwapTx = (extra: Record<string, unknown> = {}): Tx => ({
+describe('HistoryDetails Miden Name', () => {
+  const registerNameTx = (extraInputs: Tx = {}, overrides: Tx = {}): Tx => ({
     ...baseSendTx,
-    type: 'swap',
-    amount: undefined,
-    faucetId: 'faucet-1',
-    outputNoteIds: undefined,
-    transactionId: undefined,
+    type: 'register-name',
+    secondaryAccountId: 'mtst1registry',
+    amount: 20_000_000n,
+    displayMessage: 'Name requested',
     extraInputs: {
-      orderId: 42n,
-      requestedFaucetId: 'req-faucet',
-      requestedAmount: 1000n,
-      expiresAt: OPEN_ORDER_EXPIRY,
-      ...extra
-    }
+      label: 'alice',
+      network: 'testnet',
+      registrationNoteId: '0xregnote',
+      phase: 'submitted',
+      ...extraInputs
+    },
+    ...overrides
   });
 
-  const openOrder = async (extra: Record<string, unknown> = {}) => {
-    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-    seedTracking({
-      orderId: '42',
-      state: 'active',
-      currentDepth: 0,
-      remainingOffered: 1000n,
-      remainingRequested: 1000n
-    });
-    setMockRow(openSwapTx(extra));
+  it('reads a registration as outbound: From this account, To the registry', async () => {
+    setMockRow(registerNameTx());
     await renderAndLoad();
-  };
 
-  it('confirms before taking a live order back, then brings its expiry forward', async () => {
-    await openOrder();
+    const from = rowByLabel('from');
+    const to = rowByLabel('to');
+    expect(from?.querySelector('a')).toHaveAttribute('href', 'https://custom-explorer.test/account/acct-A');
+    expect(to?.querySelector('a')).toHaveAttribute('href', 'https://custom-explorer.test/account/mtst1registry');
+  });
 
-    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
-    await flush();
+  it('lists the name, registry, registration note and phase', async () => {
+    setMockRow(registerNameTx());
+    await renderAndLoad();
 
-    // Destructive and irreversible from here, so it goes through the app's
-    // confirmation sheet rather than acting on the tap.
-    expect(mockConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({ destructive: true, confirmLabel: 'swapCancelOrder' })
+    const section = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+      el => el.getAttribute('data-title') === 'midenName'
     );
-    expect(mockCancelSwapOrder).toHaveBeenCalledWith('tx-1');
+    expect(section).toBeDefined();
+    expect(screen.getByTestId('history-miden-name')).toHaveTextContent('alice.miden');
+    expect(rowByLabel('midenNameReceiptRegistry')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://custom-explorer.test/account/mtst1registry'
+    );
+    expect(rowByLabel('midenNameReceiptNoteId')).toHaveTextContent('0xregnote');
+    // `submitted` is not terminal, so the UI state is "claiming".
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateClaiming');
   });
 
-  it('does nothing at all when the confirmation is declined', async () => {
-    mockConfirm.mockResolvedValue(false);
-    await openOrder();
+  it('shows Owned once the name is in the account', async () => {
+    setMockRow(registerNameTx({ phase: 'owned' }));
+    await renderAndLoad();
 
-    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
-    await flush();
-
-    expect(mockCancelSwapOrder).not.toHaveBeenCalled();
-    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateOwned');
   });
 
-  it('surfaces a refused cancel as a notice on the card', async () => {
-    mockCancelSwapOrder.mockRejectedValue(new Error('settles manually'));
-    await openOrder();
+  it('shows Failed for a failed row whose stored phase is not terminal yet', async () => {
+    setMockRow(registerNameTx({ phase: 'requested' }, { status: 3 }));
+    await renderAndLoad();
 
-    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
-    await flush();
-
-    expect(screen.getByTestId('swap-cancel-order-error')).toHaveTextContent('settles manually');
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateFailed');
   });
 
-  it('offers no cancel on an order the wallet was told not to settle', async () => {
-    // `reconcileSwapOrderNotes` skips a manual-consume order outright, so the
-    // stamp the cancel writes would never be acted on - the claim route is that
-    // order's only real exit, and it is what the card offers instead.
-    await openOrder({ autoConsume: false });
-
-    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
-    expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
-  });
-
-  it('offers no cancel once the order is no longer open', async () => {
-    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-    seedTracking({
-      orderId: '42',
-      state: 'filled',
-      currentDepth: 2,
-      remainingOffered: 0n,
-      remainingRequested: 0n
+  // The claim of a name moves only a non-fungible asset: the row has no
+  // faucet and no amount, and the page must not invent one.
+  it('renders a name claim with no amount as the name, without NaN, undefined or +0', async () => {
+    setMockRow({
+      ...baseSendTx,
+      type: 'consume',
+      faucetId: undefined,
+      amount: undefined,
+      assetTotals: [],
+      displayMessage: 'Name received',
+      displayIcon: 'RECEIVE',
+      secondaryAccountId: 'mtst1registry',
+      outputNoteIds: [],
+      noteIds: ['0xdelivery'],
+      extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'reg-1' } }
     });
-    setMockRow(openSwapTx());
     await renderAndLoad();
 
-    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
-  });
-
-  it('shows the reclaim notice, and no button, once the expiry has lapsed', async () => {
-    await openOrder({ expiresAt: Math.floor(Date.now() / 1000) - 5 });
-
-    expect(screen.getByTestId('swap-cancel-order-pending')).toBeInTheDocument();
-    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
-  });
-
-  // A row is Queued OR its order is open, never both: an order only exists once
-  // the place-order transaction completed. So the page's own Cancel and the
-  // card's Cancel swap can never appear together, in either direction.
-  it('draws no queued-transaction Cancel beside an open order', async () => {
-    await openOrder();
-
-    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
-    expect(screen.queryByTestId('history-cancel-button')).not.toBeInTheDocument();
-  });
-
-  it('draws no order cancel on a swap that has not been submitted yet', async () => {
-    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-    setMockRow({ ...openSwapTx(), status: 0, displayMessage: 'Swapping' });
-    await renderAndLoad();
-
-    expect(screen.getByTestId('history-cancel-button')).toBeInTheDocument();
-    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
-  });
-
-  it('offers Retry on a failed swap, and re-queues it through the shared handler', async () => {
-    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-    setMockRow({ ...openSwapTx(), status: 3, error: 'prover unavailable' });
-    await renderAndLoad();
-
-    // A swap is a re-queueable type: its request is replayed byte-identically,
-    // and whether THIS failure is safe to replay is decided by
-    // `requeueFailedTransaction` at press time, not guessed at here.
-    fireEvent.click(screen.getByTestId('history-retry-button'));
-    await flush();
-
-    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
-    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
-  });
-
-  it('offers no Retry on a swap the user cancelled themselves', async () => {
-    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-    setMockRow({ ...openSwapTx(), status: 3, error: USER_CANCELLED_TRANSACTION_REASON });
-    await renderAndLoad();
-
-    expect(screen.queryByTestId('history-retry-button')).not.toBeInTheDocument();
-  });
-
-  it('surfaces an unverifiable-retry refusal and the acknowledged retry beneath it', async () => {
-    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-    mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have landed'));
-    mockIsUnverifiableSendRetryError.mockReturnValue(true);
-    setMockRow({ ...openSwapTx(), status: 3, error: 'aborted' });
-    await renderAndLoad();
-
-    fireEvent.click(screen.getByTestId('history-retry-button'));
-    await flush();
-
-    expect(screen.getByTestId('history-retry-error')).toHaveTextContent('may already have landed');
-
-    mockRequeueFailedTransaction.mockResolvedValue(undefined);
-    fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
-    await flush();
-
-    expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+    expect(screen.getByText('alice.miden')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/NaN|undefined|\+0/);
+    // A claim is not a registration: no registration section.
+    expect(screen.queryByTestId('history-miden-name')).toBeNull();
   });
 });

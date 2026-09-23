@@ -22,7 +22,7 @@ import { navigate } from 'lib/woozie';
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
 import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import HistoryItem from './HistoryItem';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameRowTitle } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { isGuardianOp } from './TransactionIcon';
 import {
@@ -197,6 +197,11 @@ function buildRowProps(
   } else if (isGuardianOp(entry.txType)) {
     iconNode = <SwapIcon className="w-5 h-5" />;
     iconBg = 'bg-[#777487]';
+  } else if (entry.txType === 'register-name') {
+    // Same glyph and colour as `TransactionIcon`: the row pays the price of a name.
+    iconNode = <Icon name={IconName.User} size="sm" className="[&_path]:fill-pure-white" />;
+    iconBg = 'bg-accent-primary';
+    amountDirection = 'negative';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-tx-received';
@@ -231,19 +236,19 @@ function buildRowProps(
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
+  const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
+  const nameTitle =
+    !isFailed && entry.type === HistoryEntryType.CompletedTransaction ? midenNameRowTitle(entry, t) : undefined;
 
-  const title = isUnconfirmed
-    ? t('notConfirmed')
-    : isCancelled
-      ? t('cancelled')
-      : faucet
-        ? t('faucetRequestTitle')
+  const title = isCancelled
+    ? t('cancelled')
+    : faucet
+      ? t('faucetRequestTitle')
+      : nameTitle
+        ? nameTitle
         : isSwap && entry.token && entry.requestedToken
           ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-          : entry.guardianRecovered
-            ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
-            : entry.message || '';
+          : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(

@@ -38,7 +38,8 @@ jest.mock('app/icons/v2', () => ({
     Convert: 'Convert',
     Earn: 'Earn',
     More: 'More',
-    ArrowUpDown: 'ArrowUpDown'
+    ArrowUpDown: 'ArrowUpDown',
+    User: 'User'
   }
 }));
 
@@ -1591,93 +1592,62 @@ it('keeps an undated note visible without assigning a false date', () => {
   expect(screen.getByText('Pending note')).toBeInTheDocument();
 });
 
-// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
-// again (#1198): the date groups and pending cards that survive take their new places at once there,
-// and slide on the settle spring on any other change.
-describe('HistoryView - its tab shown again', () => {
-  const pending: PendingActivityItem = {
-    note: {
-      id: 'swap-note',
-      faucetId: 'faucet',
-      amount: '100',
-      senderAddress: 'sender',
-      isBeingClaimed: false,
-      type: 'unknown',
-      receivedAt: DAY_A + 60,
-      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
-    },
-    status: 'pending'
-  };
-  // A stable ref so InfiniteScroll mounts (mirrors how the real page passes one down); the mock
-  // never reads `.current`, so a bare DOM node is enough.
-  const scrollParentRef = { current: document.createElement('div') };
-  const noMore = async () => {};
-  const view = (
-    shown: boolean,
-    onScreen = true,
-    hasMore = false,
-    loadMore: (page: number) => Promise<void> = noMore
-  ) => (
-    <PageActiveContext.Provider value={onScreen}>
-      <TabActiveContext.Provider value={shown}>
-        <HistoryView
-          fullHistory
-          initialLoading={false}
-          hasMore={hasMore}
-          loadMore={loadMore}
-          entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
-          pendingItems={[pending]}
-          renderPendingItem={() => <span>Pending note</span>}
-          scrollParentRef={scrollParentRef}
-        />
-      </TabActiveContext.Provider>
-    </PageActiveContext.Provider>
-  );
-  const groupMoves = (container: HTMLElement) =>
-    Array.from(container.querySelectorAll('[data-layout]'))
-      .filter(node => !node.hasAttribute('data-pending-note-id'))
-      .map(node => JSON.parse(node.getAttribute('data-transition') ?? 'null'));
-
-  it('swaps only the layout of its date groups and pending cards in the commit that shows the tab again', () => {
-    const { container, rerender } = render(view(true));
-    rerender(view(false));
-    rerender(view(true));
-
-    const groups = groupMoves(container);
-    expect(groups.length).toBeGreaterThan(0);
-    groups.forEach(transition => expect(transition).toEqual({ ...springs.settle, layout: tabBarSwap }));
-    expect(mockPendingWrapper.props?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
+describe('HistoryView Miden Name rows', () => {
+  it('titles a completed registration "Registered {name}" with the brand glyph and a debit', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Name requested',
+      transactionIcon: 'SEND',
+      amount: '20',
+      token: 'MIDEN',
+      secondaryAddress: 'mtst1registry_addr1234',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('historyRegisteredName');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-accent-primary');
+    expect(iconNameIn(row)).toBe('User');
+    expect(row).toHaveAttribute('data-amount-value', '-20');
+    expect(row).toHaveAttribute('data-amount-symbol', 'MIDEN');
   });
 
-  it('slides them on the next change, and when a slide page uncovers the list', () => {
-    const { container, rerender } = render(view(true));
-    rerender(view(false));
-    rerender(view(true));
-    rerender(view(true));
-    expect(groupMoves(container).length).toBeGreaterThan(0);
-    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
-    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
-
-    rerender(view(true, false));
-    rerender(view(true, true));
-    expect(groupMoves(container).length).toBeGreaterThan(0);
-    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
-    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+  it('keeps the progress message while the registration is still processing', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Registering name',
+      transactionIcon: 'SEND',
+      type: HistoryEntryType.ProcessingTransaction,
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(rowByTitle('Registering name')).toHaveAttribute('data-status', 'pending');
   });
 
-  it("defers the scroller's page request in the commit that shows the tab again, and passes the parent's loadMore through otherwise", async () => {
-    const loadMore = jest.fn((_page: number) => Promise.resolve());
-    const { rerender } = render(view(true, true, true, loadMore));
-    expect(mockScroller.props?.loadMore).toBe(loadMore);
-    rerender(view(false, true, true, loadMore));
-    rerender(view(true, true, true, loadMore));
+  // A name claim moves no fungible asset: the row must not invent "+0",
+  // "NaN" or "undefined" for the missing amount.
+  it('titles a name claim "Received {name}" and renders no amount', () => {
+    const entry = makeEntry({
+      txType: 'consume',
+      message: 'Name received',
+      transactionIcon: 'RECEIVE',
+      secondaryAddress: 'mtst1registry_addr1234',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('historyReceivedName');
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', '');
+    expect(row.outerHTML).not.toMatch(/NaN|undefined|\+0/);
+  });
 
-    mockScroller.props?.loadMore(3);
-    expect(loadMore).not.toHaveBeenCalled();
-    await act(async () => {});
-    expect(loadMore.mock.calls).toEqual([[3]]);
-
-    rerender(view(true, true, true, loadMore));
-    expect(mockScroller.props?.loadMore).toBe(loadMore);
+  it('shows the failure title, not the name, for a failed registration', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Transaction failed',
+      transactionIcon: 'FAILED',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(rowByTitle('Transaction failed')).toHaveAttribute('data-status', 'failed');
   });
 });
