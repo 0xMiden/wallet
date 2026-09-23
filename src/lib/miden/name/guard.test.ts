@@ -28,9 +28,9 @@ const reads = jest.requireMock<{
   fetchMidenNameQuote: jest.Mock<Promise<MidenNameQuote>, [string, { fresh?: boolean }]>;
   getChainTip: jest.Mock<Promise<number>, []>;
 }>('./reads');
-const mockLoadScript = jest.requireMock<{ loadRegisterDomainScript: jest.Mock<{ free: () => void }, []> }>(
-  './script'
-).loadRegisterDomainScript;
+const mockLoadScript = jest.requireMock<{
+  loadRegisterDomainScript: jest.Mock<Promise<{ free: () => void }>, []>;
+}>('./script').loadRegisterDomainScript;
 
 const PRICE = 20_000_000n;
 const scriptFree = jest.fn();
@@ -71,7 +71,7 @@ beforeEach(() => {
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   reads.fetchMidenNameQuote.mockResolvedValue(quote());
   reads.getChainTip.mockResolvedValue(1000);
-  mockLoadScript.mockReturnValue({ free: scriptFree });
+  mockLoadScript.mockResolvedValue({ free: scriptFree });
 });
 
 describe('assertRegistrationPreconditions', () => {
@@ -105,9 +105,7 @@ describe('assertRegistrationPreconditions', () => {
   });
 
   it('throws when the bundled script has an other root', async () => {
-    mockLoadScript.mockImplementation(() => {
-      throw new MidenNameScriptMismatchError('0xa', '0xb');
-    });
+    mockLoadScript.mockRejectedValue(new MidenNameScriptMismatchError('0xa', '0xb'));
     await expect(assertRegistrationPreconditions('alice', PRICE)).rejects.toBeInstanceOf(MidenNameScriptMismatchError);
   });
 

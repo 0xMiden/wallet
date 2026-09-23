@@ -46,7 +46,7 @@ export async function assertRegistrationPreconditions(label: string, expectedPri
   }
   // The quote loaded the SDK WASM. The script is a plain SDK object, not a
   // client call, so no lock is necessary. Free it: this is a check only.
-  loadRegisterDomainScript().free();
+  (await loadRegisterDomainScript()).free();
   return quote;
 }
 

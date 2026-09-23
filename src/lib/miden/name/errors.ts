@@ -26,9 +26,17 @@ export class MidenNameInvalidLabelError extends Error {
 
 /** The bundled register script does not have the expected MAST root. */
 export class MidenNameScriptMismatchError extends Error {
-  constructor(expectedRoot: string, actualRoot: string) {
-    super(`Register-domain script root mismatch: expected ${expectedRoot}, got ${actualRoot}`);
+  constructor(expectedRoot: string, actualRoot: string, scriptName = 'register-domain') {
+    super(`Miden Name ${scriptName} script root mismatch: expected ${expectedRoot}, got ${actualRoot}`);
     this.name = 'MidenNameScriptMismatchError';
+  }
+}
+
+/** The note-script asset could not be fetched, or it has an unexpected shape. */
+export class MidenNameScriptAssetError extends Error {
+  constructor(detail: string) {
+    super(`Miden Name note-script asset: ${detail}`);
+    this.name = 'MidenNameScriptAssetError';
   }
 }
 
