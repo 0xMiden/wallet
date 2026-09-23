@@ -4,7 +4,6 @@ import { AnimatePresence, motion, type Transition } from 'framer-motion';
 
 import { IconName } from 'app/icons/v2';
 import { durations, easings, useMotion, useSprings } from 'lib/animation';
-import { cn } from 'lib/ui/util';
 
 import { IconButton } from './IconButton';
 import { SearchInput } from './SearchInput';
@@ -13,11 +12,6 @@ export interface TabHeaderProps {
   title: string;
   /** Extra action buttons rendered on the right of the title. */
   actions?: ReactNode;
-  /**
-   * What separates the header from the page: a full-bleed 1px `hairline` (default), or `rule`, a
-   * 4px rounded bar on `fill` inset to the page margin (Explore and Activity, above their pill rows).
-   */
-  divider?: 'hairline' | 'rule';
   /**
    * In-header search. While `open`, the field takes the title's place in the
    * same row, so the page below keeps its position.
@@ -55,14 +49,15 @@ export const TabHeaderAction: FC<{
 );
 
 /**
- * Header for top-level tab pages (Activity, Explore): page title on the
- * left, any `actions` on the right.
+ * Header for top-level tab pages (Activity, Explore, Settings): page title on
+ * the left, any `actions` on the right, then a 4px rounded rule on `fill` inset
+ * to the page margin.
  *
  * The settings gear that used to live here is gone — Settings is a primary
  * bottom-nav destination now, so a gear on the very screens that show that
  * tab was a duplicate affordance.
  */
-export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search, divider = 'hairline' }) => {
+export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const searchOpen = search?.open === true;
 
   // Movement (position, scale) rides the shared spring; opacity gets its own
@@ -75,12 +70,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search, divider 
 
   return (
     <>
-      <header
-        className={cn(
-          'shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3',
-          divider === 'hairline' && 'border-b border-hairline'
-        )}
-      >
+      <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
         <AnimatePresence initial={false} mode="popLayout">
           {searchOpen && search ? (
             <motion.div
@@ -124,7 +114,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search, divider 
         </AnimatePresence>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
-      {divider === 'rule' && <div aria-hidden="true" className="mx-4 h-1 shrink-0 rounded-full bg-fill" />}
+      <div aria-hidden="true" className="mx-4 h-1 shrink-0 rounded-full bg-fill" />
     </>
   );
 };

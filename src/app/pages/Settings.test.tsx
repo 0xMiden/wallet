@@ -365,7 +365,12 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     // The root wears the same TabHeader as Activity and Explore — a plain
     // heading, not the sub-page PageHeader.
-    expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { level: 1, name: 'settings' });
+    expect(heading).toBeInTheDocument();
+    // ...ending in the same inset rule, not a hairline.
+    const header = heading.closest('header')!;
+    expect(header).not.toHaveClass('border-b');
+    expect(header.nextElementSibling).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
     expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
   });

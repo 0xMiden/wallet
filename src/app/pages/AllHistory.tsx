@@ -46,7 +46,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
       <TabHeader
         title={t('activity')}
-        divider="rule"
         search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
         actions={
           <TabHeaderAction

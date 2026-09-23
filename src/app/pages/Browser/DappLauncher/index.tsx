@@ -139,7 +139,6 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
     <>
       <TabHeader
         title={t('explore')}
-        divider="rule"
         search={{
           open: searchOpen,
           value: query,
