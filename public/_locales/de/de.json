@@ -1,4 +1,5 @@
 {
+  "midenNameReceiptTransaction": "Transaktion zur Quittungsausstellung",
   "payload": "Nutzlast",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Bestätigen Sie Ihre Einzahlung",

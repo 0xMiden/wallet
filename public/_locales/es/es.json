@@ -1,4 +1,5 @@
 {
+  "midenNameReceiptTransaction": "Nombre de la transacción de recepción",
   "payload": "Carga útil",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Confirma tu ingreso",

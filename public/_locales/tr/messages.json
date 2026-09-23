@@ -1,4 +1,8 @@
 {
+  "midenNameReceiptTransaction": {
+    "message": "Adlı makbuz işlemi",
+    "englishSource": "Name receipt transaction"
+  },
   "payload": {
     "message": "Yük",
     "englishSource": "Payload"

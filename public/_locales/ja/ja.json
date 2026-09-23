@@ -1,4 +1,5 @@
 {
+  "midenNameReceiptTransaction": "受領トランザクションの名称",
   "payload": "ペイロード",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "入金を確認してください",

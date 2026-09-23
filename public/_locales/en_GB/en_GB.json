@@ -1,4 +1,5 @@
 {
+  "midenNameReceiptTransaction": "Name receipt transaction",
   "payload": "Payload",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Confirm your deposit",

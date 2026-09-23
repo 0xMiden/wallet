@@ -1,4 +1,5 @@
 {
+  "midenNameReceiptTransaction": "수취 거래 명칭",
   "payload": "페이로드",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "입금 확인",
