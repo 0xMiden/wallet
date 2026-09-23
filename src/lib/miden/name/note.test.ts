@@ -29,7 +29,9 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: jest.fn(),
   assertWasmHoldCurrent: jest.fn()
 }));
-jest.mock('./script', () => ({ loadRegisterDomainScript: jest.fn(() => ({ script: 'register-domain' })) }));
+jest.mock('./script', () => ({
+  loadRegisterDomainScript: jest.fn(async () => ({ script: 'register-domain', free: jest.fn() }))
+}));
 
 const REGISTRY_HEX = '0xead81800958e7a112d45bdcf852fa6';
 const TOKEN_HEX = '0x18101fa522c174b165efd4f70a0385';
@@ -126,7 +128,27 @@ describe('buildRegisterNameRequest', () => {
     expect(note.metadata.sender.toString()).toBe(SENDER_HEX);
     expect(note.metadata.tag.account.toString()).toBe(REGISTRY_HEX);
     expect(note.attachments.map(attachment => attachment.target.toString())).toEqual([REGISTRY_HEX]);
-    expect(note.recipient.script).toEqual({ script: 'register-domain' });
+    expect(note.recipient.script).toMatchObject({ script: 'register-domain' });
+  });
+
+  it('loads the script before the lock and frees it when the build fails under the lock', async () => {
+    const mockLoadScript = jest.requireMock<{
+      loadRegisterDomainScript: jest.Mock<Promise<{ script: string; free: jest.Mock }>, []>;
+    }>('./script').loadRegisterDomainScript;
+    const script = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(script);
+    mockLock.mockRejectedValueOnce(new Error('lock failed'));
+
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toThrow('lock failed');
+
+    const [loadOrder] = mockLoadScript.mock.invocationCallOrder;
+    const [lockOrder] = mockLock.mock.invocationCallOrder;
+    expect(loadOrder).toBeDefined();
+    expect(lockOrder).toBeDefined();
+    expect(loadOrder ?? Infinity).toBeLessThan(lockOrder ?? 0);
+    expect(script.free).toHaveBeenCalledTimes(1);
   });
 
   it('holds the WASM lock with a label and checks the hold after the account read', async () => {

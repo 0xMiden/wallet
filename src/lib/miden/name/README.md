@@ -14,20 +14,21 @@ per-network map; a network without an entry hides the feature (`isMidenNameSuppo
 
 All of these were verified against the Testnet deployment.
 
-| Item | Value |
-| --- | --- |
-| Domain network account (faucet + registry, one public account) | `0xead81800958e7a112d45bdcf852fa6`, created at block 61768 |
-| Payment and fee token | native MIDEN `0x18101fa522c174b165efd4f70a0385`, 6 decimals |
-| Price by label length 1 / 2 / 3 / 4 / 5+ | 375 / 200 / 120 / 55 / 20 MIDEN, read live from the `prices` map |
-| Sponsorship the registry charges per register note | 210 base units, read live from `fee_schedule[scriptRoot]` = `[210, 0, 0, 1]` |
-| Register note script | root `0xdbac2a36…b6a2`, vendored as base64 in `register-domain-script.ts` (16 810 bytes), present on the registry's `allowed_note_scripts` allowlist |
-| Label rules | `[a-z0-9]{1,21}`; `a–z → 1..26`, `0–9 → 27..36`; 7 codes per felt, 8 bits each, little endian |
-| Domain word | `[chars14..20, chars7..13, chars0..6, length]` |
-| Commitment | `Poseidon2(TAG ‖ domainWord ‖ [0, 0, registry.suffix, registry.prefix])`, `TAG = [31013299120531821, 30803248544050529, 54383671667041, 20]` |
-| Status / token key | `[c0, c1, 0, 0]` into `domain_faucet::domain_faucet::asset_status` (0 free, 1 issued) and `…::token_to_domain` (value = domain word) |
-| Price key | `[min(len, 5), 0, token.suffix, token.prefix]` into `domain_faucet::domain_faucet::prices` |
-| Registry maps | `domain_registry::domain_registry::domain_to_account` and `…::account_to_domain`; account key `[0, 0, acct.suffix, acct.prefix]`; the domain-side key is NOT verified (both maps have zero writes on chain) |
-| Reclaim window | the register note commits `reclaimHeight = tip + 300` |
+| Item                                                           | Value                                                                                                                                                                                                       |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain network account (faucet + registry, one public account) | `0xead81800958e7a112d45bdcf852fa6`, created at block 61768                                                                                                                                                  |
+| Payment and fee token                                          | native MIDEN `0x18101fa522c174b165efd4f70a0385`, 6 decimals                                                                                                                                                 |
+| Price by label length 1 / 2 / 3 / 4 / 5+                       | 375 / 200 / 120 / 55 / 20 MIDEN, read live from the `prices` map                                                                                                                                            |
+| Sponsorship the registry charges per register note             | 210 base units, read live from `fee_schedule[scriptRoot]` = `[210, 0, 0, 1]`                                                                                                                                |
+| Register note script                                           | root `0xdbac2a36…b6a2`, vendored as base64 in `public/miden-name/note-scripts.json` (16 810 bytes), present on the registry's `allowed_note_scripts` allowlist                                              |
+| Registry note script (set / clear records)                     | root `0xb862b950…ca05`, vendored in the same asset (23 180 bytes), on the allowlist. Not used yet: see "Remaining work"                                                                                     |
+| Label rules                                                    | `[a-z0-9]{1,21}`; `a–z → 1..26`, `0–9 → 27..36`; 7 codes per felt, 8 bits each, little endian                                                                                                               |
+| Domain word                                                    | `[chars14..20, chars7..13, chars0..6, length]`                                                                                                                                                              |
+| Commitment                                                     | `Poseidon2(TAG ‖ domainWord ‖ [0, 0, registry.suffix, registry.prefix])`, `TAG = [31013299120531821, 30803248544050529, 54383671667041, 20]`                                                                |
+| Status / token key                                             | `[c0, c1, 0, 0]` into `domain_faucet::domain_faucet::asset_status` (0 free, 1 issued) and `…::token_to_domain` (value = domain word)                                                                        |
+| Price key                                                      | `[min(len, 5), 0, token.suffix, token.prefix]` into `domain_faucet::domain_faucet::prices`                                                                                                                  |
+| Registry maps                                                  | `domain_registry::domain_registry::domain_to_account` and `…::account_to_domain`; account key `[0, 0, acct.suffix, acct.prefix]`; the domain-side key is NOT verified (both maps have zero writes on chain) |
+| Reclaim window                                                 | the register note commits `reclaimHeight = tip + 300`                                                                                                                                                       |
 
 The register note is PUBLIC, tagged `NoteTag.withAccountTarget(registry)`, carries a
 `NetworkAccountTarget(registry)` attachment and exactly one `FungibleAsset(MIDEN, price)`.
@@ -66,24 +67,24 @@ moves it into Rust.
 
 ## Module map
 
-| File | Purpose |
-| --- | --- |
-| `config.ts` | `getMidenNameConfig()`, `isMidenNameSupported()`, the storage slot names (`MIDEN_NAME_SLOTS`), the pinned script root and protocol constants. |
-| `encoding.ts` | Pure bigint code, no SDK import: label validation and normalisation, domain word encode/decode, commitment preimage, map-key felts, `registerNoteInputs`. Fully unit tested with on-chain fixtures (`miden` → `[0, 0, 60213692685, 5]`). |
-| `sdk-words.ts` | The only SDK glue for felts: `Word` conversions, `Poseidon2` commitment, `decodeAccountWord`. Makes NEW wasm objects on every call. |
-| `reads.ts` | `fetchMidenNameQuote` (availability + price + allowlist + fee in ONE proof, 30 s cache, `fresh` bypass), `fetchMidenNameIssued`, `fetchRegistrationNoteState` (network-note status; a not-found id is reported as `unknown`), `findRegistryDeliveryNoteIds` (`syncNotes` cursor scan for notes the registry sent us), `getChainTip`. |
-| `resolver.ts` | `resolveMidenName(label)` → bech32 or null, accepted only when the forward map and the reverse map agree; `reverseResolveMidenName(account)`. 60 s cache. RPC errors are thrown, not cached. Always on where the network has a deployment: the send flow and the reverse check gate on `isMidenNameSupported()` only. Until the registry maps have records, a name gives "Name not found" (`midenNameNotFound`). |
-| `register-domain-script.ts` | GENERATED. The serialized register script and its root. Do not edit by hand. |
-| `script.ts` | `loadRegisterDomainScript()`: deserializes the script and refuses a root mismatch. |
-| `note.ts` | `buildRegisterNameRequest()`: fresh chain tip, reclaim height, random fee salt, then under `withWasmClientLock` (`assertWasmHoldCurrent` after the account read) builds the note and serializes the request. Build ONCE per tap and keep the bytes on the row: the serial and the salt are random, and a rebuild changes the note id. |
-| `guard.ts` | `assertRegistrationPreconditions()` before the tap and `assertMidenNameRegistrationLive()` immediately before every submit (both pipeline branches): fresh status, price, allowlist, fee, script root, and `tip < reclaimHeight - 20`. RPC only. |
-| `registrations.ts` | Dexie live queries over `register-name` rows: `phaseOf`, `uiStateOf`, `useMidenNameRegistrations`, `useOwnedMidenName`. A `Completed` row still at phase `requested` counts as `submitted`. |
-| `tracker.ts` | `reconcileMidenNameRegistrations()`: one pass over the non-terminal rows (see "State machine"). RPC and Dexie only; the only WASM entry is `initiateConsumeTransactionFromId`. |
-| `MidenNameWatcher.tsx` | Mounted in `src/lib/miden/front/provider.tsx`. Runs the tracker every 10 s while a wallet UI is open, skips when the document is hidden, single-flight through `navigator.locks` (`ifAvailable`). |
-| `useMidenNameResolvesHere.ts` | Reverse check for the "resolves to this account" pill. Runs where the network has a deployment; false until the registry has a reverse record for the account. |
-| `nfa.ts` | Stubs for the parts that need the SDK NFA binding: `accountHoldsDomainNfa` → `'unsupported'`, `publishRegistryRecord` throws, `REGISTRY_PUBLISHING_SUPPORTED = false`. The UI binds its disabled "Publish" / "Clear" controls to this flag. |
-| `errors.ts` | Typed errors (`MidenNameTakenError`, `MidenNamePriceChangedError`, `MidenNameScriptNotAllowedError`, …). |
-| `test-support/fake-sdk.ts` | Typed fake of the SDK classes for the unit tests. |
+| File                          | Purpose                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.ts`                   | `getMidenNameConfig()`, `isMidenNameSupported()`, the storage slot names (`MIDEN_NAME_SLOTS`), the pinned script root and protocol constants.                                                                                                                                                                                                                                                                    |
+| `encoding.ts`                 | Pure bigint code, no SDK import: label validation and normalisation, domain word encode/decode, commitment preimage, map-key felts, `registerNoteInputs`. Fully unit tested with on-chain fixtures (`miden` → `[0, 0, 60213692685, 5]`).                                                                                                                                                                         |
+| `sdk-words.ts`                | The only SDK glue for felts: `Word` conversions, `Poseidon2` commitment, `decodeAccountWord`. Makes NEW wasm objects on every call.                                                                                                                                                                                                                                                                              |
+| `reads.ts`                    | `fetchMidenNameQuote` (availability + price + allowlist + fee in ONE proof, 30 s cache, `fresh` bypass), `fetchMidenNameIssued`, `fetchRegistrationNoteState` (network-note status; a not-found id is reported as `unknown`), `findRegistryDeliveryNoteIds` (`syncNotes` cursor scan for notes the registry sent us), `getChainTip`.                                                                             |
+| `resolver.ts`                 | `resolveMidenName(label)` → bech32 or null, accepted only when the forward map and the reverse map agree; `reverseResolveMidenName(account)`. 60 s cache. RPC errors are thrown, not cached. Always on where the network has a deployment: the send flow and the reverse check gate on `isMidenNameSupported()` only. Until the registry maps have records, a name gives "Name not found" (`midenNameNotFound`). |
+| `note-script-roots.ts`        | The pinned MAST roots and byte sizes of the register-domain and registry scripts, and the path of the asset.                                                                                                                                                                                                                                                                                                     |
+| `script.ts`                   | `loadRegisterDomainScript()` / `loadRegistryNoteScript()`: fetch `public/miden-name/note-scripts.json` once per realm (cached, a failed fetch is retried), check the declared root and size against the pins, deserialize, and refuse a MAST root mismatch. Async: `note.ts` loads the script BEFORE it takes the WASM lock.                                                                                     |
+| `note.ts`                     | `buildRegisterNameRequest()`: fresh chain tip, reclaim height, random fee salt, then under `withWasmClientLock` (`assertWasmHoldCurrent` after the account read) builds the note and serializes the request. Build ONCE per tap and keep the bytes on the row: the serial and the salt are random, and a rebuild changes the note id.                                                                            |
+| `guard.ts`                    | `assertRegistrationPreconditions()` before the tap and `assertMidenNameRegistrationLive()` immediately before every submit (both pipeline branches): fresh status, price, allowlist, fee, script root, and `tip < reclaimHeight - 20`. RPC only.                                                                                                                                                                 |
+| `registrations.ts`            | Dexie live queries over `register-name` rows: `phaseOf`, `uiStateOf`, `useMidenNameRegistrations`, `useOwnedMidenName`. A `Completed` row still at phase `requested` counts as `submitted`.                                                                                                                                                                                                                      |
+| `tracker.ts`                  | `reconcileMidenNameRegistrations()`: one pass over the non-terminal rows (see "State machine"). RPC and Dexie only; the only WASM entry is `initiateConsumeTransactionFromId`.                                                                                                                                                                                                                                   |
+| `MidenNameWatcher.tsx`        | Mounted in `src/lib/miden/front/provider.tsx`. Runs the tracker every 10 s while a wallet UI is open, skips when the document is hidden, single-flight through `navigator.locks` (`ifAvailable`).                                                                                                                                                                                                                |
+| `useMidenNameResolvesHere.ts` | Reverse check for the "resolves to this account" pill. Runs where the network has a deployment; false until the registry has a reverse record for the account.                                                                                                                                                                                                                                                   |
+| `nfa.ts`                      | Stubs for the parts that need the SDK NFA binding: `accountHoldsDomainNfa` → `'unsupported'`, `publishRegistryRecord` throws, `REGISTRY_PUBLISHING_SUPPORTED = false`. The UI binds its disabled "Publish" / "Clear" controls to this flag.                                                                                                                                                                      |
+| `errors.ts`                   | Typed errors (`MidenNameTakenError`, `MidenNamePriceChangedError`, `MidenNameScriptNotAllowedError`, …).                                                                                                                                                                                                                                                                                                         |
+| `test-support/fake-sdk.ts`    | Typed fake of the SDK classes for the unit tests.                                                                                                                                                                                                                                                                                                                                                                |
 
 ## State of record
 
@@ -101,12 +102,12 @@ except `claiming → issued` (a failed claim re-queues), and nothing moves `fail
 
 Per row on the current network that is not `restoredFromBackup`:
 
-| Row state | Read | Result |
-| --- | --- | --- |
-| status `Failed` | – | `failed / tx-failed` |
-| `Completed` + `submitted` (or `requested`) | `fetchRegistrationNoteState(registrationNoteId)` | `consumed` and `asset_status` = 1 → `issued`; `discarded` → `failed / taken` if the label is issued by someone else, else `failed / discarded`; `pending`/`inflight`/`unknown` with `tip > reclaimHeight` → `failed / expired` |
-| `issued` | `findRegistryDeliveryNoteIds` from `builtAtBlock` (cursor in `deliveryScanFrom`) | first note with no live consume row → `initiateConsumeTransactionFromId` → `tagConsumeAsMidenNameClaim` → `claiming`, then kick processing; a "not found" (local store not synced yet) retries next tick |
-| `claiming` | the claim row | `Completed` → `owned` (the consume completion also writes this); `Failed` → back to `issued` with `lastError` |
+| Row state                                  | Read                                                                             | Result                                                                                                                                                                                                                         |
+| ------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| status `Failed`                            | –                                                                                | `failed / tx-failed`                                                                                                                                                                                                           |
+| `Completed` + `submitted` (or `requested`) | `fetchRegistrationNoteState(registrationNoteId)`                                 | `consumed` and `asset_status` = 1 → `issued`; `discarded` → `failed / taken` if the label is issued by someone else, else `failed / discarded`; `pending`/`inflight`/`unknown` with `tip > reclaimHeight` → `failed / expired` |
+| `issued`                                   | `findRegistryDeliveryNoteIds` from `builtAtBlock` (cursor in `deliveryScanFrom`) | first note with no live consume row → `initiateConsumeTransactionFromId` → `tagConsumeAsMidenNameClaim` → `claiming`, then kick processing; a "not found" (local store not synced yet) retries next tick                       |
+| `claiming`                                 | the claim row                                                                    | `Completed` → `owned` (the consume completion also writes this); `Failed` → back to `issued` with `lastError`                                                                                                                  |
 
 The delivery note carries ONLY the NFA. The wallet's normal claimable-notes paths drop
 notes without a fungible asset (`sync-manager.ts`, `front/claimable-notes.ts`), which is why
@@ -140,10 +141,11 @@ Registry-note storage layout (from the Digine handoff):
 
 Blocked on two external items:
 
-- **The `registry-note` script bytes.** Not released by Digine Labs. Only 13 script roots
-  are on the registry's allowlist, so a script compiled locally is rejected. Ask for the
-  reviewed serialized builder (their generated `domain-v016.json` has the register scripts
-  but not this one).
+- ~~The `registry-note` script bytes.~~ Vendored: `registry` in
+  `public/miden-name/note-scripts.json`, root `0xb862b950…ca05`, taken from the
+  `noteScripts` artifact that the miden.name dApp bundle ships and confirmed by Digine
+  Labs as the v0.16 registry script. Only 13 script roots are on the registry's
+  allowlist, so a script compiled locally is rejected; keep the vendored bytes.
 - **Non-fungible assets in the web SDK.** `NoteAssets` accepts only `FungibleAsset` and
   `AssetVault` exposes only fungible assets in SDK 0.16.x, so the wallet cannot put the
   NFA into a note nor enumerate owned NFAs. Once the binding exists, implement

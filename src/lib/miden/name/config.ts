@@ -5,7 +5,7 @@
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NAME_DEPLOYMENTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
-import { REGISTER_DOMAIN_SCRIPT_ROOT_HEX } from './register-domain-script';
+import { REGISTER_DOMAIN_SCRIPT_ROOT_HEX } from './note-script-roots';
 
 export { MIDEN_NAME_MAX_LENGTH, MIDEN_NAME_SUFFIX } from './encoding';
 

@@ -129,45 +129,57 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
     throw new RangeError(`Reclaim height ${reclaimHeight} does not fit in a u32`);
   }
   const feeSalt = randomFeeSalt();
+  // The script bytes come from a static asset. Fetch them BEFORE the lock, so
+  // that a slow fetch does not park the client. The script is a plain SDK
+  // object, not a client call, so it needs no lock.
+  const script = await loadRegisterDomainScript();
+  let scriptOwned = true;
 
-  return withWasmClientLock(
-    async hold => {
-      const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
-      // An eviction during the read gives the mutex to a successor. The account
-      // object is a borrow of that client, so stop before a read of its vault.
-      // This hold only builds the request; nothing is submitted, so a stop is safe.
-      assertWasmHoldCurrent(hold, 'miden-name-register-build: after the sender account read');
+  try {
+    return await withWasmClientLock(
+      async hold => {
+        const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
+        // An eviction during the read gives the mutex to a successor. The account
+        // object is a borrow of that client, so stop before a read of its vault.
+        // This hold only builds the request; nothing is submitted, so a stop is safe.
+        assertWasmHoldCurrent(hold, 'miden-name-register-build: after the sender account read');
 
-      const registry = AccountId.fromHex(config.registryAccountIdHex);
-      if (!registry.isPublic()) {
-        throw new MidenNameRegistryMismatchError('the registry account is not public');
-      }
-      const sender = toAccountId(args.senderAccountId);
-      const asset = resolveHeldFungibleAsset(
-        senderAccount ?? undefined,
-        config.paymentFaucetIdHex,
-        args.priceBaseUnits
-      );
-      const script = loadRegisterDomainScript();
-      const inputs = registerNoteInputs(idParts(registry), domainWord, reclaimHeight);
-      const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
-      const note = Note.withAttachments(
-        new NoteAssets([asset]),
-        new NoteMetadata(sender, NoteType.Public, NoteTag.withAccountTarget(registry)),
-        new NoteRecipient(randomSerialWord(), script, storage),
-        [new NetworkAccountTarget(registry).toAttachment()]
-      );
-      // Read the id BEFORE the note goes into the NoteArray: that call moves
-      // the note into Rust.
-      const registrationNoteId = note.id().toString();
-      // The salt goes on the builder: a finished `TransactionRequest` has no setter.
-      const requestBytes = new TransactionRequestBuilder()
-        .withOwnOutputNotes(new NoteArray([note]))
-        .withFeeConversionSalt(feeSalt)
-        .build()
-        .serialize();
-      return { requestBytes, registrationNoteId, reclaimHeight, builtAtBlock };
-    },
-    { label: 'miden-name-register-build' }
-  );
+        const registry = AccountId.fromHex(config.registryAccountIdHex);
+        if (!registry.isPublic()) {
+          throw new MidenNameRegistryMismatchError('the registry account is not public');
+        }
+        const sender = toAccountId(args.senderAccountId);
+        const asset = resolveHeldFungibleAsset(
+          senderAccount ?? undefined,
+          config.paymentFaucetIdHex,
+          args.priceBaseUnits
+        );
+        const inputs = registerNoteInputs(idParts(registry), domainWord, reclaimHeight);
+        const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
+        // The recipient takes the script: from here the note owns it.
+        scriptOwned = false;
+        const note = Note.withAttachments(
+          new NoteAssets([asset]),
+          new NoteMetadata(sender, NoteType.Public, NoteTag.withAccountTarget(registry)),
+          new NoteRecipient(randomSerialWord(), script, storage),
+          [new NetworkAccountTarget(registry).toAttachment()]
+        );
+        // Read the id BEFORE the note goes into the NoteArray: that call moves
+        // the note into Rust.
+        const registrationNoteId = note.id().toString();
+        // The salt goes on the builder: a finished `TransactionRequest` has no setter.
+        const requestBytes = new TransactionRequestBuilder()
+          .withOwnOutputNotes(new NoteArray([note]))
+          .withFeeConversionSalt(feeSalt)
+          .build()
+          .serialize();
+        return { requestBytes, registrationNoteId, reclaimHeight, builtAtBlock };
+      },
+      { label: 'miden-name-register-build' }
+    );
+  } catch (error) {
+    // A failure before the recipient took the script leaves it with us: free it.
+    if (scriptOwned) script.free();
+    throw error;
+  }
 }
