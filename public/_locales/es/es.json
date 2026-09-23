@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "El segundo nombre no está disponible en esta red.",
+  "contactAddressOrMidenName": "Dirección o nombre de pila",
+  "contactAddressOrMidenNamePlaceholder": "Introduce una dirección o un nombre.miden",
+  "contactResolvedAddress": "Dirección resuelta: $address$",
   "midenNameReceiptTransaction": "Nombre de la transacción de recepción",
   "payload": "Carga útil",
   "bridgeDepositTitle": "Miden Bridge",

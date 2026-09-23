@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "Nazwisko „Miden” nie jest dostępne w tej sieci.",
+  "contactAddressOrMidenName": "Adres lub drugie imię",
+  "contactAddressOrMidenNamePlaceholder": "Wpisz adres lub nazwę.miden",
+  "contactResolvedAddress": "Adres rozwiązania: $address$",
   "midenNameReceiptTransaction": "Nazwa transakcji odbioru",
   "payload": "Ładunek",
   "bridgeDepositTitle": "Miden Bridge",

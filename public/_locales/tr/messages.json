@@ -1,4 +1,25 @@
 {
+  "midenNameUnsupportedNetwork": {
+    "message": "Bu ağda Miden Name özelliği mevcut değildir.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Adres veya İkinci Ad",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Bir adres veya isim girin.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Çözümlenen adres: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "midenNameReceiptTransaction": {
     "message": "Adlı makbuz işlemi",
     "englishSource": "Name receipt transaction"

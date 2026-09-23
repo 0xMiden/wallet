@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "このネットワークではミドルネームは利用できません。",
+  "contactAddressOrMidenName": "住所またはミドルネーム",
+  "contactAddressOrMidenNamePlaceholder": "アドレスまたは名前を入力してください。miden",
+  "contactResolvedAddress": "解決済みアドレス：$address$",
   "midenNameReceiptTransaction": "受領トランザクションの名称",
   "payload": "ペイロード",
   "bridgeDepositTitle": "Miden Bridge",

@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "Le nom de milieu n’est pas disponible sur ce réseau.",
+  "contactAddressOrMidenName": "Adresse ou nom de famille",
+  "contactAddressOrMidenNamePlaceholder": "Saisissez une adresse ou un nom.miden",
+  "contactResolvedAddress": "Adresse de la résolution : $address$",
   "midenNameReceiptTransaction": "Nom de la transaction de réception",
   "payload": "Charge utile",
   "bridgeDepositTitle": "Miden Bridge",

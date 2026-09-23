@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "Посереднє ім’я у цій мережі недоступне.",
+  "contactAddressOrMidenName": "Адреса або середнє ім’я",
+  "contactAddressOrMidenNamePlaceholder": "Введіть адресу або ім’я.miden",
+  "contactResolvedAddress": "Адреса, що вирішила проблему: $address$",
   "midenNameReceiptTransaction": "Назва транзакції отримання",
   "payload": "Корисне навантаження",
   "bridgeDepositTitle": "Miden Bridge",

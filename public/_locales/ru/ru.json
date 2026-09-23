@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "Фиминия в этой сети недоступна.",
+  "contactAddressOrMidenName": "Адрес или отчество",
+  "contactAddressOrMidenNamePlaceholder": "Введите адрес или имя.miden",
+  "contactResolvedAddress": "Адрес решения: $address$",
   "midenNameReceiptTransaction": "Название транзакции получения",
   "payload": "Полезная нагрузка",
   "bridgeDepositTitle": "Miden Bridge",

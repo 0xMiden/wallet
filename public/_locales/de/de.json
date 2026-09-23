@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "Der zweite Vorname ist in diesem Netzwerk nicht verfügbar.",
+  "contactAddressOrMidenName": "Adresse oder zweiter Vorname",
+  "contactAddressOrMidenNamePlaceholder": "Geben Sie eine Adresse oder einen Namen ein.miden",
+  "contactResolvedAddress": "Aufgelöste Adresse: $address$",
   "midenNameReceiptTransaction": "Transaktion zur Quittungsausstellung",
   "payload": "Nutzlast",
   "bridgeDepositTitle": "Miden Bridge",
