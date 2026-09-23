@@ -41,7 +41,7 @@ const cardVariants = cva('rounded-2xl text-left', {
   defaultVariants: { surface: 'fill', padding: 'tile', interactive: false }
 });
 
-export type CardSurface = NonNullable<VariantProps<typeof cardVariants>['surface']>;
+type CardSurface = NonNullable<VariantProps<typeof cardVariants>['surface']>;
 
 export interface CardProps {
   children: React.ReactNode;
@@ -100,7 +100,6 @@ export interface CardButtonProps extends Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
   FramerConflictingHandlers
 > {
-  surface?: CardSurface;
   padding?: CardPadding;
   /** Layout only (margins, width, flex). */
   className?: string;
@@ -112,7 +111,7 @@ export interface CardButtonProps extends Omit<
  * `fill-pressed` state and a focus ring.
  */
 export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(function CardButton(
-  { surface, padding, className, disabled, onClick, children, ...props },
+  { padding, className, disabled, onClick, children, ...props },
   ref
 ) {
   const press = usePreset('press');
@@ -124,7 +123,7 @@ export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(f
       disabled={disabled}
       whileTap={disabled ? undefined : press.whileTap}
       transition={press.transition}
-      className={cn(cardVariants({ surface, padding, interactive: true }), className)}
+      className={cn(cardVariants({ padding, interactive: true }), className)}
       {...props}
       onClick={e => {
         hapticLight();
