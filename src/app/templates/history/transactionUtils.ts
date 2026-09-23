@@ -231,6 +231,19 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
 const symbolOrUndefined = (symbol: string | undefined): string | undefined =>
   symbol === undefined || /^0x[0-9a-fA-F]{40}$/.test(symbol) ? undefined : symbol;
 
+/** Display name of the bridge-in route. A row with no provider predates the field and was Epoch. */
+const bridgeInProviderLabel = (provider: IHistoryEntry['bridgeInProvider']): string => {
+  switch (provider) {
+    case 'agglayer':
+      return 'Agglayer';
+    case 'usdcx':
+      return 'Circle xReserve';
+    case 'epoch':
+    default:
+      return 'Epoch';
+  }
+};
+
 /** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
 export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
   entry.txType === 'bridged-receive' || (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
@@ -248,7 +261,7 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? entry.amount?.toString()
       : (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString());
-  const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
+  const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };
 

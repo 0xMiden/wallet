@@ -129,8 +129,19 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
   }
   if (inputs.phase === 'submitting' && !resumeOrphans) return;
 
-  if (inputs.provider === 'agglayer') await reconcileAgglayerRow(row, inputs);
-  else await reconcileEpochRow(row, inputs);
+  switch (inputs.provider) {
+    case 'agglayer':
+      await reconcileAgglayerRow(row, inputs);
+      return;
+    case 'usdcx':
+      // The screen moves a USDCx row to `delivering` on the Sepolia receipt and
+      // nothing on Miden matches the mint yet, so there is nothing to poll. The
+      // timeout above still closes the row.
+      return;
+    case 'epoch':
+    default:
+      await reconcileEpochRow(row, inputs);
+  }
 }
 
 async function readUnsettledRows(): Promise<ITransaction[]> {

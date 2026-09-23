@@ -28,7 +28,7 @@ export interface RouteStepProps {
   onConfirm: () => void;
 }
 
-interface RouteCardProps {
+export interface RouteCardProps {
   emoji: string;
   label: string;
   selected: boolean;
@@ -39,7 +39,8 @@ interface RouteCardProps {
   accent: FlowAccent;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId, accent }) => (
+/** One selectable route row. Shared with the USDCx deposit route step. */
+export const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId, accent }) => (
   <button
     type="button"
     data-testid={testId}

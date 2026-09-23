@@ -100,6 +100,11 @@ describe('EvmBridgeDepositReview', () => {
       render(<EvmBridgeDepositReview {...baseProps({ route: 'agglayer' })} />);
       expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
     });
+
+    it('labels the Circle xReserve route "USDCx" with its arrival estimate', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx' })} />);
+      expect(screen.getByText('usdcxRouteName usdcxArrival')).toBeInTheDocument();
+    });
   });
 
   describe('you receive row', () => {
@@ -112,6 +117,18 @@ describe('EvmBridgeDepositReview', () => {
     it('shows the quoted "≈ {amount} {symbol}" label once an output amount is known', () => {
       render(<EvmBridgeDepositReview {...baseProps({ symbol: 'USDC', outputAmount: '9.98' })} />);
       expect(screen.getByText('≈ 9.98 USDC')).toBeInTheDocument();
+    });
+
+    // A USDC deposit through xReserve arrives as USDCx: the hero keeps the source
+    // symbol and only the You Receive row shows the Miden-side one.
+    it('shows the output symbol on the You Receive row when it differs from the source', () => {
+      render(
+        <EvmBridgeDepositReview
+          {...baseProps({ symbol: 'USDC', outputSymbol: 'USDCx', outputAmount: '10', route: 'usdcx' })}
+        />
+      );
+      expect(screen.getByText('≈ 10 USDCx')).toBeInTheDocument();
+      expect(screen.getAllByText('10 USDC')).toHaveLength(2);
     });
 
     it('falls back to the bare symbol when no output amount has been quoted yet', () => {

@@ -1004,7 +1004,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-5">
                   <DetailSection title={t('bridgeDetails')}>
                     <DetailRow label={t('route')}>
-                      {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
+                      {(() => {
+                        switch (entry.bridgeInProvider) {
+                          case 'epoch':
+                            return t('fastRouteLabel');
+                          case 'usdcx':
+                            return t('usdcxRouteLabel');
+                          case 'agglayer':
+                          default:
+                            return t('slowRouteLabel');
+                        }
+                      })()}
                     </DetailRow>
                     {entry.bridgeInEvmTxHash && (
                       <DetailRow label={t('txIdLabel')}>

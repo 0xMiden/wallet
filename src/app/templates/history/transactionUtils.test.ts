@@ -648,6 +648,28 @@ describe('bridgeInRowDisplay', () => {
       status: 'confirmed'
     });
   });
+
+  it('labels a Circle xReserve deposit and keeps USDC in, USDCx out', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'usdcx',
+          bridgeInSourceSymbol: 'USDC',
+          bridgeInOutputSymbol: 'USDCx',
+          bridgeInOutputAmount: '5'
+        })
+      )
+    ).toEqual({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      outAmount: '5.00',
+      providerLabel: 'Circle xReserve',
+      network: 'Miden',
+      status: 'pending'
+    });
+  });
 });
 
 describe('swap settlement state', () => {
