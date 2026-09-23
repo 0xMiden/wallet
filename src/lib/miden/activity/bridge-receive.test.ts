@@ -575,3 +575,40 @@ describe('deposit submissions', () => {
     expect(drive).not.toHaveBeenCalled();
   });
 });
+
+// A USDCx (Circle xReserve) row is driven to `delivering` by the deposit screen
+// and nothing on Miden matches its mint yet, so the reconciler must leave it
+// alone: in particular it must NOT fall into the Epoch branch, which would poll
+// the Epoch SDK with no intent nonce on every tick.
+describe('reconcileBridgedReceives with a USDCx row', () => {
+  it('leaves a delivering USDCx row untouched', async () => {
+    rows.push({
+      id: 'usdcx-row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: { provider: 'usdcx', phase: 'delivering', evmTxHash: `0x${'5'.repeat(64)}` }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(getIntentStatus).not.toHaveBeenCalled();
+    expect(fetchDeposits).not.toHaveBeenCalled();
+    expect(waitForReceipt).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('still times out a stale USDCx row', async () => {
+    rows.push({
+      id: 'usdcx-old',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      initiatedAt: WEEK_AGO_SEC,
+      extraInputs: { provider: 'usdcx', phase: 'delivering', evmTxHash: `0x${'5'.repeat(64)}` }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-old', 'failed', { error: 'Bridge delivery timed out.' });
+  });
+});
