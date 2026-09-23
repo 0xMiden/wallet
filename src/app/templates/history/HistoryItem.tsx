@@ -11,7 +11,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
-import { IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameRowTitle } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
   bridgeInRowDisplay,
@@ -62,7 +62,11 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
-  const title = isFaucet ? t('faucetRequest') : entry.message;
+  const nameTitle =
+    entry.type === HistoryEntryType.CompletedTransaction && entry.transactionIcon !== 'FAILED' && !entry.isCancelled
+      ? midenNameRowTitle(entry, t)
+      : undefined;
+  const title = isFaucet ? t('faucetRequest') : (nameTitle ?? entry.message);
   return (
     <div
       className={classNames(

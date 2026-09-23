@@ -24,12 +24,13 @@ import {
 } from 'lib/miden/db/types';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { formatMidenName } from 'lib/miden/name/encoding';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameLabelOf } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
@@ -256,7 +257,9 @@ const History = memo<HistoryProps>(
           // for one has to find it — otherwise typing a symbol the user can see
           // hides the very row showing it.
           e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-          e.secondaryAddress?.toLowerCase().includes(query)
+          e.secondaryAddress?.toLowerCase().includes(query) ||
+          // The row title shows the full name ("alice.miden"), so search for it too.
+          (e.midenNameLabel !== undefined && formatMidenName(e.midenNameLabel).includes(query))
       );
     }
     if (filter && filter !== 'all') {
@@ -307,7 +310,7 @@ export default History;
 
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {
-  return txType === 'send' || txType === 'bridged-send';
+  return txType === 'send' || txType === 'bridged-send' || txType === 'register-name';
 }
 
 async function fetchTransactionsAsHistoryEntries(
@@ -418,7 +421,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
 
     return entry;
@@ -484,7 +488,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
-      earnDepositStatus: earnDeposit?.epochStatus
+      earnDepositStatus: earnDeposit?.epochStatus,
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

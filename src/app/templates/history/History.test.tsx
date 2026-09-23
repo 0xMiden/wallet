@@ -1226,6 +1226,77 @@ describe('History earn entries', () => {
   });
 });
 
+describe('History Miden Name entries', () => {
+  it('carries the name label on a registration and on the consume that claimed the name', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'RN',
+              type: 'register-name',
+              status: 2,
+              completedAt: 5000,
+              faucetId: 'fa1',
+              amount: 20n,
+              secondaryAccountId: 'mtst1registry',
+              extraInputs: { label: 'alice', phase: 'submitted', registrationNoteId: '0xnote' },
+              displayMessage: 'Name requested',
+              displayIcon: 'SEND'
+            },
+            // The name claim: no fungible asset, so no faucet and no amount.
+            {
+              id: 'NC',
+              type: 'consume',
+              status: 2,
+              completedAt: 6000,
+              secondaryAccountId: 'mtst1registry',
+              extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'RN' } },
+              displayMessage: 'Name received',
+              displayIcon: 'RECEIVE'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+
+    const registration = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-RN');
+    expect(registration.midenNameLabel).toBe('alice');
+    expect(registration.amount).toBe('fmt(20,6)');
+    expect(registration.token).toBe('TKF');
+
+    const claim = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-NC');
+    expect(claim.midenNameLabel).toBe('alice');
+    expect(claim.amount).toBeUndefined();
+    expect(claim.token).toBeUndefined();
+    expect(claim.extraAmounts).toBeUndefined();
+  });
+
+  it('finds a registration by its full name', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'RN',
+              type: 'register-name',
+              status: 2,
+              completedAt: 5000,
+              extraInputs: { label: 'alice', phase: 'submitted' },
+              displayMessage: 'Name requested',
+              displayIcon: 'SEND'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory({ searchQuery: 'alice.miden' });
+
+    expect(mockHistoryViewProps.entries.map((e: any) => e.key)).toEqual(['completed-RN']);
+  });
+});
+
 it('suppresses a consume row represented by its claiming note, but retains a batch with other notes', async () => {
   mockGetCompletedTransactions.mockResolvedValue([]);
   mockGetUncompletedTransactions.mockResolvedValue([

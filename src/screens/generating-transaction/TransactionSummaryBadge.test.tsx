@@ -409,6 +409,31 @@ describe('useTransactionSummaryBadgeContent', () => {
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('8 MIDEN');
     act(() => root.unmount());
   });
+
+  it('builds "{name} · {price} MIDEN" for a register-name row', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'register-name',
+        amount: 20000000n,
+        faucetId: 'faucet-miden',
+        secondaryAccountId: 'mtst1registry',
+        extraInputs: { label: 'alice', phase: 'requested' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('alice.miden');
+    expect(container.textContent).toContain('·');
+    expect(container.textContent).toContain('20000000 MIDEN');
+    expect(mockFormatAmount).toHaveBeenLastCalledWith(20000000n, 6);
+    act(() => root.unmount());
+  });
+
+  it('returns undefined for a register-name row with no label', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'register-name', amount: 20000000n, faucetId: 'faucet-miden' })
+    );
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
 });
 
 // The activity hues live in main.css, are mirrored in TRANSACTION_COLORS, and were mirrored a

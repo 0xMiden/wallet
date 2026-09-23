@@ -2800,3 +2800,87 @@ describe('HistoryDetails earn-deposit', () => {
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', '1');
   });
 });
+
+describe('HistoryDetails Miden Name', () => {
+  const registerNameTx = (extraInputs: Tx = {}, overrides: Tx = {}): Tx => ({
+    ...baseSendTx,
+    type: 'register-name',
+    secondaryAccountId: 'mtst1registry',
+    amount: 20_000_000n,
+    displayMessage: 'Name requested',
+    extraInputs: {
+      label: 'alice',
+      network: 'testnet',
+      registrationNoteId: '0xregnote',
+      phase: 'submitted',
+      ...extraInputs
+    },
+    ...overrides
+  });
+
+  it('reads a registration as outbound: From this account, To the registry', async () => {
+    setMockRow(registerNameTx());
+    await renderAndLoad();
+
+    const from = rowByLabel('from');
+    const to = rowByLabel('to');
+    expect(from?.querySelector('a')).toHaveAttribute('href', 'https://custom-explorer.test/account/acct-A');
+    expect(to?.querySelector('a')).toHaveAttribute('href', 'https://custom-explorer.test/account/mtst1registry');
+  });
+
+  it('lists the name, registry, registration note and phase', async () => {
+    setMockRow(registerNameTx());
+    await renderAndLoad();
+
+    const section = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+      el => el.getAttribute('data-title') === 'midenName'
+    );
+    expect(section).toBeDefined();
+    expect(screen.getByTestId('history-miden-name')).toHaveTextContent('alice.miden');
+    expect(rowByLabel('midenNameReceiptRegistry')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://custom-explorer.test/account/mtst1registry'
+    );
+    expect(rowByLabel('midenNameReceiptNoteId')).toHaveTextContent('0xregnote');
+    // `submitted` is not terminal, so the UI state is "claiming".
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateClaiming');
+  });
+
+  it('shows Owned once the name is in the account', async () => {
+    setMockRow(registerNameTx({ phase: 'owned' }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateOwned');
+  });
+
+  it('shows Failed for a failed row whose stored phase is not terminal yet', async () => {
+    setMockRow(registerNameTx({ phase: 'requested' }, { status: 3 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateFailed');
+  });
+
+  // The claim of a name moves only a non-fungible asset: the row has no
+  // faucet and no amount, and the page must not invent one.
+  it('renders a name claim with no amount as the name, without NaN, undefined or +0', async () => {
+    setMockRow({
+      ...baseSendTx,
+      type: 'consume',
+      faucetId: undefined,
+      amount: undefined,
+      assetTotals: [],
+      displayMessage: 'Name received',
+      displayIcon: 'RECEIVE',
+      secondaryAccountId: 'mtst1registry',
+      outputNoteIds: [],
+      noteIds: ['0xdelivery'],
+      extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'reg-1' } }
+    });
+    await renderAndLoad();
+
+    expect(screen.getByText('alice.miden')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/NaN|undefined|\+0/);
+    // A claim is not a registration: no registration section.
+    expect(screen.queryByTestId('history-miden-name')).toBeNull();
+  });
+});

@@ -30,7 +30,8 @@ jest.mock('app/icons/v2', () => ({
     Convert: 'Convert',
     Earn: 'Earn',
     More: 'More',
-    ArrowUpDown: 'ArrowUpDown'
+    ArrowUpDown: 'ArrowUpDown',
+    User: 'User'
   }
 }));
 
@@ -1201,4 +1202,64 @@ it('keeps an undated note visible without assigning a false date', () => {
   );
   expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
   expect(screen.getByText('Pending note')).toBeInTheDocument();
+});
+
+describe('HistoryView Miden Name rows', () => {
+  it('titles a completed registration "Registered {name}" with the brand glyph and a debit', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Name requested',
+      transactionIcon: 'SEND',
+      amount: '20',
+      token: 'MIDEN',
+      secondaryAddress: 'mtst1registry_addr1234',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('historyRegisteredName');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-accent-primary');
+    expect(iconNameIn(row)).toBe('User');
+    expect(row).toHaveAttribute('data-amount-value', '-20');
+    expect(row).toHaveAttribute('data-amount-symbol', 'MIDEN');
+  });
+
+  it('keeps the progress message while the registration is still processing', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Registering name',
+      transactionIcon: 'SEND',
+      type: HistoryEntryType.ProcessingTransaction,
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(rowByTitle('Registering name')).toHaveAttribute('data-status', 'pending');
+  });
+
+  // A name claim moves no fungible asset: the row must not invent "+0",
+  // "NaN" or "undefined" for the missing amount.
+  it('titles a name claim "Received {name}" and renders no amount', () => {
+    const entry = makeEntry({
+      txType: 'consume',
+      message: 'Name received',
+      transactionIcon: 'RECEIVE',
+      secondaryAddress: 'mtst1registry_addr1234',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('historyReceivedName');
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', '');
+    expect(row.outerHTML).not.toMatch(/NaN|undefined|\+0/);
+  });
+
+  it('shows the failure title, not the name, for a failed registration', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Transaction failed',
+      transactionIcon: 'FAILED',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(rowByTitle('Transaction failed')).toHaveAttribute('data-status', 'failed');
+  });
 });

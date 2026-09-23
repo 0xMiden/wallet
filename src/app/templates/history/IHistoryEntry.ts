@@ -2,14 +2,18 @@ import {
   IBridgeClaimStatus,
   IBridgeProvider,
   IBridgedReceivePhase,
+  IConsumeMidenNameExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   INoteDeliveryState,
+  IRegisterNameExtraInputs,
+  ITransaction,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import { formatMidenName } from 'lib/miden/name/encoding';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
@@ -155,6 +159,54 @@ export interface IHistoryEntry {
    * status — is what the row's status chip must reflect.
    */
   earnDepositStatus?: IEarnDepositExtraInputs['epochStatus'];
+
+  /**
+   * The Miden Name label (without `.miden`) of the row. Set on a `register-name`
+   * row and on a `consume` row that claimed the name (`extraInputs.midenNameClaim`).
+   * The row title then shows the name.
+   */
+  midenNameLabel?: string;
+}
+
+/**
+ * The Miden Name label of a transaction row, for `IHistoryEntry.midenNameLabel`.
+ * Returns undefined for all rows that are not a registration or a name claim.
+ */
+export function midenNameLabelOf(tx: Pick<ITransaction, 'type' | 'extraInputs'>): string | undefined {
+  switch (tx.type) {
+    case 'register-name': {
+      const inputs: Partial<IRegisterNameExtraInputs> | undefined = tx.extraInputs;
+      return inputs?.label || undefined;
+    }
+    case 'consume': {
+      const inputs: Partial<IConsumeMidenNameExtraInputs> | undefined = tx.extraInputs;
+      return inputs?.midenNameClaim?.label || undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Title of a completed Miden Name row: "Registered alice.miden" for the
+ * registration, "Received alice.miden" for the consume that claimed the name.
+ * Returns undefined when the entry has no name. The caller decides which
+ * states (completed, not failed) show this title.
+ */
+export function midenNameRowTitle(
+  entry: Pick<IHistoryEntry, 'txType' | 'midenNameLabel'>,
+  t: (key: string, options?: Record<string, unknown>) => string
+): string | undefined {
+  if (entry.midenNameLabel === undefined) return undefined;
+  const name = formatMidenName(entry.midenNameLabel);
+  switch (entry.txType) {
+    case 'register-name':
+      return t('historyRegisteredName', { name });
+    case 'consume':
+      return t('historyReceivedName', { name });
+    default:
+      return undefined;
+  }
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction
