@@ -3053,9 +3053,42 @@
     "message": "Publicar",
     "englishSource": "Publish"
   },
+  "midenNamePublishing": {
+    "message": "Publicando…",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Verificando o registro…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Redireciona para outra conta",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "Publicação no registro",
+    "englishSource": "Publishing to registry"
+  },
   "midenNameClearRecords": {
     "message": "Remova meus registros do cadastro",
     "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "Nome de publicação",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "Nome da publicação",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "Publicado em $name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageRegisteringName": {
     "message": "Registro do nome",

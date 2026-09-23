@@ -3053,9 +3053,42 @@
     "message": "Yayınla",
     "englishSource": "Publish"
   },
+  "midenNamePublishing": {
+    "message": "Yayınlanıyor…",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Kayıt defterini kontrol ediyorum…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Başka bir hesaba yönlendirilir",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "Kayıt defterine yayınlama",
+    "englishSource": "Publishing to registry"
+  },
   "midenNameClearRecords": {
     "message": "Kayıtlarımı kayıt defterinden sil",
     "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "Yayıncı adı",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "Yayıncı Adı",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "Yayınlandığı tarih$name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageRegisteringName": {
     "message": "Adın kaydedilmesi",

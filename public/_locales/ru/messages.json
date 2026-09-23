@@ -3053,9 +3053,42 @@
     "message": "Опубликовать",
     "englishSource": "Publish"
   },
+  "midenNamePublishing": {
+    "message": "Публикация…",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Проверка реестра…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Перенаправляется на другой аккаунт",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "Публикация в реестре",
+    "englishSource": "Publishing to registry"
+  },
   "midenNameClearRecords": {
     "message": "Удалите мои записи из реестра",
     "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "Имя издателя",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "Имя издателя",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "Опубликовано $name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageRegisteringName": {
     "message": "Регистрация названия",

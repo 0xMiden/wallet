@@ -3053,9 +3053,42 @@
     "message": "公開",
     "englishSource": "Publish"
   },
+  "midenNamePublishing": {
+    "message": "公開中…",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "レジストリを確認中……",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "別のアカウントに解決される",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "レジストリへの公開",
+    "englishSource": "Publishing to registry"
+  },
   "midenNameClearRecords": {
     "message": "レジストリから私の記録を削除してください",
     "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "発行者名",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "発行者名",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "公開日：$name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageRegisteringName": {
     "message": "名称の登録",
