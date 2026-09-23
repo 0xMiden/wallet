@@ -8,12 +8,13 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { navigate } from 'lib/woozie';
 import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
+import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, vaults } = useEarnPositions();
+  const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
 
   return (
     <div className="h-full overflow-hidden bg-page" data-testid="earn-page">
@@ -31,7 +32,11 @@ const Earn: FC = () => {
               </TextAction>
             </div>
 
-            {positions.length === 0 ? (
+            {/* Only a load that settled with nothing says "no positions": while the first load is in
+                flight the slot stays empty, and a failed load with nothing to show says so and retries. */}
+            {positions.length === 0 && isLoading ? null : positions.length === 0 && error ? (
+              <EarnLoadError onRetry={refetch} />
+            ) : positions.length === 0 ? (
               <EmptyState
                 surface="dashed"
                 icon={IconName.Earn}

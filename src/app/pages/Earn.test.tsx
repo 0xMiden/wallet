@@ -109,8 +109,47 @@ describe('Earn page', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/earn/positions');
   });
 
+  it('says nothing about positions while the first load is in flight', () => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, refetch: jest.fn() });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows a retryable load error, not "no positions", when a load failed with nothing to show', () => {
+    const refetch = jest.fn();
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows neither the empty card nor the error while a retry is still loading', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults,
+      isLoading: true,
+      error: 'boom',
+      refetch: jest.fn()
+    });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps last-good positions on screen through a failed refresh', () => {
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, isLoading: false, error: 'boom', refetch: jest.fn() });
+    render(<Earn />);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(positionsSection().querySelector('.overflow-x-auto')).not.toBeNull();
+  });
+
   it('shows the dashed empty state, not the scroll row, when there are no positions', () => {
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults });
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, refetch: jest.fn() });
     render(<Earn />);
 
     const empty = screen.getByTestId('earn-positions-empty');

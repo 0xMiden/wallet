@@ -5,10 +5,10 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { PageHeader } from 'components/PageHeader';
 import { CardButton } from 'components/ui/Card';
-import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, ProviderLogo } from './components';
+import { EarnLoadError } from './EarnLoadError';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -30,24 +30,7 @@ const EarnPositions: FC = () => {
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-4">
           {showLoadError ? (
-            <div
-              className="mt-10 flex flex-col items-center gap-4 text-center"
-              data-testid="earn-positions-load-error"
-              role="alert"
-            >
-              <p className="max-w-xs text-base leading-snug text-ink">{t('earnPositionsLoadError')}</p>
-              <button
-                type="button"
-                data-testid="earn-positions-retry"
-                onClick={() => {
-                  hapticLight();
-                  refetch();
-                }}
-                className="rounded-full bg-fill px-5 py-2.5 text-sm font-bold text-ink hover:bg-fill-pressed focus:bg-fill-pressed"
-              >
-                {t('retry')}
-              </button>
-            </div>
+            <EarnLoadError onRetry={refetch} className="mt-10" />
           ) : (
             <>
               <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
