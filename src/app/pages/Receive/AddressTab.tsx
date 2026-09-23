@@ -16,8 +16,11 @@ import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
-import { resolveTransition, tabBarMotion } from 'lib/animation';
+import { Pill } from 'components/ui/Pill';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { useOwnedMidenName } from 'lib/miden/name/registrations';
+import { useMidenNameResolvesHere } from 'lib/miden/name/useMidenNameResolvesHere';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
@@ -26,6 +29,8 @@ import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
+
+import { MidenNameReceiveRow } from './MidenNameReceiveRow';
 
 interface AddressTabProps {
   address: string;
@@ -113,6 +118,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
+  // Undefined on a network with no Miden Name deployment.
+  const ownedLabel = useOwnedMidenName(address);
+  // Always false in v1: the registry has no records yet.
+  const nameResolvesHere = useMidenNameResolvesHere(address, ownedLabel);
 
   // The logo easter egg. Receive stays mounted when it is left for another Home page or another tab,
   // so leaving it is a change of `usePageActive`, not an unmount: reset the cycle there or the QR
@@ -296,6 +305,51 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               contentClassName="gap-2 font-heading text-base leading-5 font-bold"
             />
           </div>
+          {network && (
+            <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
+          )}
+          {/* The owned name is the headline. The address stays under it as the copy control. */}
+          {ownedLabel !== undefined && (
+            <div className="flex w-full min-w-0 flex-col items-center gap-2">
+              <span
+                data-testid="receive-miden-name-headline"
+                className="max-w-full truncate text-center text-hero-value text-ink"
+              >
+                {formatMidenName(ownedLabel)}
+              </span>
+              {nameResolvesHere ? (
+                <Pill
+                  size="sm"
+                  tone="positive"
+                  icon={<Icon name={IconName.Checkmark} size="xs" />}
+                  className="uppercase"
+                  data-testid="receive-miden-name-resolves"
+                >
+                  {t('midenNameResolvesHere')}
+                </Pill>
+              ) : (
+                <Pill size="sm" tone="neutral" className="text-muted" data-testid="receive-miden-name-unresolved">
+                  {t('midenNameNotYetResolvable')}
+                </Pill>
+              )}
+            </div>
+          )}
+          <CopyButton
+            text={address}
+            data-testid="receive-copy-address"
+            label={truncateAddress(address, false, 16, 8)}
+            icon="leading"
+            iconClassName="text-muted"
+            checkClassName="text-positive-ink"
+            className={cn(
+              'flex items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
+              // Under a name headline the address is a small pill.
+              ownedLabel === undefined ? 'h-11 w-full' : 'h-9 max-w-full'
+            )}
+            contentClassName={
+              ownedLabel === undefined ? 'gap-2 font-heading text-base leading-5 font-bold' : 'gap-2 text-body-sm'
+            }
+          />
         </div>
 
         <div className="mt-2 flex shrink-0 flex-col gap-2">
@@ -309,6 +363,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               onClick={() => void handleShare()}
               data-testid="receive-share"
             />
+            {/* Renders nothing on a network with no Miden Name deployment. */}
+            <MidenNameReceiveRow address={address} />
             {/* WalletConnect is not supported on the extension: the Reown relay
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
                 the AppKit connect flow can never complete there. */}
