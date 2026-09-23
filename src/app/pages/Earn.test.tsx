@@ -53,10 +53,12 @@ jest.mock('screens/earn-flow/useEarnPositions', () => ({
 
 // i18n: the page renders every user-facing string through `t()`. Stub the hook
 // so `t(key)` returns the key verbatim, letting us assert on the stable key
-// instead of the English copy. Interpolated calls (`{asset} on {network}`) also
-// collapse to the bare key under this stub.
+// instead of the English copy. An interpolated call appends its values
+// (`key:a,b`), so a test can see the value it interpolates, not just the key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key}:${Object.values(opts).join(',')}` : key)
+  })
 }));
 
 const mockHaptic = hapticLight as jest.Mock;
@@ -174,7 +176,7 @@ describe('Earn page', () => {
     const firstCard = cards[0]!;
     // Protocol + asset are joined by a bullet in a single node.
     expect(firstCard).toHaveTextContent(`${first.protocol} • ${first.asset}`);
-    expect(firstCard).toHaveTextContent('earnPositionsApy');
+    expect(firstCard).toHaveTextContent(`earnPositionsApy:${first.apy}`);
     expect(firstCard).toHaveTextContent(first.amount);
     expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
 
