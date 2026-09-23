@@ -354,6 +354,33 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(copy.textContent).not.toMatch(/balanceCardAccount/);
   });
 
+  it('shows the alias before the address and still copies the full account id', async () => {
+    render(
+      <BalanceCard
+        accountNumber={ADDRESS}
+        accountId="mtst1aqgfullaccountid940z"
+        accountAlias="alice.miden"
+        amount="$123.45"
+      />
+    );
+
+    const label = screen.getByText(`balanceCardAccountWithName alice.miden ${ADDRESS}`);
+    expect(screen.queryByText(ADDRESS)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(label);
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'mtst1aqgfullaccountid940z' });
+  });
+
+  it('shows the address alone when no alias is given', () => {
+    render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
+
+    expect(screen.getByText(ADDRESS)).toBeInTheDocument();
+    expect(screen.queryByText(/balanceCardAccountWithName/)).toBeNull();
+  });
+
   it('shows the account name beside the address when given one', () => {
     render(<BalanceCard accountNumber={ADDRESS} accountName="Account 1" amount="$123.45" />);
 

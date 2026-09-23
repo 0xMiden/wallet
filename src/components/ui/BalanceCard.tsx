@@ -59,6 +59,11 @@ export interface BalanceCardProps {
   accountId?: string;
   /** The account's name, shown in the footer beside its address. */
   accountName?: string;
+  /**
+   * An alias of the account, such as its Miden Name. When set, the address label shows it before
+   * the address. The copy text does not change.
+   */
+  accountAlias?: string;
   amount: ReactNode;
   currency?: string;
   delta?: {
@@ -118,6 +123,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   accountNumber,
   accountId,
   accountName,
+  accountAlias,
   amount,
   currency = 'USD',
   delta,
@@ -240,7 +246,11 @@ export const BalanceCard: FC<BalanceCardProps> = ({
             text={accountId ?? accountNumber}
             data-testid="balance-card-copy-address"
             aria-label={copied => (copied ? t('balanceCardAddressCopied') : t('balanceCardCopyAddress'))}
-            label={accountNumber}
+            label={
+              accountAlias
+                ? t('balanceCardAccountWithName', { name: accountAlias, number: accountNumber })
+                : accountNumber
+            }
             // The address stays put; the glyph alone morphs to the check.
             copiedLabel={null}
             icon="trailing"
