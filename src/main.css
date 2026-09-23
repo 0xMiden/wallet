@@ -487,21 +487,6 @@ body[data-hide-navbar] [data-navbar-cushion='true'] {
  * padding. On iOS WKWebView that strip is not repainted when TabLayout is
  * replaced, so the last shadow pixels can survive after the footer is gone.
  * Paint the strip explicitly while the navbar is hidden. */
-/* Home's top action bar band continues up through the status-bar safe area,
- * which body paints above #root. TabLayout sets the attribute while Home is
- * the active tab on mobile. */
-body[data-home-band]::before {
-  content: '';
-  position: fixed;
-  z-index: 0;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: env(safe-area-inset-top);
-  background-color: var(--ds-action-bar);
-  pointer-events: none;
-}
-
 body[data-hide-navbar]::after {
   content: '';
   position: fixed;
@@ -514,6 +499,21 @@ body[data-hide-navbar]::after {
    * mobile page only. */
   height: var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)));
   background-color: var(--color-app-bg);
+  pointer-events: none;
+}
+
+/* Home's top action bar band continues up through the status-bar safe area,
+ * which body paints above #root. TabLayout sets the attribute while Home is
+ * the active tab on mobile and its layer is the one on screen. */
+body[data-home-band]::before {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: env(safe-area-inset-top);
+  background-color: var(--ds-action-bar);
   pointer-events: none;
 }
 

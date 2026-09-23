@@ -56,9 +56,10 @@ export interface SegmentedControlProps<T extends string = string> {
   'data-testid'?: string;
 }
 
+export type SegmentedControlAppearance = 'bubble' | 'pills';
+
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
 // bubble's shadow and the focus ring, which a scrolling row would otherwise clip.
-export type SegmentedControlAppearance = 'bubble' | 'pills';
 
 const container = cva('flex items-center py-1', {
   variants: {
