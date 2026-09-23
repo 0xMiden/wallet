@@ -151,11 +151,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               tokenId={tokenId}
               fullHistory={true}
               scrollParentRef={scrollParentRef}
-              emptyState={{
-                surface: 'dashed',
-                title: t('tokenActivityEmptyTitle'),
-                description: t('tokenActivityEmptyBody')
-              }}
             />
           </section>
         </div>

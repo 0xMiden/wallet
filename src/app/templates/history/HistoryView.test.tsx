@@ -257,19 +257,25 @@ describe('HistoryView empty state', () => {
     expect(container.querySelector('.m-4')).toBeNull();
   });
 
-  it('lets a caller replace the empty card: its surface, title and body', () => {
-    render(
-      <HistoryView
-        {...baseProps}
-        entries={[]}
-        fullHistory
-        emptyState={{ surface: 'dashed', title: 'Nothing here', description: 'It will show up.' }}
-      />
-    );
+  it("draws a token's own empty card, dashed, when the history is one token's", () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory tokenId="token-1" />);
     expect(screen.queryByText('noOperationsFound')).toBeNull();
-    expect(screen.getByText('Nothing here')).toBeInTheDocument();
-    expect(screen.getByText('It will show up.')).toBeInTheDocument();
+    expect(screen.getByText('tokenActivityEmptyTitle')).toBeInTheDocument();
+    expect(screen.getByText('tokenActivityEmptyBody')).toBeInTheDocument();
     expect(screen.getByTestId('empty-state')).toHaveAttribute('data-surface', 'dashed');
+  });
+
+  it('keeps the plain no-operations card for a history that is not one token', () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+    expect(screen.getByTestId('empty-state')).not.toHaveAttribute('data-surface', 'dashed');
+  });
+
+  it('keeps the centred Activity card as it is, even with a token id', () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState tokenId="token-1" />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
   });
 });
 
