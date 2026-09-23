@@ -34,6 +34,15 @@ it('puts back, title, actions and close in one 60px row', () => {
   expect(onClose).toHaveBeenCalled();
 });
 
+it("insets the rule with the row: the caller's margin holds both", () => {
+  render(<PageHeader className="px-4" title="Keys" onBack={jest.fn()} />);
+  const header = screen.getByRole('banner');
+  const rule = header.nextElementSibling;
+  expect(rule).toHaveClass('h-1', 'rounded-full', 'bg-fill');
+  expect(rule!.closest('.px-4')).not.toBeNull();
+  expect(header).not.toHaveClass('px-4');
+});
+
 it('draws back as a 24px ink arrow on a fill circle and close as a 24px ink glyph', () => {
   render(<PageHeader title="New contact" onBack={jest.fn()} onClose={jest.fn()} />);
 

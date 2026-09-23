@@ -19,6 +19,7 @@ import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { AnimatedCopyIcon, CopyLabel } from './CopyFeedback';
 import { EmptyState } from './EmptyState';
+import { HeaderRule } from './HeaderRule';
 import { IconButton } from './IconButton';
 import * as UI from './index';
 import { Pill } from './Pill';
@@ -68,6 +69,7 @@ describe('components/ui barrel', () => {
     SegmentedActionBar,
     SegmentedControl,
     BottomNav,
+    HeaderRule,
     TabHeader,
     TabHeaderAction,
     SearchInput,

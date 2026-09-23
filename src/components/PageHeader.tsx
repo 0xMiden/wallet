@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { HeaderRule } from 'components/ui/HeaderRule';
 import { IconButton } from 'components/ui/IconButton';
 
 export interface PageHeaderProps {
@@ -26,9 +27,11 @@ export interface PageHeaderProps {
 }
 
 /**
- * The header of every pushed page: back, title, actions and close in one 52px row, like a native
- * navigation bar. Tab roots use TabHeader and sheets DrawerHeader; everything else uses this, so a
- * page's content starts at the same height everywhere. No horizontal padding: it takes the page's.
+ * The header of every pushed page: back, title, actions and close in one 60px row, like a native
+ * navigation bar, then the 4px rule under it. Tab roots use TabHeader and sheets DrawerHeader;
+ * everything else uses this, so a page's content starts at the same height everywhere. No
+ * horizontal padding of its own: `className` lands on the block holding both the row and the rule,
+ * so the page margin a caller passes insets them together.
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
@@ -48,10 +51,10 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   }, [focusTitleOnMount]);
 
   return (
-    <>
-      <header className={clsx('flex h-15 shrink-0 items-center gap-3', className)}>
+    <div className={clsx('flex shrink-0 flex-col', className)}>
+      <header className="flex h-15 shrink-0 items-center gap-3">
         {onBack && (
-          // `bare` is always `ink`, in a flow too: the flow accents are under 3:1 on white.
+          // A 44px `fill` circle with an `ink` glyph, in a flow too: the flow accents are under 3:1 on white.
           <IconButton
             icon={IconName.ArrowLeft}
             appearance="circle"
@@ -76,8 +79,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         {actions}
         {onClose && <IconButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
       </header>
-      {/* The inset rule under the title, like the tab roots'. Sits inside the page's padding. */}
-      <div aria-hidden="true" className="h-1 shrink-0 rounded-full bg-fill" />
-    </>
+      <HeaderRule />
+    </div>
   );
 };

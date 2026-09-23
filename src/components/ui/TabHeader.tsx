@@ -6,6 +6,7 @@ import { IconName } from 'app/icons/v2';
 import { durations, easings, useMotion, useSprings } from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
+import { HeaderRule } from './HeaderRule';
 import { IconButton } from './IconButton';
 import { SearchInput } from './SearchInput';
 
@@ -124,7 +125,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search, divider 
         </AnimatePresence>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
-      {divider === 'rule' && <div aria-hidden="true" className="mx-4 h-1 shrink-0 rounded-full bg-fill" />}
+      {divider === 'rule' && <HeaderRule className="mx-4" />}
     </>
   );
 };
