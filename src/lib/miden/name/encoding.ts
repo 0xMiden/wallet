@@ -180,6 +180,32 @@ export function registerNoteInputs(registry: AccountIdParts, domainWord: Felts4,
   return [registry.prefix, registry.suffix, ...domainWord, BigInt(reclaimHeight)];
 }
 
+/**
+ * Action codes of the registry note (contract v0.16):
+ * 3 writes the `domain_to_account` and `account_to_domain` records of the name
+ * to the target account; 4..6 clear records and carry no asset.
+ */
+export type RegistryNoteAction = 3n;
+
+export const REGISTRY_NOTE_ACTION: { readonly updateRecords: RegistryNoteAction } = {
+  updateRecords: 3n
+};
+
+/**
+ * The 8 storage felts of the registry note, in this exact order:
+ * [registry.prefix, registry.suffix, dw0, dw1, dw2, dw3, reclaimHeight, action].
+ * The target is the registry account. The note sender gets the record.
+ * The first seven are the same layout as the register note.
+ */
+export function registryNoteInputs(
+  target: AccountIdParts,
+  domainWord: Felts4,
+  reclaimHeight: number,
+  action: RegistryNoteAction
+): bigint[] {
+  return [...registerNoteInputs(target, domainWord, reclaimHeight), action];
+}
+
 export function feltsEqual(a: Felts4, b: Felts4): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }

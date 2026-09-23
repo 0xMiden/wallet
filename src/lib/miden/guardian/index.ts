@@ -12,6 +12,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
+import { traceRegistryStep } from 'lib/miden/name/debug';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -385,7 +386,21 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+    const trace = proposalType === 'publish_name_record';
+    return traceRegistryStep(
+      'guardian.create-proposal-lock',
+      () =>
+        withWasmClientLock(() =>
+          traceRegistryStep(
+            'guardian.create-proposal-sdk',
+            () => this.multisig.createCustomProposal(requestBytes, proposalType),
+            { proposalType },
+            trace
+          )
+        ),
+      { proposalType },
+      trace
+    );
   }
 
   /**
@@ -413,57 +428,41 @@ export class MultisigService {
     await this.multisig.abandonCandidate(nonce);
   }
 
-  /**
-   * Hand the guardian this service still talks to the executed switch-guardian delta, as upstream
-   * `executeProposal` does after its submit (#1233). Without it that operator keeps the pre-switch
-   * state and never releases the account; with it, it canonicalizes the switch once the block lands,
-   * releases the account, and keeps serving reads of the post-switch state. Only after the switch's
-   * submit resolved, and before `finalizeGuardianSwitch` repoints this service.
-   */
-  async pushSwitchDelta(proposalId: string): Promise<void> {
-    const guardian = this.client.guardianClient;
-    const delta = await guardian.getDeltaProposal(this.accountId, proposalId);
-    await guardian.pushDelta({ ...delta, deltaPayload: delta.deltaPayload.txSummary });
-  }
-
-  /**
-   * `pushSwitchDelta` on the one outgoing-guardian budget, outside any lock, and never rejecting:
-   * `'pushed'` when it landed in time, `'silent'` when the guardian sat on it for the whole budget (what
-   * predicts a parked hold next), and `'refused'` for any other rejection, an unreachable answer
-   * included, since that one came back inside the budget (#1233).
-   */
-  async pushSwitchDeltaBounded(proposalId: string): Promise<'pushed' | 'silent' | 'refused'> {
-    try {
-      await withTimeout(
-        this.pushSwitchDelta(proposalId),
-        OUTGOING_GUARDIAN_DEADLINE_MS,
-        'pushing the executed switch delta to the outgoing guardian'
-      );
-      return 'pushed';
-    } catch (error) {
-      const outcome = error instanceof GuardianProbeTimeoutError ? 'silent' : 'refused';
-      console.warn(`[Guardian] the outgoing guardian did not take the executed switch delta (${outcome}):`, error);
-      return outcome;
-    }
-  }
-
-  /**
-   * Read this guardian's state for the account over HTTP only, never under the WASM lock (#1233): a
-   * caller asks before an adopt, whose hold a silent guardian would park until the watchdog evicts it.
-   */
-  async probeGuardianState(): Promise<void> {
-    await this.client.guardianClient.getState(this.accountId);
-  }
-
-  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
-    const proposal = await this.multisig.signProposal(id);
+  async signAndCreateTransactionRequest(
+    id: string,
+    requestBytes?: Uint8Array,
+    trace = false
+  ): Promise<TransactionRequest> {
+    const proposal = await traceRegistryStep(
+      'guardian.sign-proposal',
+      () => this.multisig.signProposal(id),
+      { proposalId: id },
+      trace
+    );
     if (proposal.metadata.proposalType === 'custom') {
       if (!requestBytes) {
         throw new Error('Request Bytes are required for custom execution');
       }
-      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-      const request = TransactionRequest.deserialize(requestBytes);
-      return request.extendAdviceMap(advice);
+      // The SDK executes the request again to check the signed commitment.
+      // Keep this execution separate from background client operations.
+      if (trace) console.log('[registry-debug] guardian.prepare-lock: waiting', { proposalId: id });
+      return withWasmClientLock(
+        async hold => {
+          if (trace) console.log('[registry-debug] guardian.prepare-lock: acquired', { proposalId: id });
+          const advice = await traceRegistryStep(
+            'guardian.prepare-custom-execution',
+            () => this.multisig.prepareCustomExecution(id, requestBytes),
+            { proposalId: id },
+            trace
+          );
+          assertWasmHoldCurrent(hold, 'guardian-custom-execution: after preparation');
+          const request = TransactionRequest.deserialize(requestBytes);
+          const signedRequest = request.extendAdviceMap(advice);
+          if (trace) console.log('[registry-debug] guardian.signed-request-ready', { proposalId: id });
+          return signedRequest;
+        },
+        { label: 'guardian-custom-execution' }
+      );
     }
     const request = await withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
     if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;

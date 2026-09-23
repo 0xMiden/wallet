@@ -23,10 +23,10 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { getCurrentMidenBlock } from 'lib/epoch/chain';
+import { walletAccountIdToSdk } from 'lib/miden/sdk/helpers';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
-import { walletAccountIdToSdk } from 'lib/miden/sdk/helpers';
 
 import {
   MIDEN_NAME_ALLOWED_SCRIPT_MARKER,
@@ -213,6 +213,21 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
   };
   quoteCache.set(cacheKey, { quote, at: Date.now() });
   return quote;
+}
+
+/**
+ * True when the registry allows a note script (`allowed_note_scripts[root]`
+ * felt 0 is 1). The publish guard uses this for the registry script.
+ */
+export async function fetchRegistryScriptAllowed(scriptRootHex: string): Promise<boolean> {
+  const config = requireConfig();
+  const scriptRoot = feltsFromWord(Word.fromHex(scriptRootHex));
+  const storage = await readRegistryStorage(
+    config,
+    [{ slot: MIDEN_NAME_SLOTS.allowedNoteScripts, keys: [scriptRoot] }],
+    'midenNameScriptAllowed'
+  );
+  return storage.mapValue(MIDEN_NAME_SLOTS.allowedNoteScripts, scriptRoot)[0] === MIDEN_NAME_ALLOWED_SCRIPT_MARKER;
 }
 
 /** True when the registry has issued the name (`asset_status` felt 0 is 1). */

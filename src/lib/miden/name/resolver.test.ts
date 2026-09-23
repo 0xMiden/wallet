@@ -3,9 +3,9 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { MIDEN_NAME_SLOTS, type MidenNameConfig } from './config';
 import { type Felts4, accountKeyFelts, encodeDomainFelts } from './encoding';
-import { MidenNameAbortedError } from './errors';
+import { MidenNameAbortedError, MidenNameUnsupportedNetworkError } from './errors';
 import { type RegistryMapRequest, type RegistryStorageRead, readRegistryStorage } from './reads';
-import { clearMidenNameResolverCache, resolveMidenName, reverseResolveMidenName } from './resolver';
+import { clearMidenNameResolverCache, fetchDomainRecord, resolveMidenName, reverseResolveMidenName } from './resolver';
 import { statusKeyFeltsForLabel } from './sdk-words';
 import { AccountId, KNOWN_ACCOUNTS } from './test-support/fake-sdk';
 
@@ -163,6 +163,47 @@ describe('resolveMidenName', () => {
     now.mockReturnValue(5_000_000 + 60_000);
     await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
     now.mockRestore();
+  });
+});
+
+describe('fetchDomainRecord', () => {
+  it('returns the account of the forward record, with no reverse read', async () => {
+    registerAlice();
+    await expect(fetchDomainRecord('alice')).resolves.toEqual(ALICE);
+    expect(mockRead).toHaveBeenCalledTimes(1);
+    expect(mockRead.mock.calls[0]?.[1]).toEqual([
+      {
+        slot: MIDEN_NAME_SLOTS.domainToAccount,
+        keys: [statusKeyFeltsForLabel('alice', REGISTRY), encodeDomainFelts('alice')]
+      }
+    ]);
+  });
+
+  it('falls back to the raw domain word as the forward key', async () => {
+    registerAlice({ viaDomainWord: true });
+    await expect(fetchDomainRecord('alice')).resolves.toEqual(ALICE);
+  });
+
+  it('returns null when the registry has no record', async () => {
+    await expect(fetchDomainRecord('alice')).resolves.toBeNull();
+  });
+
+  it('does not use the cache: it sees a record the moment it is written', async () => {
+    await expect(fetchDomainRecord('alice')).resolves.toBeNull();
+    registerAlice();
+    await expect(fetchDomainRecord('alice')).resolves.toEqual(ALICE);
+    expect(mockRead).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws on a network with no deployment', async () => {
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
+    await expect(fetchDomainRecord('alice')).rejects.toBeInstanceOf(MidenNameUnsupportedNetworkError);
+    expect(mockRead).not.toHaveBeenCalled();
+  });
+
+  it('throws an RPC failure', async () => {
+    mockRead.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchDomainRecord('alice')).rejects.toThrow('rpc down');
   });
 });
 

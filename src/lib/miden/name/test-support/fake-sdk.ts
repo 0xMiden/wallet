@@ -298,6 +298,56 @@ export class NoteArray {
   }
 }
 
+// ---- Account vault (name NFAs) ----
+
+/** A non-fungible asset with a faucet and a vault key. `freed` counts the `free()` calls. */
+export class NonFungibleAsset {
+  readonly faucet: AccountId;
+  readonly key: bigint[];
+  freed = 0;
+
+  constructor(faucet: AccountId, key: bigint[]) {
+    this.faucet = faucet;
+    this.key = key;
+  }
+
+  faucetId(): AccountId {
+    return this.faucet;
+  }
+
+  vaultKey(): Word {
+    return new Word(BigUint64Array.from(this.key));
+  }
+
+  free(): void {
+    this.freed += 1;
+  }
+}
+
+export class AssetVault {
+  readonly nfas: NonFungibleAsset[];
+
+  constructor(nfas: NonFungibleAsset[] = []) {
+    this.nfas = nfas;
+  }
+
+  nonFungibleAssets(): NonFungibleAsset[] {
+    return [...this.nfas];
+  }
+}
+
+export class Account {
+  readonly assetVault: AssetVault;
+
+  constructor(assetVault: AssetVault) {
+    this.assetVault = assetVault;
+  }
+
+  vault(): AssetVault {
+    return this.assetVault;
+  }
+}
+
 export class TransactionRequestBuilder {
   /** The last builder that `build()` finished. */
   static lastBuilt: TransactionRequestBuilder | undefined;

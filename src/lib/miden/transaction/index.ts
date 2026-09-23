@@ -34,7 +34,8 @@ import {
   withGuardianConflictRetry
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
-import { assertMidenNameRegistrationLive } from 'lib/miden/name/guard';
+import { traceRegistryStep } from 'lib/miden/name/debug';
+import { assertMidenNamePublishLive, assertMidenNameRegistrationLive } from 'lib/miden/name/guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -60,6 +61,7 @@ import {
   completeConsumeTransaction,
   completeCustomTransaction,
   completeEarnDepositTransaction,
+  completePublishNameRecordTransaction,
   completeRegisterNameTransaction,
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
@@ -172,7 +174,9 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   // Pre-built bytes, like `swap`: a requeue proposes the SAME register note (same
   // serial, same note id), so the chain cannot accept it two times. The guard runs
   // again on each attempt, before the proposal.
-  'register-name'
+  'register-name',
+  // Same shape: pre-built registry note that carries the name NFA.
+  'publish-name-record'
 ]);
 
 // Minus `execute`, only ever a dApp request: the dApp reads its five-minute wait running out as a failure, while a
@@ -224,7 +228,8 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'bridged-send',
   'earn-deposit',
   // Keep registration writes on the same client as account sync and name claims.
-  'register-name'
+  'register-name',
+  'publish-name-record'
 ]);
 
 /**
@@ -287,6 +292,8 @@ const applyLandedDisplayMessage = (type: ITransactionType): string => {
       return 'Bridged to EVM';
     case 'register-name':
       return 'Name requested';
+    case 'publish-name-record':
+      return 'Name published';
     default:
       return 'Sent';
   }
@@ -473,8 +480,12 @@ const nextRequeueStreak = (
  * depends on which realm the leaf happened to run in.
  */
 const stageStampFor =
-  (txId: string): ((stage: ITransactionStage, opts?: { readonly reliable?: boolean }) => Promise<void>) =>
+  (
+    txId: string,
+    trace = false
+  ): ((stage: ITransactionStage, opts?: { readonly reliable?: boolean }) => Promise<void>) =>
   async (stage, opts) => {
+    if (trace) console.log('[registry-debug] pipeline.stage', { rowId: txId, stage });
     try {
       // 'submitting' is stamped immediately before the submit call, so it is the
       // exact crossing the double-send guard needs — and it has to be recorded
@@ -1228,9 +1239,18 @@ export const generateTransaction = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  const trace = transaction.type === 'publish-name-record';
+  if (trace) console.log('[registry-debug] generate.enter', { rowId: transaction.id });
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
+    if (trace) console.log('[registry-debug] generate.prepare-recovery: start', { rowId: transaction.id });
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
+    if (trace) {
+      console.log('[registry-debug] generate.prepare-recovery: done', {
+        rowId: transaction.id,
+        ready: preparation.ready
+      });
+    }
     if (!preparation.ready) return;
     const { coldPublicKey } = preparation;
     if (coldPublicKey) {
@@ -1277,8 +1297,14 @@ const generateTransactionWithProvider = async (
   // Separate lock acquisition to avoid holding lock during network call
   // Errors propagate to the loop, which requeues ordinary transient failures
   // while preserving the terminal handling for abandoned operations.
-  await setTransactionStage(transaction.id, 'syncing');
-  await syncUnderBoundedLock();
+  const trace = transaction.type === 'publish-name-record';
+  await traceRegistryStep(
+    'generate.set-syncing-stage',
+    () => setTransactionStage(transaction.id, 'syncing'),
+    { rowId: transaction.id },
+    trace
+  );
+  await traceRegistryStep('generate.pre-send-sync', syncUnderBoundedLock, { rowId: transaction.id }, trace);
 
   // Mark transaction as in progress
   markStartedInThisRealm(transaction.id);
@@ -1287,8 +1313,16 @@ const generateTransactionWithProvider = async (
     stage: 'sending'
   });
 
+  if (trace) console.log('[registry-debug] generate.marked-in-progress', { rowId: transaction.id });
   // Route Guardian accounts through Guardian service
-  if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
+  const guardianAccount = await traceRegistryStep(
+    'generate.check-guardian-account',
+    () => isGuardianAccount(transaction.accountId, guardianProvider),
+    { rowId: transaction.id },
+    trace
+  );
+  if (trace) console.log('[registry-debug] generate.route', { rowId: transaction.id, guardianAccount });
+  if (guardianAccount) {
     try {
       // Serialize guardian transactions per account: the guardian co-signs one
       // delta per account at a time, and concurrent same-account txs make its
@@ -1297,9 +1331,12 @@ const generateTransactionWithProvider = async (
       // Canonicalize the lock key: the same guardian account can arrive as a bare
       // bech32 address (dApp) or the composite publicKey (in-wallet); both must take
       // the SAME per-account chain, else concurrent deltas stall canonicalization.
-      await withGuardianAccountLock(canonicalWalletAccountId(transaction.accountId), () =>
-        generateGuardianTransactionOnFreshState(transaction, signCallback, guardianProvider)
-      );
+      if (trace) console.log('[registry-debug] generate.guardian-account-lock: waiting', { rowId: transaction.id });
+      await withGuardianAccountLock(canonicalWalletAccountId(transaction.accountId), () => {
+        if (trace) console.log('[registry-debug] generate.guardian-account-lock: acquired', { rowId: transaction.id });
+        return generateGuardianTransaction(transaction, signCallback, guardianProvider);
+      });
+      if (trace) console.log('[registry-debug] generate.guardian-flow: done', { rowId: transaction.id });
     } catch (error) {
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
       // don't cancel. Re-throw so generateTransactionsLoop's locked-requeue path
@@ -1380,7 +1417,8 @@ const generateTransactionWithProvider = async (
           transaction.type === 'bridged-send' ||
           // The register note is on chain. A Failed row would tell the tracker
           // `tx-failed` for a name that the registry can still issue.
-          transaction.type === 'register-name')
+          transaction.type === 'register-name' ||
+          transaction.type === 'publish-name-record')
       ) {
         console.warn(
           '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
@@ -1785,6 +1823,24 @@ const generateTransactionWithProvider = async (
       );
       break;
     }
+    case 'publish-name-record': {
+      // Same shape as `register-name`: RPC-only guard, then the pre-built bytes.
+      console.log('[registry-debug] pipeline.publish-enter', { rowId: transaction.id });
+      await traceRegistryStep('pipeline.publish-guard', () => assertMidenNamePublishLive(transaction), {
+        rowId: transaction.id
+      });
+      const publishBytes = transaction.requestBytes;
+      if (!publishBytes) {
+        throw new Error('Publish-name-record row has no request bytes');
+      }
+      result = await midenClientProxy.newTransaction(
+        transaction.accountId,
+        publishBytes,
+        transaction.delegateTransaction,
+        signCallback
+      );
+      break;
+    }
     case 'execute':
     default: {
       // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
@@ -1826,6 +1882,9 @@ const generateTransactionWithProvider = async (
       break;
     case 'register-name':
       await completeRegisterNameTransaction(transaction, result);
+      break;
+    case 'publish-name-record':
+      await completePublishNameRecordTransaction(transaction, result);
       break;
     case 'execute':
     default:
@@ -3052,6 +3111,30 @@ const generateGuardianTransaction = async (
       );
       break;
     }
+    case 'publish-name-record': {
+      // Same shape as `register-name`: the guard runs before the proposal, and the
+      // proposal and `signAndCreateTransactionRequest` use the same pre-built bytes.
+      console.log('[registry-debug] pipeline.publish-enter', { rowId: transaction.id });
+      await traceRegistryStep('pipeline.publish-guard', () => assertMidenNamePublishLive(transaction), {
+        rowId: transaction.id
+      });
+      const publishBytes = transaction.requestBytes;
+      if (!publishBytes) {
+        throw new Error('Publish-name-record row has no request bytes');
+      }
+      service = await traceRegistryStep(
+        'pipeline.load-guardian-service',
+        () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
+        { rowId: transaction.id }
+      );
+      proposalResult = await traceRegistryStep(
+        'pipeline.create-proposal-with-retries',
+        () => withGuardianConflictRetry(() => service.createCustomProposal(publishBytes, 'publish_name_record')),
+        { rowId: transaction.id }
+      );
+      console.log('[registry-debug] pipeline.proposal-ready', { rowId: transaction.id, proposalId: proposalResult.id });
+      break;
+    }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       const swapTx = transaction as SwapTransaction;
@@ -3311,16 +3394,29 @@ const generateGuardianTransaction = async (
     // operator (best-effort abandoned below). Splitting the two halves would mean
     // widening the MultisigService API at the very end of a long review, and the
     // failure it would prevent is cosmetic next to the wedge the deadline closes.
+    const signAndCreateRequest = () => {
+      if (transaction.type === 'publish-name-record') {
+        return traceRegistryStep(
+          'pipeline.guardian-approval',
+          () => service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes, true),
+          { rowId: transaction.id, proposalId: proposalResult.id }
+        );
+      }
+      return service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    };
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(
-            () => service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes),
+            signAndCreateRequest,
             'co-signing the switch-guardian request with the outgoing guardian'
           )
-        : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+        : await signAndCreateRequest();
     // Past the guardian round trip. Everything below can reach the chain, so the
     // direct-switch escape in the catch is closed from here on.
     guardianCoSignReturned = true;
+    if (transaction.type === 'publish-name-record') {
+      console.log('[registry-debug] pipeline.guardian-approved', { rowId: transaction.id });
+    }
 
     // #784: the proposal carries the ChainAnchor of the reference block its
     // signed summary was built at (`metadata.chainAnchor`, base64). The leaf
@@ -3393,7 +3489,7 @@ const generateGuardianTransaction = async (
         tr.serialize(),
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id),
+        stageStampFor(transaction.id, transaction.type === 'publish-name-record'),
         chainAnchorB64
       );
     } else {
@@ -3401,7 +3497,7 @@ const generateGuardianTransaction = async (
         transaction.accountId,
         tr,
         transaction.delegateTransaction,
-        stageStampFor(transaction.id),
+        stageStampFor(transaction.id, transaction.type === 'publish-name-record'),
         chainAnchorB64
       );
     }
@@ -3643,6 +3739,9 @@ const generateGuardianTransaction = async (
     case 'register-name':
       await completeRegisterNameTransaction(transaction, result);
       break;
+    case 'publish-name-record':
+      await completePublishNameRecordTransaction(transaction, result);
+      break;
     case 'execute':
     default:
       await completeCustomTransaction(transaction, result);
@@ -3656,9 +3755,10 @@ export const generateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
-): Promise<boolean | 'requeued' | void> => {
-  await cancelStuckTransactions();
-  await cancelStaleQueuedTransactions();
+): Promise<boolean | void> => {
+  console.log('[registry-debug] loop.enter', { useWorker, realm: globalThis.location?.pathname });
+  await traceRegistryStep('loop.cancel-stuck', cancelStuckTransactions);
+  await traceRegistryStep('loop.cancel-stale-queued', cancelStaleQueuedTransactions);
 
   // Import any notes needed for queued transactions.
   //
@@ -3684,19 +3784,32 @@ export const generateTransactionsLoop = async (
   // banking fix in `importAllNotes` no attempt was spent and the next lap's queue
   // was byte-identical — the skip had no exit condition at all.
   try {
-    await importAllNotes();
+    await traceRegistryStep('loop.import-notes', importAllNotes);
   } catch (e) {
     logger.warning('Failed to import queued notes; continuing with the transaction lap', e);
   }
 
   // Wait for other in progress transactions
-  const inProgressTransactions = await getTransactionsInProgress();
+  const inProgressTransactions = await traceRegistryStep('loop.read-in-progress', getTransactionsInProgress);
   if (inProgressTransactions.length > 0) {
+    console.log('[registry-debug] loop.skip-in-progress', {
+      rows: inProgressTransactions.map(tx => ({ rowId: tx.id, type: tx.type, status: tx.status }))
+    });
     return;
   }
 
   // Find transactions waiting to process
-  const queuedTransactions = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
+  const queuedTransactions = await traceRegistryStep('loop.read-queue', () =>
+    Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray()
+  );
+  console.log('[registry-debug] loop.queue', {
+    rows: queuedTransactions.map(tx => ({
+      rowId: tx.id,
+      type: tx.type,
+      nextEligibleAt: tx.nextEligibleAt,
+      awaitingRecoverySeed: tx.awaitingRecoverySeed
+    }))
+  });
   // `initiatedAt` is whole SECONDS, so rows queued in the same second tie -- and a
   // stable sort then preserves whatever order Dexie handed back, which is primary-key
   // order over random `uuid()`s. FIFO was approximate and a deliberate enqueue order
@@ -3708,6 +3821,7 @@ export const generateTransactionsLoop = async (
     (tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0)
   );
   if (queuedTransactions.length === 0) {
+    console.log('[registry-debug] loop.skip-empty');
     return;
   }
 
@@ -3718,12 +3832,23 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(tx => isQueuedRowReady(tx, now));
-  if (!nextTransaction) return;
+  const nextTransaction = queuedTransactions.find(
+    tx => !tx.awaitingRecoverySeed && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
+  );
+  if (!nextTransaction) {
+    console.log('[registry-debug] loop.skip-no-eligible-row', { now });
+    return;
+  }
+  console.log('[registry-debug] loop.selected', { rowId: nextTransaction.id, type: nextTransaction.type });
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
-    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
+    await traceRegistryStep(
+      'loop.generate',
+      () => generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider),
+      { rowId: nextTransaction.id, type: nextTransaction.type }
+    );
+    return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
@@ -3913,15 +4038,25 @@ export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
-): Promise<TransactionsLoopOutcome> => {
+) => {
+  console.log('[registry-debug] loop.lock: requesting', { realm: globalThis.location?.pathname });
   return navigator.locks
-    .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
-      if (!lock) return 'idle';
+    .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
+      if (!lock) {
+        console.log('[registry-debug] loop.lock: busy');
+        return;
+      }
+      console.log('[registry-debug] loop.lock: acquired');
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
-      if (result === true) return 'processed';
-      if (result === 'requeued') return 'requeued';
-      return result === false ? 'failed' : 'idle';
+      console.log('[registry-debug] loop.lap: done', { result });
+      if (result === false) {
+        return false;
+      }
+
+      // Either a transaction was processed successfully (true)
+      // or there was nothing to do / another transaction is in progress (undefined).
+      return true;
     })
     .catch((e): TransactionsLoopOutcome => {
       logger.error('Error in safe generate transactions loop', e);

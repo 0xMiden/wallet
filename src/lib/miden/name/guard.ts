@@ -4,7 +4,7 @@
  * These checks use RPC only. They do not take the WASM client lock.
  */
 
-import type { IRegisterNameExtraInputs, ITransaction } from 'lib/miden/db/types';
+import type { IPublishNameRecordExtraInputs, IRegisterNameExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { getMidenNameConfig } from './config';
@@ -18,8 +18,9 @@ import {
   MidenNameTakenError,
   MidenNameUnsupportedNetworkError
 } from './errors';
-import { fetchMidenNameQuote, getChainTip, type MidenNameQuote } from './reads';
-import { loadRegisterDomainScript } from './script';
+import { REGISTRY_SCRIPT_ROOT_HEX } from './note-script-roots';
+import { fetchMidenNameQuote, fetchRegistryScriptAllowed, getChainTip, type MidenNameQuote } from './reads';
+import { loadRegisterDomainScript, loadRegistryNoteScript } from './script';
 
 /**
  * The wallet does not submit a register note when the chain tip is this near
@@ -88,6 +89,52 @@ export async function assertMidenNameRegistrationLive(tx: ITransaction): Promise
     throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
   }
   await assertRegistrationPreconditions(inputs.label, inputs.priceBaseUnits);
+  const tip = await getChainTip();
+  if (tip >= inputs.reclaimHeight - MIDEN_NAME_RECLAIM_SAFETY_BLOCKS) {
+    throw new MidenNameRegistrationExpiredError(tip, inputs.reclaimHeight);
+  }
+}
+
+interface LivePublishInputs {
+  label: string;
+  network: string;
+  reclaimHeight: number;
+}
+
+function readPublishInputs(tx: ITransaction): LivePublishInputs {
+  const inputs: Partial<IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
+  if (!inputs) throw new MidenNameRegistrationInputError('no extraInputs');
+  const { label, network, reclaimHeight } = inputs;
+  if (typeof label !== 'string') throw new MidenNameRegistrationInputError('no label');
+  if (typeof network !== 'string') throw new MidenNameRegistrationInputError('no network');
+  if (typeof reclaimHeight !== 'number' || !Number.isSafeInteger(reclaimHeight)) {
+    throw new MidenNameRegistrationInputError('no reclaim height');
+  }
+  return { label, network, reclaimHeight };
+}
+
+/**
+ * The pipeline calls this immediately before it submits a `publish-name-record`
+ * row (standard leaf and guardian proposal). A throw is terminal: the pipeline
+ * marks the row Failed and does not requeue it.
+ *
+ * Refuses when the row is for an other network, the label is not valid, the
+ * registry does not allow the registry script, the vendored script has an
+ * other root, or the chain tip is at or after
+ * `reclaimHeight - MIDEN_NAME_RECLAIM_SAFETY_BLOCKS`. Custody of the NFA is
+ * not checked here: the transaction execution fails without it.
+ */
+export async function assertMidenNamePublishLive(tx: ITransaction): Promise<void> {
+  const inputs = readPublishInputs(tx);
+  const config = getMidenNameConfig();
+  if (!config || config.network !== inputs.network) {
+    throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
+  }
+  const labelError = validateMidenLabel(inputs.label);
+  if (labelError) throw new MidenNameInvalidLabelError(inputs.label, labelError);
+  if (!(await fetchRegistryScriptAllowed(REGISTRY_SCRIPT_ROOT_HEX))) throw new MidenNameScriptNotAllowedError();
+  // The read loaded the SDK WASM. The script is a plain SDK object: no lock. Free it.
+  (await loadRegistryNoteScript()).free();
   const tip = await getChainTip();
   if (tip >= inputs.reclaimHeight - MIDEN_NAME_RECLAIM_SAFETY_BLOCKS) {
     throw new MidenNameRegistrationExpiredError(tip, inputs.reclaimHeight);
