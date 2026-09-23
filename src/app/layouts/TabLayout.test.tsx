@@ -629,6 +629,39 @@ describe('TabLayout — Home band through the status bar', () => {
     expect(document.body.hasAttribute('data-home-band')).toBe(false);
   });
 
+  it('follows the route on one mounted layout, across Home-group routes', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { rerender } = renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+
+    mockLocation.pathname = '/browser';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+
+    mockLocation.pathname = '/send';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+  });
+
+  it('clears the flag while a slide page covers Home, and sets it again when Home is back on screen', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { rerender } = render(
+      <PageActiveContext.Provider value={false}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+
+    rerender(
+      <PageActiveContext.Provider value={true}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+  });
+
   it('never flags body off-mobile', () => {
     mockPlatform.isMobile = false;
     mockLocation.pathname = '/';
