@@ -1,4 +1,8 @@
 {
+  "midenNameReceiptTransaction": {
+    "message": "受領トランザクションの名称",
+    "englishSource": "Name receipt transaction"
+  },
   "payload": {
     "message": "ペイロード",
     "englishSource": "Payload"

@@ -1,4 +1,5 @@
 {
+  "midenNameReceiptTransaction": "Назва транзакції отримання",
   "payload": "Корисне навантаження",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Підтвердьте свій депозит",

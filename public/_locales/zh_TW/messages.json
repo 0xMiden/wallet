@@ -1,4 +1,8 @@
 {
+  "midenNameReceiptTransaction": {
+    "message": "命名收款交易",
+    "englishSource": "Name receipt transaction"
+  },
   "payload": {
     "message": "有效載荷",
     "englishSource": "Payload"

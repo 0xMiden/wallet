@@ -1,4 +1,8 @@
 {
+  "midenNameReceiptTransaction": {
+    "message": "Transaktion zur Quittungsausstellung",
+    "englishSource": "Name receipt transaction"
+  },
   "payload": {
     "message": "Nutzlast",
     "englishSource": "Payload"
