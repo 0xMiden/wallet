@@ -230,3 +230,16 @@ describe('Chrome i18n placeholder declarations', () => {
     expect(undeclared).toEqual([]);
   });
 });
+
+describe('retired keys', () => {
+  // The vault row's TVL line was dropped because the earn API has no TVL; its string goes with it.
+  it('no locale bundle carries earnVaultTvl', () => {
+    const carriers = fs.readdirSync(LOCALES_DIR).flatMap(dir =>
+      ['messages.json', `${dir}.json`]
+        .map(file => path.join(LOCALES_DIR, dir, file))
+        .filter(file => fs.existsSync(file) && 'earnVaultTvl' in JSON.parse(fs.readFileSync(file, 'utf8')))
+        .map(file => path.relative(LOCALES_DIR, file))
+    );
+    expect(carriers).toEqual([]);
+  });
+});

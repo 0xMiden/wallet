@@ -13,7 +13,7 @@
 - [CHANGE][all] Settings groups sit flush on the page under their section headers, with full-width dividers.
 - [CHANGE][all] Activity rows and pending transfers are outlined cards on the page instead of filled ones.
 - [CHANGE][all] Activity and Explore filters are pills, a solid orange selection beside outlined ones, under a thick inset rule.
-- [CHANGE][all] Earn shows a dashed "No active positions" card, outlined vault rows with their TVL, and a See all action.
+- [CHANGE][all] Earn shows a dashed "No active positions" card, outlined vault rows, and a See all action.
 - [CHANGE][all] Pushed pages open with a round back button, a larger title and an inset rule under it.
 - [CHANGE][all] Token detail: muted section titles, a larger price over an area chart, a bare copy control on the contract row and a dashed empty activity card.
 - [CHANGE][all] Settings sub-pages draw their groups as outlined cards and the rotate-key button as border-only.

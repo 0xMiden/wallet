@@ -126,10 +126,7 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end">
-          <span className="text-value text-positive-tint-ink">{vault.apy}</span>
-          <span className="text-caption text-muted">{t('earnVaultTvl', { tvl: vault.tvl })}</span>
-        </div>
+        <span className="shrink-0 text-value text-positive-tint-ink">{vault.apy}</span>
       </div>
     </CardButton>
   );

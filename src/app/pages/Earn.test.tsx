@@ -222,7 +222,7 @@ describe('Earn page', () => {
     expect(stopSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('renders one VaultRow per vault with its details and TVL line', () => {
+  it('renders one VaultRow per vault with its details and no TVL line', () => {
     render(<Earn />);
 
     const section = vaultsSection();
@@ -234,8 +234,9 @@ describe('Earn page', () => {
     expect(firstRow).toHaveTextContent(first.protocol);
     expect(firstRow).toHaveTextContent('earnVaultAssetOnNetwork');
     expect(firstRow).toHaveTextContent(first.apy);
-    // The vault's TVL sits under its APY, through the `earnVaultTvl` template.
-    expect(firstRow).toHaveTextContent('earnVaultTvl');
+    // The earn API has no TVL, so the row promises none.
+    expect(within(firstRow).queryByText('earnVaultTvl')).toBeNull();
+    expect(firstRow).not.toHaveTextContent('earnVaultTvl');
 
     // Each row also renders a ProviderLogo probe with the vault's protocol.
     expect(within(firstRow).getByTestId('provider-logo')).toHaveAttribute('data-protocol', first.protocol);
