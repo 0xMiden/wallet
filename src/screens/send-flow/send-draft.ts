@@ -21,6 +21,19 @@ export interface SendDraft {
   bridgeNetwork?: BridgeNetworkId;
   /** Cross-chain route, only set when the recipient is a 0x (Ethereum) address. */
   bridgeRoute?: BridgeRoute;
+  /**
+   * The Miden Name that the recipient input resolved to. Only set when the
+   * input is a name (for example `alice.miden`). `recipientAddress` keeps the
+   * name as the user typed it, and `address` is the resolved bech32 address.
+   */
+  midenName?: SendDraftMidenName;
+}
+
+export interface SendDraftMidenName {
+  /** The label without ".miden". */
+  label: string;
+  /** The bech32 address that the label resolved to. */
+  address: string;
 }
 
 let draft: SendDraft | null = null;

@@ -261,6 +261,17 @@ jest.mock('./send-draft', () => ({
   clearSendDraft: jest.fn()
 }));
 
+// The Miden Name lookup and its build flag. The flag is off by default, so the
+// suites above see today's behaviour.
+let mockNameResolveEnabled = false;
+const resolveMidenNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }?]>();
+jest.mock('lib/feature-flags', () => ({
+  isMidenNameResolveEnabled: () => mockNameResolveEnabled
+}));
+jest.mock('lib/miden/name/resolver', () => ({
+  resolveMidenName: (label: string, options?: { signal?: AbortSignal }) => resolveMidenNameMock(label, options)
+}));
+
 // The real `./send-telemetry` is kept: this page settling the flow the send form
 // began is the whole point of that module, so it must not be stubbed out.
 jest.mock('lib/telemetry', () => ({
@@ -375,6 +386,7 @@ beforeEach(() => {
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null };
+  mockNameResolveEnabled = false;
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -1441,5 +1453,93 @@ describe('ReviewTransaction — send telemetry', () => {
     expect(handleAt(0).complete).not.toHaveBeenCalled();
     expect(handleAt(0).fail).not.toHaveBeenCalled();
     expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Miden Name recipient (the `name` URL value)
+// ---------------------------------------------------------------------------
+describe('ReviewTransaction — Miden Name recipient', () => {
+  let warnSpy: jest.SpyInstance;
+  const clickSubmit = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+  };
+
+  beforeEach(() => {
+    mockNameResolveEnabled = true;
+    mockSearch = 'amount=5&to=mtst1alice&tokenId=tok1&name=alice.miden';
+    mockBalanceData = [VALID_TOKEN];
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('shows the name above the address when a new lookup gives the same address', async () => {
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(resolveMidenNameMock).toHaveBeenCalledWith('alice', expect.objectContaining({ signal: expect.anything() }));
+    expect(screen.getByTestId('review-recipient-name').textContent).toBe('alice.miden');
+    expect(screen.getByText('mtst1alice')).toBeInTheDocument();
+  });
+
+  it('drops the name when the new lookup gives a different address', async () => {
+    resolveMidenNameMock.mockResolvedValue('mtst1mallory');
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    expect(screen.getByText('mtst1alice')).toBeInTheDocument();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('drops the name when the name is not found or the lookup fails', async () => {
+    resolveMidenNameMock.mockResolvedValueOnce(null);
+    const first = render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    first.unmount();
+
+    resolveMidenNameMock.mockRejectedValueOnce(new Error('rpc down'));
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+  });
+
+  it('drops the name without a lookup when the flag is off', async () => {
+    mockNameResolveEnabled = false;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('does no lookup when there is no name', async () => {
+    mockSearch = 'amount=5&to=mtst1alice&tokenId=tok1';
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+  });
+
+  it('signs the `to` address, never the name', async () => {
+    confirmMock.mockResolvedValue(true);
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    render(<ReviewTransaction />);
+    await flush();
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+
+    await clickSubmit();
+
+    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', 'mtst1alice', 'tok1', 'private', 12345n, 999, false);
   });
 });
