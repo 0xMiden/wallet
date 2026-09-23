@@ -6,7 +6,12 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
-import { registerNameRowAccounts, type RegisterNameRequest } from 'lib/miden/name/note';
+import {
+  publishNameRowAccounts,
+  type PublishNameRecordRequest,
+  registerNameRowAccounts,
+  type RegisterNameRequest
+} from 'lib/miden/name/note';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
@@ -25,8 +30,10 @@ import {
   IBridgeProvider,
   IConsumedAssetTotal,
   IConsumeMidenNameExtraInputs,
+  IConsumeMidenNameReturnExtraInputs,
   ITransaction,
   ITransactionStatus,
+  PublishNameRecordTransaction,
   RegisterNameTransaction,
   ReplaceHotKeyTransaction,
   SendTransaction,
@@ -594,6 +601,51 @@ export const tagConsumeAsMidenNameClaim = async (txId: string, label: string, re
   await Repo.transactions.where({ id: txId }).modify(tx => {
     if (tx.type !== 'consume') return;
     tx.extraInputs = { ...(tx.extraInputs ?? {}), ...claim };
+  });
+};
+
+export interface InitiatePublishNameRecordArgs {
+  accountId: string;
+  label: string;
+  /** The request from `buildPublishNameRecordRequest`. The pipeline submits these bytes as they are. */
+  request: PublishNameRecordRequest;
+  delegateTransaction?: boolean;
+}
+
+/**
+ * Queue a `publish-name-record` row. The row moves the name NFA to the registry
+ * and gets it back: no fungible asset leaves the account, so the row does not
+ * go through the spending-limit chokepoint.
+ */
+export const initiatePublishNameRecordTransaction = async (args: InitiatePublishNameRecordArgs): Promise<string> => {
+  const accounts = publishNameRowAccounts();
+  const dbTransaction = new PublishNameRecordTransaction({
+    accountId: args.accountId,
+    label: args.label,
+    network: accounts.network,
+    registryAccountId: accounts.registryAccountId,
+    nfaFaucetId: accounts.registryAccountId,
+    requestBytes: args.request.requestBytes,
+    registryNoteId: args.request.registryNoteId,
+    reclaimHeight: args.request.reclaimHeight,
+    builtAtBlock: args.request.builtAtBlock,
+    action: args.request.action,
+    delegateTransaction: args.delegateTransaction
+  });
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+/**
+ * Mark a consume row as the take-back of the NFA that the registry returns after
+ * a publish. When the consume completes, `completeConsumeTransaction` labels it
+ * "Name returned" and moves the `publish-name-record` row to `done`.
+ */
+export const tagConsumeAsMidenNameReturn = async (txId: string, label: string, publishTxId: string): Promise<void> => {
+  const tag: IConsumeMidenNameReturnExtraInputs = { midenNameReturn: { label, publishTxId } };
+  await Repo.transactions.where({ id: txId }).modify(tx => {
+    if (tx.type !== 'consume') return;
+    tx.extraInputs = { ...(tx.extraInputs ?? {}), ...tag };
   });
 };
 

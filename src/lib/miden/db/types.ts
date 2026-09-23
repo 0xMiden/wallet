@@ -28,7 +28,8 @@ export type ITransactionType =
   | 'replace-hot-key'
   | 'swap'
   | 'update-procedure-threshold'
-  | 'register-name';
+  | 'register-name'
+  | 'publish-name-record';
 
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
@@ -260,6 +261,69 @@ export interface IConsumeMidenNameExtraInputs {
     /** Id of the `register-name` row. */
     registerTxId: string;
   };
+}
+
+/**
+ * `extraInputs` shape for a consume row that takes back the name NFA that the
+ * registry returns after a registry-record publish.
+ */
+export interface IConsumeMidenNameReturnExtraInputs {
+  midenNameReturn: {
+    label: string;
+    /** Id of the `publish-name-record` row. */
+    publishTxId: string;
+  };
+}
+
+/**
+ * Phase of a Miden Name registry-record publish. The order is
+ * `requested → submitted → recorded → returning → done`. `failed` is terminal.
+ *   - requested : the row is queued; the registry note is not on chain yet
+ *   - submitted : the transaction with the registry note is committed
+ *   - recorded  : the registry consumed the note and its record points to the account
+ *   - returning : a consume row for the NFA return note is queued
+ *   - done      : the consume of the return note is complete; the NFA is back in the vault
+ *   - failed    : see `MidenNamePublishFailure`
+ */
+export type MidenNamePublishPhase = 'requested' | 'submitted' | 'recorded' | 'returning' | 'done' | 'failed';
+
+/**
+ * Cause of a `failed` registry-record publish.
+ *   - tx-failed     : the publish transaction failed
+ *   - discarded     : the registry discarded the registry note
+ *   - expired       : the chain passed the reclaim height and the registry did not consume the note
+ *   - return-failed : the consume of the NFA return note failed
+ */
+export type MidenNamePublishFailure = 'tx-failed' | 'discarded' | 'expired' | 'return-failed';
+
+/**
+ * `extraInputs` shape for a `PublishNameRecordTransaction`. The tracker patches
+ * `phase` monotonically through `patchPublishNameRecordExtraInputs` (complete.ts).
+ */
+export interface IPublishNameRecordExtraInputs {
+  /** The label without the `.miden` suffix. */
+  label: string;
+  /** Network name (`MIDEN_NETWORK_NAME` value) at the time of the build. */
+  network: string;
+  /** Id (hex) of the public registry note in `requestBytes`. */
+  registryNoteId: string;
+  /** Block after which the sender can reclaim the registry note. */
+  reclaimHeight: number;
+  /** Chain tip at the time of the build. */
+  builtAtBlock: number;
+  /** Registry note action code (a decimal string). 3 writes the records. */
+  action: string;
+  phase: MidenNamePublishPhase;
+  failure?: MidenNamePublishFailure;
+  lastError?: string;
+  /** Id (hex) of the note that returns the NFA to the account. */
+  returnNoteId?: string;
+  /** Id of the consume row that takes the return note. */
+  returnTxId?: string;
+  /** First block of the next return-note scan. */
+  returnScanFrom?: number;
+  /** Wall-clock time (ms since epoch) of the last phase change. */
+  phaseUpdatedAt: number;
 }
 
 /**
@@ -1221,6 +1285,81 @@ export class RegisterNameTransaction implements ITransaction {
       builtAtBlock: args.builtAtBlock,
       priceBaseUnits: args.priceBaseUnits.toString(),
       networkFeeBaseUnits: args.networkFeeBaseUnits.toString(),
+      phase: 'requested',
+      phaseUpdatedAt: Date.now()
+    };
+  }
+}
+
+/** Arguments of a `PublishNameRecordTransaction`. */
+export interface PublishNameRecordTransactionArgs {
+  accountId: string;
+  label: string;
+  network: string;
+  /** Registry account, bech32. */
+  registryAccountId: string;
+  /** Registry faucet (the issuer of the name NFA), bech32. The same account as the registry. */
+  nfaFaucetId: string;
+  /** Serialized request with the registry note. Built one time; all attempts use the same bytes. */
+  requestBytes: Uint8Array;
+  registryNoteId: string;
+  reclaimHeight: number;
+  builtAtBlock: number;
+  action: bigint;
+  delegateTransaction?: boolean;
+}
+
+/**
+ * Publish the registry record of a `.miden` name: one PUBLIC registry note to
+ * the Miden Name registry that carries the name NFA and the update-records
+ * action. The note is pre-built into `requestBytes` (`buildPublishNameRecordRequest`);
+ * the pipeline submits these bytes as they are, on both the standard leaf and
+ * the guardian custom proposal. The row moves no fungible asset: `amount` is
+ * undefined and `faucetId` is the NFA issuer.
+ */
+export class PublishNameRecordTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  faucetId: string;
+  /** Registry account that receives the registry note. */
+  secondaryAccountId: string;
+  noteType: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  requestBytes: Uint8Array;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IPublishNameRecordExtraInputs;
+
+  constructor(args: PublishNameRecordTransactionArgs) {
+    this.id = uuid();
+    this.type = 'publish-name-record';
+    this.accountId = args.accountId;
+    this.faucetId = args.nfaFaucetId;
+    this.secondaryAccountId = args.registryAccountId;
+    this.noteType = NoteTypeEnum.Public;
+    this.requestBytes = args.requestBytes;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Publishing name';
+    this.delegateTransaction = args.delegateTransaction;
+    this.extraInputs = {
+      label: args.label,
+      network: args.network,
+      registryNoteId: args.registryNoteId,
+      reclaimHeight: args.reclaimHeight,
+      builtAtBlock: args.builtAtBlock,
+      action: args.action.toString(),
       phase: 'requested',
       phaseUpdatedAt: Date.now()
     };

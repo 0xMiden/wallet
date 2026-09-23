@@ -57,7 +57,7 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
   if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
 
   // A name registration uses the brand colour, as its flow does (`accentForTransactionType`).
-  if (entry.txType === 'register-name') return 'var(--accent-primary)';
+  if (entry.txType === 'register-name' || entry.txType === 'publish-name-record') return 'var(--accent-primary)';
 
   switch (entry.transactionIcon) {
     case 'SEND':
@@ -142,7 +142,10 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
 
   // A name registration shows a person glyph on the brand colour, not the send
   // glyph: the row pays for a name, it does not send funds to a person.
-  if (entry.txType === 'register-name' && entry.transactionIcon !== 'FAILED') {
+  if (
+    (entry.txType === 'register-name' || entry.txType === 'publish-name-record') &&
+    entry.transactionIcon !== 'FAILED'
+  ) {
     return (
       <div className={`${config.container} flex items-center justify-center rounded-full bg-accent-primary`}>
         <Icon name={IconName.User} size={size === 'lg' ? 'lg' : 'sm'} className={whiteIconClass} />

@@ -422,15 +422,27 @@ describe('MultisigService', () => {
       expect(tx).toBe('tx-req');
     });
 
-    it('signAndCreateTransactionRequest rejects a custom proposal with no request bytes', async () => {
+    it('requires custom request bytes and holds the client lock during preparation', async () => {
+      const preparationError = new Error('preparation failed');
+      const prepareCustomExecution = jest.fn(async () => {
+        expect(currentWasmHold).not.toBeNull();
+        throw preparationError;
+      });
       const multisig = makeMultisig({
-        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'custom' } }))
+        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'custom' } })),
+        prepareCustomExecution
       });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
       await expect(service.signAndCreateTransactionRequest('p-custom')).rejects.toThrow(
         'Request Bytes are required for custom execution'
       );
+      expect(prepareCustomExecution).not.toHaveBeenCalled();
+
+      const bytes = new Uint8Array([1, 2, 3]);
+      await expect(service.signAndCreateTransactionRequest('p-custom', bytes)).rejects.toBe(preparationError);
+      expect(prepareCustomExecution).toHaveBeenCalledWith('p-custom', bytes);
+      expect(currentWasmHold).toBeNull();
     });
 
     it('abandonCandidate forwards the candidate nonce to the Guardian SDK', async () => {

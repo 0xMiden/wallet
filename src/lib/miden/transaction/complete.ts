@@ -37,11 +37,14 @@ import {
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
   IConsumeMidenNameExtraInputs,
+  IConsumeMidenNameReturnExtraInputs,
   INoteDeliveryState,
+  IPublishNameRecordExtraInputs,
   IRegisterNameExtraInputs,
   ITransaction,
   ITransactionStatus,
   MidenNamePhase,
+  MidenNamePublishPhase,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -231,8 +234,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // `register-name` row. That note holds a non-fungible asset only.
   const nameClaimInputs: Partial<IConsumeMidenNameExtraInputs> | undefined = dbTransaction?.extraInputs;
   const midenNameClaim = nameClaimInputs?.midenNameClaim;
-  const transferMessage = reclaimed ? 'Reclaimed' : 'Received';
-  const displayMessage = midenNameClaim ? 'Name received' : transferMessage;
+  // A consume that takes back the NFA after a registry-record publish carries a
+  // link to its `publish-name-record` row.
+  const nameReturnInputs: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = dbTransaction?.extraInputs;
+  const midenNameReturn = nameReturnInputs?.midenNameReturn;
+  let displayMessage = reclaimed ? 'Reclaimed' : 'Received';
+  if (midenNameClaim) displayMessage = 'Name received';
+  if (midenNameReturn) displayMessage = 'Name returned';
   const secondaryAccountId = reclaimed ? undefined : sender;
   // A note with no fungible asset (for example a name NFA) completes with no
   // `faucetId` and no `amount`. It is not an error.
@@ -328,6 +336,15 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
       await patchRegisterNameExtraInputs(midenNameClaim.registerTxId, { phase: 'owned' });
     } catch (err) {
       console.warn('[miden-name] owned patch failed (non-fatal)', err);
+    }
+  }
+  // Miden Name return: the NFA is back in the account after a publish, so move
+  // the linked `publish-name-record` row to `done`. Same non-fatal rule.
+  if (midenNameReturn) {
+    try {
+      await patchPublishNameRecordExtraInputs(midenNameReturn.publishTxId, { phase: 'done' });
+    } catch (err) {
+      console.warn('[miden-name] done patch failed (non-fatal)', err);
     }
   }
 };
@@ -1164,6 +1181,119 @@ export const completeRegisterNameTransaction = async (tx: ITransaction, result: 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFieldsFromResult(result),
     displayMessage: 'Name requested',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    ...(submittedInputs ? { extraInputs: submittedInputs } : {}),
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
+};
+
+const MIDEN_NAME_PUBLISH_PHASE_RANK: Record<Exclude<MidenNamePublishPhase, 'failed'>, number> = {
+  requested: 0,
+  submitted: 1,
+  recorded: 2,
+  returning: 3,
+  done: 4
+};
+
+/**
+ * Whether a `publish-name-record` row in phase `current` can go to `next`.
+ * Same rules as `canMoveMidenNamePhase`: `failed` and `done` are terminal, a
+ * same-phase patch is permitted, `failed` is permitted from each non-terminal
+ * phase, and the one move back is `returning → recorded` (a failed return
+ * consume gets a new one).
+ */
+export const canMoveMidenNamePublishPhase = (current: MidenNamePublishPhase, next: MidenNamePublishPhase): boolean => {
+  if (current === next) return true;
+  switch (current) {
+    case 'failed':
+    case 'done':
+      return false;
+    case 'returning':
+      if (next === 'recorded') return true;
+      break;
+    default:
+      break;
+  }
+  if (next === 'failed') return true;
+  return MIDEN_NAME_PUBLISH_PHASE_RANK[next] >= MIDEN_NAME_PUBLISH_PHASE_RANK[current];
+};
+
+export type PublishNameRecordExtraInputsPatch = Partial<
+  Pick<
+    IPublishNameRecordExtraInputs,
+    'phase' | 'failure' | 'lastError' | 'returnNoteId' | 'returnTxId' | 'returnScanFrom'
+  >
+>;
+
+/**
+ * Patch the `extraInputs` of a `publish-name-record` row. Returns true when the
+ * patch was written. Same refusals as `patchRegisterNameExtraInputs`.
+ */
+export const patchPublishNameRecordExtraInputs = async (
+  id: string,
+  patch: PublishNameRecordExtraInputsPatch,
+  options: { expectPhase?: MidenNamePublishPhase } = {}
+): Promise<boolean> => {
+  let written = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.type !== 'publish-name-record' || tx.restoredFromBackup === true) return;
+    const inputs: IPublishNameRecordExtraInputs | undefined = tx.extraInputs;
+    if (!inputs) return;
+    if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return;
+    const nextPhase = patch.phase ?? inputs.phase;
+    if (!canMoveMidenNamePublishPhase(inputs.phase, nextPhase)) return;
+    const next: IPublishNameRecordExtraInputs = {
+      ...inputs,
+      ...patch,
+      phase: nextPhase,
+      phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
+    };
+    tx.extraInputs = next;
+    written = true;
+  });
+  return written;
+};
+
+/**
+ * Complete a `publish-name-record` row. Record the ids of the user output notes
+ * (the registry note first) and move the phase to `submitted`, in the same
+ * write as the status.
+ */
+export const completePublishNameRecordTransaction = async (tx: ITransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  let noteIds: string[] = [];
+  try {
+    noteIds = splitExecutedOutputNotes(executedTx).userNotes.map(note => note.id().toString());
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) throw err;
+    console.warn('[miden-name] could not read the output notes of the publish transaction', err);
+  }
+  const inputs: Partial<IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
+  const expectedNoteId = inputs?.registryNoteId;
+  const hasExpectedNote = expectedNoteId !== undefined && noteIds.includes(expectedNoteId);
+  const outputNoteIds = hasExpectedNote
+    ? [expectedNoteId, ...noteIds.filter(noteId => noteId !== expectedNoteId)]
+    : noteIds;
+  if (!hasExpectedNote) {
+    console.warn('[miden-name] the executed transaction has no output note with the registry note id', {
+      txId: tx.id,
+      expectedNoteId,
+      outputNoteIds
+    });
+  }
+
+  const freshRow = await Repo.transactions.where({ id: tx.id }).first();
+  const freshInputs: IPublishNameRecordExtraInputs | undefined = freshRow?.extraInputs;
+  const submittedInputs: IPublishNameRecordExtraInputs | undefined =
+    freshInputs && freshRow?.restoredFromBackup !== true && canMoveMidenNamePublishPhase(freshInputs.phase, 'submitted')
+      ? { ...freshInputs, phase: 'submitted', phaseUpdatedAt: Date.now() }
+      : undefined;
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
+    displayMessage: 'Name published',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
     ...(submittedInputs ? { extraInputs: submittedInputs } : {}),

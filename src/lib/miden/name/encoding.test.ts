@@ -11,7 +11,9 @@ import {
   looksLikeMidenName,
   normalizeMidenNameInput,
   priceKeyFelts,
+  REGISTRY_NOTE_ACTION,
   registerNoteInputs,
+  registryNoteInputs,
   statusKeyFelts,
   validateMidenLabel
 } from './encoding';
@@ -173,6 +175,26 @@ describe('key and preimage layouts', () => {
   it('accepts the u32 bounds as the reclaim height', () => {
     expect(registerNoteInputs(REGISTRY, encodeDomainFelts('a'), 0)[6]).toBe(0n);
     expect(registerNoteInputs(REGISTRY, encodeDomainFelts('a'), 0xffff_ffff)[6]).toBe(0xffff_ffffn);
+  });
+
+  it('builds registry note inputs as the register layout plus the action', () => {
+    const target = { prefix: 0x1111n, suffix: 0x2200n };
+    const domainWord = encodeDomainFelts('alice');
+    expect(REGISTRY_NOTE_ACTION.updateRecords).toBe(3n);
+    expect(registryNoteInputs(target, domainWord, 1300, REGISTRY_NOTE_ACTION.updateRecords)).toEqual([
+      target.prefix,
+      target.suffix,
+      domainWord[0],
+      domainWord[1],
+      domainWord[2],
+      domainWord[3],
+      1300n,
+      3n
+    ]);
+  });
+
+  it('refuses a registry note reclaim height that does not fit in a u32', () => {
+    expect(() => registryNoteInputs(REGISTRY, encodeDomainFelts('a'), 0x1_0000_0000, 3n)).toThrow(RangeError);
   });
 
   it('clamps the price key length at 5', () => {

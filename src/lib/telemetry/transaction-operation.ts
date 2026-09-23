@@ -42,7 +42,8 @@ const OPERATION_BY_TYPE: Record<ITransactionType, TelemetryOperation> = {
   'update-procedure-threshold': 'tx_guardian',
   // Testnet only and rare. It folds into the generic name until it has enough
   // volume to be worth a name of its own.
-  'register-name': 'tx_other'
+  'register-name': 'tx_other',
+  'publish-name-record': 'tx_other'
 };
 
 /**

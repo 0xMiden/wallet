@@ -5,11 +5,13 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { MIDEN_NAME_REGISTER_SCRIPT_ROOT, MIDEN_NAME_SLOTS } from './config';
 import { type Felts4, priceKeyFelts } from './encoding';
 import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
+import { REGISTRY_SCRIPT_ROOT_HEX } from './note-script-roots';
 import {
   clearMidenNameQuoteCache,
   fetchMidenNameIssued,
   fetchMidenNameQuote,
   fetchRegistrationNoteState,
+  fetchRegistryScriptAllowed,
   findRegistryDeliveryNoteIds,
   getChainTip
 } from './reads';
@@ -227,6 +229,51 @@ describe('fetchMidenNameQuote', () => {
 
   it('throws for an invalid label before any RPC', async () => {
     await expect(fetchMidenNameQuote('Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
+    expect(rpc.getAccountProof).not.toHaveBeenCalled();
+  });
+});
+
+describe('fetchRegistryScriptAllowed', () => {
+  const REGISTRY_ROOT: Felts4 = [21n, 22n, 23n, 24n];
+
+  beforeEach(() => {
+    ROOT_WORDS.set(REGISTRY_SCRIPT_ROOT_HEX, [...REGISTRY_ROOT]);
+  });
+
+  it('is true when allowed_note_scripts felt 0 is 1, with ONE proof of that key only', async () => {
+    setEntry(MIDEN_NAME_SLOTS.allowedNoteScripts, REGISTRY_ROOT, [1n, 0n, 0n, 0n]);
+
+    await expect(fetchRegistryScriptAllowed(REGISTRY_SCRIPT_ROOT_HEX)).resolves.toBe(true);
+
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
+    const [id, requirements] = rpc.getAccountProof.mock.calls[0] ?? [];
+    expect(id?.toString()).toBe(REGISTRY_HEX);
+    expect(requirements?.slots.map(entry => [entry.slot, entry.keys.map(key => key.toHex())])).toEqual([
+      [MIDEN_NAME_SLOTS.allowedNoteScripts, [hexOf(REGISTRY_ROOT)]]
+    ]);
+  });
+
+  it('is false when the entry is missing', async () => {
+    await expect(fetchRegistryScriptAllowed(REGISTRY_SCRIPT_ROOT_HEX)).resolves.toBe(false);
+  });
+
+  it('is false when felt 0 is not the allowed marker', async () => {
+    setEntry(MIDEN_NAME_SLOTS.allowedNoteScripts, REGISTRY_ROOT, [2n, 0n, 0n, 0n]);
+    await expect(fetchRegistryScriptAllowed(REGISTRY_SCRIPT_ROOT_HEX)).resolves.toBe(false);
+  });
+
+  it('does not read the fee schedule: the registry script has no fee entry check', async () => {
+    setEntry(MIDEN_NAME_SLOTS.allowedNoteScripts, REGISTRY_ROOT, [1n, 0n, 0n, 0n]);
+    await fetchRegistryScriptAllowed(REGISTRY_SCRIPT_ROOT_HEX);
+    const requirements = rpc.getAccountProof.mock.calls[0]?.[1];
+    expect(requirements?.slots.map(entry => entry.slot)).not.toContain(MIDEN_NAME_SLOTS.feeSchedule);
+  });
+
+  it('throws on a network with no deployment', async () => {
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
+    await expect(fetchRegistryScriptAllowed(REGISTRY_SCRIPT_ROOT_HEX)).rejects.toBeInstanceOf(
+      MidenNameUnsupportedNetworkError
+    );
     expect(rpc.getAccountProof).not.toHaveBeenCalled();
   });
 });

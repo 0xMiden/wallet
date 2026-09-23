@@ -775,10 +775,12 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // tests.
     const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
     // `register-name` reuses its pre-built bytes (same note id), so a retry after
-    // an execution-time rejection cannot pay two times.
+    // an execution-time rejection cannot pay two times. `publish-name-record`
+    // has the same shape: its pre-built registry note carries the name NFA.
     expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual([
       'consume',
       'execute',
+      'publish-name-record',
       'register-name',
       'send',
       'swap'

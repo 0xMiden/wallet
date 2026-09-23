@@ -32,6 +32,14 @@ export class MidenNameScriptMismatchError extends Error {
   }
 }
 
+/** The account vault has no NFA for the label, so the wallet cannot publish its record. */
+export class MidenNameNotHeldError extends Error {
+  constructor(label: string) {
+    super(`The account does not hold the name "${label}"`);
+    this.name = 'MidenNameNotHeldError';
+  }
+}
+
 /** The note-script asset could not be fetched, or it has an unexpected shape. */
 export class MidenNameScriptAssetError extends Error {
   constructor(detail: string) {

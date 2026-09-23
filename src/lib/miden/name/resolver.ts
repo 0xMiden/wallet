@@ -15,6 +15,7 @@
  */
 
 import { getBech32AddressFromAccountId, walletAccountIdToSdk } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { MIDEN_NAME_SLOTS, type MidenNameConfig, getMidenNameConfig } from './config';
 import {
@@ -26,7 +27,7 @@ import {
   feltsEqual,
   validateMidenLabel
 } from './encoding';
-import { MidenNameAbortedError } from './errors';
+import { MidenNameAbortedError, MidenNameUnsupportedNetworkError } from './errors';
 import { readRegistryStorage } from './reads';
 import { accountIdFromParts, decodeAccountWord, idParts, idPartsFromHex, statusKeyFeltsForLabel } from './sdk-words';
 
@@ -84,6 +85,27 @@ async function forwardLookup(
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, commitmentKey)) ??
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, domainWord))
   );
+}
+
+/**
+ * The account that the registry record of `label` points to, or null when the
+ * registry has no record. No cache: the publish tracker uses this read to see
+ * a record the moment the registry writes it.
+ */
+export async function fetchDomainRecord(label: string): Promise<AccountIdParts | null> {
+  const config = getMidenNameConfig();
+  if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
+  return forwardLookup(config, label, undefined);
+}
+
+/**
+ * The bech32 account that the registry record of `label` points to, or null
+ * when the registry has no record. Same read as `fetchDomainRecord`, for
+ * callers that compare against a wallet account id.
+ */
+export async function fetchDomainRecordAccount(label: string): Promise<string | null> {
+  const record = await fetchDomainRecord(label);
+  return record === null ? null : getBech32AddressFromAccountId(accountIdFromParts(record));
 }
 
 /** Reverse read: the domain value that `account_to_domain` holds for an account. */

@@ -123,7 +123,13 @@ interface RequestedTokenInfo {
  *  - `register-name` - `secondaryAccountId` is the Miden Name registry that
  *    receives the register note with the price.
  */
-const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send', 'register-name'];
+const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = [
+  'send',
+  'earn-deposit',
+  'bridged-send',
+  'register-name',
+  'publish-name-record'
+];
 
 /** Translation key of the UI state of a Miden Name registration, for the Phase row. */
 const midenNameStateKey = (state: MidenNameUiState): string => {

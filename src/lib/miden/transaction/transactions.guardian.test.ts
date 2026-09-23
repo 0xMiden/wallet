@@ -269,11 +269,15 @@ jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
 }));
 
-// The Miden Name pre-submit guard does RPC reads. Only `register-name` rows call it.
+// The Miden Name pre-submit guards do RPC reads. Only `register-name` and
+// `publish-name-record` rows call them.
 // eslint-disable-next-line no-var
 var mockAssertMidenNameRegistrationLive = jest.fn(async (_tx: object): Promise<void> => {});
+// eslint-disable-next-line no-var
+var mockAssertMidenNamePublishLive = jest.fn(async (_tx: object): Promise<void> => {});
 jest.mock('lib/miden/name/guard', () => ({
-  assertMidenNameRegistrationLive: (tx: object) => mockAssertMidenNameRegistrationLive(tx)
+  assertMidenNameRegistrationLive: (tx: object) => mockAssertMidenNameRegistrationLive(tx),
+  assertMidenNamePublishLive: (tx: object) => mockAssertMidenNamePublishLive(tx)
 }));
 
 const makeResult = () => ({
@@ -2149,6 +2153,135 @@ describe('generateTransaction — Guardian routing', () => {
     const failed = txStore.find(row => row.id === txId);
     expect(failed?.status).toBe(ITransactionStatus.Failed);
     expect(failed?.nextEligibleAt).toBeUndefined();
+  });
+
+  const publishNameRow = (txId: string, requestBytes: Uint8Array | undefined) =>
+    Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'publish-name-record',
+      secondaryAccountId: 'registry',
+      faucetId: 'registry',
+      noteType: 'public',
+      requestBytes,
+      extraInputs: {
+        label: 'alice',
+        network: 'testnet',
+        registryNoteId: '0xregistry-note',
+        reclaimHeight: 1300,
+        builtAtBlock: 1000,
+        action: '3',
+        phase: 'requested',
+        phaseUpdatedAt: 1
+      },
+      delegateTransaction: true
+    });
+
+  it('Guardian publish-name-record proposes the pre-built bytes as a publish_name_record custom proposal', async () => {
+    const txId = 'publish-name-guardian';
+    const requestBytes = new Uint8Array([31, 32, 33]);
+    const transaction = publishNameRow(txId, requestBytes);
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'publish-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(mockAssertMidenNamePublishLive).toHaveBeenCalledWith(transaction);
+    expect(mockAssertMidenNameRegistrationLive).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'publish_name_record');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
+      'publish-proposal',
+      requestBytes,
+      true
+    );
+    const completed = txStore.find(row => row.id === txId);
+    expect(completed?.error).toBeUndefined();
+    expect(completed?.status).toBe(ITransactionStatus.Completed);
+    // Only `completePublishNameRecordTransaction` writes this label and phase.
+    expect(completed?.displayMessage).toBe('Name published');
+    expect(completed?.requestBytes).toBe(requestBytes);
+    expect(completed?.extraInputs).toEqual(expect.objectContaining({ phase: 'submitted' }));
+  });
+
+  it('Guardian publish-name-record: a guard failure marks the row Failed with no proposal', async () => {
+    const txId = 'publish-name-guardian-expired';
+    const transaction = publishNameRow(txId, new Uint8Array([31]));
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+    mockAssertMidenNamePublishLive.mockRejectedValueOnce(new Error('The Miden Name request expired'));
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    const failed = txStore.find(row => row.id === txId);
+    expect(failed?.status).toBe(ITransactionStatus.Failed);
+    expect(failed?.nextEligibleAt).toBeUndefined();
+  });
+
+  it('Guardian publish-name-record: a row with no request bytes is Failed with no proposal', async () => {
+    const txId = 'publish-name-guardian-no-bytes';
+    const transaction = publishNameRow(txId, undefined);
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(mockAssertMidenNamePublishLive).toHaveBeenCalledTimes(1);
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
   it('Guardian earn-deposit: a still-pending 409 requeues AND drops the frozen requestBytes so the next cycle rebuilds a fresh reclaim height', async () => {

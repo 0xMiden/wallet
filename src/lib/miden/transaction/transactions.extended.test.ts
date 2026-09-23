@@ -819,6 +819,65 @@ describe('completeConsumeTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.displayMessage).toBe('Name received');
   });
+
+  it('labels a Miden Name return "Name returned" and moves the publish row to done', async () => {
+    txStore.push(
+      {
+        id: 'pub-1',
+        type: 'publish-name-record',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 90,
+        extraInputs: { label: 'alice', phase: 'returning', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'tx-1',
+        type: 'consume',
+        accountId: 'acc-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        extraInputs: { midenNameReturn: { label: 'alice', publishTxId: 'pub-1' } }
+      }
+    );
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    const consumeRow = txStore.find(row => row.id === 'tx-1');
+    const publishRow = txStore.find(row => row.id === 'pub-1');
+    expect(consumeRow.status).toBe(ITransactionStatus.Completed);
+    expect(consumeRow.displayMessage).toBe('Name returned');
+    expect(consumeRow.amount).toBeUndefined();
+    expect(publishRow.extraInputs.phase).toBe('done');
+  });
+
+  it('completes a Miden Name return even when the done patch throws', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const publishRow = {
+      id: 'pub-1',
+      type: 'publish-name-record',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 90
+    };
+    // A read of the row's extraInputs throws, so the patch throws.
+    Object.defineProperty(publishRow, 'extraInputs', {
+      get: () => {
+        throw new Error('db closed');
+      }
+    });
+    txStore.push(publishRow, {
+      id: 'tx-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      extraInputs: { midenNameReturn: { label: 'alice', publishTxId: 'pub-1' } }
+    });
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    const consumeRow = txStore.find(row => row.id === 'tx-1');
+    expect(consumeRow.status).toBe(ITransactionStatus.Completed);
+    expect(consumeRow.displayMessage).toBe('Name returned');
+    expect(warn).toHaveBeenCalledWith('[miden-name] done patch failed (non-fatal)', expect.any(Error));
+    warn.mockRestore();
+  });
 });
 
 describe('cancelTransaction error variants', () => {

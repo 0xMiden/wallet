@@ -3,6 +3,8 @@ import {
   IBridgeProvider,
   IBridgedReceivePhase,
   IConsumeMidenNameExtraInputs,
+  IConsumeMidenNameReturnExtraInputs,
+  IPublishNameRecordExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   INoteDeliveryState,
@@ -178,13 +180,25 @@ export function midenNameLabelOf(tx: Pick<ITransaction, 'type' | 'extraInputs'>)
       const inputs: Partial<IRegisterNameExtraInputs> | undefined = tx.extraInputs;
       return inputs?.label || undefined;
     }
+    case 'publish-name-record': {
+      const inputs: Partial<IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
+      return inputs?.label || undefined;
+    }
     case 'consume': {
       const inputs: Partial<IConsumeMidenNameExtraInputs> | undefined = tx.extraInputs;
-      return inputs?.midenNameClaim?.label || undefined;
+      const returnInputs: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = tx.extraInputs;
+      return inputs?.midenNameClaim?.label || returnInputs?.midenNameReturn?.label || undefined;
     }
     default:
       return undefined;
   }
+}
+
+/** True when the consume row takes back the NFA after a registry-record publish. */
+export function isMidenNameReturnConsume(tx: Pick<ITransaction, 'type' | 'extraInputs'>): boolean {
+  if (tx.type !== 'consume') return false;
+  const inputs: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = tx.extraInputs;
+  return inputs?.midenNameReturn !== undefined;
 }
 
 /**
@@ -202,6 +216,8 @@ export function midenNameRowTitle(
   switch (entry.txType) {
     case 'register-name':
       return t('historyRegisteredName', { name });
+    case 'publish-name-record':
+      return t('historyPublishedName', { name });
     case 'consume':
       return t('historyReceivedName', { name });
     default:

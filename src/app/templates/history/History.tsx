@@ -310,7 +310,9 @@ export default History;
 
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {
-  return txType === 'send' || txType === 'bridged-send' || txType === 'register-name';
+  return (
+    txType === 'send' || txType === 'bridged-send' || txType === 'register-name' || txType === 'publish-name-record'
+  );
 }
 
 async function fetchTransactionsAsHistoryEntries(

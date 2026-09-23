@@ -12,6 +12,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
+import { traceRegistryStep } from 'lib/miden/name/debug';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
@@ -330,7 +331,21 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+    const trace = proposalType === 'publish_name_record';
+    return traceRegistryStep(
+      'guardian.create-proposal-lock',
+      () =>
+        withWasmClientLock(() =>
+          traceRegistryStep(
+            'guardian.create-proposal-sdk',
+            () => this.multisig.createCustomProposal(requestBytes, proposalType),
+            { proposalType },
+            trace
+          )
+        ),
+      { proposalType },
+      trace
+    );
   }
 
   /**
@@ -354,15 +369,41 @@ export class MultisigService {
     await this.multisig.abandonCandidate(nonce);
   }
 
-  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
-    const proposal = await this.multisig.signProposal(id);
+  async signAndCreateTransactionRequest(
+    id: string,
+    requestBytes?: Uint8Array,
+    trace = false
+  ): Promise<TransactionRequest> {
+    const proposal = await traceRegistryStep(
+      'guardian.sign-proposal',
+      () => this.multisig.signProposal(id),
+      { proposalId: id },
+      trace
+    );
     if (proposal.metadata.proposalType === 'custom') {
       if (!requestBytes) {
         throw new Error('Request Bytes are required for custom execution');
       }
-      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-      const request = TransactionRequest.deserialize(requestBytes);
-      return request.extendAdviceMap(advice);
+      // The SDK executes the request again to check the signed commitment.
+      // Keep this execution separate from background client operations.
+      if (trace) console.log('[registry-debug] guardian.prepare-lock: waiting', { proposalId: id });
+      return withWasmClientLock(
+        async hold => {
+          if (trace) console.log('[registry-debug] guardian.prepare-lock: acquired', { proposalId: id });
+          const advice = await traceRegistryStep(
+            'guardian.prepare-custom-execution',
+            () => this.multisig.prepareCustomExecution(id, requestBytes),
+            { proposalId: id },
+            trace
+          );
+          assertWasmHoldCurrent(hold, 'guardian-custom-execution: after preparation');
+          const request = TransactionRequest.deserialize(requestBytes);
+          const signedRequest = request.extendAdviceMap(advice);
+          if (trace) console.log('[registry-debug] guardian.signed-request-ready', { proposalId: id });
+          return signedRequest;
+        },
+        { label: 'guardian-custom-execution' }
+      );
     }
     return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
   }

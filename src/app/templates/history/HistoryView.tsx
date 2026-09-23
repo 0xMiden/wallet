@@ -161,8 +161,8 @@ function buildRowProps(
   } else if (entry.txType === 'switch-guardian') {
     iconNode = <SwapIcon className="w-5 h-5" />;
     iconBg = 'bg-[#777487]';
-  } else if (entry.txType === 'register-name') {
-    // Same glyph and colour as `TransactionIcon`: the row pays the price of a name.
+  } else if (entry.txType === 'register-name' || entry.txType === 'publish-name-record') {
+    // Same glyph and colour as `TransactionIcon`: the row pays for, or publishes, a name.
     iconNode = <Icon name={IconName.User} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-accent-primary';
     amountDirection = 'negative';

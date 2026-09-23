@@ -21,7 +21,7 @@ All of these were verified against the Testnet deployment.
 | Price by label length 1 / 2 / 3 / 4 / 5+                       | 375 / 200 / 120 / 55 / 20 MIDEN, read live from the `prices` map                                                                                                                                            |
 | Sponsorship the registry charges per register note             | 210 base units, read live from `fee_schedule[scriptRoot]` = `[210, 0, 0, 1]`                                                                                                                                |
 | Register note script                                           | root `0xdbac2a36…b6a2`, vendored as base64 in `public/miden-name/note-scripts.json` (16 810 bytes), present on the registry's `allowed_note_scripts` allowlist                                              |
-| Registry note script (set / clear records)                     | root `0xb862b950…ca05`, vendored in the same asset (23 180 bytes), on the allowlist. Not used yet: see "Remaining work"                                                                                     |
+| Registry note script (set / clear records)                     | root `0xb862b950…ca05`, vendored in the same asset (23 180 bytes), on the allowlist. Sent by the publish flow (`nfa.ts`); the clear actions are not wired                                                                                     |
 | Label rules                                                    | `[a-z0-9]{1,21}`; `a–z → 1..26`, `0–9 → 27..36`; 7 codes per felt, 8 bits each, little endian                                                                                                               |
 | Domain word                                                    | `[chars14..20, chars7..13, chars0..6, length]`                                                                                                                                                              |
 | Commitment                                                     | `Poseidon2(TAG ‖ domainWord ‖ [0, 0, registry.suffix, registry.prefix])`, `TAG = [31013299120531821, 30803248544050529, 54383671667041, 20]`                                                                |
@@ -50,8 +50,10 @@ Registration lifecycle:
 2. The registry consumes it (`getNetworkNoteStatus` → `NullifierCommitted`), marks the label
    issued (`asset_status` = 1), mints the NFA and sends it back in a public P2ID note.
 3. The wallet consumes that P2ID note. The NFA is now in the vault: the name is owned.
-4. NOT built (see "Remaining work"): publishing the registry record that makes the name
-   resolvable by other wallets.
+4. Publish (Settings → Miden Name → "Publish"): the wallet sends a public registry note that
+   carries the NFA with action `3`. The registry writes `domain_to_account` and
+   `account_to_domain` and returns the NFA in a new P2ID note, which the tracker consumes.
+   The name now resolves in every wallet's send flow.
 
 ## Reads: no WASM client, no lock
 
@@ -82,7 +84,7 @@ moves it into Rust.
 | `tracker.ts`                  | `reconcileMidenNameRegistrations()`: one pass over the non-terminal rows (see "State machine"). RPC and Dexie only; the only WASM entry is `initiateConsumeTransactionFromId`.                                                                                                                                                                                                                                   |
 | `MidenNameWatcher.tsx`        | Mounted in `src/lib/miden/front/provider.tsx`. Runs the tracker every 10 s while a wallet UI is open, skips when the document is hidden, single-flight through `navigator.locks` (`ifAvailable`).                                                                                                                                                                                                                |
 | `useMidenNameResolvesHere.ts` | Reverse check for the "resolves to this account" pill. Runs where the network has a deployment; false until the registry has a reverse record for the account.                                                                                                                                                                                                                                                   |
-| `nfa.ts`                      | Stubs for the parts that need the SDK NFA binding: `accountHoldsDomainNfa` → `'unsupported'`, `publishRegistryRecord` throws, `REGISTRY_PUBLISHING_SUPPORTED = false`. The UI binds its disabled "Publish" / "Clear" controls to this flag.                                                                                                                                                                      |
+| `nfa.ts`                      | The NFA side (SDK ≥ 0.16.2, `AssetVault.nonFungibleAssets`, `NoteAssets` with an NFA). `findDomainNfa` matches a label to a vault NFA (registry faucet, and the first two limbs of `vaultKey()` equal the first two felts of the domain commitment; any other layout is "not held", never a false positive). `accountHoldsDomainNfa` (vault only), `listOwnedDomainLabels` (vault keys → `token_to_domain` → decode → commitment check; for recovery with no local history), `buildPublishNameRecordRequest` (registry note with the NFA, storage `[registry.prefix, registry.suffix, dw0..dw3, reclaimHeight, 3]`, built ONCE like the register note, script fetched before the lock) and `publishRegistryRecord` (build + queue a `publish-name-record` row, returns its id). `REGISTRY_PUBLISHING_SUPPORTED = true`; `REGISTRY_CLEARING_SUPPORTED = false` keeps the "Clear" control disabled until the semantics of actions 4..6 are confirmed.                                                                                                                                                                      |
 | `errors.ts`                   | Typed errors (`MidenNameTakenError`, `MidenNamePriceChangedError`, `MidenNameScriptNotAllowedError`, …).                                                                                                                                                                                                                                                                                                         |
 | `test-support/fake-sdk.ts`    | Typed fake of the SDK classes for the unit tests.                                                                                                                                                                                                                                                                                                                                                                |
 
@@ -109,6 +111,22 @@ Per row on the current network that is not `restoredFromBackup`:
 | `issued`                                   | `findRegistryDeliveryNoteIds` from `builtAtBlock` (cursor in `deliveryScanFrom`) | first note with no live consume row → `initiateConsumeTransactionFromId` → `tagConsumeAsMidenNameClaim` → `claiming`, then kick processing; a "not found" (local store not synced yet) retries next tick                       |
 | `claiming`                                 | the claim row                                                                    | `Completed` → `owned` (the consume completion also writes this); `Failed` → back to `issued` with `lastError`                                                                                                                  |
 
+Per `publish-name-record` row (`IPublishNameRecordExtraInputs`, phase
+`requested → submitted → recorded → returning → done`, `failed ∈ tx-failed | discarded |
+expired | return-failed`, `patchPublishNameRecordExtraInputs` enforces the order with the one
+move back `returning → recorded`):
+
+| Row state | Read | Result |
+| --- | --- | --- |
+| status `Failed` | – | `failed / tx-failed` |
+| `Completed` + `submitted` (or `requested`) | `fetchRegistrationNoteState(registryNoteId)` | `consumed` and `fetchDomainRecord(label)` points to the account → `recorded`; `discarded` → `failed / discarded`; not consumed with `tip > reclaimHeight` → `failed / expired` |
+| `recorded` | `findRegistryDeliveryNoteIds` from `builtAtBlock` (cursor in `returnScanFrom`) | first note with no live consume row → `initiateConsumeTransactionFromId` → `tagConsumeAsMidenNameReturn` → `returning` |
+| `returning` | the return row | `Completed` → `done` (the consume completion also writes this, message "Name returned"); `Failed` → back to `recorded` with `lastError` |
+
+The delivery scan is shared: a consume row tagged for either flow (`midenNameClaim` or
+`midenNameReturn`) is linked through `linkedRowIdOf`, so a return note is never claimed as
+a delivery note and the reverse.
+
 The delivery note carries ONLY the NFA. The wallet's normal claimable-notes paths drop
 notes without a fungible asset (`sync-manager.ts`, `front/claimable-notes.ts`), which is why
 the tracker finds it by RPC and consumes it by note id. `completeConsumeTransaction` was
@@ -116,8 +134,12 @@ relaxed to complete such a note with no amount (`'Name received'`).
 
 ## Pipeline
 
-`register-name` is a pre-built-bytes type like `earn-deposit`: the request bytes live on the
-row and are reused for every attempt. Non-guardian accounts write through
+`register-name` and `publish-name-record` are pre-built-bytes types like `earn-deposit`: the
+request bytes live on the row and are reused for every attempt. The publish row moves no
+fungible asset (it is inserted directly, not through the spending-limit queue), its guard is
+`assertMidenNamePublishLive` (registry script allowlist, root, reclaim height; custody of
+the NFA is not re-checked, the execution fails without it), and its guardian proposal type
+is `publish_name_record`. Everything below applies to both types. Non-guardian accounts write through
 `midenClientProxy.newTransaction`; guardian accounts go through
 `createCustomProposal(bytes, 'register_name')` and `signAndCreateTransactionRequest` with
 the same bytes. The guard runs before the write in both branches. The type is in
@@ -127,45 +149,50 @@ guardian route.
 
 ## Remaining work
 
-### 1. Registry records (the part that makes a name usable for sending)
+### 1. Registry records: validated on Guardian Testnet
 
-Owning the NFA does not make `alice.miden` resolvable. Resolution reads the registry's
-`domain_to_account` map, and that map is written only when the owner sends a PUBLIC
-`registry-note` to the domain account with action `3` (`update_registry_records`), carrying
-the NFA as the note asset. The registry verifies the NFA, writes both records and returns
-the NFA in a new P2ID note that the wallet must consume again. Actions `4`–`6` clear the
-records and carry no asset.
+Resolution reads the registry's `domain_to_account` map, and that map is written only when
+the owner sends a PUBLIC registry note to the domain account with action `3`
+(`update_registry_records`), carrying the NFA as the note asset. The registry verifies the
+NFA, writes both records and returns the NFA in a new P2ID note that the wallet consumes
+again. Actions `4`–`6` clear the records and carry no asset. The publish flow (`nfa.ts`, the
+`publish-name-record` type, the tracker) is built on:
 
-Registry-note storage layout (from the Digine handoff):
-`[target_prefix, target_suffix, domain_0..3, reclaim_height, action]`.
+- the vendored `registry` script (`public/miden-name/note-scripts.json`, root
+  `0xb862b950…ca05`, from the `noteScripts` artifact of the miden.name bundle, confirmed by
+  Digine Labs as the v0.16 registry script; only 13 roots are on the allowlist, so a script
+  compiled locally is rejected — keep the vendored bytes);
+- the NFA surface of web-sdk ≥ 0.16.2 (`AssetVault.nonFungibleAssets`, `NonFungibleAsset`,
+  `NoteAssets` with an NFA), tracked in
+  [web-sdk#415](https://github.com/0xMiden/web-sdk/issues/415). The wallet is linked to a
+  local web-sdk build until that release lands (see `.linked-web-sdk-pr.json`).
 
-Blocked on two external items:
+A Guardian Testnet publish completed the full round trip: the name resolved, the return
+note was consumed, and the exact NFA was back in the local vault. The SDK reported a
+post-submit note-screener error during local apply; the tracker still reached `done`.
+Non-Guardian accounts and native platforms still need live validation. These checks apply:
 
-- ~~The `registry-note` script bytes.~~ Vendored: `registry` in
-  `public/miden-name/note-scripts.json`, root `0xb862b950…ca05`, taken from the
-  `noteScripts` artifact that the miden.name dApp bundle ships and confirmed by Digine
-  Labs as the v0.16 registry script. Only 13 script roots are on the registry's
-  allowlist, so a script compiled locally is rejected; keep the vendored bytes.
-- **Non-fungible assets in the web SDK.** `NoteAssets` accepts only `FungibleAsset` and
-  `AssetVault` exposes only fungible assets in SDK 0.16.x, so the wallet cannot put the
-  NFA into a note nor enumerate owned NFAs. Once the binding exists, implement
-  `accountHoldsDomainNfa` and `publishRegistryRecord` in `nfa.ts`, flip
-  `REGISTRY_PUBLISHING_SUPPORTED`, and add a `publish-name-record` transaction type
-  modelled on `register-name` (the returned NFA P2ID is consumed like the delivery note).
+- The registry-note storage starts with the registry account prefix and suffix. The
+  note metadata identifies the sender, who gets the record and the returned NFA. A
+  Testnet note built with the sender as the storage target remained pending with an
+  execution error. Changing the builder does not repair an existing note; the sender
+  must reclaim its NFA after the committed reclaim height.
+- the NFA vault-key layout: `findDomainNfa` expects the first two limbs of `vaultKey()` to
+  be the first two felts of the domain commitment. A different layout gives "not held"
+  (the Publish tap fails with `MidenNameNotHeldError`), never a wrong note.
 
-When both land: run the publish step automatically after `owned` (with the user's consent
-shown once on the claim screen), enable the fourth step of the status page, and verify the
-domain-side key derivation of `domain_to_account` on chain (the resolver tries the
-commitment key first, then the raw domain word). Resolution in the send flow is already on
-for every network with a deployment; until records exist it gives "Name not found".
+Still open: the clear actions (`REGISTRY_CLEARING_SUPPORTED`), an automatic publish after
+`owned` (with consent shown once on the claim screen), the fourth step of the status page
+(it stays `disabled`; publish rows are not linked to their register row), and the on-chain
+check of the domain-side key of `domain_to_account` (the resolver tries the commitment key
+first, then the raw domain word).
 
 ### 2. Exact ownership
 
-"Owned" is currently derived from wallet-recorded registrations (register tx landed,
-registry consumed it, label issued on chain, delivery note consumed). It is not a vault
-read. With the NFA binding, `useOwnedMidenName` should list names from the vault:
-enumerate NFAs of the registry faucet, read `token_to_domain[[c0, c1, 0, 0]]`, decode the
-domain word, and recompute the commitment to compare all four limbs.
+"Owned" in the UI is still derived from wallet-recorded registrations. The vault read
+exists (`listOwnedDomainLabels` in `nfa.ts`: registry NFAs → `token_to_domain` → decode →
+commitment check) but nothing calls it yet. Wire it into `useOwnedMidenName` (or a restore
+step) once the key layout is confirmed by a live registration.
 
 ### 3. Pay-to-name
 

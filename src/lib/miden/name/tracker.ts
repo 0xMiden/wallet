@@ -22,19 +22,29 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import {
   IConsumeMidenNameExtraInputs,
+  IConsumeMidenNameReturnExtraInputs,
+  IPublishNameRecordExtraInputs,
   IRegisterNameExtraInputs,
   ITransaction,
   ITransactionStatus
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { patchRegisterNameExtraInputs } from 'lib/miden/transaction/complete';
-import { initiateConsumeTransactionFromId, tagConsumeAsMidenNameClaim } from 'lib/miden/transaction/initiate';
+import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { patchPublishNameRecordExtraInputs, patchRegisterNameExtraInputs } from 'lib/miden/transaction/complete';
+import {
+  initiateConsumeTransactionFromId,
+  tagConsumeAsMidenNameClaim,
+  tagConsumeAsMidenNameReturn
+} from 'lib/miden/transaction/initiate';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 
 import { isMidenNameSupported } from './config';
+import { traceRegistryStep } from './debug';
 import { fetchMidenNameIssued, fetchRegistrationNoteState, findRegistryDeliveryNoteIds, getChainTip } from './reads';
-import { isLiveRegistrationRow, registerNameInputsOf } from './registrations';
+import { isLivePublishRow, isLiveRegistrationRow, publishNameInputsOf, registerNameInputsOf } from './registrations';
+import { fetchDomainRecord } from './resolver';
+import { accountIdFromParts } from './sdk-words';
 
 const LOG_PREFIX = '[miden-name]';
 
@@ -66,19 +76,41 @@ function isNonTerminal(inputs: IRegisterNameExtraInputs): boolean {
   }
 }
 
+function isNonTerminalPublish(inputs: IPublishNameRecordExtraInputs): boolean {
+  switch (inputs.phase) {
+    case 'done':
+    case 'failed':
+      return false;
+    default:
+      return true;
+  }
+}
+
+/** True for a non-terminal registration or publish row of the network. */
+function needsTracking(row: ITransaction, network: string): boolean {
+  switch (row.type) {
+    case 'register-name': {
+      const inputs = registerNameInputsOf(row);
+      return inputs !== undefined && isLiveRegistrationRow(row, network) && isNonTerminal(inputs);
+    }
+    case 'publish-name-record': {
+      const inputs = publishNameInputsOf(row);
+      return inputs !== undefined && isLivePublishRow(row, network) && isNonTerminalPublish(inputs);
+    }
+    default:
+      return false;
+  }
+}
+
 /**
- * Do one tracker pass over the non-terminal registrations of all accounts on
- * the effective network. Does nothing when the network has no deployment.
+ * Do one tracker pass over the non-terminal registrations and registry-record
+ * publishes of all accounts on the effective network. Does nothing when the
+ * network has no deployment.
  */
 export async function reconcileMidenNameRegistrations(deps: MidenNameTrackerDeps): Promise<void> {
   if (!isMidenNameSupported()) return;
   const network = getEffectiveNetworkName();
-  const rows = await Repo.transactions
-    .filter(row => {
-      const inputs = registerNameInputsOf(row);
-      return inputs !== undefined && isLiveRegistrationRow(row, network) && isNonTerminal(inputs);
-    })
-    .toArray();
+  const rows = await Repo.transactions.filter(row => needsTracking(row, network)).toArray();
   if (rows.length === 0) return;
 
   let tip: Promise<number> | undefined;
@@ -98,7 +130,16 @@ export async function reconcileMidenNameRegistrations(deps: MidenNameTrackerDeps
 
   for (const row of rows) {
     try {
-      await reconcileRow(row, context);
+      switch (row.type) {
+        case 'register-name':
+          await reconcileRow(row, context);
+          break;
+        case 'publish-name-record':
+          await reconcilePublishRow(row, context);
+          break;
+        default:
+          break;
+      }
     } catch (error) {
       console.warn(`${LOG_PREFIX} tracker step failed`, { txId: row.id, error });
     }
@@ -199,6 +240,16 @@ function claimOf(row: ITransaction): IConsumeMidenNameExtraInputs['midenNameClai
   return inputs?.midenNameClaim;
 }
 
+function returnOf(row: ITransaction): IConsumeMidenNameReturnExtraInputs['midenNameReturn'] | undefined {
+  const inputs: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = row.extraInputs;
+  return inputs?.midenNameReturn;
+}
+
+/** The id of the register or publish row that a tagged consume row belongs to. */
+function linkedRowIdOf(row: ITransaction): string | undefined {
+  return claimOf(row)?.registerTxId ?? returnOf(row)?.publishTxId;
+}
+
 /** How the delivery scan sees one delivery note. */
 type DeliveryNoteState =
   /** A live consume row of this registration claims it. */
@@ -210,12 +261,12 @@ type DeliveryNoteState =
   /** No live consume row has it (Failed rows do not count). */
   | { kind: 'free' };
 
-function deliveryNoteState(registerTxId: string, consumeRows: ITransaction[]): DeliveryNoteState {
+function deliveryNoteState(ownerRowId: string, consumeRows: ITransaction[]): DeliveryNoteState {
   const live = consumeRows.filter(row => row.status !== ITransactionStatus.Failed);
-  const ours = live.find(row => claimOf(row)?.registerTxId === registerTxId);
+  const ours = live.find(row => linkedRowIdOf(row) === ownerRowId);
   if (ours) return { kind: 'ours', claimTxId: ours.id };
   if (live.length === 0) return { kind: 'free' };
-  const settled = live.some(row => row.status === ITransactionStatus.Completed || claimOf(row) !== undefined);
+  const settled = live.some(row => row.status === ITransactionStatus.Completed || linkedRowIdOf(row) !== undefined);
   return settled ? { kind: 'settled' } : { kind: 'busy' };
 }
 
@@ -330,6 +381,228 @@ async function checkClaim(row: ITransaction, inputs: IRegisterNameExtraInputs): 
         row.id,
         { phase: 'issued', lastError: claimRow.error ?? 'The claim transaction failed' },
         { expectPhase: 'claiming' }
+      );
+      return;
+    default:
+      return;
+  }
+}
+
+/*
+ * Registry-record publishes (`publish-name-record` rows). Same shape as the
+ * registration, one step per pass:
+ *
+ *   1. publish row Failed                        → failed / tx-failed
+ *   2. publish row Completed, phase submitted    → read the registry note state:
+ *                                                  consumed + record points here → recorded
+ *                                                  discarded                      → failed / discarded
+ *                                                  not consumed and tip > reclaimHeight → failed / expired
+ *   3. recorded  → find the NFA return note, queue a consume of it → returning
+ *   4. returning → return row Completed → done; return row Failed → recorded
+ */
+
+async function reconcilePublishRow(row: ITransaction, context: PassContext): Promise<void> {
+  const inputs = publishNameInputsOf(row);
+  if (!inputs) return;
+
+  if (row.status === ITransactionStatus.Failed) {
+    await patchPublishNameRecordExtraInputs(
+      row.id,
+      { phase: 'failed', failure: 'tx-failed', ...(row.error ? { lastError: row.error } : {}) },
+      { expectPhase: inputs.phase }
+    );
+    return;
+  }
+
+  switch (inputs.phase) {
+    case 'requested':
+    case 'submitted':
+      if (row.status === ITransactionStatus.Completed) await checkRegistryNote(row, inputs, context);
+      return;
+    case 'recorded':
+      await claimReturnNote(row, inputs, context);
+      return;
+    case 'returning':
+      await checkReturn(row, inputs);
+      return;
+    default:
+      return;
+  }
+}
+
+/** True when the registry record of the label points to the account of the row. */
+async function recordPointsToAccount(row: ITransaction, label: string): Promise<boolean> {
+  const record = await fetchDomainRecord(label);
+  if (record === null) return false;
+  return compareAccountIds(row.accountId, getBech32AddressFromAccountId(accountIdFromParts(record)));
+}
+
+/** Step 2 of a publish: read the state of the registry note. */
+async function checkRegistryNote(
+  row: ITransaction,
+  inputs: IPublishNameRecordExtraInputs,
+  context: PassContext
+): Promise<void> {
+  const expectPhase = inputs.phase;
+  const state = await traceRegistryStep(
+    'tracker.registry-note-status',
+    () => fetchRegistrationNoteState(inputs.registryNoteId),
+    { rowId: row.id, registryNoteId: inputs.registryNoteId }
+  );
+  console.log('[registry-debug] tracker.registry-note-state', { rowId: row.id, status: state.status });
+  switch (state.status) {
+    case 'consumed': {
+      // The registry consumed the note. Wait until the record is visible.
+      if (await recordPointsToAccount(row, inputs.label)) {
+        await patchPublishNameRecordExtraInputs(row.id, { phase: 'recorded' }, { expectPhase });
+      }
+      return;
+    }
+    case 'discarded': {
+      await patchPublishNameRecordExtraInputs(
+        row.id,
+        {
+          phase: 'failed',
+          failure: 'discarded',
+          ...(state.lastError !== undefined ? { lastError: state.lastError } : {})
+        },
+        { expectPhase }
+      );
+      return;
+    }
+    case 'pending':
+    case 'inflight':
+    case 'unknown': {
+      const tip = await context.chainTip();
+      if (tip > inputs.reclaimHeight) {
+        await patchPublishNameRecordExtraInputs(
+          row.id,
+          {
+            phase: 'failed',
+            failure: 'expired',
+            ...(state.lastError !== undefined ? { lastError: state.lastError } : {})
+          },
+          { expectPhase }
+        );
+      }
+      return;
+    }
+  }
+}
+
+async function markReturning(
+  row: ITransaction,
+  returnNoteId: string,
+  returnTxId: string,
+  context: PassContext
+): Promise<void> {
+  const written = await patchPublishNameRecordExtraInputs(
+    row.id,
+    { phase: 'returning', returnNoteId, returnTxId },
+    { expectPhase: 'recorded' }
+  );
+  if (written) context.deps.startProcessing();
+}
+
+/**
+ * Step 3 of a publish: find the note with which the registry returns the NFA,
+ * and queue a consume of it. Same cursor rule as `claimDeliveryNote`.
+ */
+async function claimReturnNote(
+  row: ITransaction,
+  inputs: IPublishNameRecordExtraInputs,
+  context: PassContext
+): Promise<void> {
+  const fromBlock = inputs.returnScanFrom ?? inputs.builtAtBlock;
+  const scan = await traceRegistryStep(
+    'tracker.find-return-note',
+    () => findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock }),
+    { rowId: row.id, fromBlock }
+  );
+  console.log('[registry-debug] tracker.return-note-scan', {
+    rowId: row.id,
+    noteIds: scan.noteIds,
+    scannedTo: scan.scannedTo
+  });
+
+  let canAdvance = true;
+  for (const noteId of scan.noteIds) {
+    const state = deliveryNoteState(row.id, await consumeRowsForNote(row.accountId, noteId));
+    switch (state.kind) {
+      case 'ours':
+        await markReturning(row, noteId, state.claimTxId, context);
+        return;
+      case 'settled':
+        continue;
+      case 'busy':
+        canAdvance = false;
+        continue;
+      case 'free':
+        canAdvance = false;
+        if (await startReturn(row, inputs, noteId, context)) return;
+        continue;
+    }
+  }
+
+  if (canAdvance && scan.scannedTo + 1 > fromBlock) {
+    await patchPublishNameRecordExtraInputs(
+      row.id,
+      { returnScanFrom: scan.scannedTo + 1 },
+      { expectPhase: 'recorded' }
+    );
+  }
+}
+
+/** Queue a consume of one return note. Returns true when the publish moved to `returning`. */
+async function startReturn(
+  row: ITransaction,
+  inputs: IPublishNameRecordExtraInputs,
+  noteId: string,
+  context: PassContext
+): Promise<boolean> {
+  let returnTxId: string;
+  try {
+    returnTxId = await initiateConsumeTransactionFromId(row.accountId, noteId, isDelegateProofEnabled(), false);
+  } catch (error) {
+    const message = errorMessage(error);
+    if (message.toLowerCase().includes('not found')) {
+      console.info(`${LOG_PREFIX} return note is not in the local store yet`, { txId: row.id, noteId });
+    } else {
+      console.warn(`${LOG_PREFIX} could not queue the return consume`, { txId: row.id, noteId, error });
+    }
+    return false;
+  }
+
+  const returnRow = await Repo.transactions.where({ id: returnTxId }).first();
+  if (!returnRow || returnRow.status === ITransactionStatus.Failed) return false;
+  const existingLink = linkedRowIdOf(returnRow);
+  if (existingLink !== undefined && existingLink !== row.id) return false;
+
+  await tagConsumeAsMidenNameReturn(returnTxId, inputs.label, row.id);
+  await markReturning(row, noteId, returnTxId, context);
+  return true;
+}
+
+/** Step 4 of a publish: follow the return consume row. */
+async function checkReturn(row: ITransaction, inputs: IPublishNameRecordExtraInputs): Promise<void> {
+  const returnRow = inputs.returnTxId ? await Repo.transactions.where({ id: inputs.returnTxId }).first() : undefined;
+  if (!returnRow) {
+    await patchPublishNameRecordExtraInputs(
+      row.id,
+      { phase: 'recorded', lastError: 'The return transaction is missing' },
+      { expectPhase: 'returning' }
+    );
+    return;
+  }
+  switch (returnRow.status) {
+    case ITransactionStatus.Completed:
+      await patchPublishNameRecordExtraInputs(row.id, { phase: 'done' }, { expectPhase: 'returning' });
+      return;
+    case ITransactionStatus.Failed:
+      await patchPublishNameRecordExtraInputs(
+        row.id,
+        { phase: 'recorded', lastError: returnRow.error ?? 'The return transaction failed' },
+        { expectPhase: 'returning' }
       );
       return;
     default:

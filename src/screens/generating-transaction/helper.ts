@@ -128,6 +128,7 @@ export const getStageTitleKey = (stage?: ITransactionStage, type?: ITransactionT
   if (type === 'switch-guardian') return 'transactionStageSwitching';
   if (type === 'swap') return 'transactionStageSwapping';
   if (type === 'register-name') return 'transactionStageRegisteringName';
+  if (type === 'publish-name-record') return 'transactionStagePublishingName';
   return 'transactionStageSending';
 };
 
@@ -156,6 +157,8 @@ export const getProcessingTitleKey = (type?: ITransactionType): string => {
       return 'transactionTitleSwap';
     case 'register-name':
       return 'transactionTitleRegisterName';
+    case 'publish-name-record':
+      return 'transactionTitlePublishName';
     default:
       return 'generatingTransaction';
   }
