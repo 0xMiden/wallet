@@ -153,8 +153,8 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange }: any) => (
-    <div data-testid="action-bar" data-active={activeId}>
+  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => (
+    <div data-testid="action-bar" data-active={activeId} className={className}>
       {items.map((it: any) => (
         <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
           {it.icon}
@@ -292,6 +292,18 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     expect(screen.getByTestId('action-bar').parentElement!.className).toBe('shrink-0 relative z-10');
     expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
     expect(screen.queryByTestId('child-content')).toBeNull();
+  });
+
+  it('gives the action bar its band on mobile only', () => {
+    mockLocation.pathname = '/';
+    mockPlatform.isMobile = true;
+    const { unmount } = renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveClass('bg-action-bar');
+    unmount();
+
+    mockPlatform.isMobile = false;
+    renderLayout();
+    expect(screen.getByTestId('action-bar')).not.toHaveClass('bg-action-bar');
   });
 
   it('hides the action bar and renders children for non-home routes', () => {

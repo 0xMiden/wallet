@@ -325,7 +325,13 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   panesRef.current[activeTab] = showActionBar ? (
     <>
       <div className="shrink-0 relative z-10">
-        <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
+        <SegmentedActionBar
+          items={actionItems}
+          activeId={activeAction}
+          onChange={handleActionChange}
+          // Mobile only: the band continues up through the status bar (see data-home-band above).
+          className={isMobile() ? 'bg-action-bar' : undefined}
+        />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
         <HomeSwipeContainer />
