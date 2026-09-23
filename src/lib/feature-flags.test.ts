@@ -1,4 +1,35 @@
-import { isBridgeDepositEnabled, isSwapEnabled, isUpdateNotificationsEnabled } from './feature-flags';
+import {
+  isBridgeDepositEnabled,
+  isMidenNameResolveEnabled,
+  isSwapEnabled,
+  isUpdateNotificationsEnabled
+} from './feature-flags';
+
+describe('feature-flags - isMidenNameResolveEnabled', () => {
+  const original = process.env.MIDEN_NAME_RESOLVE_ENABLED;
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.MIDEN_NAME_RESOLVE_ENABLED;
+    } else {
+      process.env.MIDEN_NAME_RESOLVE_ENABLED = original;
+    }
+  });
+
+  it('is off when the build does not set the flag', () => {
+    delete process.env.MIDEN_NAME_RESOLVE_ENABLED;
+    expect(isMidenNameResolveEnabled()).toBe(false);
+  });
+
+  it('is on only for the literal value "true"', () => {
+    process.env.MIDEN_NAME_RESOLVE_ENABLED = 'true';
+    expect(isMidenNameResolveEnabled()).toBe(true);
+    process.env.MIDEN_NAME_RESOLVE_ENABLED = 'false';
+    expect(isMidenNameResolveEnabled()).toBe(false);
+    process.env.MIDEN_NAME_RESOLVE_ENABLED = '1';
+    expect(isMidenNameResolveEnabled()).toBe(false);
+  });
+});
 
 describe('feature-flags — isSwapEnabled', () => {
   it('enables swap on every platform (including iOS)', () => {

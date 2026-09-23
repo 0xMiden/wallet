@@ -120,7 +120,11 @@ export default defineConfig({
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
-    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
+    // Miden Name send-flow resolver (lib/feature-flags). Default 'false'.
+    'process.env.MIDEN_NAME_RESOLVE_ENABLED': JSON.stringify(process.env.MIDEN_NAME_RESOLVE_ENABLED ?? 'false'),
+    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
+      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
+    ),
     'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
       process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
     ),

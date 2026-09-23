@@ -108,6 +108,8 @@ export default defineConfig({
       process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
     ),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
+    // Miden Name send-flow resolver (lib/feature-flags). Default 'false'.
+    'process.env.MIDEN_NAME_RESOLVE_ENABLED': JSON.stringify(process.env.MIDEN_NAME_RESOLVE_ENABLED ?? 'false'),
     'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
       process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
     ),
