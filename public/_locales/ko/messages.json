@@ -2799,6 +2799,322 @@
     "message": "자신의 주소로 발송할 수 없습니다.",
     "englishSource": "You can't send to your own address"
   },
+  "midenNameResolving": {
+    "message": "이 이름을 검색해 보니…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "이 이름을 사용하는 계정은 없습니다",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "이 이름을 찾을 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "중간 이름",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "이름 신청하기",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "나만의 $suffix$ 이름을 확보하세요. 영원히 여러분의 것입니다",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "이름 신청하기",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21자 · a–z 및 0–9만 허용",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ 이용 가능합니다",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ 이미 사용 중입니다",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "이름 입력",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "21자 이내로 작성하십시오",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "a–z 및 0–9만 사용하십시오.",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "확인 중…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "이 이름을 확인할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name은 현재 새로운 이름을 접수하지 않습니다.",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "가격이 변경되었습니다. 새로운 가격을 확인하고 다시 시도해 주십시오.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "가격 · 길이$length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "네트워크 수수료",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "최대 거래 수수료",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "합계",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "다음으로",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "잔액:",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "등록은 영구적입니다. 이름은 이 계정에 할당되며, 결제 금액은 환불되지 않습니다.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN만으로는 부족합니다. $amount$가 필요합니다.",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "청구 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "요청 전송됨",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Miden Name에서 발행한 이름",
+    "englishSource": "Name issued by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "계정에 추가하기",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameStepPublishing": {
+    "message": "레지스트리에 게시하기",
+    "englishSource": "Publishing to the registry"
+  },
+  "midenNameComingSoon": {
+    "message": "곧 출시 예정",
+    "englishSource": "Coming soon"
+  },
+  "midenNameFailedTaken": {
+    "message": "이 이름은 이미 다른 사람이 먼저 사용했습니다.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "등록 기관이 요청을 제때 처리하지 못했습니다.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "레지스트리에서 요청을 처리할 수 없습니다.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "요청한 거래가 실패했습니다. 등록된 이름이 없습니다.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "이름이 발급되었으나, 계정에 추가하는 데 실패했습니다.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "청구 재시도",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "$name$ 청구하기…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "완료",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "소유",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "청구",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "실패",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "게시되지 않음 · 아직 아무도 이곳으로 전송할 수 없음",
+    "englishSource": "Not published · nobody can send to it yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "이 계정으로 해결됨",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "아직 중간 이름이 없습니다",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNamePublishComingSoon": {
+    "message": "레지스트리에 이름 공개 기능은 곧 제공될 예정입니다",
+    "englishSource": "Publishing names to the registry is coming soon"
+  },
+  "midenNameClaimAnother": {
+    "message": "Claim의 다른 이름",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "주요 명칭",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "사용자 이름",
+    "englishSource": "Your names"
+  },
+  "midenNamePublish": {
+    "message": "게시",
+    "englishSource": "Publish"
+  },
+  "midenNameClearRecords": {
+    "message": "등록부에서 제 기록을 삭제해 주세요",
+    "englishSource": "Remove my records from the registry"
+  },
+  "transactionStageRegisteringName": {
+    "message": "이름 등록",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "이름 등록",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "등록 번호 $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "수신: $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "상태 보기",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "이름",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "레지스트리",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "등록 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "단계",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

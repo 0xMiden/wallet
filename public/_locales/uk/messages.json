@@ -2799,6 +2799,322 @@
     "message": "Не можна відправляти на власну адресу",
     "englishSource": "You can't send to your own address"
   },
+  "midenNameResolving": {
+    "message": "Шукаю цю назву…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Жоден обліковий запис не використовує цю назву",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Не вдалося знайти це ім’я. Спробуйте ще раз.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Ім’я",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Зареєструвати ім’я",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Отримайте власне ім’я у домені $suffix$, яке належатиме вам назавжди",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Зареєструвати ім’я",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 символ · лише a–z та 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ доступно",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ вже зайнято",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Введіть ім’я",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Використовуйте не більше 21 символу",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Використовуйте лише літери a–z та цифри 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Перевіряю…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Не вдалося перевірити цю назву. Спробуйте ще раз.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name наразі не приймає нових назв",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "Ціна змінилася. Перевірте нову ціну та спробуйте ще раз.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Ціна · довжина $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Мережева комісія",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Максимальна комісія за транзакцію",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Разом",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Переходить до",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Залишок після",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "Реєстрація є безстроковою. Ім’я прив’язується до цього облікового запису, а вартість не повертається.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN — замало. Потрібні «$amount$».",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Отримати виплату $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Запит надіслано",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Назва, видана компанією Miden Name",
+    "englishSource": "Name issued by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Додавання до вашого рахунку",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameStepPublishing": {
+    "message": "Публікація в реєстрі",
+    "englishSource": "Publishing to the registry"
+  },
+  "midenNameComingSoon": {
+    "message": "Скоро",
+    "englishSource": "Coming soon"
+  },
+  "midenNameFailedTaken": {
+    "message": "Цю назву першим придумав хтось інший.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "Реєстр не встиг вчасно обробити запит.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "Реєстр не зміг обробити запит.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "Транзакція запиту завершилася невдало. Ім’я не зареєстровано.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "Ім’я було зареєстровано, але додати його до вашого облікового запису не вдалося.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Повторити запит",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Отримання $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Готово",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "Належить",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Отримання",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Не вдалося",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Не опубліковано · поки що ніхто не може надіслати туди повідомлення",
+    "englishSource": "Not published · nobody can send to it yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Відноситься до цього рахунку",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "У вас ще немає імені Miden",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNamePublishComingSoon": {
+    "message": "Оприлюднення імен у реєстрі відбудеться найближчим часом",
+    "englishSource": "Publishing names to the registry is coming soon"
+  },
+  "midenNameClaimAnother": {
+    "message": "Виберіть іншу назву",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Основна назва",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Ваші імена",
+    "englishSource": "Your names"
+  },
+  "midenNamePublish": {
+    "message": "Опублікувати",
+    "englishSource": "Publish"
+  },
+  "midenNameClearRecords": {
+    "message": "Видалити мої записи з реєстру",
+    "englishSource": "Remove my records from the registry"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Реєстрація імені",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Реєстрація імені",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "Зареєстровано на $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "Отримано $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Переглянути стан",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Ім’я",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Реєстр",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "Реєстрація note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Етап",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

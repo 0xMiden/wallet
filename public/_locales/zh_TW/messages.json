@@ -2799,6 +2799,322 @@
     "message": "您無法寄送至您自己的地址",
     "englishSource": "You can't send to your own address"
   },
+  "midenNameResolving": {
+    "message": "正在查詢此名稱……",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "沒有任何帳戶使用此名稱",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "無法查詢此名稱。請重新嘗試。",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "中間名",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "申領名稱",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "立即取得專屬的 $suffix$ 名稱，永久屬於您",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "申領名稱",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "您的姓名",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 個字元 · 僅限 a–z 及 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ 已提供",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ 此詞彙已被佔用",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "輸入名稱",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "字數請控制在 21 個字元以內",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "僅使用 a–z 及 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "正在檢查……",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "無法驗證此名稱。請重新嘗試。",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name 目前不接受新名稱",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "價格已變更。請確認新價格並重新嘗試。",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "價格 · 長度 $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "網路手續費",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "最高交易手續費",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "總計",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "前往",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "餘額為",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "註冊屬永久性。名稱將綁定至此帳戶，且費用不予退還。",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN 還不夠。你需要 $amount$。",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "申領 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "請求已發送",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "由 Miden Name 發行",
+    "englishSource": "Name issued by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "將其加入您的帳戶",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameStepPublishing": {
+    "message": "發佈至登記處",
+    "englishSource": "Publishing to the registry"
+  },
+  "midenNameComingSoon": {
+    "message": "即將推出",
+    "englishSource": "Coming soon"
+  },
+  "midenNameFailedTaken": {
+    "message": "這個名稱已被他人先註冊了。",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "註冊機構未能及時處理該請求。",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "註冊系統無法處理此請求。",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "請求交易失敗。未註冊任何名稱。",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "名稱已發行，但無法成功將其新增至您的帳戶。",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "重新嘗試申領",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "申領 $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "完成",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "持有",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "領取",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "失敗",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "尚未發布 · 目前尚無人能向其發送",
+    "englishSource": "Not published · nobody can send to it yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "此帳戶已解決",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "您目前尚未設定中間名",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNamePublishComingSoon": {
+    "message": "名單將於近期公布於登記冊中",
+    "englishSource": "Publishing names to the registry is coming soon"
+  },
+  "midenNameClaimAnother": {
+    "message": "「Claim」的另一種稱呼",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "主要名稱",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "您的名稱",
+    "englishSource": "Your names"
+  },
+  "midenNamePublish": {
+    "message": "發佈",
+    "englishSource": "Publish"
+  },
+  "midenNameClearRecords": {
+    "message": "請將我的紀錄從註冊表中移除",
+    "englishSource": "Remove my records from the registry"
+  },
+  "transactionStageRegisteringName": {
+    "message": "註冊名稱",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "註冊名稱",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "註冊網址：$name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "已收到 $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "查看狀態",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "名稱",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "註冊表",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "註冊網址 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "階段",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

@@ -2799,6 +2799,322 @@
     "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
+  "midenNameResolving": {
+    "message": "Bu ismi araştırıyorum…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Hiçbir hesap bu adı kullanmamaktadır",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Bu isim bulunamadı. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "İkinci Ad",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Bir isim talep edin",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Kendi $suffix$ adınızı alın, sonsuza kadar sizin olsun",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Bir isim talep edin",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "adınız",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 karakter · yalnızca a–z ve 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ kullanıma hazırdır",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ zaten alınmış",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Bir isim girin",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "En fazla 21 karakter kullanın",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Yalnızca a–z ve 0–9 karakterlerini kullanın",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Kontrol ediliyor…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Bu adı doğrulayamadık. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name şu anda yeni isimleri kabul etmemektedir",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "Fiyat değişti. Yeni fiyatı kontrol edin ve tekrar deneyin.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Fiyat · uzunluk$length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Ağ ücreti",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Maksimum işlem ücreti",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Toplam",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Gider",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Sonraki bakiye",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "Kayıt kalıcıdır. Ad, bu hesaba atanır ve ücret iade edilmez.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN yeterli değil. $amount$ adresine ihtiyacınız var.",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Talep $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "İstek gönderildi",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Miden tarafından verilen isim: Miden",
+    "englishSource": "Name issued by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Hesabınıza ekleme",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameStepPublishing": {
+    "message": "Kayıt defterine yayınlama",
+    "englishSource": "Publishing to the registry"
+  },
+  "midenNameComingSoon": {
+    "message": "Yakında",
+    "englishSource": "Coming soon"
+  },
+  "midenNameFailedTaken": {
+    "message": "Bu adı ilk olarak başka biri almıştı.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "Kayıt kurumu talebi zamanında işleme almadı.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "Kayıt defteri talebi işleyemedi.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "Talep işlemi başarısız oldu. Kayıtlı bir isim bulunamadı.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "Ad, oluşturuldu ancak hesabınıza eklenemedi.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Talebi yeniden dene",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "$name$'i talep etme…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Tamam",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "Sahiplik",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Talep Etme",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Başarısız",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Yayınlanmadı · henüz kimse buraya gönderim yapamaz",
+    "englishSource": "Not published · nobody can send to it yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Bu hesaba yönlendirilir",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "Henüz bir Miden Adınız yok",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNamePublishComingSoon": {
+    "message": "Kayıt defterine isimlerin yayınlanması yakında başlayacak",
+    "englishSource": "Publishing names to the registry is coming soon"
+  },
+  "midenNameClaimAnother": {
+    "message": "Başka bir isim talep et",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Birincil ad",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "İsimleriniz",
+    "englishSource": "Your names"
+  },
+  "midenNamePublish": {
+    "message": "Yayınla",
+    "englishSource": "Publish"
+  },
+  "midenNameClearRecords": {
+    "message": "Kayıtlarımı kayıt defterinden sil",
+    "englishSource": "Remove my records from the registry"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Adın kaydedilmesi",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Kayıt Adı",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "$name$'de kayıtlıdır",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "$name$'dan alındı",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Durumu görüntüle",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Ad",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Kayıt Defteri",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "Kayıt note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Aşama",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

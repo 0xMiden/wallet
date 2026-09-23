@@ -2799,6 +2799,322 @@
     "message": "Нельзя отправлять на свой собственный адрес",
     "englishSource": "You can't send to your own address"
   },
+  "midenNameResolving": {
+    "message": "Ищу информацию об этом названии…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Ни один аккаунт не использует это название",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Не удалось найти это имя. Попытайтесь ещё раз.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Отчество",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Зарегистрировать имя",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Получите свой собственный домен $suffix$, который останется вашим навсегда",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Зарегистрировать имя",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 символ · только a–z и 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ доступно",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ уже занято",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Введите имя",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Используйте не более 21 символа",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Используйте только буквы a–z и цифры 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Не удалось проверить это имя. Попробуйте ещё раз.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name в настоящее время не принимает новые названия",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "Цена изменилась. Проверьте новую цену и попробуйте ещё раз.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Цена · длина $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Сетевая комиссия",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Максимальная комиссия за транзакцию",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Итого",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Перейти к",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Остаток после",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "Регистрация является бессрочной. Имя привязывается к данной учетной записи, и стоимость регистрации не возвращается.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "Недостаточно MIDEN. Вам нужна «$amount$».",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Получить вознаграждение $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Запрос отправлен",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Название, выданное Miden Name",
+    "englishSource": "Name issued by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Добавление средств на ваш счёт",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameStepPublishing": {
+    "message": "Публикация в реестре",
+    "englishSource": "Publishing to the registry"
+  },
+  "midenNameComingSoon": {
+    "message": "Скоро",
+    "englishSource": "Coming soon"
+  },
+  "midenNameFailedTaken": {
+    "message": "Кто-то другой первым придумал это название.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "Реестр не обработал запрос вовремя.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "Реестр не смог обработать запрос.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "Ошибка при обработке запроса. Имя не зарегистрировано.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "Имя было выпущено, но добавить его в ваш аккаунт не удалось.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Повторить запрос",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Получение токенов «$name$»…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Готово",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "Принадлежит",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Получение средств",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Неудача",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Не опубликовано · пока никто не может отправлять туда сообщения",
+    "englishSource": "Not published · nobody can send to it yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Сводится к следующему объяснению",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "У вас пока нет отчества",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNamePublishComingSoon": {
+    "message": "Опубликование имен в реестре состоится в ближайшее время",
+    "englishSource": "Publishing names to the registry is coming soon"
+  },
+  "midenNameClaimAnother": {
+    "message": "Выберите другое название",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Основное название",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Ваши имена",
+    "englishSource": "Your names"
+  },
+  "midenNamePublish": {
+    "message": "Опубликовать",
+    "englishSource": "Publish"
+  },
+  "midenNameClearRecords": {
+    "message": "Удалите мои записи из реестра",
+    "englishSource": "Remove my records from the registry"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Регистрация названия",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Регистрация названия",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "Зарегистрировано на сайте $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "Получено: $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Просмотреть статус",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Имя",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Реестр",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "Регистрация note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Фаза",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"

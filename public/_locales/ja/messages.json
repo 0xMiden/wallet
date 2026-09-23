@@ -2799,6 +2799,322 @@
     "message": "自分の住所宛てには送れません",
     "englishSource": "You can't send to your own address"
   },
+  "midenNameResolving": {
+    "message": "この名前を調べてみると…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "この名前を使用しているアカウントはありません",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "この名前は検索できませんでした。もう一度試してください。",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "ミデン・ネーム",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "名前の取得",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "あなただけの$suffix$のユーザー名を取得しましょう。それは永遠にあなたのものです。",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "名前の取得",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1～21文字・a～zおよび0～9のみ",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ が利用可能です",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ はすでに使用されています",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "名前を入力してください",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "21文字以内で記述してください",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "a–z および 0–9 のみを使用してください",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "確認中…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "この名前を確認できませんでした。もう一度試してください。",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Nameは現在、新しい名称の登録を受け付けていません",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "価格が変更されました。新しい価格を確認して、もう一度お試しください。",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "価格・長さ $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "ネットワーク手数料",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "最大取引手数料",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "合計",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "参照先：",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "残高は",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "登録は永久的なものです。名前はこのアカウントに紐付けられ、代金は返金されません。",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDENだけでは不十分です。「$amount$」が必要です。",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "請求 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "リクエストを送信しました",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Miden Nameにより発行された名称",
+    "englishSource": "Name issued by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "アカウントへの追加",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameStepPublishing": {
+    "message": "レジストリへの公開",
+    "englishSource": "Publishing to the registry"
+  },
+  "midenNameComingSoon": {
+    "message": "近日公開予定",
+    "englishSource": "Coming soon"
+  },
+  "midenNameFailedTaken": {
+    "message": "この名称はすでに他者が先に使用していました。",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "レジストリはリクエストを期限内に処理しませんでした。",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "レジストリはリクエストを処理できませんでした。",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "リクエストされたトランザクションは失敗しました。登録された名前がありませんでした。",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "名称は発行されましたが、アカウントへの追加に失敗しました。",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "請求を再試行",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "$name$の請求…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "完了",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "所有",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "クレームの請求",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "失敗",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "未公開・まだ誰もここに送信することはできません",
+    "englishSource": "Not published · nobody can send to it yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "このアカウントに解決されます",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "まだミドルネームがありません",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNamePublishComingSoon": {
+    "message": "レジストリへの名称の公開はまもなく開始されます",
+    "englishSource": "Publishing names to the registry is coming soon"
+  },
+  "midenNameClaimAnother": {
+    "message": "別の名称を請求する",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "主要名称",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "皆様のお名前",
+    "englishSource": "Your names"
+  },
+  "midenNamePublish": {
+    "message": "公開",
+    "englishSource": "Publish"
+  },
+  "midenNameClearRecords": {
+    "message": "レジストリから私の記録を削除してください",
+    "englishSource": "Remove my records from the registry"
+  },
+  "transactionStageRegisteringName": {
+    "message": "名称の登録",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "名称の登録",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "登録済み $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "$name$を受信しました",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "ステータスを確認する",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "名前",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "レジストリ",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "登録 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "フェーズ",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
