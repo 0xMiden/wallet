@@ -415,7 +415,13 @@ describe('DeveloperSettings', () => {
     expect(screen.getByLabelText('devEndpointRpc')).toBe(screen.getByTestId('dev-endpoint-rpcUrl'));
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveClass('text-body');
     // The no-guardian option is a ListRow in a group.
-    expect(screen.getByTestId('dev-allow-no-guardian').parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(screen.getByTestId('dev-allow-no-guardian').parentElement).toHaveClass(
+      'bg-page',
+      'border',
+      'border-hairline',
+      'rounded-2xl'
+    );
+    expect(screen.getByTestId('dev-allow-no-guardian').parentElement).not.toHaveClass('bg-fill');
   });
 
   it('makes the read-only reset destructive, since it wipes the wallet', () => {

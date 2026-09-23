@@ -128,7 +128,8 @@ describe('DAppDrawerSettings', () => {
     expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'gap-5');
     const row = screen.getByText('dAppsInteraction').closest('label')!;
     expect(row).toHaveAttribute('for', 'dAppEnabled');
-    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(row.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(row.parentElement).not.toHaveClass('bg-fill');
     expect(screen.getByText('dAppsToggleDescription')).toHaveClass('text-body-sm', 'text-muted');
   });
 
@@ -189,7 +190,8 @@ describe('DAppDrawerSettings', () => {
     // A navigating ListRow in its own group: the chevron is ListRow's.
     const row = screen.getByTestId('dapp-see-connected');
     expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
-    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(row.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(row.parentElement).not.toHaveClass('bg-fill');
   });
 
   it('navigates to the dapps settings when "see connected" is clicked', () => {

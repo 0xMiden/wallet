@@ -35,6 +35,7 @@ jest.mock('app/icons/v2', () => ({
     <span data-testid="icon" data-name={name} data-fill={fill} className={className} />
   ),
   IconName: {
+    ArrowLeft: 'ArrowLeft',
     ChevronLeft: 'ChevronLeft',
     ChevronRightLucide: 'ChevronRightLucide'
   }
@@ -152,10 +153,10 @@ describe('EarnPositions', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('exposes the back button with the ChevronLeft icon', () => {
+  it('exposes the back button with the ArrowLeft icon', () => {
     render(<EarnPositions />);
 
-    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ChevronLeft"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ArrowLeft"]')).not.toBeNull();
   });
 
   it('fires haptics and navigates to the position route when a card is tapped', () => {

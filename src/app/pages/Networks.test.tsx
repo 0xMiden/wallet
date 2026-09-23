@@ -56,7 +56,8 @@ describe('NetworksSettings', () => {
     expect(testnet).toHaveTextContent('Testnet');
     expect(screen.getByTestId('networks-devnet')).toHaveTextContent('Devnet');
     expect(screen.getByTestId('networks-localnet')).toHaveTextContent('Localnet');
-    expect(testnet.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(testnet.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(testnet.parentElement).not.toHaveClass('bg-fill');
     expect(screen.getByTestId('networks-localnet').parentElement).toBe(testnet.parentElement);
   });
 
@@ -65,7 +66,8 @@ describe('NetworksSettings', () => {
 
     const body = screen.getByTestId('networks-settings').querySelector('[data-slot="body"]')!;
     expect(body).toHaveClass('px-4', 'overflow-y-auto');
-    expect(body.firstElementChild).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(body.firstElementChild).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(body.firstElementChild).not.toHaveClass('bg-fill');
   });
 
   it('renders the Miden logo on the left of every network row', () => {
