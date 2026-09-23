@@ -597,13 +597,13 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
   });
 
-  it('renders every row on the shared fill card, with no border', () => {
+  it('renders every row as an outlined card on the page: a hairline edge, no fill', () => {
     renderFull();
     const rows = screen.getAllByTestId('activity-row');
     expect(rows.length).toBeGreaterThan(0);
     rows.forEach(row => {
-      expect(row).toHaveClass('bg-fill', 'rounded-2xl', 'px-4', 'py-3');
-      expect(row.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+      expect(row).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'px-4', 'py-3');
+      expect(row).not.toHaveClass('bg-fill');
       expect(row).not.toHaveClass('bg-white');
     });
   });
