@@ -568,7 +568,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                 {/* h2: the only heading above these is the page title the header
                     renders as h1. `lg` + the group's own coloured glyph: these are
                     page-level section titles, not the plain 13px list-group label. */}
-                <SectionHeader size="lg" icon={<group.Icon />}>
+                <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
                   {t(group.titleI18nKey)}
                 </SectionHeader>
                 <ListGroup surface="plain">

@@ -7,7 +7,8 @@ export interface ListGroupProps {
   children: React.ReactNode;
   /**
    * `fill` (default): the group is a 16px-radius `fill` surface. `plain`: no surface — the rows sit
-   * on the page, still divided by their hairlines (Settings' groups, under their coloured headers).
+   * flush on the page margin, divided by full-width hairlines (Settings' groups, under their
+   * coloured headers).
    */
   surface?: 'fill' | 'plain';
   /** Layout only (margins, width). */
@@ -28,7 +29,14 @@ export const ListGroup: React.FC<ListGroupProps> = ({
   'data-testid': dataTestId
 }) => (
   <div
-    className={cn('flex flex-col overflow-hidden', surface === 'fill' && 'rounded-2xl bg-fill', className)}
+    className={cn(
+      'flex flex-col overflow-hidden',
+      surface === 'fill' && 'rounded-2xl bg-fill',
+      // No surface to inset from: the rows' content sits on the page margin and their hairlines
+      // run the full width, so a plain group lines up with the page's other content.
+      surface === 'plain' && '[&>*]:px-0 [&>*]:before:left-0',
+      className
+    )}
     aria-label={ariaLabel}
     data-testid={dataTestId}
   >
