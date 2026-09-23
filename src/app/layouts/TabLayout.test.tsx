@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
@@ -707,6 +710,16 @@ describe('TabLayout — Home band through the status bar', () => {
       </>
     );
     expect(seenAtLayout).toBe(true);
+  });
+
+  it('paints the flagged body with the band: a fixed strip the height of the safe area, in the action-bar colour', () => {
+    // jsdom paints no pseudo-elements, so the stylesheet rule the attribute switches on is read as text.
+    const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
+    const rule = css.match(/body\[data-home-band\]::before\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/position:\s*fixed/);
+    expect(rule).toMatch(/top:\s*0/);
+    expect(rule).toMatch(/height:\s*env\(safe-area-inset-top\)/);
+    expect(rule).toMatch(/background-color:\s*var\(--ds-action-bar\)/);
   });
 
   it('never flags body off-mobile', () => {
