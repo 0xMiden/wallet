@@ -39,6 +39,7 @@ jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
+jest.mock('lib/miden/name/MidenNameWatcher', () => ({ MidenNameWatcher: () => null }));
 
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 

@@ -7,7 +7,7 @@ import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
-import { MidenSharedStorageKey } from 'lib/miden/types';
+import { MidenNameWatcher } from 'lib/miden/name/MidenNameWatcher';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getEffectiveNoteTransportUrl,
@@ -224,6 +224,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
             <EarnIntentWatcher />
+            <MidenNameWatcher />
             <BridgeIntentWatcher />
             {/* Startup recovery for transactions orphaned by an app kill. No-op on
                 the extension, where the service worker's `setupTransactionProcessor`
