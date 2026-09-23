@@ -434,11 +434,11 @@
   },
   "earnNoActivePositionsTitle": {
     "message": "No active positions",
-    "englishSource": "No active positions"
+    "englishSource": "(untranslated)"
   },
   "earnNoActivePositionsBody": {
     "message": "Deposit into a vault below to start earning rewards.",
-    "englishSource": "Deposit into a vault below to start earning rewards."
+    "englishSource": "(untranslated)"
   },
   "earnSeeAll": {
     "message": "すべて表示",
@@ -4044,11 +4044,11 @@
   },
   "tokenActivityEmptyTitle": {
     "message": "No activity yet",
-    "englishSource": "No activity yet"
+    "englishSource": "(untranslated)"
   },
   "tokenActivityEmptyBody": {
     "message": "Transactions with this token will appear here.",
-    "englishSource": "Transactions with this token will appear here."
+    "englishSource": "(untranslated)"
   },
   "recentActivity": {
     "message": "最近の活動",

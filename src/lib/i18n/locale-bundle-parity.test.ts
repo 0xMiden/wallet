@@ -231,6 +231,26 @@ describe('Chrome i18n placeholder declarations', () => {
   });
 });
 
+describe('hand-copied English is queued for translation', () => {
+  // A non-English entry whose message is the English text is only acceptable while it is marked for
+  // the next DeepL run; `translateWithDiff` re-translates an entry whose englishSource is stale, so
+  // the explicit sentinel is what puts it in that queue. (en_GB is not a runtime bundle, and a real
+  // British entry may legitimately equal the English.)
+  const COPIED_KEYS = [
+    'earnNoActivePositionsTitle',
+    'earnNoActivePositionsBody',
+    'tokenActivityEmptyTitle',
+    'tokenActivityEmptyBody'
+  ];
+  it.each(RUNTIME_LOCALES)('%s translates or explicitly queues each copied key', locale => {
+    const messages = loadMessages(locale);
+    const neither = COPIED_KEYS.filter(
+      key => messages[key]?.message === en[key]?.message && messages[key]?.englishSource !== '(untranslated)'
+    );
+    expect(neither).toEqual([]);
+  });
+});
+
 describe('retired keys', () => {
   // The vault row's TVL line was dropped because the earn API has no TVL; its string goes with it.
   it('no locale bundle carries earnVaultTvl', () => {
