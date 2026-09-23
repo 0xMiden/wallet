@@ -640,13 +640,13 @@ describe('TokenDetail', () => {
       expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
       expect(within(contract).getByText('contract')).toBeInTheDocument();
 
-      const copy = within(contract).getByTestId('token-detail-copy-contract');
-      // A bare copy control in the row's value style, its id truncated in the middle, not the
-      // full 49-char id.
+      // A bare copy control in the row's value style, named by its action (its visible label is a
+      // value), showing the id cut to its first 8 and last 4 characters.
+      const copy = within(contract).getByRole('button', { name: 'copyToClipboard' });
+      expect(copy).toHaveAttribute('data-testid', 'token-detail-copy-contract');
       expect(copy).toHaveClass('text-ink');
+      expect(copy).toHaveTextContent(`${TOKEN_ID.slice(0, 8)}…${TOKEN_ID.slice(-4)}`);
       expect(copy).not.toHaveTextContent(TOKEN_ID);
-      expect(copy).toHaveTextContent(TOKEN_ID.slice(0, 7));
-      expect(copy).toHaveTextContent(TOKEN_ID.slice(-4));
 
       expect(within(info).getByText('fungible')).toBeInTheDocument();
       expect(within(info).getByText('Devnet')).toBeInTheDocument();
@@ -664,6 +664,8 @@ describe('TokenDetail', () => {
 
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TOKEN_ID });
       expect(mockHapticLight).toHaveBeenCalled();
+      // Its name follows the action through: after the copy it announces that it copied.
+      expect(copy).toHaveAccessibleName('copied');
     });
 
     it('opens the MidenScan explorer for this faucet in the in-app browser', () => {

@@ -34,6 +34,7 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
+import { truncateHash } from 'utils/string';
 
 // Matches the in-app browser's window title for every other Midenscan link in the wallet
 // (`generating-transaction/constants.ts`'s `EXPLORER_TITLE`) — chrome, not user-facing copy, so
@@ -55,9 +56,6 @@ const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
 // follows the token rather than a hex literal.
 const CHART_CONFIG = { price: { color: 'var(--accent-primary)' } };
 const CHART_STROKE = 'var(--color-price)';
-
-/** `mtst1eth…9k2p`: the first 8 and last 4 characters of an id. */
-const shortenId = (id: string) => (id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id);
 
 function formatTooltipTime(timestamp: number, tf: Timeframe): string {
   const date = new Date(timestamp);
@@ -287,7 +285,9 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
         <DetailRow label={t('contract')} data-testid="token-detail-contract">
           <CopyButton
             text={tokenId}
-            label={shortenId(tokenId)}
+            label={truncateHash(tokenId, 8)}
+            // The visible label is a value, so the control is named by what it does.
+            aria-label={copied => (copied ? t('copied') : t('copyToClipboard'))}
             icon="leading"
             className="min-w-0 text-ink"
             contentClassName="text-value"
