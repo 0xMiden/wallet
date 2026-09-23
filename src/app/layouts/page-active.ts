@@ -12,8 +12,10 @@ export function usePageActive(): boolean {
 }
 
 /**
- * Whether the page's layer is fully on screen: false while a slide page covers it or is still
- * sliding off it after a pop. PageActiveContext turns true as the pop starts, so work resumes at
+ * Whether the page's layer is fully on screen: false while a slide page covers it, and after any
+ * pop that returns to it (to a plain page or a slide page alike) until its own way back has finished
+ * and the popped page has slid off. A page nothing covered is on screen at once, as is every page
+ * under reduced motion. PageActiveContext turns true as the pop starts, so work resumes at
  * once; this one waits for the reveal to finish, for paint that must match what is visible.
  */
 export const PageOnScreenContext = createContext(true);

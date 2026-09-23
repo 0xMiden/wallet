@@ -259,3 +259,53 @@ it('reports a page fully on screen at once under reduced motion', () => {
     'true'
   );
 });
+
+it('keeps a slide page revealed by a slide-to-slide pop off screen until the popped page has gone', async () => {
+  const { container, rerender } = render(view('/settings', true));
+  rerender(view('/settings/general', true));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+
+  rerender(view('/settings', true));
+  const popped = container.querySelector('[data-page-layer="/settings/general"]');
+  const settings = () => container.querySelector('[data-page-layer="/settings"] button');
+  expect(popped).toHaveStyle({ zIndex: '3' });
+  expect(settings()).toHaveAttribute('data-fully-on-screen', 'false');
+  await waitFor(() => expect(popped).not.toBeInTheDocument());
+  await waitFor(() => expect(settings()).toHaveAttribute('data-fully-on-screen', 'true'));
+});
+
+it('reports a page nothing covered on screen at once when it is returned to', () => {
+  const { container, rerender } = render(view('/history'));
+  rerender(view('/receive'));
+  rerender(view('/history', false, '/history', HistoryAction.Pop));
+  expect(container.querySelector('[data-page-layer="/history"] button')).toHaveAttribute(
+    'data-fully-on-screen',
+    'true'
+  );
+});
+
+it('keeps a freshly mounted page off screen through its reveal after the stack was released', async () => {
+  const { container, rerender } = render(view('/history'));
+  rerender(view('/settings', true));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+  rerender(view('/receive'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+  rerender(view('/settings', true, '/settings', HistoryAction.Pop));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+
+  rerender(view('/history', false, '/history', HistoryAction.Pop));
+  const leaving = container.querySelector('[data-page-layer="/settings"]');
+  const history = () => container.querySelector('[data-page-layer="/history"] button');
+  expect(leaving).toHaveStyle({ zIndex: '3' });
+  expect(history()).toHaveAttribute('data-fully-on-screen', 'false');
+  await waitFor(() => expect(leaving).not.toBeInTheDocument());
+  await waitFor(() => expect(history()).toHaveAttribute('data-fully-on-screen', 'true'));
+});
