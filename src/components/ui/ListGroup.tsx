@@ -2,6 +2,8 @@ import React from 'react';
 
 import { cn } from 'lib/ui/util';
 
+import { outlineSurfaceClassName } from './surfaces';
+
 export interface ListGroupProps {
   /** `ListRow`s, as direct children: each draws the hairline above itself. */
   children: React.ReactNode;
@@ -34,7 +36,7 @@ export const ListGroup: React.FC<ListGroupProps> = ({
       'flex flex-col overflow-hidden',
       surface === 'fill' && 'rounded-2xl bg-fill',
       // A hairline edge on `page` instead of the fill.
-      surface === 'outline' && 'rounded-2xl border border-hairline bg-page',
+      surface === 'outline' && ['rounded-2xl', outlineSurfaceClassName],
       // No surface to inset from: the rows' content sits on the page margin and their hairlines
       // run the full width, so a plain group lines up with the page's other content.
       surface === 'plain' && '[&>*]:px-0 [&>*]:before:left-0',

@@ -8,6 +8,8 @@ import { usePreset } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { outlineSurfaceClassName } from './surfaces';
+
 /**
  * What the card holds, which sets its inner padding:
  * - `row` — one row: a leading 40px visual, text, a trailing value (64px tall with a 40px icon).
@@ -21,7 +23,7 @@ const cardVariants = cva('rounded-2xl text-left', {
     surface: {
       fill: 'bg-fill',
       // On `page` with a hairline edge: Activity's rows and pending transfers.
-      outline: 'bg-page border border-hairline'
+      outline: outlineSurfaceClassName
     },
     padding: {
       none: '',

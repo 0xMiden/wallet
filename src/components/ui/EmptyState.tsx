@@ -5,6 +5,8 @@ import clsx from 'clsx';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 
+import { outlineSurfaceClassName } from './surfaces';
+
 export interface EmptyStateSecondaryAction {
   label: string;
   onClick: () => void;
@@ -41,7 +43,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       {...props}
       className={clsx(
         'flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-10 text-center',
-        surface === 'fill' ? 'bg-fill' : 'bg-page border border-dashed border-hairline',
+        surface === 'fill' ? 'bg-fill' : [outlineSurfaceClassName, 'border-dashed'],
         className
       )}
     >
