@@ -1,10 +1,9 @@
-import fs from 'fs';
-import path from 'path';
-
 import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Transition } from 'framer-motion';
+import fs from 'fs';
+import path from 'path';
 
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
