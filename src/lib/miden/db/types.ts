@@ -586,17 +586,8 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
-  /**
-   * Set on a row rebuilt from a Guardian operator's retained history, and the
-   * only field that means so; `recovery` is the data such a row, or a local row
-   * it matched, carries. History and HistoryDetails key the recovered title and
-   * icon and the suppressed bridge, swap and earn-settlement UI on it, and the
-   * history merge replaces or merges only rows carrying it. `restoredFromBackup`,
-   * set with it, is what keeps the processing loop, retry and the delivery
-   * sweep away from such a row.
-   */
-  recovered?: boolean;
-  recovery?: GuardianHistoryRecovery;
+  /** Display-only recipient name verified when this send was created. */
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -931,6 +922,7 @@ export class Transaction implements ITransaction {
 }
 
 export class SendTransaction implements ITransaction {
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;

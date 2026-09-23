@@ -46,6 +46,23 @@ const send = (recallBlocks?: number) =>
 
 beforeEach(() => jest.clearAllMocks());
 
+it('persists the display name separately from the address used to send', async () => {
+  await initiateSendTransaction(
+    'mtst1sender',
+    'mtst1recipient',
+    'mtst1faucet',
+    NoteTypeEnum.Public,
+    1000n,
+    undefined,
+    false,
+    undefined,
+    'alice.miden'
+  );
+  expect(mockAdd).toHaveBeenCalledWith(
+    expect.objectContaining({ secondaryAccountId: 'mtst1recipient', recipientName: 'alice.miden' })
+  );
+});
+
 describe('initiateSendTransaction — reclaim window bounds', () => {
   it.each([
     ['one past the u32 ceiling', MAX_RECALL_BLOCKS + 1],

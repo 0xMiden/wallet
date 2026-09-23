@@ -344,8 +344,9 @@ export const ReviewTransaction: React.FC = () => {
           recallBlocks ? parseInt(recallBlocks) : undefined,
           isDelegateProofEnabled()
         ] as const;
-        const txId =
-          authorization === undefined
+        const txId = verifiedName
+          ? await initiateSendTransaction(...commonArguments, authorization, verifiedName)
+          : authorization === undefined
             ? await initiateSendTransaction(...commonArguments)
             : await initiateSendTransaction(...commonArguments, authorization);
         if (isExtension()) requestSWTransactionProcessing();
@@ -384,6 +385,7 @@ export const ReviewTransaction: React.FC = () => {
       publicKey,
       recallBlocks,
       sharePrivately,
+      verifiedName,
       to,
       token
     ]

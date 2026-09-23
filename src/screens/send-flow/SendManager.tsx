@@ -999,6 +999,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
           return (
             <SelectRecipient
               address={recipientAddress || ''}
+              resolvedAddress={effectiveRecipientAddress}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
               chain={chain}

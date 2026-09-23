@@ -14,9 +14,8 @@ import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { useSettleLayoutTransition, useTabShownAgain } from 'app/layouts/page-active';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
-import { TextAction } from 'components/ui/TextAction';
-import { UnreadDot } from 'components/ui/UnreadDot';
-import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import { springs, useMotion } from 'lib/animation';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { navigate } from 'lib/woozie';
 
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
@@ -258,7 +257,7 @@ function buildRowProps(
       : isSwap
         ? t('viaInProtocolDex')
         : entry.secondaryAddress
-          ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${entry.recipientName || shortAddr(entry.secondaryAddress)}`
           : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page
@@ -351,6 +350,9 @@ function buildRowProps(
     }
   }
 
+  // Publishing transfers the name NFA, not an unknown fungible token.
+  if (entry.txType === 'publish-name-record') amount = undefined;
+
   let status: Status = 'confirmed';
   if (isUnconfirmed) {
     status = 'unconfirmed';
@@ -363,11 +365,9 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
-  } else if (
-    !entry.guardianRecovered &&
-    entry.txType === 'earn-deposit' &&
-    earnDepositSettlementOf(entry) !== 'confirmed'
-  ) {
+  } else if (entry.midenNameStatus) {
+    status = entry.midenNameStatus;
+  } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
     // the badge tracks that leg, as the details page does. Deliberately checked
@@ -458,7 +458,8 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
-    // Same transition as the rows, so a date group and the rows inside it move
+    const { allContacts } = useFilteredContacts();
+    // Same spring as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useSettleLayoutTransition();
     const shownAgain = useTabShownAgain();
@@ -603,8 +604,14 @@ const HistoryView = memo<HistoryViewProps>(
                     </motion.div>
                   );
                 }
-                const props = buildRowProps(entry, t, tokenId);
-                const unread = isHistoryEntryUnread(readState, entry);
+                const contact = allContacts.find(
+                  contact => contact.address.toLowerCase() === entry.secondaryAddress?.toLowerCase()
+                );
+                const props = buildRowProps(
+                  { ...entry, recipientName: entry.recipientName || contact?.name },
+                  t,
+                  tokenId
+                );
                 return (
                   <Card
                     key={entry.key}

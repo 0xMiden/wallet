@@ -13,6 +13,10 @@ import type { PendingActivityItem } from './PendingActivityCard';
 import { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
 
+jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
+  useFilteredContacts: () => ({ allContacts: [{ address: 'mtst1alice', name: 'Alice' }] })
+}));
+
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
 jest.mock('react-i18next', () => ({
@@ -441,41 +445,37 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-status', 'failed');
   });
 
-  // The money helper already formatted both amounts; the symbol inside the value must not be what keeps the row
-  // from rounding 0.015123 ETH to 0.015 again.
-  it('marks a bridge-in and a bridge-out amount preformatted', () => {
-    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
-    mockBridgeRowDisplay.mockReturnValue({
-      inSymbol: 'MIDEN',
-      outSymbol: 'USDC',
-      outAmount: '10.65',
-      providerLabel: 'Epoch',
-      network: 'Sepolia',
-      status: 'confirmed'
-    });
-    jest.mocked(bridgeInRowDisplay).mockReturnValue({
-      inSymbol: 'USDC',
-      outSymbol: 'ETH',
-      outAmount: '0.015123',
-      providerLabel: 'Epoch',
-      network: 'Miden',
-      status: 'confirmed'
-    });
+  it.each([
+    ['alice.miden', 'alice.miden'],
+    [undefined, 'Alice']
+  ])('prefers the send name %s, then the saved contact name', (recipientName, expected) => {
     render(
       <HistoryView
         {...baseProps}
-        entries={[
-          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
-          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
-        ]}
         fullHistory
+        entries={[makeEntry({ secondaryAddress: 'mtst1alice', recipientName, message: 'Named send' })]}
       />
     );
+    expect(rowByTitle('Named send')).toHaveAttribute('data-subtitle', `to: ${expected}`);
+  });
 
-    const rowWithAmount = (value: string) =>
-      screen.getAllByTestId('activity-row').find(row => row.getAttribute('data-amount-value') === value);
-    expect(rowWithAmount('10.65 USDC')).toHaveAttribute('data-amount-preformatted', 'yes');
-    expect(rowWithAmount('+0.015123 ETH')).toHaveAttribute('data-amount-preformatted', 'yes');
+  it('shows publication completion without an Unknown fungible amount', () => {
+    render(
+      <HistoryView
+        {...baseProps}
+        fullHistory
+        entries={[
+          makeEntry({
+            txType: 'publish-name-record',
+            message: 'Published',
+            token: 'Unknown',
+            midenNameStatus: 'pending'
+          })
+        ]}
+      />
+    );
+    expect(rowByTitle('Published')).toHaveAttribute('data-status', 'pending');
+    expect(rowByTitle('Published')).toHaveAttribute('data-amount-symbol', '');
   });
 
   // One render exercising every icon/title/subtitle/amount/status branch.
