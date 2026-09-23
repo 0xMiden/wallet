@@ -279,8 +279,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // overflow, so nothing inside the layout can reach that strip. A slide page
   // keeps this layer mounted underneath with its own frozen location, so the
   // band also waits for the layer to be fully on screen: off as a push starts
-  // covering it, back once a pop's slide page has finished sliding off.
-  useEffect(() => {
+  // covering it, back once a pop's slide page has finished sliding off. A layout effect, so the
+  // strip is right in the very frame that changes it.
+  useLayoutEffect(() => {
     if (!isMobile()) return;
     document.body.toggleAttribute('data-home-band', showActionBar && onScreen);
     return () => document.body.removeAttribute('data-home-band');

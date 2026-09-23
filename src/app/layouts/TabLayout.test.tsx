@@ -688,6 +688,27 @@ describe('TabLayout — Home band through the status bar', () => {
     expect(document.body.hasAttribute('data-home-band')).toBe(false);
   });
 
+  it('sets the flag before paint, in the same commit that shows Home', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    // A later sibling's layout effect runs after TabLayout's layout effects and before any passive
+    // effect, so it reads what the first painted frame will show.
+    let seenAtLayout: boolean | undefined;
+    function LayoutProbe() {
+      React.useLayoutEffect(() => {
+        seenAtLayout = document.body.hasAttribute('data-home-band');
+      }, []);
+      return null;
+    }
+    render(
+      <>
+        <TabLayout>{<div />}</TabLayout>
+        <LayoutProbe />
+      </>
+    );
+    expect(seenAtLayout).toBe(true);
+  });
+
   it('never flags body off-mobile', () => {
     mockPlatform.isMobile = false;
     mockLocation.pathname = '/';
