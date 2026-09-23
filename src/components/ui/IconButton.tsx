@@ -7,9 +7,10 @@ import { colorTransitionClass } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
-/** `bare`: a 24px glyph alone in a 44px hit area, `ink` — page headers, tab-root actions.
- *  `circle`: a 32px (or 36px) circle on `fill`, `muted` glyph — sheets and overlays. */
-export type IconButtonAppearance = 'bare' | 'circle';
+/** `bare`: a 24px glyph alone in a 44px hit area, `ink` - tab-root actions.
+ *  `circle`: a 32px (or 36px) circle on `fill`, `muted` small glyph - sheets and overlays.
+ *  `filled`: a 44px circle on `fill` with an `ink` 24px glyph - a pushed page's back button. */
+export type IconButtonAppearance = 'bare' | 'circle' | 'filled';
 
 const iconButtonVariants = cva(
   [
@@ -24,12 +25,12 @@ const iconButtonVariants = cva(
         // -mx-2.5 pulls the larger hit area back in so the 24px glyph stays flush with the
         // page's own edge, the way the row it sits in expects.
         bare: '-mx-2.5 h-11 w-11 text-ink',
-        circle: 'bg-fill text-muted hover:bg-fill-pressed'
+        circle: 'bg-fill text-muted hover:bg-fill-pressed',
+        filled: 'h-11 w-11 bg-fill text-ink hover:bg-fill-pressed'
       },
       circleSize: {
         '32': '',
-        '36': '',
-        '44': ''
+        '36': ''
       },
       active: {
         true: '',
@@ -39,8 +40,6 @@ const iconButtonVariants = cva(
     compoundVariants: [
       { appearance: 'circle', circleSize: '32', class: 'h-8 w-8' },
       { appearance: 'circle', circleSize: '36', class: 'h-9 w-9' },
-      // A page header's back button: a full 44px target with the header's `ink` glyph.
-      { appearance: 'circle', circleSize: '44', class: 'h-11 w-11 text-ink' },
       // `bare` only: the accent-colored selected state (e.g. TabHeader's active search action).
       { appearance: 'bare', active: true, class: 'text-accent-primary' }
     ],
@@ -56,8 +55,8 @@ export interface IconButtonProps extends Omit<
   /** Accessible name. Required: an icon alone has no text for assistive tech to read. */
   label: string;
   appearance?: IconButtonAppearance;
-  /** `circle` only. 32px by default; 36px where the surrounding row needs a larger target; 44px for a page header's back button. */
-  circleSize?: '32' | '36' | '44';
+  /** `circle` only. 32px by default; 36px where the surrounding row needs a larger target. */
+  circleSize?: '32' | '36';
   /** `bare` only: renders the accent-colored selected state and `aria-pressed`, for a toggle
    *  action (e.g. TabHeader's search icon). Omit for a plain action button — no toggle
    *  semantics, no `aria-pressed`. */
@@ -101,7 +100,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
       onClick={handleClick}
       {...props}
     >
-      <Icon name={icon} size={appearance === 'circle' && circleSize !== '44' ? 'sm' : 'md'} fill="currentColor" />
+      <Icon name={icon} size={appearance === 'circle' ? 'sm' : 'md'} fill="currentColor" />
     </button>
   );
 });

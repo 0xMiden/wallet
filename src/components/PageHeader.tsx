@@ -57,8 +57,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           // A 44px `fill` circle with an `ink` glyph, in a flow too: the flow accents are under 3:1 on white.
           <IconButton
             icon={IconName.ArrowLeft}
-            appearance="circle"
-            circleSize="44"
+            appearance="filled"
             label={t('back')}
             onClick={onBack}
             data-testid={backTestId}
