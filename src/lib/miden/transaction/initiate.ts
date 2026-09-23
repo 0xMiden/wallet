@@ -455,7 +455,8 @@ export const initiateSendTransaction = async (
   amount: bigint,
   recallBlocks?: number,
   delegateTransaction?: boolean,
-  spendingLimitAuthorization?: SpendingLimitAuthorization
+  spendingLimitAuthorization?: SpendingLimitAuthorization,
+  recipientName?: string
 ): Promise<string> => {
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
@@ -482,6 +483,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  dbTransaction.recipientName = recipientName;
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;

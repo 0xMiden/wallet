@@ -13,6 +13,7 @@ import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { springs, useMotion } from 'lib/animation';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
@@ -222,7 +223,7 @@ function buildRowProps(
       : isSwap
         ? t('viaInProtocolDex')
         : entry.secondaryAddress
-          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${entry.recipientName || shortAddr(entry.secondaryAddress)}`
           : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page
@@ -306,6 +307,9 @@ function buildRowProps(
     }
   }
 
+  // Publishing transfers the name NFA, not an unknown fungible token.
+  if (entry.txType === 'publish-name-record') amount = undefined;
+
   let status: Status = 'confirmed';
   if (isCancelled) {
     status = 'cancelled';
@@ -316,6 +320,8 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
+  } else if (entry.midenNameStatus) {
+    status = entry.midenNameStatus;
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
@@ -363,6 +369,7 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
+    const { allContacts } = useFilteredContacts();
     // Same spring as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useMotion(springs.settle);
@@ -461,7 +468,14 @@ const HistoryView = memo<HistoryViewProps>(
                     </div>
                   );
                 }
-                const props = buildRowProps(entry, t, tokenId);
+                const contact = allContacts.find(
+                  contact => contact.address.toLowerCase() === entry.secondaryAddress?.toLowerCase()
+                );
+                const props = buildRowProps(
+                  { ...entry, recipientName: entry.recipientName || contact?.name },
+                  t,
+                  tokenId
+                );
                 return (
                   <Card key={entry.key} asChild padding="row" pressable={Boolean(entry.txId)}>
                     <ActivityRow

@@ -100,6 +100,7 @@ export interface IHistoryEntry {
    */
   swapSettlement?: 'pending' | 'reclaimed';
   secondaryAddress?: string;
+  recipientName?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;
   transactionIcon?: ITransactionIcon;
@@ -168,6 +169,37 @@ export interface IHistoryEntry {
    * The row title then shows the name.
    */
   midenNameLabel?: string;
+  /** Registration/publication whose name-NFA receipt this row completes. */
+  midenNameParentTxId?: string;
+  midenNameStatus?: 'pending' | 'confirmed' | 'failed';
+  midenNameReceiptTxId?: string;
+}
+
+export function midenNameActivityOf(
+  tx: Pick<ITransaction, 'type' | 'extraInputs'>
+): Pick<IHistoryEntry, 'midenNameParentTxId' | 'midenNameStatus' | 'midenNameReceiptTxId'> {
+  if (tx.type === 'consume') {
+    const claim: Partial<IConsumeMidenNameExtraInputs> | undefined = tx.extraInputs;
+    const returned: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = tx.extraInputs;
+    return { midenNameParentTxId: claim?.midenNameClaim?.registerTxId ?? returned?.midenNameReturn?.publishTxId };
+  }
+  if (tx.type === 'register-name' || tx.type === 'publish-name-record') {
+    const inputs: Partial<IRegisterNameExtraInputs | IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
+    const phase = inputs?.phase;
+    const registration: Partial<IRegisterNameExtraInputs> | undefined = tx.extraInputs;
+    const publication: Partial<IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
+    return {
+      midenNameReceiptTxId: tx.type === 'register-name' ? registration?.claimTxId : publication?.returnTxId,
+      midenNameStatus: !phase
+        ? undefined
+        : phase === 'failed'
+          ? 'failed'
+          : phase === 'owned' || phase === 'done'
+            ? 'confirmed'
+            : 'pending'
+    };
+  }
+  return {};
 }
 
 /**
@@ -233,4 +265,25 @@ export enum HistoryEntryType {
   PendingTransaction = 1,
   ProcessingTransaction = 2,
   CompletedTransaction = 3
+}
+
+/** Fold successful NFA receipts into their loaded parent; never hide orphaned or failed receipts. */
+export function reconcileMidenNameActivity(entries: IHistoryEntry[]): IHistoryEntry[] {
+  const parents = new Set(
+    entries
+      .filter(entry => entry.txType === 'register-name' || entry.txType === 'publish-name-record')
+      .map(entry => entry.txId)
+  );
+  return entries.filter(
+    entry =>
+      !(
+        entry.txType === 'consume' &&
+        entry.type === HistoryEntryType.CompletedTransaction &&
+        entry.transactionIcon !== 'FAILED' &&
+        !entry.isCancelled &&
+        !entry.extraAmounts?.length &&
+        entry.midenNameParentTxId &&
+        parents.has(entry.midenNameParentTxId)
+      )
+  );
 }

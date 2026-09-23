@@ -529,6 +529,8 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
 export interface ITransaction {
+  /** Display-only recipient name verified when this send was created. */
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -843,6 +845,7 @@ export class Transaction implements ITransaction {
 }
 
 export class SendTransaction implements ITransaction {
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;

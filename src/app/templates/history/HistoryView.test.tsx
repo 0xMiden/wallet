@@ -9,6 +9,10 @@ import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
+jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
+  useFilteredContacts: () => ({ allContacts: [{ address: 'mtst1alice', name: 'Alice' }] })
+}));
+
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
 jest.mock('react-i18next', () => ({
@@ -330,6 +334,39 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(iconNameIn(row)).toBe('Close');
     expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
     expect(row).toHaveAttribute('data-status', 'failed');
+  });
+
+  it.each([
+    ['alice.miden', 'alice.miden'],
+    [undefined, 'Alice']
+  ])('prefers the send name %s, then the saved contact name', (recipientName, expected) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        fullHistory
+        entries={[makeEntry({ secondaryAddress: 'mtst1alice', recipientName, message: 'Named send' })]}
+      />
+    );
+    expect(rowByTitle('Named send')).toHaveAttribute('data-subtitle', `to: ${expected}`);
+  });
+
+  it('shows publication completion without an Unknown fungible amount', () => {
+    render(
+      <HistoryView
+        {...baseProps}
+        fullHistory
+        entries={[
+          makeEntry({
+            txType: 'publish-name-record',
+            message: 'Published',
+            token: 'Unknown',
+            midenNameStatus: 'pending'
+          })
+        ]}
+      />
+    );
+    expect(rowByTitle('Published')).toHaveAttribute('data-status', 'pending');
+    expect(rowByTitle('Published')).toHaveAttribute('data-amount-symbol', '');
   });
 
   // One render exercising every icon/title/subtitle/amount/status branch.

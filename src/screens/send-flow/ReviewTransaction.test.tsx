@@ -1541,6 +1541,16 @@ describe('ReviewTransaction — Miden Name recipient', () => {
 
     await clickSubmit();
 
-    expect(initiateMock).toHaveBeenCalledWith('pubkey-1', 'mtst1alice', 'tok1', 'private', 12345n, 999, false);
+    expect(initiateMock).toHaveBeenCalledWith(
+      'pubkey-1',
+      'mtst1alice',
+      'tok1',
+      'private',
+      12345n,
+      999,
+      false,
+      undefined,
+      'alice.miden'
+    );
   });
 });

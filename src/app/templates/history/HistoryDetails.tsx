@@ -58,7 +58,7 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import { Link, navigate } from 'lib/woozie';
 import {
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
@@ -69,7 +69,7 @@ import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
-import { HistoryEntryType, IHistoryEntry, midenNameLabelOf } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameActivityOf, midenNameLabelOf } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
@@ -575,6 +575,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Miden Name registration record: the row is the state of record, so the
   // Phase row reads the effective phase of the live row (`phaseOf`).
   const registerName = transaction ? registerNameInputsOf(transaction) : undefined;
+  const nameReceiptTxId = transaction ? midenNameActivityOf(transaction).midenNameReceiptTxId : undefined;
   const registerNamePhaseKey =
     transaction && registerName ? midenNameStateKey(uiStateOf(phaseOf(transaction))) : undefined;
   // Which way the money moved is a property of the transaction TYPE, not of its
@@ -897,6 +898,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     )}
                   </DetailSection>
                 </div>
+              </div>
+            )}
+
+            {nameReceiptTxId && (
+              <div className="mt-6">
+                <DetailSection title={t('midenName')}>
+                  <DetailRow label={t('midenNameReceiptTransaction')}>
+                    <Link to={`/history-details/${nameReceiptTxId}`} className="text-accent-tint-ink">
+                      {t('view')}
+                    </Link>
+                  </DetailRow>
+                </DetailSection>
               </div>
             )}
 

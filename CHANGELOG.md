@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] Keep recipient names prominent in Send and show verified Miden usernames or saved contact names in activity. Fold successful name-NFA receipts into their registration/publication entries, track the full name operation's status, and remove the misleading Unknown token amount on publications.
 - [FIX][all] Guardian account imports and sync use the transaction write client, preventing inconsistent account storage after publishing a name and receiving its NFA return. Remove the unused React SDK provider, which created another client and ran a startup sync on the same store.
 
 ### Features

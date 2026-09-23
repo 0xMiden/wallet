@@ -1227,7 +1227,7 @@ describe('History earn entries', () => {
 });
 
 describe('History Miden Name entries', () => {
-  it('carries the name label on a registration and on the consume that claimed the name', async () => {
+  it('reconciles the successful name receipt into the registration entry', async () => {
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
       offset === undefined
         ? [
@@ -1239,7 +1239,7 @@ describe('History Miden Name entries', () => {
               faucetId: 'fa1',
               amount: 20n,
               secondaryAccountId: 'mtst1registry',
-              extraInputs: { label: 'alice', phase: 'submitted', registrationNoteId: '0xnote' },
+              extraInputs: { label: 'alice', phase: 'owned', registrationNoteId: '0xnote', claimTxId: 'NC' },
               displayMessage: 'Name requested',
               displayIcon: 'SEND'
             },
@@ -1267,10 +1267,9 @@ describe('History Miden Name entries', () => {
     expect(registration.token).toBe('TKF');
 
     const claim = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-NC');
-    expect(claim.midenNameLabel).toBe('alice');
-    expect(claim.amount).toBeUndefined();
-    expect(claim.token).toBeUndefined();
-    expect(claim.extraAmounts).toBeUndefined();
+    expect(claim).toBeUndefined();
+    expect(registration.midenNameReceiptTxId).toBe('NC');
+    expect(registration.midenNameStatus).toBe('confirmed');
   });
 
   it('finds a registration by its full name', async () => {

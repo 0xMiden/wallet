@@ -30,7 +30,13 @@ import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
-import { HistoryEntryType, IHistoryEntry, midenNameLabelOf } from './IHistoryEntry';
+import {
+  HistoryEntryType,
+  IHistoryEntry,
+  midenNameActivityOf,
+  midenNameLabelOf,
+  reconcileMidenNameActivity
+} from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
@@ -239,7 +245,7 @@ const History = memo<HistoryProps>(
         ?.filter(item => item.status === 'claiming' || item.status === 'claimed' || item.status === 'failed')
         .map(item => item.note.id)
     );
-    let entries: IHistoryEntry[] = allEntries.filter(
+    let entries: IHistoryEntry[] = reconcileMidenNameActivity(allEntries).filter(
       entry =>
         !(
           entry.txType === 'consume' &&
@@ -394,6 +400,8 @@ async function fetchTransactionsAsHistoryEntries(
       swapSettlement: swapSettlementOf(tx),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
@@ -470,6 +478,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,

@@ -26,6 +26,8 @@ const DURATION = 0.28;
 
 export interface SelectRecipientProps {
   address: string;
+  /** Actual destination when the editable input is a Miden Name. */
+  resolvedAddress?: string;
   isValidAddress: boolean;
   error?: string;
   /**
@@ -61,6 +63,7 @@ export interface SelectRecipientProps {
 
 export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   address,
+  resolvedAddress,
   isValidAddress,
   error,
   chain,
@@ -97,6 +100,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const selectedNetwork = network === 'miden' ? undefined : getBridgeNetwork(network);
   const isEthereum = chain === 'ethereum';
   const hasAddress = address.trim().length > 0;
+  const showRecipientIdentity = !!recipientName && recipientName !== address.trim();
   const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
   const showAddContact = canAddContact && !!onAddContact;
   const recentRecipients = hasAddress ? [] : (recents ?? []);
@@ -147,10 +151,10 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
       }
     >
       <div className="relative mt-3">
-        {recipientName && (
+        {showRecipientIdentity && (
           <div className="mb-2 flex items-center gap-3">
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
-              <ContactAvatar address={address} name={recipientName} />
+              <ContactAvatar address={resolvedAddress ?? address} name={recipientName} />
             </span>
             <span data-testid="send-recipient-name" className="text-hero-name text-ink">
               {recipientName}
@@ -167,9 +171,11 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
             // Below the tab title, never above it: 24px holds the placeholder to two lines on a
             // 375pt phone, and a pasted address wraps to three.
-            'text-hero-name font-bold wrap-break-word placeholder:text-muted/70',
+            showRecipientIdentity
+              ? 'text-body-sm wrap-break-word'
+              : 'text-hero-name font-bold wrap-break-word placeholder:text-muted/70',
             'caret-accent-send',
-            error ? 'text-negative-tint-ink' : 'text-ink'
+            error ? 'text-negative-tint-ink' : showRecipientIdentity ? 'text-muted' : 'text-ink'
           )}
           value={address}
           onChange={onAddressChange}
@@ -185,6 +191,11 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             }
           }}
         />
+        {resolvedAddress && resolvedAddress !== address.trim() && (
+          <p className="mt-2 break-all text-body-sm text-muted" data-testid="send-resolved-address">
+            {resolvedAddress}
+          </p>
+        )}
       </div>
 
       <AnimatePresence initial={false}>
