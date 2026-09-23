@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "该网络不支持“中间名”。",
+  "contactAddressOrMidenName": "地址或中间名",
+  "contactAddressOrMidenNamePlaceholder": "请输入地址或名称.miden",
+  "contactResolvedAddress": "已解决地址：$address$",
   "midenNameReceiptTransaction": "命名收据交易",
   "payload": "有效载荷",
   "bridgeDepositTitle": "Miden Bridge",

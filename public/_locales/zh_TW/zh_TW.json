@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "此網路不支援「中間名」。",
+  "contactAddressOrMidenName": "地址或中間名",
+  "contactAddressOrMidenNamePlaceholder": "請輸入地址或名稱.miden",
+  "contactResolvedAddress": "已解決的連結：$address$",
   "midenNameReceiptTransaction": "命名收款交易",
   "payload": "有效載荷",
   "bridgeDepositTitle": "Miden Bridge",

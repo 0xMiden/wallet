@@ -1,4 +1,25 @@
 {
+  "midenNameUnsupportedNetwork": {
+    "message": "El segundo nombre no está disponible en esta red.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Dirección o nombre de pila",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Introduce una dirección o un nombre.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Dirección resuelta: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "midenNameReceiptTransaction": {
     "message": "Nombre de la transacción de recepción",
     "englishSource": "Name receipt transaction"

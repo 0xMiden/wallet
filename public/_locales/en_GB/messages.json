@@ -1,4 +1,25 @@
 {
+  "midenNameUnsupportedNetwork": {
+    "message": "Miden Name is not available on this network.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Address or Miden Name",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Enter an address or name.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Resolved address: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "midenNameReceiptTransaction": {
     "message": "Name receipt transaction",
     "englishSource": "Name receipt transaction"

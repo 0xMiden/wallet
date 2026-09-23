@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "Bu ağda Miden Name özelliği mevcut değildir.",
+  "contactAddressOrMidenName": "Adres veya İkinci Ad",
+  "contactAddressOrMidenNamePlaceholder": "Bir adres veya isim girin.miden",
+  "contactResolvedAddress": "Çözümlenen adres: $address$",
   "midenNameReceiptTransaction": "Adlı makbuz işlemi",
   "payload": "Yük",
   "bridgeDepositTitle": "Miden Bridge",

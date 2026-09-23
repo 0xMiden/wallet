@@ -1,4 +1,25 @@
 {
+  "midenNameUnsupportedNetwork": {
+    "message": "Посереднє ім’я у цій мережі недоступне.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Адреса або середнє ім’я",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Введіть адресу або ім’я.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Адреса, що вирішила проблему: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "midenNameReceiptTransaction": {
     "message": "Назва транзакції отримання",
     "englishSource": "Name receipt transaction"

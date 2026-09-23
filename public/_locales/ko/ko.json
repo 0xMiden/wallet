@@ -1,4 +1,8 @@
 {
+  "midenNameUnsupportedNetwork": "이 네트워크에서는 중간 이름을 사용할 수 없습니다.",
+  "contactAddressOrMidenName": "주소 또는 중간 이름",
+  "contactAddressOrMidenNamePlaceholder": "주소나 이름을 입력하세요.miden",
+  "contactResolvedAddress": "해결된 주소: $address$",
   "midenNameReceiptTransaction": "수취 거래 명칭",
   "payload": "페이로드",
   "bridgeDepositTitle": "Miden Bridge",
