@@ -3053,9 +3053,42 @@
     "message": "Опублікувати",
     "englishSource": "Publish"
   },
+  "midenNamePublishing": {
+    "message": "Публікація…",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Перевірка реєстру…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Перенаправлення на інший рахунок",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "Публікація в реєстрі",
+    "englishSource": "Publishing to registry"
+  },
   "midenNameClearRecords": {
     "message": "Видалити мої записи з реєстру",
     "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "Ім’я автора публікації",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "Назва видання",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "Опубліковано $name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageRegisteringName": {
     "message": "Реєстрація імені",

@@ -3053,9 +3053,42 @@
     "message": "發佈",
     "englishSource": "Publish"
   },
+  "midenNamePublishing": {
+    "message": "正在發布……",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "正在查閱註冊表……",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "將轉入另一個帳戶",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "發佈至登記冊",
+    "englishSource": "Publishing to registry"
+  },
   "midenNameClearRecords": {
     "message": "請將我的紀錄從註冊表中移除",
     "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "發佈名稱",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "發佈名稱",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "發佈於 $name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageRegisteringName": {
     "message": "註冊名稱",

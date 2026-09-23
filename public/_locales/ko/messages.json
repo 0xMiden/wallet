@@ -3053,9 +3053,42 @@
     "message": "게시",
     "englishSource": "Publish"
   },
+  "midenNamePublishing": {
+    "message": "게시 중…",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "레지스트리를 확인 중…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "다른 계정으로 해결됨",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "레지스트리에 게시",
+    "englishSource": "Publishing to registry"
+  },
   "midenNameClearRecords": {
     "message": "등록부에서 제 기록을 삭제해 주세요",
     "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "게시자 이름",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "발행명",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "게시일$name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "transactionStageRegisteringName": {
     "message": "이름 등록",
