@@ -202,9 +202,10 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
 
 /**
  * A single choice out of a few, drawn like the tab bars: no strip behind the items, the selected
- * one on the raised bubble that slides between them on the tab-switch spring, its content popping
- * as it lands, and a press that dips the item. One selection haptic per real change. Under reduced
- * motion the bubble moves instantly, nothing pops and a press does not scale.
+ * one on a shape that slides between them on the tab-switch spring (the raised bubble by default,
+ * a tinted pill in `pills`), its content popping as it lands, and a press that dips the item. One
+ * selection haptic per real change. Under reduced motion the selection moves instantly, nothing
+ * pops and a press does not scale.
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
  * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
