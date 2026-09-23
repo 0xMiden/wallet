@@ -27,6 +27,7 @@ import {
   withGuardianConflictRetry
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
+import { assertMidenNameRegistrationLive } from 'lib/miden/name/guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
@@ -48,6 +49,7 @@ import {
   completeConsumeTransaction,
   completeCustomTransaction,
   completeEarnDepositTransaction,
+  completeRegisterNameTransaction,
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
@@ -138,7 +140,11 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'consume',
   'swap',
   'earn-deposit',
-  'execute'
+  'execute',
+  // Pre-built bytes, like `swap`: a requeue proposes the SAME register note (same
+  // serial, same note id), so the chain cannot accept it two times. The guard runs
+  // again on each attempt, before the proposal.
+  'register-name'
 ]);
 
 // Guardian tx-types whose leaf pipeline is safe to run offscreen (issue #260).
@@ -181,7 +187,9 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'replace-hot-key',
   'update-procedure-threshold',
   'bridged-send',
-  'earn-deposit'
+  'earn-deposit',
+  // Keep registration writes on the same client as account sync and name claims.
+  'register-name'
 ]);
 
 /**
@@ -237,9 +245,16 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
  * `completeBridgedSendTransaction` → "Bridged to EVM", everything else → "Sent".
  */
 const applyLandedDisplayMessage = (type: ITransactionType): string => {
-  if (type === 'consume') return 'Claimed';
-  if (type === 'bridged-send') return 'Bridged to EVM';
-  return 'Sent';
+  switch (type) {
+    case 'consume':
+      return 'Claimed';
+    case 'bridged-send':
+      return 'Bridged to EVM';
+    case 'register-name':
+      return 'Name requested';
+    default:
+      return 'Sent';
+  }
 };
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
@@ -1103,7 +1118,10 @@ const generateTransactionWithProvider = async (
           transaction.type === 'send' ||
           transaction.type === 'swap' ||
           transaction.type === 'execute' ||
-          transaction.type === 'bridged-send')
+          transaction.type === 'bridged-send' ||
+          // The register note is on chain. A Failed row would tell the tracker
+          // `tx-failed` for a name that the registry can still issue.
+          transaction.type === 'register-name')
       ) {
         console.warn(
           '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
@@ -1470,6 +1488,24 @@ const generateTransactionWithProvider = async (
         result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
       }
       break;
+    case 'register-name': {
+      // RPC-only guard, immediately before the write: the name must still be
+      // free, the price and script allowlist unchanged, and the reclaim height
+      // not near. A throw goes to the loop catch, which marks the row Failed
+      // (no classifier there requeues these errors).
+      await assertMidenNameRegistrationLive(transaction);
+      const registerBytes = transaction.requestBytes;
+      if (!registerBytes) {
+        throw new Error('Register-name row has no request bytes');
+      }
+      result = await midenClientProxy.newTransaction(
+        transaction.accountId,
+        registerBytes,
+        transaction.delegateTransaction,
+        signCallback
+      );
+      break;
+    }
     case 'execute':
     default: {
       // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
@@ -1508,6 +1544,9 @@ const generateTransactionWithProvider = async (
       break;
     case 'earn-deposit':
       await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+      break;
+    case 'register-name':
+      await completeRegisterNameTransaction(transaction, result);
       break;
     case 'execute':
     default:
@@ -2465,6 +2504,23 @@ const generateGuardianTransaction = async (
       );
       break;
     }
+    case 'register-name': {
+      // The register note is pre-built with its fee salt (`buildRegisterNameRequest`),
+      // so the custom proposal and `signAndCreateTransactionRequest` below use the
+      // same bytes. The guard runs before the proposal: a throw goes to the
+      // guardian catch, which marks the row Failed (the guard errors match no
+      // requeue classifier there).
+      await assertMidenNameRegistrationLive(transaction);
+      const registerBytes = transaction.requestBytes;
+      if (!registerBytes) {
+        throw new Error('Register-name row has no request bytes');
+      }
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createCustomProposal(registerBytes, 'register_name')
+      );
+      break;
+    }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       const swapTx = transaction as SwapTransaction;
@@ -3014,6 +3070,9 @@ const generateGuardianTransaction = async (
       // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
       // routing this to the generic custom-tx completion would strand the deposit.
       await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+      break;
+    case 'register-name':
+      await completeRegisterNameTransaction(transaction, result);
       break;
     case 'execute':
     default:

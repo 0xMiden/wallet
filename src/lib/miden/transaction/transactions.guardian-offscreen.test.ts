@@ -54,7 +54,7 @@
 
 import { generateTransaction } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus } from '../db/types';
+import { ITransactionStatus, RegisterNameTransaction } from '../db/types';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf
@@ -232,6 +232,11 @@ jest.mock('../sdk/miden-client', () => ({
 // The routing seam under test: `dispatchGuardianPipeline` is a controllable spy,
 // and `midenClientProxy.syncState` is the pre-guardian sync (no-op here).
 const mockDispatchGuardianPipeline = jest.fn();
+const mockRegisterNameGuard = jest.fn(async (_tx: RegisterNameTransaction) => {});
+const mockCompleteRegisterName = jest.fn(async (_tx: RegisterNameTransaction, _result: object) => {});
+jest.mock('lib/miden/name/guard', () => ({
+  assertMidenNameRegistrationLive: (tx: RegisterNameTransaction) => mockRegisterNameGuard(tx)
+}));
 // The SW-side local-client `getAccount` (structural ops resolve the SDK account
 // here to build a cold service / mint the replacement hot key). Value-moving
 // types never call it, so the default `null` is harmless for them.
@@ -274,6 +279,8 @@ const mockComplete = {
   updateThreshold: jest.fn(async (..._a: unknown[]) => {})
 };
 jest.mock('./complete', () => ({
+  completeRegisterNameTransaction: (tx: RegisterNameTransaction, result: object) =>
+    mockCompleteRegisterName(tx, result),
   completeSendTransaction: (...a: unknown[]) => mockComplete.send(...a),
   completeConsumeTransaction: (...a: unknown[]) => mockComplete.consume(...a),
   completeSwapTransaction: (...a: unknown[]) => mockComplete.swap(...a),
@@ -488,6 +495,84 @@ afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
 
+describe('Guardian name registration routing', () => {
+  const nameProvider = {
+    getAccounts: async () => [],
+    getPublicKeyForCommitment: async () => 'pk',
+    signWord: async () => 'sig'
+  };
+
+  function arrangeRegistration() {
+    const row = new RegisterNameTransaction({
+      accountId: 'guardian-acc',
+      label: 'alice',
+      network: 'testnet',
+      paymentFaucetId: 'faucet',
+      registryAccountId: 'registry',
+      priceBaseUnits: 20_000_000n,
+      networkFeeBaseUnits: 210n,
+      requestBytes: new Uint8Array([4, 2]),
+      registrationNoteId: '0xnote',
+      reclaimHeight: 1300,
+      builtAtBlock: 1000,
+      delegateTransaction: false
+    });
+    const fixture = arrange(row.id, { ...row });
+    return { ...fixture, row };
+  }
+
+  async function runRegistration(flag: string) {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = flag;
+    const result = makeResult();
+    mockDispatchGuardianPipeline.mockResolvedValue(result);
+    const { row, service, inline } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(mockRegisterNameGuard).toHaveBeenCalledWith(row);
+    expect(service.createCustomProposal).toHaveBeenCalledWith(row.requestBytes, 'register_name');
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', row.requestBytes);
+    expect(mockCompleteRegisterName).toHaveBeenCalledTimes(1);
+    return { row, inline, result };
+  }
+
+  it('uses the correct client when the offscreen flag is true', async () => {
+    const { row, inline, result } = await runRegistration('true');
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledWith(
+      row.accountId,
+      new Uint8Array(TR_BYTES),
+      false,
+      signCallback,
+      expect.any(Function),
+      undefined
+    );
+    expect(mockCompleteRegisterName).toHaveBeenCalledWith(row, result);
+  });
+
+  it('uses the correct client when the offscreen flag is false', async () => {
+    const { inline } = await runRegistration('false');
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+  });
+
+  it('keeps a submitted registration completed when the offscreen apply fails', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const error: Error & { errorCode: string } = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed'
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(error);
+    const { row, inline } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(txStore.find(tx => tx.id === row.id)?.status).toBe(ITransactionStatus.Completed);
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
+});
+
 describe('guardian leaf routing — flag OFF (inline)', () => {
   it.each(valueMovingCases())(
     '$type: runs the inline pipeline, never dispatchGuardianPipeline',
@@ -689,7 +774,15 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // other silently narrows the fix back to the two types that happen to have
     // tests.
     const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
-    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual(['consume', 'execute', 'send', 'swap']);
+    // `register-name` reuses its pre-built bytes (same note id), so a retry after
+    // an execution-time rejection cannot pay two times.
+    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual([
+      'consume',
+      'execute',
+      'register-name',
+      'send',
+      'swap'
+    ]);
   });
 
   it('an "unauthorized" that is NOT execution-scoped stays terminally Failed (no double-send)', async () => {

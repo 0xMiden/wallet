@@ -269,6 +269,13 @@ jest.mock('shared/logger', () => ({
   logger: { warning: jest.fn(), error: jest.fn(), info: jest.fn() }
 }));
 
+// The Miden Name pre-submit guard does RPC reads. Only `register-name` rows call it.
+// eslint-disable-next-line no-var
+var mockAssertMidenNameRegistrationLive = jest.fn(async (_tx: object): Promise<void> => {});
+jest.mock('lib/miden/name/guard', () => ({
+  assertMidenNameRegistrationLive: (tx: object) => mockAssertMidenNameRegistrationLive(tx)
+}));
+
 const makeResult = () => ({
   executedTransaction: () => ({
     id: () => ({ toHex: () => 'exec-tx-hash' }),
@@ -2046,6 +2053,102 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  const registerNameRow = (txId: string, requestBytes: Uint8Array) =>
+    Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'register-name',
+      amount: 20_000_000n,
+      secondaryAccountId: 'registry',
+      faucetId: 'miden',
+      noteType: 'public',
+      requestBytes,
+      extraInputs: {
+        label: 'alice',
+        network: 'testnet',
+        registrationNoteId: '0xnote',
+        reclaimHeight: 1300,
+        builtAtBlock: 1000,
+        priceBaseUnits: '20000000',
+        networkFeeBaseUnits: '210',
+        phase: 'requested',
+        phaseUpdatedAt: 1
+      },
+      delegateTransaction: true
+    });
+
+  it('Guardian register-name proposes the pre-built bytes as a register_name custom proposal', async () => {
+    const txId = 'register-name-guardian';
+    const requestBytes = new Uint8Array([21, 22, 23]);
+    const transaction = registerNameRow(txId, requestBytes);
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'register-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(mockAssertMidenNameRegistrationLive).toHaveBeenCalledWith(transaction);
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'register_name');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('register-proposal', requestBytes);
+    const completed = txStore.find(row => row.id === txId);
+    expect(completed?.error).toBeUndefined();
+    expect(completed?.status).toBe(ITransactionStatus.Completed);
+    // Only `completeRegisterNameTransaction` writes this label and phase.
+    expect(completed?.displayMessage).toBe('Name requested');
+    expect(completed?.requestBytes).toBe(requestBytes);
+    expect(completed?.extraInputs).toEqual(expect.objectContaining({ phase: 'submitted' }));
+  });
+
+  it('Guardian register-name: a guard failure marks the row Failed with no proposal', async () => {
+    const txId = 'register-name-guardian-taken';
+    const transaction = registerNameRow(txId, new Uint8Array([21]));
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+    mockAssertMidenNameRegistrationLive.mockRejectedValueOnce(new Error('The Miden Name "alice" is already taken'));
+
+    const multisigService = {
+      createCustomProposal: jest.fn(),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    const failed = txStore.find(row => row.id === txId);
+    expect(failed?.status).toBe(ITransactionStatus.Failed);
+    expect(failed?.nextEligibleAt).toBeUndefined();
   });
 
   it('Guardian earn-deposit: a still-pending 409 requeues AND drops the frozen requestBytes so the next cycle rebuilds a fresh reclaim height', async () => {

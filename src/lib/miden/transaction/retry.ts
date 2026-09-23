@@ -65,6 +65,11 @@ import {
  * collateral note with no quote and no intent, lock that amount until its reclaim
  * height, and then report "Bridged to EVM" - so the user must re-initiate from the
  * bridge flow instead.
+ *
+ * `register-name` is excluded too. A Failed register row is a record for the
+ * Miden Name tracker (`failed/tx-failed`), and its bytes hold a quote (price) and
+ * a reclaim height that can be stale. The user starts a new registration from
+ * the claim screen, which reads a fresh quote and builds new bytes.
  */
 const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridged-send', 'execute'];
 
@@ -84,7 +89,8 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
   consume: 'RECEIVE',
   swap: 'SWAP',
   'bridged-send': 'SEND',
-  execute: 'DEFAULT'
+  execute: 'DEFAULT',
+  'register-name': 'SEND'
 };
 
 /**
@@ -160,7 +166,8 @@ export const isCancellableTransaction = (tx: { status?: ITransactionStatus; type
 
 /** Output-producing types whose Retry must first node-verify it didn't already
  *  land (double-send guard). Consume is excluded - it has its own input-note
- *  landed check (verifyConsumeLanded) on the kill/reaper path. */
+ *  landed check (verifyConsumeLanded) on the kill/reaper path. `register-name`
+ *  is excluded because it has no Retry (it is not in `REQUEUEABLE_TYPES`). */
 const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-send', 'execute'];
 
 /**
@@ -174,7 +181,9 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * `requestBytes` persisted on the row, so a duplicate submit re-creates the
  * IDENTICAL note and the node rejects it rather than moving funds twice.
  * (`consume` is excluded for the same reason its Retry needs no node check - its
- * input note's nullifier makes a duplicate unusable.)
+ * input note's nullifier makes a duplicate unusable.) `register-name` is excluded:
+ * it has no Retry, and its pipeline requeues use the persisted bytes, so the
+ * register note id does not change.
  *
  * Why these need a guard beyond `verifySendLanded`: that check is keyed on
  * `ITransaction.transactionId`, and the only writers of that field are the

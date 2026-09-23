@@ -36,9 +36,12 @@ import {
   IEarnWithdrawExtraInputs,
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
+  IConsumeMidenNameExtraInputs,
   INoteDeliveryState,
+  IRegisterNameExtraInputs,
   ITransaction,
   ITransactionStatus,
+  MidenNamePhase,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -48,6 +51,7 @@ import {
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -223,13 +227,17 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
   const dbTransaction = await Repo.transactions.where({ id }).first();
   const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
-  const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
+  // A consume that claims a Miden Name delivery note carries a link to its
+  // `register-name` row. That note holds a non-fungible asset only.
+  const nameClaimInputs: Partial<IConsumeMidenNameExtraInputs> | undefined = dbTransaction?.extraInputs;
+  const midenNameClaim = nameClaimInputs?.midenNameClaim;
+  const transferMessage = reclaimed ? 'Reclaimed' : 'Received';
+  const displayMessage = midenNameClaim ? 'Name received' : transferMessage;
   const secondaryAccountId = reclaimed ? undefined : sender;
+  // A note with no fungible asset (for example a name NFA) completes with no
+  // `faucetId` and no `amount`. It is not an error.
   const asset = note.assets().fungibleAssets()[0];
-  if (!asset) {
-    throw new Error('completeConsumeTransaction: note has no fungible assets');
-  }
-  const faucetId = getBech32AddressFromAccountId(asset.faucetId());
+  const faucetId = asset ? getBech32AddressFromAccountId(asset.faucetId()) : undefined;
   // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
   // value the `ConsumeTransaction` constructor wrote is only an estimate — its
   // `ConsumableNote` inputs carry just the first fungible asset per note — so a
@@ -246,7 +254,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     faucetId: id,
     amount: total
   }));
-  const amount = totalsByFaucet.get(faucetId) ?? 0n;
+  const amount = faucetId === undefined ? undefined : (totalsByFaucet.get(faucetId) ?? 0n);
 
   // Only a uniform batch has a single answer, matching the constructor's rule —
   // otherwise the details card would label a mixed claim by its first note alone.
@@ -276,7 +284,9 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
     const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
-    if (!applied) {
+    // The amount fallback needs a fungible amount. A consume with no fungible
+    // asset (a name NFA) cannot be a bridge-in, so skip it.
+    if (!applied && amount !== undefined) {
       const info = await takeAgglayerBridgeInInfo({
         accountId: dbTransaction?.accountId ?? '',
         senderAccountId: sender,
@@ -308,6 +318,17 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     }
   } catch (err) {
     console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
+  }
+
+  // Miden Name claim: the name is now in the account, so move the linked
+  // `register-name` row to `owned`. The tracker also gets `owned` from this
+  // consume row, so a failure here must not fail the consume.
+  if (midenNameClaim) {
+    try {
+      await patchRegisterNameExtraInputs(midenNameClaim.registerTxId, { phase: 'owned' });
+    } catch (err) {
+      console.warn('[miden-name] owned patch failed (non-fatal)', err);
+    }
   }
 };
 
@@ -1019,6 +1040,133 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
     displayMessage: 'Deposited to lending',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
+};
+
+/** Rank of each non-terminal phase. A patch can only keep or increase the rank. */
+const MIDEN_NAME_PHASE_RANK: Record<Exclude<MidenNamePhase, 'failed'>, number> = {
+  requested: 0,
+  submitted: 1,
+  issued: 2,
+  claiming: 3,
+  owned: 4
+};
+
+/**
+ * Whether a row in phase `current` can go to phase `next`. Exported for tests.
+ *
+ * `failed` and `owned` are terminal: nothing moves them. A same-phase patch is
+ * permitted, so that a caller can add fields (for example `deliveryScanFrom`).
+ * `failed` is permitted from each non-terminal phase. The one move back is
+ * `claiming → issued`: the tracker makes it when the claim consume failed, so
+ * that it can queue a new claim.
+ */
+export const canMoveMidenNamePhase = (current: MidenNamePhase, next: MidenNamePhase): boolean => {
+  if (current === next) return true;
+  switch (current) {
+    case 'failed':
+    case 'owned':
+      return false;
+    case 'claiming':
+      if (next === 'issued') return true;
+      break;
+    default:
+      break;
+  }
+  if (next === 'failed') return true;
+  return MIDEN_NAME_PHASE_RANK[next] >= MIDEN_NAME_PHASE_RANK[current];
+};
+
+export type RegisterNameExtraInputsPatch = Partial<
+  Pick<
+    IRegisterNameExtraInputs,
+    'phase' | 'failure' | 'lastError' | 'deliveryNoteId' | 'claimTxId' | 'deliveryScanFrom'
+  >
+>;
+
+/**
+ * Patch the `extraInputs` of a `register-name` row. Returns true when the patch
+ * was written.
+ *
+ * Refuses (returns false) when the row is not a `register-name` row, is
+ * restored from a backup, has a phase other than `expectPhase` (when given), or
+ * when the phase move is not permitted (see `canMoveMidenNamePhase`).
+ * `phaseUpdatedAt` changes only when the phase changes.
+ */
+export const patchRegisterNameExtraInputs = async (
+  id: string,
+  patch: RegisterNameExtraInputsPatch,
+  options: { expectPhase?: MidenNamePhase } = {}
+): Promise<boolean> => {
+  let written = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.type !== 'register-name' || tx.restoredFromBackup === true) return;
+    const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
+    if (!inputs) return;
+    if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return;
+    const nextPhase = patch.phase ?? inputs.phase;
+    if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return;
+    const next: IRegisterNameExtraInputs = {
+      ...inputs,
+      ...patch,
+      phase: nextPhase,
+      phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
+    };
+    tx.extraInputs = next;
+    written = true;
+  });
+  return written;
+};
+
+/**
+ * Complete a `register-name` row. Record the ids of the user output notes (the
+ * register note and, when the kernel shows it as a user note, the sponsorship
+ * note) and move the phase to `submitted`. The register note id comes first.
+ */
+export const completeRegisterNameTransaction = async (tx: ITransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  // The transaction is on chain here. A failed read of the output notes must not
+  // fail the row, so record no ids and continue. An eviction is the exception
+  // (see `feePaidFromResult`): continue on that client is a double borrow.
+  let noteIds: string[] = [];
+  try {
+    noteIds = splitExecutedOutputNotes(executedTx).userNotes.map(note => note.id().toString());
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) throw err;
+    console.warn('[miden-name] could not read the output notes of the register transaction', err);
+  }
+  const inputs: Partial<IRegisterNameExtraInputs> | undefined = tx.extraInputs;
+  const expectedNoteId = inputs?.registrationNoteId;
+  const hasExpectedNote = expectedNoteId !== undefined && noteIds.includes(expectedNoteId);
+  const outputNoteIds = hasExpectedNote
+    ? [expectedNoteId, ...noteIds.filter(noteId => noteId !== expectedNoteId)]
+    : noteIds;
+  if (!hasExpectedNote) {
+    console.warn('[miden-name] the executed transaction has no output note with the registration note id', {
+      txId: tx.id,
+      expectedNoteId,
+      outputNoteIds
+    });
+  }
+
+  // The phase goes in the same write as the status, so that no crash can leave
+  // a Completed row in phase `requested`. Read the row again: the in-memory copy
+  // is from the time when the loop picked the row.
+  const freshRow = await Repo.transactions.where({ id: tx.id }).first();
+  const freshInputs: IRegisterNameExtraInputs | undefined = freshRow?.extraInputs;
+  const submittedInputs: IRegisterNameExtraInputs | undefined =
+    freshInputs && freshRow?.restoredFromBackup !== true && canMoveMidenNamePhase(freshInputs.phase, 'submitted')
+      ? { ...freshInputs, phase: 'submitted', phaseUpdatedAt: Date.now() }
+      : undefined;
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
+    displayMessage: 'Name requested',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    ...(submittedInputs ? { extraInputs: submittedInputs } : {}),
     completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes: result.serialize()
   });
