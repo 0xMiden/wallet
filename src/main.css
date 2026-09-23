@@ -504,7 +504,7 @@ body[data-hide-navbar]::after {
 
 /* Home's top action bar band continues up through the status-bar safe area,
  * which body paints above #root. TabLayout sets the attribute while Home is
- * the active tab on mobile and its layer is the one on screen. */
+ * the active tab on mobile and its layer is fully on screen. */
 body[data-home-band]::before {
   content: '';
   position: fixed;

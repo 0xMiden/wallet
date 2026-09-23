@@ -9,7 +9,7 @@ import { LocationState, useLocation } from 'lib/woozie/location';
 
 import FullScreenPage from './FullScreenPage';
 import MobilePageLayers from './MobilePageLayers';
-import { usePageActive } from './page-active';
+import { usePageActive, usePageOnScreen } from './page-active';
 
 const mockMotion: { reduce: boolean; layers: Record<string, any> } = { reduce: false, layers: {} };
 
@@ -40,9 +40,14 @@ function location(pathname: string, trigger = HistoryAction.Push): LocationState
 function Page() {
   const { pathname } = useLocation();
   const onScreen = usePageActive();
+  const fullyOnScreen = usePageOnScreen();
   const [count, setCount] = useState(0);
   return (
-    <button data-on-screen={String(onScreen)} onClick={() => setCount(count + 1)}>
+    <button
+      data-on-screen={String(onScreen)}
+      data-fully-on-screen={String(fullyOnScreen)}
+      onClick={() => setCount(count + 1)}
+    >
       {`${pathname} count ${count}`}
     </button>
   );
@@ -221,4 +226,36 @@ it('makes the layer transition instant under reduced motion', () => {
   mockMotion.reduce = true;
   render(view('/settings', true));
   expect(mockMotion.layers['/settings'].transition).toEqual(reducedMotionTransition);
+});
+
+it('reports a covered page off screen at once, and a revealed one on screen only after the slide page has gone', async () => {
+  const { container, rerender } = render(view('/history'));
+  const button = () => container.querySelector('[data-page-layer="/history"] button');
+  expect(button()).toHaveAttribute('data-fully-on-screen', 'true');
+
+  rerender(view('/history-details/one', true));
+  expect(button()).toHaveAttribute('data-fully-on-screen', 'false');
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+
+  rerender(view('/history'));
+  const leaving = container.querySelector('[data-page-layer="/history-details/one"]');
+  expect(leaving).toHaveStyle({ zIndex: '3' });
+  // Present already (so polls resume), but the slide page still covers it.
+  expect(button()).toHaveAttribute('data-on-screen', 'true');
+  expect(button()).toHaveAttribute('data-fully-on-screen', 'false');
+  await waitFor(() => expect(leaving).not.toBeInTheDocument());
+  await waitFor(() => expect(button()).toHaveAttribute('data-fully-on-screen', 'true'));
+});
+
+it('reports a page fully on screen at once under reduced motion', () => {
+  mockMotion.reduce = true;
+  const { container, rerender } = render(view('/history'));
+  rerender(view('/settings', true));
+  rerender(view('/history'));
+  expect(container.querySelector('[data-page-layer="/history"] button')).toHaveAttribute(
+    'data-fully-on-screen',
+    'true'
+  );
 });

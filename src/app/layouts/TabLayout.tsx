@@ -17,7 +17,7 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
+import { PageActiveContext, usePageActive, usePageOnScreen } from 'app/layouts/page-active';
 import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
@@ -271,19 +271,20 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeTab = activeTabFromPath(pathname);
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
-  const pageActive = usePageActive();
+  const onScreen = usePageOnScreen();
 
   // Mobile, Home only: the body paints the status-bar safe area above the
   // app, so the action bar's band is drawn up there by a fixed pseudo-element
   // on body (main.css), keyed off this attribute — the panes clip their
   // overflow, so nothing inside the layout can reach that strip. A slide page
   // keeps this layer mounted underneath with its own frozen location, so the
-  // band also waits for the layer to be the one on screen.
+  // band also waits for the layer to be fully on screen: off as a push starts
+  // covering it, back once a pop's slide page has finished sliding off.
   useEffect(() => {
     if (!isMobile()) return;
-    document.body.toggleAttribute('data-home-band', showActionBar && pageActive);
+    document.body.toggleAttribute('data-home-band', showActionBar && onScreen);
     return () => document.body.removeAttribute('data-home-band');
-  }, [showActionBar, pageActive]);
+  }, [showActionBar, onScreen]);
 
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the

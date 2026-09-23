@@ -10,3 +10,14 @@ export const PageActiveContext = createContext(true);
 export function usePageActive(): boolean {
   return useContext(PageActiveContext);
 }
+
+/**
+ * Whether the page's layer is fully on screen: false while a slide page covers it or is still
+ * sliding off it after a pop. PageActiveContext turns true as the pop starts, so work resumes at
+ * once; this one waits for the reveal to finish, for paint that must match what is visible.
+ */
+export const PageOnScreenContext = createContext(true);
+
+export function usePageOnScreen(): boolean {
+  return useContext(PageOnScreenContext);
+}

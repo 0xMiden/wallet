@@ -6,7 +6,7 @@ import type { Transition } from 'framer-motion';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
-import { PageActiveContext, usePageActive } from './page-active';
+import { PageActiveContext, PageOnScreenContext, usePageActive } from './page-active';
 import TabLayout from './TabLayout';
 
 // ---------------------------------------------------------------------------
@@ -656,22 +656,36 @@ describe('TabLayout — Home band through the status bar', () => {
     expect(document.body.hasAttribute('data-home-band')).toBe(true);
   });
 
-  it('clears the flag while a slide page covers Home, and sets it again when Home is back on screen', () => {
+  it('clears the flag while a slide page covers Home, and sets it again when Home is fully on screen', () => {
     mockPlatform.isMobile = true;
     mockLocation.pathname = '/';
     const { rerender } = render(
-      <PageActiveContext.Provider value={false}>
+      <PageOnScreenContext.Provider value={false}>
         <TabLayout>{<div />}</TabLayout>
-      </PageActiveContext.Provider>
+      </PageOnScreenContext.Provider>
     );
     expect(document.body.hasAttribute('data-home-band')).toBe(false);
 
     rerender(
-      <PageActiveContext.Provider value={true}>
+      <PageOnScreenContext.Provider value={true}>
         <TabLayout>{<div />}</TabLayout>
-      </PageActiveContext.Provider>
+      </PageOnScreenContext.Provider>
     );
     expect(document.body.hasAttribute('data-home-band')).toBe(true);
+  });
+
+  it('keeps the flag off while a popped slide page is still sliding off Home', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    // Home is present again (the pop has started) but not yet fully on screen.
+    render(
+      <PageActiveContext.Provider value={true}>
+        <PageOnScreenContext.Provider value={false}>
+          <TabLayout>{<div />}</TabLayout>
+        </PageOnScreenContext.Provider>
+      </PageActiveContext.Provider>
+    );
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
   });
 
   it('never flags body off-mobile', () => {
