@@ -4377,6 +4377,34 @@
     "message": "スロー（アグレイヤー）",
     "englishSource": "Slow (Agglayer)"
   },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx（Circle xReserve）",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "約20分",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserveは、ユーザーが預け入れたUSDCに対し、Miden上で1:1の比率でUSDCxを発行します。",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circleは、MidenへのUSDCxの入金をまだ有効化していません。後ほど再度お試しください。",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "Sepoliaでの取引は確認されました。Miden上でUSDCxが鋳造される前に、Circleによる預入の認証を待っています。",
+    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "usdcxAttested": {
+    "message": "Circleは預入を認証しました。USDCxはまもなくMiden上で発行される予定です。",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
   "bridgeRowTitle": {
     "message": "ブリッジ $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
