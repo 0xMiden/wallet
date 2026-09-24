@@ -55,6 +55,11 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     [representedItems, query]
   );
 
+  // Declined transfers that could still be accepted, which Restore brings back.
+  const hiddenCount = items.filter(
+    item => hidden.ids.has(item.note.id) && (item.status === 'pending' || item.status === 'failed')
+  ).length;
+
   const reject = async (note: NoteWithMetadata) => {
     const accepted = await confirm({
       title: t('activityRejectTransfer'),
@@ -83,5 +88,14 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     [hiddenLoaded]
   );
 
-  return { items, representedItems, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden };
+  return {
+    representedItems,
+    listItems,
+    renderPendingItem,
+    acceptMany,
+    account,
+    isLoadingNotes,
+    hidden,
+    hiddenCount
+  };
 }

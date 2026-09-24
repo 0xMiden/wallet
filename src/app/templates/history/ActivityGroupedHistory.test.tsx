@@ -92,8 +92,9 @@ jest.mock('lib/miden/activity', () => ({
 const mockAccept = jest.fn();
 const mockHide = jest.fn();
 const mockConfirm = jest.fn();
-const mockClaims: { items: PendingActivityItem[] } = { items: [] };
-const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: jest.fn() };
+const mockRestore = jest.fn();
+const mockClaims: { items: PendingActivityItem[]; isLoadingNotes: boolean } = { items: [], isLoadingNotes: false };
+const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const claim = (id: string, status: PendingActivityItem['status']): PendingActivityItem => ({
   note: {
     id,
@@ -114,7 +115,7 @@ jest.mock('app/hooks/useActivityClaims', () => ({
     accept: mockAccept,
     acceptMany: jest.fn(),
     account: { publicKey: '0xme' },
-    isLoadingNotes: false
+    isLoadingNotes: mockClaims.isLoadingNotes
   })
 }));
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
@@ -146,6 +147,7 @@ describe('ActivityGroupedHistory', () => {
     mockLatest.length = 0;
     mockView.hasMore = false;
     mockClaims.items = [];
+    mockClaims.isLoadingNotes = false;
     mockHidden.ids = new Set();
     mockConfirm.mockResolvedValue(true);
   });
@@ -165,6 +167,37 @@ describe('ActivityGroupedHistory', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
     await waitFor(() => expect(mockHide).toHaveBeenCalledWith('note-1'));
     expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'activityRejectTransfer' }));
+  });
+
+  it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {
+    mockClaims.items = [claim('note-declined', 'pending'), claim('note-open', 'pending')];
+    mockHidden.ids = new Set(['note-declined']);
+    render(<ActivityGroupedHistory search="" />);
+
+    expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
+    const restore = screen.getByRole('button', { name: 'activityRestoreTransfers' });
+    expect(
+      restore.compareDocumentPosition(screen.getByTestId('activity-group-claims')) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    fireEvent.click(restore);
+    expect(mockRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Restore when no declined transfer can still be accepted', () => {
+    mockClaims.items = [claim('note-declined', 'claimed')];
+    mockHidden.ids = new Set(['note-declined', 'gone']);
+    render(<ActivityGroupedHistory search="" />);
+
+    expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).toBeNull();
+  });
+
+  it('shows the claims loading while incoming notes are still being read', () => {
+    const { rerender } = render(<ActivityGroupedHistory search="" />);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+
+    mockClaims.isLoadingNotes = true;
+    rerender(<ActivityGroupedHistory search="" />);
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
   it("hands History the claims, so a claimed note's consume row is not a group row", () => {

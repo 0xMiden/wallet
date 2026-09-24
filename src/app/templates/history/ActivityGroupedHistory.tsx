@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef } from 'react';
 
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 
+import { ClaimsLoadingBar, RestoreDeclinedTransfers } from './ActivityClaimsStatus';
 import { ActivityGroupList } from './ActivityGroupList';
 import History from './History';
 import { useActivityClaimList } from './useActivityClaimList';
@@ -27,7 +28,8 @@ interface ActivityGroupedHistoryProps {
  * groups, as actionable here as in the List view.
  */
 export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ search, programId }) => {
-  const { account, representedItems, listItems, renderPendingItem } = useActivityClaimList(search, 'all');
+  const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, hiddenCount } =
+    useActivityClaimList(search, 'all');
   const { allContacts } = useFilteredContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -43,41 +45,45 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
   const nameOf = useCallback((address: string) => namesByAddress.get(address.trim().toLowerCase()), [namesByAddress]);
 
   return (
-    // `pb-28` clears the floating navbar, as the feed's own scroller does.
-    <div ref={scrollRef} data-testid="activity-groups" className="min-h-0 flex-1 overflow-y-auto pb-28">
-      <div className="px-4">
-        {listItems.length > 0 && (
-          <div data-testid="activity-group-claims" className="flex flex-col gap-3 pt-4">
-            {listItems.map(item => (
-              <div key={item.note.id} data-pending-note-id={item.note.id}>
-                {renderPendingItem(item)}
-              </div>
-            ))}
-          </div>
-        )}
-        <History
-          address={account.publicKey}
-          programId={programId}
-          fullHistory
-          centerEmptyState
-          scrollParentRef={scrollRef}
-          pendingItems={representedItems}
-          renderEntries={view => (
-            <ActivityGroupList
-              entries={view.entries}
-              nameOf={nameOf}
-              initialLoading={view.initialLoading}
-              // History's first read already holds the whole history (get.ts), so a count is final and
-              // there is nothing more to page.
-              hasMore={false}
-              loadMore={view.loadMore}
-              scrollParentRef={scrollRef}
-              searchQuery={search}
-            />
+    <>
+      <ClaimsLoadingBar loading={isLoadingNotes} />
+      {/* `pb-28` clears the floating navbar, as the feed's own scroller does. */}
+      <div ref={scrollRef} data-testid="activity-groups" className="min-h-0 flex-1 overflow-y-auto pb-28">
+        <RestoreDeclinedTransfers count={hiddenCount} onRestore={() => hidden.restore()} />
+        <div className="px-4">
+          {listItems.length > 0 && (
+            <div data-testid="activity-group-claims" className="flex flex-col gap-3 pt-4">
+              {listItems.map(item => (
+                <div key={item.note.id} data-pending-note-id={item.note.id}>
+                  {renderPendingItem(item)}
+                </div>
+              ))}
+            </div>
           )}
-        />
+          <History
+            address={account.publicKey}
+            programId={programId}
+            fullHistory
+            centerEmptyState
+            scrollParentRef={scrollRef}
+            pendingItems={representedItems}
+            renderEntries={view => (
+              <ActivityGroupList
+                entries={view.entries}
+                nameOf={nameOf}
+                initialLoading={view.initialLoading}
+                // History's first read already holds the whole history (get.ts), so a count is final and
+                // there is nothing more to page.
+                hasMore={false}
+                loadMore={view.loadMore}
+                scrollParentRef={scrollRef}
+                searchQuery={search}
+              />
+            )}
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 
