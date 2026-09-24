@@ -1,5 +1,6 @@
 import React, { createContext, useContext } from 'react';
 
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { PageHeader } from 'components/PageHeader';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { cn } from 'lib/ui/util';
@@ -18,17 +19,25 @@ const SubPageHeaderContext = createContext<SubPageHeaderConfig>({});
  * Hands a sub-page its header from the route that opened it. Settings owns each sub-page's title,
  * back fallback and focus policy (they are properties of the tab, not of the page), so it provides
  * them here and every page renders the same `SubPageLayout` without repeating them.
+ *
+ * A nested provider merges over the one above it, so a flow that sets only its own title and back
+ * keeps the host's focus policy.
  */
 export const SubPageHeaderProvider: React.FC<{ value: SubPageHeaderConfig; children: React.ReactNode }> = ({
   value,
   children
-}) => <SubPageHeaderContext.Provider value={value}>{children}</SubPageHeaderContext.Provider>;
+}) => {
+  const inherited = useContext(SubPageHeaderContext);
+  return <SubPageHeaderContext.Provider value={{ ...inherited, ...value }}>{children}</SubPageHeaderContext.Provider>;
+};
 
-export interface SubPageLayoutProps extends SubPageHeaderConfig {
+interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   /** A close button at the header's right, for a page that is dismissed rather than popped. */
   onClose?: () => void;
-  /** The page's sections, 20px apart. */
-  children: React.ReactNode;
+  /** The page's sections, 20px apart. Optional: a page can be its header alone. */
+  children?: React.ReactNode;
+  /** Right side of the header row, e.g. an orange text action. */
+  headerActions?: React.ReactNode;
   /**
    * The page's actions, pinned under the body, 10px apart. Buttons here take `flex-1 max-w-none`
    * so a pair splits the row evenly and a single one spans it.
@@ -36,10 +45,40 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
   footer?: React.ReactNode;
   /** `stack` puts the footer's buttons one above the other, for labels too long to share a row. */
   footerLayout?: 'row' | 'stack';
+  /** The body form's id, for that footer button. Only meaningful with `onSubmit`. */
+  formId?: string;
+  /** The body form, for a page that focuses a field inside it on mount. Only with `onSubmit`. */
+  formRef?: React.RefObject<HTMLFormElement>;
+  /** Passed to `FlowFooter`: `false` where no tab bar is ever drawn over the page (onboarding). */
+  footerNavbarCushion?: boolean;
   /** Layout only, on the scrolling body: an extra inset on top of the 16px page margin. */
   bodyClassName?: string;
   'data-testid'?: string;
 }
+
+// bodyRef watches the body's own div as a scroll parent; onSubmit turns that body into a form
+// instead. A page cannot ask for both, so the two are mutually exclusive at the type level.
+type SubPageLayoutBodyProps =
+  | {
+      /**
+       * The body element, for a page whose content pages itself as the body scrolls (an infinite
+       * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
+       */
+      bodyRef?: React.RefObject<HTMLDivElement>;
+      onSubmit?: never;
+    }
+  | {
+      bodyRef?: never;
+      /**
+       * Makes the body itself the page's `<form>`, so Enter in any field submits it and a page
+       * needs no wrapper of its own inside the scroll area (a wrapper is another element with its
+       * own gap, which is how pages drifted apart). The pinned footer sits OUTSIDE it, so a button
+       * there submits with `type="submit" form={formId}`.
+       */
+      onSubmit?: React.FormEventHandler<HTMLFormElement>;
+    };
+
+export type SubPageLayoutProps = SubPageLayoutBaseProps & SubPageLayoutBodyProps;
 
 /**
  * The frame of every pushed Settings page: the shared `PageHeader`, a body that scrolls under it
@@ -55,8 +94,14 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
  */
 export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   children,
+  headerActions,
   footer,
   footerLayout = 'row',
+  bodyRef,
+  footerNavbarCushion,
+  onSubmit,
+  formId,
+  formRef,
   onClose,
   bodyClassName,
   'data-testid': dataTestId,
@@ -66,6 +111,9 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   const title = header.title ?? inherited.title;
   const onBack = header.onBack ?? inherited.onBack;
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
+  // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
+  // like a div one, so a page gains nothing and loses nothing by needing a form.
+  const bodyClasses = cn('flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4', bodyClassName);
 
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">
@@ -75,24 +123,33 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
           title={title}
           onBack={onBack}
           onClose={onClose}
+          actions={headerActions}
           focusTitleOnMount={focusTitleOnMount}
         />
       )}
 
-      <div
-        data-slot="body"
-        className={cn('flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pt-2 pb-4', bodyClassName)}
-      >
-        {children}
-      </div>
+      {/* No top padding: the 8px under the rule is `PageHeader`'s, the same gap a tab root's
+          body starts at. */}
+      {onSubmit ? (
+        <form ref={formRef} id={formId} onSubmit={onSubmit} data-slot="body" className={bodyClasses}>
+          {children}
+        </form>
+      ) : (
+        <div ref={bodyRef} data-slot="body" className={bodyClasses}>
+          {children}
+        </div>
+      )}
 
       {footer && (
-        <div
+        // The flow's own pinned footer, so a sub-page's CTA rides the keyboard up and down on the
+        // same spring as the send and swap CTAs instead of jumping with the layout.
+        <FlowFooter
           data-slot="footer"
-          className={cn('flex shrink-0 gap-2.5 px-4 pt-3 pb-4', footerLayout === 'stack' && 'flex-col')}
+          navbarCushion={footerNavbarCushion}
+          className={cn('flex gap-2.5 px-4', footerLayout === 'stack' && 'flex-col')}
         >
           {footer}
-        </div>
+        </FlowFooter>
       )}
     </div>
   );
@@ -103,6 +160,13 @@ export interface SubPageSectionProps {
   title?: React.ReactNode;
   /** The label's heading level: `h2` under the page title, `h3` under a hero's own `h2`. */
   titleAs?: 'h2' | 'h3';
+  /**
+   * The section's glyph, which also declares that its group is `plain`: the label then takes the
+   * Settings root's treatment (a 20px `ink` title behind the glyph's 32px circle) and lines up
+   * with rows that sit on the page margin, so every full-page list reads as one family. Leave it
+   * off for a section whose content carries its own surface — that label stays the 13px one.
+   */
+  icon?: React.ReactNode;
   /** A `muted` paragraph under the label, above the section's content (`text-body`). */
   description?: React.ReactNode;
   /** `muted` secondary copy under the content, such as what a toggle above it does (`text-body-sm`). */
@@ -115,7 +179,7 @@ export interface SubPageSectionProps {
 
 /** Copy on a sub-page, inset 4px like the section label above it: a description is a paragraph
  * (`text-body`), a footnote under a control is secondary (`text-body-sm`), both `muted`. */
-const noteClass = 'px-1 text-muted';
+const noteClass = 'text-muted';
 
 /**
  * One section of a sub-page: an optional label, optional explanatory copy, then its content (a
@@ -124,16 +188,26 @@ const noteClass = 'px-1 text-muted';
 export const SubPageSection: React.FC<SubPageSectionProps> = ({
   title,
   titleAs,
+  icon,
   description,
   footnote,
   children,
   className,
   'data-testid': dataTestId
-}) => (
-  <section data-testid={dataTestId} className={cn('flex flex-col', className)}>
-    {title && <SectionHeader as={titleAs}>{title}</SectionHeader>}
-    {description && <div className={cn(noteClass, 'text-body pb-3')}>{description}</div>}
-    {children}
-    {footnote && <div className={cn(noteClass, 'text-body-sm pt-2')}>{footnote}</div>}
-  </section>
-);
+}) => {
+  // A section with a glyph introduces a `plain` group, whose rows sit on the page margin: its
+  // label and copy line up with them instead of taking the 4px list inset.
+  const inset = icon ? 'px-0' : 'px-1';
+  return (
+    <section data-testid={dataTestId} className={cn('flex flex-col', className)}>
+      {title && (
+        <SectionHeader as={titleAs} size={icon ? 'lg' : undefined} icon={icon} className={inset}>
+          {title}
+        </SectionHeader>
+      )}
+      {description && <div className={cn(noteClass, inset, 'text-body pb-3')}>{description}</div>}
+      {children}
+      {footnote && <div className={cn(noteClass, inset, 'text-body-sm pt-2')}>{footnote}</div>}
+    </section>
+  );
+};

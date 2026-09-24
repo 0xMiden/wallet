@@ -94,18 +94,9 @@
     "message": "로딩 중",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "$date$에서 청구하지 않을 경우 발신자에게 반환됩니다.",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "$date$까지 수락하지 않으면 보낸 사람에게 반환됩니다",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -415,6 +406,10 @@
     "message": "포지션을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "이 볼트를 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -435,6 +430,14 @@
   "earnSeeAll": {
     "message": "모두 보기",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "활성 포지션 없음",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "아래 금고에 입금하여 보상을 받기 시작하세요.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "추천 금고",
@@ -611,24 +614,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "이 거래는 온체인에서 이루어졌으나, 개인 키(note)를 'note' 전송 서비스에 전달할 수 없었습니다. 전달되기 전까지는 수취인이 이를 확인하거나 사용할 수 없습니다.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "이 거래는 체인에 기록되었지만, 비공개 이체를 전달 서비스에 넘기지 못했습니다. 전달되기 전까지 수신자는 이를 보거나 사용할 수 없습니다.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "이 거래는 온체인에서 이루어졌으나, 지갑은 개인 키(note)가 전송 서비스(note)에 도달했는지 확인할 수 없었습니다.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "이 거래는 체인에 기록되었지만, 지갑이 비공개 이체가 전달 서비스에 도착했는지 확인하지 못했습니다.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "이 지갑을 열어두고 연결 상태를 유지하십시오. 전송 후 일정 시간 동안 전송이 자동으로 재시도되며, 전송이 성공하면 이 경고가 사라집니다. 1시간이 지나도 수신자가 자금을 받지 못했다면 다시 전송하지 마십시오. 아래의 거래 ID를 저장한 후 고객 지원팀에 문의하십시오. 이 거래 ID(note)를 통해 자산을 복구할 수 있습니다.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "이 지갑을 열어 두고 연결 상태를 유지하세요. 전송 후 한동안 전달이 자동으로 재시도되며, 성공하면 이 경고는 사라집니다. 한 시간이 지나도 수신자가 받지 못했다면 다시 보내지 마세요. 아래 거래 ID를 저장해 고객 지원에 문의하시면 해당 ID로 이체를 복구할 수 있습니다.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "전달 확인됨",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "수취인이 이 개인 키(note)를 수령하여 사용했으므로, 해당 키의 전달은 온체인에서 확인되었습니다.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "수신자가 이 비공개 이체를 수락하고 사용했으므로, 전달이 체인에서 확인되었습니다.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -696,8 +699,8 @@
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "제 ‘Seed phrase’는 $num$ 단어입니다.",
-    "englishSource": "My Seed phrase is $num$ words",
+    "message": "제 복구 문구는 $num$ 단어입니다.",
+    "englishSource": "My recovery phrase is $num$ words",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -888,8 +891,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "note 청구하기",
-    "englishSource": "Claiming note"
+    "message": "이체 수락 중",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "트랜잭션 실행",
@@ -980,12 +983,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "note 제공",
-    "englishSource": "Delivering note"
+    "message": "이체 전달 중",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "note를 수신자에게 안전하게 전송합니다.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "이체를 수신자에게 안전하게 전송하고 있습니다.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "상태",
@@ -1028,8 +1031,8 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "개인 키 QR 코드를 스캔하거나 Miden 핫 키 및 EVM 개인 키를 입력하십시오. 핫 키를 입력하면 Guardian 계정이 검색됩니다. 제공된 EVM 키는 해당 EVM 주소를 복원합니다. 지갑은 이 두 키가 서로 연결되어 있는지 확인할 수 없습니다.",
-    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "message": "개인 키 QR 코드를 스캔하거나 Miden의 일상용 키와 EVM 개인 키를 입력하십시오. 일상용 키는 Guardian 계정을 찾아줍니다. 제공된 EVM 키는 해당 EVM 주소를 복원합니다. 지갑은 이 키들이 서로 연결되어 있는지 확인할 수 없습니다.",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "일일 키 (16진수)",
@@ -1040,8 +1043,8 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Miden 핫 프라이빗 키",
-    "englishSource": "Miden hot private key"
+    "message": "매일 사용하는 개인 키",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM 개인 키",
@@ -1092,7 +1095,7 @@
     "englishSource": "Could not import an account with this key."
   },
   "importHotKeyWrongScheme": {
-    "message": "이 키는 지원되지 않는 방식을 사용합니다. Guardian 계정의 일반 키를 붙여넣으십시오.",
+    "message": "이 키는 지원되지 않는 방식을 사용합니다. Guardian 계정의 일상용 키를 붙여넣으십시오.",
     "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
   },
   "importHotKeyNoAccount": {
@@ -1104,7 +1107,7 @@
     "englishSource": "This looks like your recovery key. Paste the everyday key instead."
   },
   "importHotKeyNotActive": {
-    "message": "이 키는 해당 계정에서 더 이상 유효하지 않습니다. 현재의 일일 키를 붙여넣으십시오.",
+    "message": "이 키는 더 이상 해당 계정에서 활성화되어 있지 않습니다. 현재의 일상용 키를 붙여넣으십시오.",
     "englishSource": "This key is no longer active for the account. Paste the current everyday key."
   },
   "recoveryActionsRequireRecoveryKey": {
@@ -1327,8 +1330,8 @@
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "Seed Phrase",
-    "englishSource": "Seed Phrase"
+    "message": "복구 문구",
+    "englishSource": "Recovery Phrase"
   },
   "keepSeedPhraseSecret": {
     "message": "이건 비밀로 해 둬.",
@@ -1548,6 +1551,10 @@
     "message": "받는 사람",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Miden 또는 Ethereum 주소 입력",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "금액 선택",
     "englishSource": "Select Amount"
@@ -1555,6 +1562,10 @@
   "enterAmount": {
     "message": "금액 입력",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "계산 중",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "토큰 선택",
@@ -1657,8 +1668,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "자동 소비",
-    "englishSource": "Auto consume"
+    "message": "자동 수락",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "교환할 서로 다른 토큰 두 개를 골라주세요.",
@@ -1694,8 +1705,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "그때까지 청구되지 않은 경우, $amount$를 통해 자금을 지갑으로 다시 청구할 수 있습니다. 자금이 손실되는 일은 없습니다.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "그때까지 수락되지 않으면 $amount$는 보류 중인 이체로 돌아오며, 직접 수락하면 됩니다. 자금이 사라지지 않습니다.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1769,8 +1780,8 @@
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Seed Phrase 확인하기",
-    "englishSource": "Verify seed phrase"
+    "message": "복구 문구 확인",
+    "englishSource": "Verify recovery phrase"
   },
   "faucetPromptTitle": {
     "message": "지갑에 충전하기",
@@ -1810,20 +1821,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "notes의 비공개 블록 스캔 중: note 전송을 처리 중…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "비공개 이체를 확인하는 중…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "비공개 notes 스캔 중: 보류 중인 제안서(notes)에서 데이터를 가져오고 있습니다…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "비공개 이체 확인 중: 보류 중인 제안을 가져오는 중…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "공개 notes 동기화 중…",
-    "englishSource": "Syncing public notes…"
+    "message": "공개 이체를 동기화하는 중…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "공개 notes 동기화: $latest$의 블록 $current$",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "공개 이체 동기화 중: 블록 $current$ / $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1834,14 +1845,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "귀하의 미결제 노트는 다음과 같습니다Notes",
-    "englishSource": "You have Pending Notes"
+    "message": "수락할 전송이 있습니다",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "귀하의 미결제 지급 명세서(notes)는 $amount$ 상당입니다.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$건 대기 중",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -1867,12 +1878,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "장치 키를 갱신해야 합니다.",
-    "englishSource": "Device key needs rotation"
+    "message": "일일 키는 로테이션이 필요합니다",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "이 기기는 더 이상 귀하의 기기 단축키를 사용할 수 없습니다. 서명 기능을 복원하려면 기기를 회전해 주세요. 귀하의 자금은 영향을 받지 않습니다.",
-    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+    "message": "이 기기는 더 이상 귀하의 일상용 키를 사용할 수 없습니다. 서명 기능을 복구하려면 키를 교체하십시오 — 귀하의 자산에는 아무런 영향이 없습니다.",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "키 회전",
@@ -2008,8 +2019,8 @@
     "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
   },
   "importWithSeedPhrase": {
-    "message": "Seed Phrase로 가져오기",
-    "englishSource": "Import with seed phrase"
+    "message": "복구 문구를 사용하여 가져오기",
+    "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "기존 12단어 Seed Phrase를 사용하세요. 다른 지갑 제공업체로부터 지갑을 가져올 수도 있습니다.",
@@ -2201,23 +2212,23 @@
     "englishSource": "Choose a different Guardian"
   },
   "guardianBioGeneric": {
-    "message": "Miden에서 활동하는 $operators$의 독립적인 Guardian 운영자 중 한 명입니다.",
+    "message": "An independent Guardian operator on Miden.",
     "englishSource": "One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin은 이더리움에서 널리 사용되는 스마트 계약 라이브러리를 개발한 blockchain의 보안 전문 기업입니다. Miden의 독립적인 Guardian 운영자 중 하나인 $operators$입니다.",
+    "message": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum.",
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm은 네트워크 및 롤업을 위한 blockchain 인프라를 구축하고 운영합니다. Miden에서 활동하는 $operators$의 독립적인 Guardian 운영자 중 하나입니다.",
+    "message": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups.",
     "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass는 첨단 암호화 및 blockchain 인프라를 구축하는 엔지니어링 기업입니다. Miden에서 $operators$의 독립적인 Guardian 운영사 중 하나입니다.",
+    "message": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure.",
     "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset(KODA)은 한국에서 규제를 받는 디지털 자산 수탁 기관입니다. Miden 플랫폼의 $operators$ 독립적인 Guardian 운영사 중 하나입니다.",
+    "message": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea.",
     "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
   },
   "learnMoreAboutGuardian": {
@@ -2229,8 +2240,8 @@
     "englishSource": "No guardian"
   },
   "noGuardianOptionSubtitle": {
-    "message": "고급 — seed phrase로만 복구하세요. 보호자 공동 서명자가 없습니다.",
-    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+    "message": "고급 — 복구 문구만으로 복구하십시오. guardian 공동 서명자는 허용되지 않습니다.",
+    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "운영사:",
@@ -2353,12 +2364,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "지갑의 12단어Seed phrase를 입력하세요.",
-    "englishSource": "Enter your wallet's 12-word seed phrase."
+    "message": "지갑의 12단어 복구 문구를 입력하세요.",
+    "englishSource": "Enter your wallet's 12-word recovery phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Miden Seed 구문만 지원됩니다.",
-    "englishSource": "Only Miden seed phrases are supported."
+    "message": "Miden 복구 문구만 지원됩니다.",
+    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "지갑이 준비되었습니다!",
@@ -2445,8 +2456,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "seed phrase는 복구 키입니다. 이 키는 기기 키를 교체하는 데 사용되며, 일상적인 거래에는 사용되지 않습니다.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+    "message": "복구 문구를 사용하면 키를 복원할 수 있습니다. 이 문구는 일상적인 키를 교체하는 데 사용되며, 일상적인 거래에는 사용되지 않습니다.",
+    "englishSource": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "선택",
@@ -2505,8 +2516,8 @@
     "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
-    "message": "Miden 테스트넷은 사용자 경험을 개선하기 위해 계정 ID를 bech32로 업그레이드했습니다. 지갑을 계속 사용하려면 백업 파일이나 seed phrase에서 지갑을 복원하거나, 새 지갑을 생성해 주세요.",
-    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
+    "message": "Miden Testnet은 사용자 경험을 개선하기 위해 bech32 계정 ID로 업그레이드되었습니다. 지갑을 계속 사용하려면 백업 파일이나 복구 문구를 사용하여 복원하거나, 새 지갑을 생성해 주십시오.",
+    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
     "message": "불편을 드려 죄송합니다.",
@@ -2525,16 +2536,16 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12단어 비밀구문(Seed phrase)을 알고 있거나 암호화된 백업 파일이 없는 경우, 로그아웃하지 마십시오.",
-    "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
+    "message": "12단어 복구 문구를 알고 있거나 암호화된 백업 파일이 없는 한, 절대로 로그아웃하지 마십시오.",
+    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
     "message": "생체 인증을 통한 잠금 해제가 필요합니다",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "이 지갑은 생체 인증만 지원합니다. 잠금을 해제하려면 Face ID, Touch ID 또는 기기 비밀번호를 사용하세요. 다른 기기에서 지갑에 액세스하려면 12단어Seed phrase를 사용하세요.",
-    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
+    "message": "이 지갑은 생체 인증만 지원합니다. Face ID, Touch ID 또는 기기 비밀번호를 사용하여 잠금을 해제하세요. 다른 기기에서 지갑에 액세스하려면 12단어 복구 문구를 사용하세요.",
+    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
     "message": "지갑 초기화",
@@ -2701,8 +2712,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "지갑 키 (핫)",
-    "englishSource": "Wallet key (hot)"
+    "message": "일일 키",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "복구 문구 (콜드)",
@@ -2717,36 +2728,40 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "기기 키 회전",
-    "englishSource": "Rotate device key"
+    "message": "매일 키 교체",
+    "englishSource": "Rotate everyday key"
+  },
+  "newDeviceKey": {
+    "message": "새로운 일상용 키",
+    "englishSource": "New everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "새로운 기기(핫) 키를 생성하고, 온체인에서 기존 키를 대체합니다. 기기가 해킹당했을 가능성이 있다고 의심될 때 유용합니다.",
-    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "message": "새로운 일상용 키를 생성하고 온체인에서 현재 키를 교체하십시오. 기기가 해킹당했다고 의심될 때 유용합니다.",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "이 작업은 귀하의 복구(콜드) 키로 서명됩니다. seed phrase은 필요하지 않으며, 귀하의 자산과 계정은 그대로 유지됩니다. 계속하시겠습니까?",
-    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+    "message": "이 작업은 복구(콜드) 키로 서명됩니다. 복구 문구는 필요하지 않으며, 자금과 계정은 그대로 유지됩니다. 계속하시겠습니까?",
+    "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
     "message": "회전 확인",
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "기기 키 회전",
-    "englishSource": "Rotating your device key"
+    "message": "일상용 키 교체",
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "기기의 (핫) 키가 회전되고 있습니다. 이는 복구된 계정을 설정하여 동기화 및 거래를 수행할 수 있도록 하기 위해 필요한 과정입니다.",
-    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "message": "일상용 키가 교체되고 있습니다. 이는 복구된 계정을 설정할 때 동기화 및 거래를 수행할 수 있도록 하기 위해 필요한 과정입니다.",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "장치 키 교체에 실패했습니다.",
-    "englishSource": "Device key rotation failed"
+    "message": "일일 키 로테이션에 실패했습니다",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "기기 키를 회전하는 과정에서 문제가 발생했습니다.",
-    "englishSource": "Something went wrong while rotating your device key."
+    "message": "일상용 키를 교체하는 과정에서 문제가 발생했습니다.",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "다시 시도",
@@ -2785,40 +2800,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "기기 키 표시",
-    "englishSource": "Reveal device key"
+    "message": "일일 키 공개",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "기기(핫) 키는 ‘설정 → 기기 키 회전’에서 회전시킬 수 있으므로, 이 키가 노출되더라도 ‘seed phrase’보다 위험 부담이 적습니다. 하지만 키를 소지한 사람은 키를 회전시킬 때까지 거래를 서명할 수 있습니다.",
-    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
-  },
-  "hotPrivateKey": {
-    "message": "기기 개인 키",
-    "englishSource": "Device Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "장치 공개 키",
-    "englishSource": "Device Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "복구(콜드) 개인 키",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "복구(콜드) 공개 키",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "귀하의 Guardian 계정은 세 가지 키로 보호됩니다: 일상적인 서명에 사용되는 기기(핫) 키, 계정 관리 작업을 위해 귀하의 seed phrase에서 파생된 복구(콜드) 키, 그리고 외부 guardian 공동 서명자입니다. 아래에는 귀하의 콜드 개인 키와 두 개의 공개 키가 표시되어 있습니다. 기기 개인 키를 확인하려면 설정 → 기기 키 표시를 사용하십시오.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+    "message": "일상용 키는 설정 → 일상용 키 교체에서 교체할 수 있으므로, 이를 공개해도 복구 문구보다 위험 부담이 적습니다. 하지만 이 키를 보유한 사람은 사용자가 키를 교체할 때까지 거래에 서명할 수 있습니다.",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
     "message": "개인 키를 공개하기 전에",
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "이 키를 가진 사람은 누구나 귀하의 Miden 및 EVM 자산을 제어할 수 있습니다. Miden 기기 키를 변경한다고 해서 유출된 EVM 키가 변경되거나 보호되는 것은 아닙니다.",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
+    "message": "이 키들을 가진 사람이라면 누구나 사용자의 Miden 및 EVM 자산을 제어할 수 있습니다. Miden 일일 키를 교체한다고 해서 유출된 EVM 키가 변경되거나 보호되는 것은 아닙니다.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "http:// 또는 https://로 시작하는 유효한 URL을 입력하세요.",
@@ -2908,18 +2903,6 @@
     "message": "사용자의 MIDEN은 네트워크 수수료로 예약되어 있습니다. 더 많은 MIDEN을 수령하여 송금하십시오.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "각 청구는 별도의 수수료를 지불합니다. 이를 한꺼번에 청구하면 수수료는 한 번만 지불됩니다.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "청구한 자산당 1회 요금이 부과됩니다.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -2929,12 +2912,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "MIDEN 이체 자동 수락",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "수신된 MIDENnotes을 잔액으로 자동 청구합니다 — ‘Claim’을 탭하는 것과 동일합니다. 직접 ‘Claim’을 탭하는 것보다 더 자주 청구되거나 수수료가 더 많이 발생하는 것은 아닙니다.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "수신된 MIDEN 이체를 자동으로 잔액에 반영합니다. 직접 수락을 누르는 것과 동일하며, 더 자주 수락하거나 수수료가 더 들지 않습니다.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "지갑 파일 생성 중…",
@@ -3146,8 +3129,8 @@
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "seed phrase에서 파생된 공개 계정을 가져옵니다.",
-    "englishSource": "Import the public account derived from your seed phrase."
+    "message": "복구 문구에서 파생된 공개 계정을 가져오십시오.",
+    "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
     "message": "Guardian URL",
@@ -3210,6 +3193,10 @@
   "home": {
     "message": "홈",
     "englishSource": "Home"
+  },
+  "earn": {
+    "message": "수익",
+    "englishSource": "Earn"
   },
   "noteId": {
     "message": "Note ID",
@@ -3379,137 +3366,17 @@
     "message": "결제 보내기",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "모두 청구하기",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "모두 청구하기? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "미결 처리 건수 총계",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes 보류 중",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "자산",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ 수신",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden은 ‘수령 확인(notes)’이라는 독자적인 시스템을 사용합니다. 이는 입금된 자금을 수동으로 청구하는 과정입니다. 이는 악의적인 행위자로부터 지갑을 안전하게 보호할 수 있는 방법입니다.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$의 모든 자산에 걸쳐 보류 중",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ 입금 내역",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ 미해결",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "청구 실패 — '다시 시도'를 탭하여 다시 시도하세요",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "수락하지 못했습니다 — 다시 시도를 누르세요",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "이 note 상품은 더 이상 판매되지 않습니다.",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "대기 중인 notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "보류 중인 지급 통지서(notes)란 무엇인가요?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "notes를 참고하세요.",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "이 보류 중인 자금을 잔액에 추가하면 사용을 시작할 수 있습니다.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "누군가 자금을 보내면, 해당 자금은 비공개 상태로 도착합니다.",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— 오직 본인만이 열 수 있는 봉인된 패키지입니다.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "사용",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "note를 통해 자금이 사용 가능한 잔액으로 이체됩니다. 이체되기 전까지는 자금이 귀하의 소유이지만 아직 사용할 수는 없습니다.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "다음과 같이 작성해 주세요:",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "기다려 주세요. 서두를 필요는 없으며, 자금이 위험에 노출될 일도 없으니 언제든지 이용하시면 됩니다.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "이 이체는 더 이상 사용할 수 없습니다",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "토큰 받기",
@@ -3530,6 +3397,18 @@
   "faucetId": {
     "message": "Faucet ID",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "제공 Faucet ID",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "요청 Faucet ID",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Faucet의 새 ID 설정",
@@ -3592,12 +3471,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "수신 중인 notes는 재시도해야 합니다",
-    "englishSource": "Incoming notes need a retry"
+    "message": "수신 이체에 재시도가 필요합니다",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "수신 중인 'note'는 재시도가 필요합니다",
-    "englishSource": "An incoming note needs a retry"
+    "message": "수신 이체 1건에 재시도가 필요합니다",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ 자동으로 가져올 수 없었습니다.",
@@ -3609,8 +3488,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note는 자동으로 가져올 수 없었습니다.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "이체 1건을 자동으로 가져오지 못했습니다.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "내일",
@@ -3974,13 +3853,9 @@
     "message": "햅틱 피드백",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "현재 청구할 수 있는 notes는 없습니다.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "note를 수신하셨습니다.",
-    "englishSource": "You have received a note"
+    "message": "받은 이체가 있습니다",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "거래가 실패했습니다.",
@@ -3991,16 +3866,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "여기를 탭하여 수령하세요",
-    "englishSource": "Tap here to claim it"
+    "message": "여기를 눌러 수락하세요",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "클릭하여 확인하고 수령하세요",
-    "englishSource": "Click to view and claim it"
+    "message": "클릭하여 확인하고 수락하세요",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes 청구하기",
-    "englishSource": "$count$ notes to claim",
+    "message": "수락할 이체 $count$건",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4016,8 +3891,8 @@
     "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
-    "message": "seed phrase를 사용하면 언제든지 공개 계정을 복구할 수 있습니다. 아래에서 지갑 잠금을 빠르게 해제하는 방법을 선택하세요.",
-    "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+    "message": "복구 문구를 사용하면 언제든지 공개 계정을 복원할 수 있습니다. 아래에서 지갑을 빠르게 잠금 해제하는 방법을 선택하세요.",
+    "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
     "message": "Faucet 요청",
@@ -4087,10 +3962,6 @@
     "message": "주소 입력",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "note 청구 실패",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "테스트넷",
     "englishSource": "Testnet"
@@ -4122,6 +3993,18 @@
   "recentActivity": {
     "message": "최근 활동",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "아직 활동이 없습니다",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "이 토큰과 관련된 거래 내역은 이곳에 표시됩니다.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "이 활동을 불러올 수 없습니다.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "유형",
@@ -4196,12 +4079,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "이 스왑에 번들된 Notes",
-    "englishSource": "Notes bundled into this swap"
+    "message": "이 스왑에 묶인 체결",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "체결 Note $number$",
-    "englishSource": "Fill note $number$",
+    "message": "체결 $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4209,8 +4092,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "소비 완료 · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "수락됨 · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4238,24 +4121,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "아직 번들된 Note가 없습니다.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "아직 묶인 체결이 없습니다.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Pending Notes로 이동",
-    "englishSource": "Go to Pending Notes"
+    "message": "보류 중인 이체로 이동",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "스왑 취소",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "이 스왑을 취소할까요?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "아직 제공 중인 금액이 계정으로 돌아옵니다. 이미 체결된 부분은 그대로 유지됩니다.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "아직 제공 중인 금액을 계정으로 돌려받는 중입니다. 잠시 걸릴 수 있습니다.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "이용 불가",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "소비 트랜잭션 ID",
-    "englishSource": "Consume TX ID"
+    "message": "수락 TX ID",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "소비 트랜잭션 ID $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "수락 TX ID $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4635,12 +4534,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "총 소비량",
-    "englishSource": "Total Consumed"
+    "message": "총 수락 금액",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes 소모됨",
-    "englishSource": "Notes Consumed"
+    "message": "이체 ID",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "소모됨",
@@ -4743,72 +4642,72 @@
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
-    "message": "seed phrase를 제거하십시오.",
-    "englishSource": "Remove seed phrase"
+    "message": "복구 문구 삭제",
+    "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "seed phrase를 삭제하기 전에 반드시 기록해 두십시오. 일상적인 거래는 여전히 정상적으로 처리됩니다. Guardian 변경 및 일상적인 키 교체 시에는 seed phrase를 입력해야 합니다.",
-    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+    "message": "복구 문구를 삭제하기 전에 반드시 기록해 두십시오. 일상적인 거래는 여전히 정상적으로 진행됩니다. Guardian 변경이나 일상적인 키 교체 시에는 복구 문구를 입력해야 합니다.",
+    "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
     "message": "모든 단어를 이 순서대로 종이에 적어 두십시오. 이 종이 문서는 본 기기 외부의 안전한 장소에 보관하십시오.",
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "이 작업을 수행하면 해당 기기의 이 지갑에서 seed phrase 및 Guardian 복구 키가 삭제됩니다. 종이 백업본을 잘 보관하십시오. 이전에 생성된 백업은 삭제되지 않습니다.",
-    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+    "message": "이 작업을 수행하면 이 기기의 이 지갑에서 복구 문구와 Guardian 복구 키가 제거됩니다. 종이 백업본은 잘 보관하십시오. 이전에 생성된 백업은 삭제되지 않습니다.",
+    "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
     "message": "이 기기에서 삭제",
     "englishSource": "Remove from this device"
   },
   "seedPhraseRemoved": {
-    "message": "Seed phrase 이 기기에서 삭제됨",
-    "englishSource": "Seed phrase removed from this device"
+    "message": "이 기기에서 복구 문구가 삭제되었습니다.",
+    "englishSource": "Recovery phrase removed from this device"
   },
   "seedPhraseUnavailable": {
-    "message": "이 지갑에는 seed phrase가 저장되어 있지 않습니다.",
-    "englishSource": "There is no seed phrase stored in this wallet."
+    "message": "이 지갑에는 복구 문구가 저장되어 있지 않습니다.",
+    "englishSource": "There is no recovery phrase stored in this wallet."
   },
   "seedRemovalIncomplete": {
     "message": "제거가 완료되지 않았습니다. 지갑을 다시 잠금 해제하여 복구 자료를 완전히 제거하십시오.",
     "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
   "seedRemovalFailed": {
-    "message": "seed phrase 제거를 완료할 수 없습니다. 다시 시도해 주십시오.",
-    "englishSource": "Could not finish removing the seed phrase. Try again."
+    "message": "복구 문구 제거를 완료할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Could not finish removing the recovery phrase. Try again."
   },
   "seedRemovalBusy": {
-    "message": "seed phrase를 제거하기 전에 현재 진행 중인 거래가 완료될 때까지 기다려 주십시오.",
-    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+    "message": "복구 문구를 제거하기 전에 현재 진행 중인 거래가 완료될 때까지 기다리십시오.",
+    "englishSource": "Wait for the current transactions to finish before removing the recovery phrase."
   },
   "seedRemovalKeysNotReady": {
-    "message": "seed phrase를 제거하기 전에 계정 복구 및 일상적인 키 활성화를 완료하십시오.",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "message": "복구 문구를 삭제하기 전에 계정 복구 및 일상용 키 활성화를 완료하십시오.",
+    "englishSource": "Finish account recovery and everyday key activation before removing the recovery phrase."
   },
   "seedRequiredForAccountCreation": {
-    "message": "계정 생성에는 저장된 시드 문구(seed phrase)가 필요합니다. 이 작업을 위한 임시 시드 입력 기능은 아직 제공되지 않습니다.",
-    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+    "message": "계정 생성은 저장된 복구 문구가 필요합니다. 이 작업만을 위해 복구 문구를 입력하는 기능은 아직 지원되지 않습니다.",
+    "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "이 작업을 수행하려면 복구 seed phrase가 필요합니다.",
-    "englishSource": "This action requires your recovery seed phrase."
+    "message": "이 작업을 수행하려면 복구 문구가 필요합니다.",
+    "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "seed phrase를 입력하세요",
-    "englishSource": "Enter your seed phrase"
+    "message": "복구 문구를 입력하세요",
+    "englishSource": "Enter your recovery phrase"
   },
   "recoverySeedTemporaryDescription": {
     "message": "종이 백업을 사용하십시오. 이 문구는 해당 작업에만 사용되며, 이 기기에는 저장되지 않습니다.",
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "유효한 seed phrase을 입력하십시오.",
-    "englishSource": "Enter a valid seed phrase."
+    "message": "유효한 복구 문구를 입력하세요.",
+    "englishSource": "Enter a valid recovery phrase."
   },
   "wrongRecoverySeed": {
-    "message": "이 seed phrase는 해당 계정과 일치하지 않습니다.",
-    "englishSource": "This seed phrase does not match this account."
+    "message": "이 복구 문구는 이 계정과 일치하지 않습니다.",
+    "englishSource": "This recovery phrase does not match this account."
   },
   "recoveryActionUnavailable": {
     "message": "이 복구 조치는 더 이상 사용할 수 없습니다.",
@@ -4848,8 +4747,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "청구일:",
-    "englishSource": "Claimed on"
+    "message": "수락 일시",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "테스트 지갑만 연결하십시오",
@@ -4869,8 +4768,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "이 기기의 ‘활동’에서 이 전송 내역을 숨기시겠습니까? 이 작업을 수행해도 자금이 발신자에게 반환되거나 ‘note’가 삭제되지는 않습니다. ‘활동’에서 숨겨진 전송 내역을 복원할 수 있습니다.",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "이 이체를 이 기기의 활동에서 숨길까요? 자금이 보낸 사람에게 반환되거나 이체가 취소되지는 않습니다. 숨긴 이체는 활동에서 다시 표시할 수 있습니다.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "검색 활동",
@@ -4921,8 +4820,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "아직 승인되지 않았습니다 — 검토 후 승인하여 해당 자금을 청구하십시오.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "아직 수락하지 않았습니다 — 확인하고 수락하면 이 자금이 잔액에 추가됩니다.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "네트워크는 재설정될 수 있습니다",
@@ -5080,9 +4979,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "청구됨",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$건 대기 중",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$건 대기 중 · $hidden$건 숨김",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "이 주소로는 Miden $network$ 토큰만 보내주십시오. 이 주소로 실제 자금을 보내면 복구할 수 없습니다.",
@@ -5307,5 +5223,119 @@
   "couldNotCheckUnlockMethod": {
     "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "QR 코드 색상 변경",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "받는 주소",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "내 수익",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "초",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "분",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "시간",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "일",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "만료 단위",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "$label$ 자세히 보기",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "$min$에서 $max$ 사이의 정수를 입력하세요.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "활동 보기",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "보기 옵션",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "목록",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "그룹",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "스왑",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "기타 활동",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "수락됨",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "수락 중…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "이체",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "읽지 않음",
+    "englishSource": "Unread"
+  },
+  "revealRecoveryPhrase": {
+    "message": "복구 문구 공개",
+    "englishSource": "Reveal recovery phrase"
   }
 }

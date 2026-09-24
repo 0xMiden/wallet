@@ -700,7 +700,7 @@ export class Vault {
         }
         if (seedPhrase === '' && accounts.some(account => account.hdIndex >= 0)) {
           console.error('[walletBackup] refused: no seed phrase, and an account still needs one');
-          throw new PublicError('Wallet has no seed phrase to back up its derived accounts');
+          throw new PublicError('Wallet has no recovery phrase to back up its derived accounts');
         }
 
         const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
@@ -798,7 +798,7 @@ export class Vault {
       const hasHardware = await Vault.hasHardwareProtector();
       if (hasHardware) {
         throw new PublicError(
-          'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with seed phrase.'
+          'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with your recovery phrase.'
         );
       }
       // Legacy wallet - fall back to old password-based unlock
@@ -1119,7 +1119,7 @@ export class Vault {
                   if (isLikelyNetworkError(probeError)) {
                     console.error(`[Vault.spawn] ${scheme} probe could not reach the node`, probeError);
                     throw new PublicError(
-                      'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
+                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
                         'please check your connection and try restoring again.'
                     );
                   }
@@ -1222,8 +1222,8 @@ export class Vault {
    * Spawn a wallet from existing Guardian hot and EVM private keys — the seed-less
    * import flow. No mnemonic exists or is generated: `mnemonicStrgKey` is
    * never written, so `fetchSeedPhraseStatus()` reports 'unavailable' and
-   * every seed-derived capability (HD account creation, seed /
-   * guardian-keys reveals) stays gated off by the existing seed-status checks.
+   * every seed-derived capability (HD account creation, the seed reveal)
+   * stays gated off by the existing seed-status checks.
    * Cold-signed recovery actions stay available: they prompt for the seed
    * phrase per transaction (`provideRecoverySeed`), which derives the cold key
    * against the on-chain cold signer and keeps it in memory only. Unlike seed
@@ -1824,7 +1824,7 @@ export class Vault {
                 if (isLikelyNetworkError(e)) {
                   console.error('[Vault.createHDAccount] import could not reach the node', e);
                   throw new PublicError(
-                    'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
+                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
                       'please check your connection and try again.'
                   );
                 }
@@ -2455,7 +2455,7 @@ export class Vault {
         // `requiresHotKeyRotation`): there is no device key to sign a digest with yet.
         // Surface that clearly instead of the opaque keystore-miss this fix removes.
         throw new PublicError(
-          'This Guardian account has no active device key to sign with. Activate the device key in the wallet, then try again.'
+          'This Guardian account has no active everyday key to sign with. Activate the everyday key in the wallet, then try again.'
         );
       }
     }
@@ -2634,7 +2634,7 @@ export class Vault {
       vaultKey = await Vault.getHardwareVaultKey();
     }
 
-    return withError('Failed to reveal seed phrase', async () => {
+    return withError('Failed to reveal recovery phrase', async () => {
       if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
         throw new PublicError(getMessage('seedPhraseRemoved'));
       const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
@@ -2784,21 +2784,21 @@ export class Vault {
    */
   static async revealHotKey(accountPublicKey: string, password?: string): Promise<string> {
     const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-    return withError('Failed to reveal hot key', async () => {
+    return withError('Failed to reveal everyday key', async () => {
       const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
       const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
       }
       if (account.type !== WalletType.Guardian || !account.hotPublicKey) {
-        throw new PublicError('Hot key is only available for activated Guardian accounts');
+        throw new PublicError('Everyday key is only available for activated Guardian accounts');
       }
       const ciphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
         accAuthSecretKeyStrgKey(account.hotPublicKey),
         vaultKey
       );
       if (!ciphertext) {
-        throw new PublicError('Hot key ciphertext not found');
+        throw new PublicError('Everyday key ciphertext not found');
       }
       if (!account.evmAddress) throw new PublicError(getMessage('evmPrivateKeyMissing'));
       const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
@@ -2809,44 +2809,6 @@ export class Vault {
       const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
       if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
       return encodePrivateKeyPair(pair);
-    });
-  }
-
-  /**
-   * Reveal the cold private key + both public keys for a 3-key Guardian
-   * account. Cold is the recovery material (HD-derived from the mnemonic and
-   * mirrored under `accColdSecretKey<coldPublicKey>` by `persistGuardianKeys`
-   * / `persistRecoveredGuardianColdKey`). The hot private is NOT included —
-   * use `revealHotKey` for that.
-   */
-  static async revealGuardianKeys(
-    accountPublicKey: string,
-    password?: string
-  ): Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }> {
-    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-    return withError('Failed to reveal guardian keys', async () => {
-      if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
-        throw new PublicError(getMessage('recoverySeedRequired'));
-      const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
-      const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
-      if (!account) {
-        throw new PublicError('Account not found');
-      }
-      if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
-        throw new PublicError('Not a Guardian account');
-      }
-      const coldPrivateKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
-        accColdSecretKeyStrgKey(account.coldPublicKey),
-        vaultKey
-      );
-      if (!coldPrivateKey) {
-        throw new PublicError('Cold key not found');
-      }
-      return {
-        coldPrivateKey,
-        coldPublicKey: account.coldPublicKey,
-        hotPublicKey: account.hotPublicKey
-      };
     });
   }
 

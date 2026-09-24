@@ -43,7 +43,14 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
   inset,
   'data-testid': dataTestId
 }) => (
-  <SubPageLayout data-testid={dataTestId} footer={footer} footerLayout={footerLayout} bodyClassName={inset}>
+  // No tab bar is ever drawn over onboarding, so the pinned CTA keeps the flat 16px margin.
+  <SubPageLayout
+    data-testid={dataTestId}
+    footer={footer}
+    footerLayout={footerLayout}
+    footerNavbarCushion={false}
+    bodyClassName={inset}
+  >
     {(eyebrow || title || description || aside) && (
       <div
         data-slot="step-heading"

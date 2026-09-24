@@ -12,6 +12,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  claimAccentColor,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   fontColorForType,
@@ -21,6 +22,7 @@ import {
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
+  isFaucetMintTransaction,
   isFaucetRequest,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
@@ -296,6 +298,40 @@ describe('isFaucetRequest', () => {
   });
 });
 
+describe('isFaucetMintTransaction', () => {
+  // A stored row's ids can read back null; while the native faucet is still unknown (null too),
+  // only the guard stops null === null from calling an ordinary claim a faucet mint.
+  it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
+    const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
+    expect(isFaucetMintTransaction(transaction, null)).toBe(false);
+  });
+});
+
+describe('claimAccentColor', () => {
+  const bridgeIn = { bridgeIn: { provider: 'agglayer' } };
+
+  // Activity and the detail page slate every bridge-in row, so its claim arrow does too.
+  it('gives a bridge-in claim the bridge slate', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'bridged',
+      secondaryAccountId: 'bridge',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
+  });
+
+  it('puts the bridge slate ahead of the faucet rose', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'native',
+      secondaryAccountId: 'native',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
+  });
+});
+
 describe('fontColorForType', () => {
   it('maps send to the blue class', () => {
     expect(fontColorForType('send' as any)).toBe('text-send-blue');
@@ -316,7 +352,8 @@ describe('TRANSACTION_COLORS', () => {
     expect(TRANSACTION_COLORS).toEqual({
       send: 'var(--tx-sent)',
       receive: 'var(--tx-received)',
-      faucet: '#BA839F'
+      faucet: '#BA839F',
+      bridge: '#777487'
     });
   });
 

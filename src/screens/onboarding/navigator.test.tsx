@@ -169,7 +169,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     expect(document.querySelector('[data-onboarding-root="true"]')).toBeInTheDocument();
   });
 
-  // Every step after Welcome carries the header's back chevron: steps whose own footer used to hold
+  // Every step after Welcome carries the header's back button: steps whose own footer used to hold
   // a Back button and steps (protection, passcode, guardian) that had no way back at all.
   const headerWithBack: Array<[OnboardingStep, string]> = [
     [OnboardingStep.NetworkNotice, 'screen-network-notice'],
@@ -189,7 +189,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     [OnboardingStep.SelectTransactionType, 'screen-select-transaction'],
     [OnboardingStep.Confirmation, 'screen-confirmation']
   ];
-  it.each(headerWithBack)('renders %s with the header, its progress and a back chevron', (step, testid) => {
+  it.each(headerWithBack)('renders %s with the header, its progress and a back button', (step, testid) => {
     // Use Import so the mobile-independent create-shortening doesn't interfere.
     renderFlow({ step, onboardingType: OnboardingType.Import });
     expect(screen.getByTestId(testid)).toBeInTheDocument();
@@ -198,7 +198,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     expect(back).toHaveAccessibleName('back');
   });
 
-  it('hides the chevron where the host says the step cannot be left (a wallet being created)', () => {
+  it('hides the back button where the host says the step cannot be left (a wallet being created)', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.Confirmation, canGoBack: false, onAction });
     expect(progress()).toBeInTheDocument();

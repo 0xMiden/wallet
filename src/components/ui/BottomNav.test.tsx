@@ -157,13 +157,13 @@ describe('BottomNav — active vs inactive rendering', () => {
     expect(getTab('Activity')).not.toHaveAttribute('aria-selected');
   });
 
-  it('inks the active icon and mutes the rest', () => {
+  it('paints the active icon in the accent and mutes the rest', () => {
     renderNav({ activeId: 'home' });
 
-    expect(getTab('Home')).toHaveClass('text-ink');
+    expect(getTab('Home')).toHaveClass('text-accent-primary');
     expect(getTab('Home')).not.toHaveClass('text-muted');
     expect(getTab('Settings')).toHaveClass('text-muted');
-    expect(getTab('Settings')).not.toHaveClass('text-ink');
+    expect(getTab('Settings')).not.toHaveClass('text-accent-primary');
   });
 
   it('renders the highlight under the active tab only, on one shared layoutId', () => {
@@ -247,22 +247,52 @@ describe('BottomNav — icon vs iconActive selection', () => {
   });
 });
 
-describe('BottomNav — notification dot', () => {
-  it('renders the negative-status dot on the icon only for items with showDot set', () => {
-    const dotItems: BottomNavItem[] = [
-      { id: 'home', label: 'Home', icon: <svg />, showDot: true },
-      { id: 'settings', label: 'Settings', icon: <svg />, showDot: false },
-      { id: 'activity', label: 'Activity', icon: <svg /> }
-    ];
+describe('BottomNav — unread indicator', () => {
+  const dotItems: BottomNavItem[] = [
+    { id: 'home', label: 'Home', icon: <svg />, unread: { label: 'Unread' } },
+    { id: 'settings', label: 'Settings', icon: <svg /> },
+    { id: 'activity', label: 'Activity', icon: <svg /> }
+  ];
+
+  it('renders the notification dot on the icon only for an unread item', () => {
     render(<BottomNav items={dotItems} activeId="home" onChange={jest.fn()} />);
 
-    expect(document.querySelectorAll('.bg-status-negative')).toHaveLength(1);
-    const homeDot = iconOf(getTab('Home')).querySelector('.bg-status-negative');
-    expect(homeDot).not.toBeNull();
-    expect(homeDot).toHaveAttribute('aria-hidden', 'true');
-    expect(homeDot).toHaveClass('size-2', 'rounded-full');
-    expect(getTab('Settings').querySelector('.bg-status-negative')).toBeNull();
-    expect(getTab('Activity').querySelector('.bg-status-negative')).toBeNull();
+    const dots = screen.getAllByTestId('bottom-nav-unread');
+    expect(dots).toHaveLength(1);
+    // The design system's own notification token, not the error red.
+    expect(dots[0]).toHaveClass('bg-notification', 'size-2', 'rounded-full');
+    expect(iconOf(getTab('Home, Unread')).contains(dots[0]!)).toBe(true);
+  });
+
+  it('announces the tab as unread instead of leaving the dot as colour alone', () => {
+    render(<BottomNav items={dotItems} activeId="home" onChange={jest.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Home, Unread' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
+  });
+
+  it('pulses the unread icon and leaves the read ones still', () => {
+    render(<BottomNav items={dotItems} activeId="settings" onChange={jest.fn()} />);
+
+    const glyphOf = (tab: HTMLElement) => iconOf(tab).querySelector('[data-animate]');
+    expect(glyphOf(getTab('Home, Unread'))).toHaveAttribute('data-animate', JSON.stringify({ scale: [1, 1.06, 1] }));
+    expect(glyphOf(getTab('Settings'))).toBeNull();
+  });
+
+  it('does not run the pulse under reduced motion', () => {
+    mockReduce = true;
+    render(<BottomNav items={dotItems} activeId="settings" onChange={jest.fn()} />);
+
+    // The dot is still there — only the motion is dropped.
+    expect(screen.getAllByTestId('bottom-nav-unread')).toHaveLength(1);
+    expect(iconOf(getTab('Home, Unread')).querySelector('[data-animate]')).toBeNull();
+  });
+
+  it('leaves no indicator, and nothing looping, once the item is read', () => {
+    render(<BottomNav items={[{ id: 'home', label: 'Home', icon: <svg /> }]} activeId="home" onChange={jest.fn()} />);
+
+    expect(screen.queryByTestId('bottom-nav-unread')).toBeNull();
+    expect(iconOf(getTab('Home')).querySelector('[data-animate]')).toBeNull();
   });
 });
 

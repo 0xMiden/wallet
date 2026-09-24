@@ -72,6 +72,12 @@ describe('useWalletStore', () => {
     });
   });
 
+  // The Guardian cold key has no import path, so nothing may request it: the
+  // reveal screen is gone and so is the action behind it.
+  it('exposes no Guardian cold-key reveal action', () => {
+    expect(useWalletStore.getState()).not.toHaveProperty('revealGuardianKeys');
+  });
+
   describe('editAccountName', () => {
     const mockAccounts = [
       { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },

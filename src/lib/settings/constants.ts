@@ -26,6 +26,29 @@ export type CardColor = 'slate' | 'orange' | 'blue' | 'green' | 'purple';
 export const CARD_COLORS: CardColor[] = ['slate', 'orange', 'blue', 'green', 'purple'];
 export const DEFAULT_CARD_COLOR: CardColor = 'slate';
 
+/**
+ * Which view the Activity tab opens in: the flat, date-grouped feed, or one row per counterparty
+ * or category. A per-device display preference, like the theme and the balance card's colour, so
+ * it lives here rather than in the vault-backed `WalletSettings`.
+ */
+export const ACTIVITY_VIEW_STORAGE_KEY = 'activity_view_setting';
+export type ActivityView = 'list' | 'groups';
+export const ACTIVITY_VIEWS: ActivityView[] = ['list', 'groups'];
+export const DEFAULT_ACTIVITY_VIEW: ActivityView = 'list';
+
+/**
+ * Which activity rows the user has already looked at. A per-device display preference, like the
+ * Activity view above — an unread mark is about this installation's reading, not about the
+ * account, so it never goes near the vault-backed `WalletSettings`.
+ */
+export const ACTIVITY_READ_STORAGE_KEY = 'activity_read_setting';
+/**
+ * How many individually-read ids are kept before the high-water mark is advanced to absorb the
+ * oldest of them. See `activity-read.ts` for what advancing means; the number only has to be
+ * larger than a session's worth of taps.
+ */
+export const ACTIVITY_READ_MAX_IDS = 100;
+
 export const THEME_STORAGE_KEY = 'theme_setting';
 export type ThemeSetting = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';

@@ -26,7 +26,7 @@
 
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
@@ -137,10 +137,6 @@ jest.mock('app/pages/HelpImproveWallet', () => ({
   __esModule: true,
   default: () => <div data-testid="help-improve-wallet" />
 }));
-jest.mock('app/pages/PendingNotes', () => ({
-  __esModule: true,
-  default: () => <div data-testid="pending" />
-}));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
 jest.mock('app/pages/BridgeDeposit', () => ({
   __esModule: true,
@@ -228,6 +224,15 @@ jest.mock('./templates/history/HistoryDetails', () => ({
   HistoryDetails: ({ transactionId }: { transactionId?: string }) => (
     <div data-testid="history-details" data-transaction-id={transactionId} />
   )
+}));
+
+jest.mock('./pages/ActivityGroup', () => ({
+  ActivityGroupPage: ({ kind, id }: { kind?: string; id?: string }) => (
+    <div data-testid="activity-group" data-kind={kind} data-id={id} />
+  )
+}));
+jest.mock('screens/contacts/ContactDetailPage', () => ({
+  ContactDetailPage: ({ address }: { address: string }) => <div data-testid="contact-detail" data-address={address} />
 }));
 
 // ---------------------------------------------------------------------------
@@ -582,9 +587,14 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('import-account'));
   });
 
-  it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
+  it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending');
+    cleanup();
+
+    // Where that redirect lands: the Activity page, which reads `filter` off the location.
+    renderAt('/history', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('all-history'));
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {
@@ -724,5 +734,28 @@ describe('app/PageRouter — app-lifecycle telemetry', () => {
     expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({ ready: false, locked: false, hydrated: false })
     );
+  });
+});
+
+describe('app/PageRouter - encoded route parameters', () => {
+  it('hands a malformed activity group id on as absent, which the group page redirects', () => {
+    renderAt('/activity/group/address/%', ready);
+    const page = screen.getByTestId('activity-group');
+    expect(page).toHaveAttribute('data-kind', 'address');
+    expect(page).not.toHaveAttribute('data-id');
+  });
+
+  it('redirects a contact whose address will not decode to the address book', () => {
+    renderAt('/contacts/%', ready);
+    expect(screen.queryByTestId('contact-detail')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/settings/address-book');
+  });
+
+  it('still decodes a well-formed address for both pages', () => {
+    const { unmount } = renderAt('/activity/group/address/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('activity-group')).toHaveAttribute('data-id', 'mtst1:abc');
+    unmount();
+    renderAt('/contacts/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-address', 'mtst1:abc');
   });
 });

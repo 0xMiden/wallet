@@ -1,3 +1,6 @@
+export { AnimatedNumber } from './AnimatedNumber';
+export type { AnimatedNumberProps } from './AnimatedNumber';
+
 export { AccountsDrawer } from './AccountsDrawer';
 export type { AccountsDrawerProps } from './AccountsDrawer';
 export { AlertSheet } from './AlertSheet';
@@ -42,6 +45,12 @@ export type { AnimatedCopyIconProps } from './AnimatedCopyIcon';
 export { CopyLabel } from './CopyLabel';
 export type { CopyLabelProps } from './CopyLabel';
 
+export { WaveDots } from './WaveDots';
+export type { WaveDotsProps } from './WaveDots';
+
+export { InfoHint } from './InfoHint';
+export type { InfoHintProps } from './InfoHint';
+
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
 
@@ -57,21 +66,26 @@ export { PromptCarousel } from './PromptCarousel';
 export type { PromptCarouselProps } from './PromptCarousel';
 
 export { AssetListItem } from './AssetListItem';
+export { SelectionCheck } from './SelectionCheck';
 export type { AssetListItemProps, AssetDeltaDirection } from './AssetListItem';
 
 export { SegmentedActionBar } from './SegmentedActionBar';
 export type { SegmentedActionBarProps, SegmentedActionBarItem } from './SegmentedActionBar';
 
 export { SegmentedControl } from './SegmentedControl';
-// Only what a caller imports: the size, layout and role vocabularies have no importer, so they
-// stay internal until one exists.
+// Only what something imports: the size and layout vocabularies have no importer, so they stay
+// internal until one exists.
 export type { SegmentedControlProps, SegmentedControlItem } from './SegmentedControl';
 
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
 
+export { HeaderRule } from './HeaderRule';
 export { TabHeader, TabHeaderAction } from './TabHeader';
 export type { TabHeaderProps } from './TabHeader';
+
+export { TabRootHeader } from './TabRootHeader';
+export type { TabRootHeaderProps, TabRootFilter } from './TabRootHeader';
 
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
@@ -88,6 +102,9 @@ export type { EmptyStateProps, EmptyStateSecondaryAction } from './EmptyState';
 export { IconButton } from './IconButton';
 export type { IconButtonProps, IconButtonAppearance } from './IconButton';
 
+export { Popover } from './Popover';
+export type { PopoverProps, PopoverAlign } from './Popover';
+
 export { Spinner } from './Spinner';
 export type { SpinnerProps, SpinnerSize } from './Spinner';
 
@@ -96,6 +113,8 @@ export type { SkeletonProps, SkeletonTone } from './Skeleton';
 
 export { TextField } from './TextField';
 export type { TextFieldProps, TextFieldElement } from './TextField';
+
+export { UnreadDot } from './UnreadDot';
 
 export { Card, CardButton } from './Card';
 export type { CardProps, CardButtonProps, CardPadding } from './Card';
@@ -116,3 +135,5 @@ export type { TextActionProps } from './TextAction';
 // every extra runtime symbol has to be declared in the barrel suite's expected set as well.
 export { SubPageLayout } from './SubPageLayout';
 export type { SubPageLayoutProps } from './SubPageLayout';
+export { ErrorLine } from './ErrorLine';
+export { SeedPhraseGrid } from './SeedPhraseGrid';

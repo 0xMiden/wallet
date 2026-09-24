@@ -26,7 +26,9 @@ jest.mock('lib/mobile/haptics', () => ({
 // tests drive both branches.
 const mockIsExtension = { value: false };
 jest.mock('lib/platform', () => ({
-  isExtension: () => mockIsExtension.value
+  isExtension: () => mockIsExtension.value,
+  // The pinned footer now reaches `stepFooterCushionClass`, which reads this to size the cushion.
+  isMobile: () => false
 }));
 
 // `browser.runtime.reload` (extension reload path) — spy-able, unlike
@@ -589,8 +591,11 @@ describe('DeveloperSettings', () => {
     // Every URL is the shared TextField, labelled, at 16px so iOS does not zoom.
     expect(screen.getByLabelText('devEndpointRpc')).toBe(screen.getByTestId('dev-endpoint-rpcUrl'));
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveClass('text-body');
-    // The no-guardian option is a ListRow in a group.
-    expect(screen.getByTestId('dev-allow-no-guardian').parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // The no-guardian option is a ListRow in a labelled `plain` group.
+    const optionGroup = screen.getByTestId('dev-allow-no-guardian').parentElement!;
+    expect(optionGroup).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(optionGroup).not.toHaveClass('bg-fill');
+    expect(screen.getByRole('heading', { name: 'options' })).toHaveClass('text-title-section', 'text-ink');
   });
 
   it('makes the read-only reset destructive, since it wipes the wallet', () => {

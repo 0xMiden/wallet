@@ -9,7 +9,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { AccountsDrawer, BalanceCard } from 'components/ui';
+import { AccountsDrawer, AnimatedNumber, BalanceCard } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
@@ -87,7 +87,7 @@ const Explore: FC = () => {
     return midenNotes.length > 0;
   }, [midenNotes]);
 
-  // What the "You have Pending Notes" card may ask the user to act on: the notes this
+  // What the "You have transfers to accept" card may ask the user to act on: the notes this
   // page, the SW and NativeNoteAutoConsumeManager will NOT claim for them. Feeding it
   // the raw list surfaced a card, with a USD total, for native notes that were already
   // being auto-consumed (#811).
@@ -318,6 +318,9 @@ interface HomeOverviewProps {
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
+/** The card's total: always two decimals, so a count never changes the number of them mid-flight. */
+const usdTotal = (value: number) => `$${toLocalFormat(value, { decimalPlaces: 2 })}`;
+
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
@@ -345,7 +348,13 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // lands (stale-but-real via keepPreviousData counts), show the total.
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
-            amount={Object.keys(tokenPrices).length === 0 ? '$—' : `$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
+            amount={
+              Object.keys(tokenPrices).length === 0 ? (
+                '$—'
+              ) : (
+                <AnimatedNumber value={balance.toNumber()} format={usdTotal} />
+              )
+            }
             // Until the first balance read succeeds the store has no entry for
             // this address and `useAllBalances` substitutes a zero placeholder
             // row. Right after a recovery that read can lose the WASM lock to the

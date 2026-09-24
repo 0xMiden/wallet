@@ -2,8 +2,7 @@ import { RefObject, useEffect } from 'react';
 
 import { useReducedMotion } from 'framer-motion';
 
-import { durations } from 'lib/animation/durations';
-import { easings } from 'lib/animation/easings';
+import { durations, easings, springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
 import { isMobile } from 'lib/platform';
 
 /**
@@ -15,15 +14,23 @@ import { isMobile } from 'lib/platform';
  * paints, the element is offset back to where it was drawn and eased to its new place with a
  * transform, which costs no layout. It covers both directions (keyboard up and down, the tab bar
  * hiding and showing) and picks up from mid-flight when a move interrupts a slide.
+ *
+ * The curve is `springs.standard` solved into a `linear()` easing, so the slide runs on the
+ * compositor at the display's rate rather than through `requestAnimationFrame`, which WKWebView
+ * caps at 60Hz (see lib/animation/spring-easing). The spring is all but critically damped: a CTA
+ * riding the keyboard must not overshoot past the keyboard's edge on the way up. An engine that
+ * cannot parse `linear()` gets an ease-out cubic-bezier instead, since `animate` would throw.
+ *
+ * Observes the element and its parent, which is the page frame the keyboard inset resizes.
  */
-export function useSlideOnReflow(ref: RefObject<HTMLElement | null>, containerRef: RefObject<HTMLElement | null>) {
+export function useSlideOnReflow(ref: RefObject<HTMLElement | null>) {
   // Reactive, like every other motion site in the flow: sampling the preference once at mount left
   // the slide running for someone who turned Reduce Motion on while a flow page was open.
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     const el = ref.current;
-    const container = containerRef.current;
+    const container = el?.parentElement;
     if (!el || !container || typeof ResizeObserver === 'undefined' || typeof el.animate !== 'function') return;
     // The moves this exists for are the keyboard inset and the docked tab bar, both mobile and both
     // discrete. Off mobile the only thing that resizes the frame is a window or panel drag, which
@@ -46,11 +53,13 @@ export function useSlideOnReflow(ref: RefObject<HTMLElement | null>, containerRe
       const nextTop = el.getBoundingClientRect().top;
       layoutTop = nextTop;
       const delta = drawnAt - nextTop;
-      if (reduceMotion || Math.abs(delta) < 1) return;
-      running = el.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }], {
-        duration: durations.slow * 1000,
-        easing: `cubic-bezier(${easings.easeOutCubic.join(',')})`
-      });
+      if (reduceMotion) return;
+      const spring = springToLinearEasing(springs.standard, { distance: delta });
+      if (!spring) return;
+      const timing = supportsLinearEasing()
+        ? { duration: spring.duration, easing: spring.easing }
+        : { duration: durations.slow * 1000, easing: `cubic-bezier(${easings.easeOutCubic.join(',')})` };
+      running = el.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }], timing);
       running.onfinish = () => {
         running = undefined;
       };
@@ -58,10 +67,11 @@ export function useSlideOnReflow(ref: RefObject<HTMLElement | null>, containerRe
 
     const observer = new ResizeObserver(onReflow);
     observer.observe(container);
-    observer.observe(el);
+    // Border box: a padding-only move (the cushion collapsing) changes no content box.
+    observer.observe(el, { box: 'border-box' });
     return () => {
       observer.disconnect();
       running?.cancel();
     };
-  }, [ref, containerRef, reduceMotion]);
+  }, [ref, reduceMotion]);
 }

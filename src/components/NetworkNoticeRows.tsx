@@ -22,18 +22,26 @@ export const NETWORK_NOTICE_ROWS: readonly NetworkNoticeRow[] = [
  * The three test-network facts (#875): no value, no real funds, resets.
  * Shared by the onboarding notice and the banner's explanation sheet so both
  * say the same thing.
+ *
+ * One `fill` group with hairlines inset between the rows, like every other list in the wallet.
+ * Onboarding draws the same three facts as `CheckboxRow`s in a `ListGroup`, so the sheet and the
+ * checklist read as one list with and without the ticks.
  */
 export const NetworkNoticeRows: FC<{ className?: string }> = ({ className }) => {
   const { t } = useTranslation();
 
   return (
-    <ul className={cn('flex flex-col divide-y divide-rule-default', className)}>
+    <ul className={cn('flex flex-col overflow-hidden rounded-2xl bg-fill', className)}>
       {NETWORK_NOTICE_ROWS.map(row => (
-        <li key={row.titleKey} className="py-4">
-          <span className="flex flex-col gap-1 min-w-0">
-            <span className="text-lg font-semibold leading-5 text-text-primary-token">{t(row.titleKey)}</span>
-            <span className="text-sm leading-5 text-text-secondary-token">{t(row.bodyKey)}</span>
-          </span>
+        <li
+          key={row.titleKey}
+          className={cn(
+            'relative flex min-w-0 flex-col justify-center gap-0.5 px-4 py-3.5',
+            'before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-hairline first:before:hidden'
+          )}
+        >
+          <span className="text-row-title text-ink">{t(row.titleKey)}</span>
+          <span className="text-caption text-muted">{t(row.bodyKey)}</span>
         </li>
       ))}
     </ul>

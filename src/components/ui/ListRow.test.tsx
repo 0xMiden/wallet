@@ -123,6 +123,9 @@ it('renders a trailing value, a custom trailing control and a check', () => {
   expect(screen.getByTestId('value-row').querySelector('[data-slot="chevron"]')).not.toBeNull();
   expect(screen.getByTestId('toggle')).toBeInTheDocument();
   expect(screen.getByTestId('checked-row').querySelector('[data-slot="check"]')).not.toBeNull();
+  expect(screen.getByTestId('checked-row').querySelector('[data-slot="check"] svg')).toHaveClass(
+    'fill-accent-brand-on'
+  );
   expect(screen.getByTestId('checked-row')).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByTestId('unchecked-row').querySelector('[data-slot="check"]')).toBeNull();
   expect(screen.getByTestId('unchecked-row')).toHaveAttribute('aria-pressed', 'false');
@@ -195,4 +198,51 @@ it('announces a radio choice as a radio, forwards focus handling, and can leave 
   fireEvent.click(row);
   expect(onClick).toHaveBeenCalledTimes(1);
   expect(hapticLight).not.toHaveBeenCalled();
+});
+
+it('paints its glyph, chevron, check and hairline in a flow accent, leaving the text neutral', () => {
+  render(
+    <ListRow
+      title="Cross-chain"
+      subtitle="From Sepolia"
+      icon={<svg data-testid="glyph" />}
+      chevron
+      checked
+      accent="receive"
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByTestId('row');
+  const circle = row.querySelector('[data-slot="icon"]')!;
+  expect(circle).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
+  expect(circle).not.toHaveClass('bg-page', 'text-ink');
+  expect(row.querySelector('[data-slot="chevron"]')).toHaveClass('stroke-accent-receive');
+  expect(row.querySelector('[data-slot="chevron"]')).not.toHaveClass('stroke-muted');
+  expect(row).toHaveClass('before:bg-accent-receive/25');
+  expect(row).not.toHaveClass('before:bg-hairline');
+  // A selected state is the flow's own colour too, not the brand fill.
+  expect(row.querySelector('[data-slot="check"]')).toHaveClass('bg-accent-receive');
+  expect(row.querySelector('[data-slot="check"]')).not.toHaveClass('bg-accent-primary');
+  expect(row.querySelector('[data-slot="check"] svg')).toHaveClass('fill-accent-receive-on');
+  expect(row.querySelector('[data-slot="check"] svg')).not.toHaveClass('fill-pure-white');
+  // The accent never reaches the copy: it is under 4.5:1 as text.
+  expect(row.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
+  expect(screen.getByText('From Sepolia')).toHaveClass('text-muted');
+});
+
+it('keeps the neutral chrome without an accent', () => {
+  render(<ListRow title="Language" icon={<svg />} chevron accent={undefined} data-testid="row" />);
+
+  const row = screen.getByTestId('row');
+  expect(row.querySelector('[data-slot="icon"]')).toHaveClass('bg-page', 'text-ink');
+  expect(row.querySelector('[data-slot="chevron"]')).toHaveClass('stroke-muted');
+  expect(row).toHaveClass('before:bg-hairline');
+});
+
+it('keeps the brand fill on the check of a row with no accent', () => {
+  render(<ListRow title="Testnet" checked onClick={jest.fn()} data-testid="row" />);
+
+  expect(screen.getByTestId('row').querySelector('[data-slot="check"]')).toHaveClass('bg-accent-primary');
 });

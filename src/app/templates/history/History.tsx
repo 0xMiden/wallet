@@ -47,7 +47,10 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /** The claims a card stands for; the consume row each would repeat is hidden. */
   pendingItems?: PendingActivityItem[];
+  /** The cards drawn in the timeline, when fewer than `pendingItems` (a search); defaults to `pendingItems`. */
+  drawnPendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   tokenId?: string;
   searchQuery?: string;
@@ -58,11 +61,54 @@ type HistoryProps = {
    * this; the loading state lives here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
+  /**
+   * Narrows the list further, after the search and the filter. The Groups view's own page hands
+   * one group's matcher down here, so that page IS this list - paging, the in-flight rows and the
+   * row rendering all come with it - rather than a second list that would drift from it.
+   */
+  predicate?: (entry: IHistoryEntry) => boolean;
+  /**
+   * Renders something other than the date-grouped timeline over the SAME loaded entries, with the
+   * paging this component owns. The Groups view uses it; everything else gets `HistoryView`.
+   */
+  renderEntries?: (view: HistoryEntriesView) => React.ReactNode;
 };
+
+/** What `renderEntries` is handed: the loaded entries plus the paging state that produced them. */
+export interface HistoryEntriesView {
+  entries: IHistoryEntry[];
+  initialLoading: boolean;
+  /** Either read behind `entries` failed. */
+  loadError: boolean;
+  /** Re-runs both reads. */
+  onRetry: () => void;
+  /** False once the history is exhausted — which is when a count over `entries` is final. */
+  hasMore: boolean;
+  loadMore: (page: number) => Promise<void>;
+}
+
+/** Whether an activity row answers a search; `query` is already lowercased. */
+export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): boolean {
+  return Boolean(
+    entry.message?.toLowerCase().includes(query) ||
+    entry.token?.toLowerCase().includes(query) ||
+    // A swap row shows the asset it asks for as well as the one it gives.
+    entry.requestedToken?.toLowerCase().includes(query) ||
+    // A batch claim displays its secondary assets on the row, so searching
+    // for one has to find it, or typing a symbol the user can see hides
+    // the very row showing it.
+    entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
+    entry.secondaryAddress?.toLowerCase().includes(query)
+  );
+}
 
 // The chips above the activity list. `pending` shows only the notes that
 // wait for a claim, so it removes every settled history row.
 export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
+
+type ScopedEntries = { key: string; entries: IHistoryEntry[] };
+
+const NO_SCOPED_ENTRIES: ScopedEntries = { key: '', entries: [] };
 
 const History = memo<HistoryProps>(
   ({
@@ -76,13 +122,19 @@ const History = memo<HistoryProps>(
     searchQuery,
     filter,
     onInitialLoad,
+    predicate,
+    renderEntries,
     pendingItems,
+    drawnPendingItems,
     renderPendingItem
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
-    const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
+    // Older pages carry the scope they were loaded for: `useSafeState` resets them in a passive effect, after
+    // the first render of a new scope has already committed with the old scope's rows.
+    const [scopedRest, setScopedRest] = useSafeState<ScopedEntries>(NO_SCOPED_ENTRIES, safeStateKey);
+    const restEntries = scopedRest.key === safeStateKey ? scopedRest.entries : NO_SCOPED_ENTRIES.entries;
 
     // `restEntries` is keyed to the scope; these two are not, so without this
     // they outlive it. A failed page sets `hasMore` false to stop the retry spin
@@ -103,9 +155,8 @@ const History = memo<HistoryProps>(
     //
     // A monotonic counter rather than the key itself: comparing keys says "the
     // scope matches now", which an A → B → A round trip satisfies while the
-    // original A request is still in flight. That request would then merge
-    // against the `restEntries` its closure captured — the list as it was before
-    // the user left — discarding whatever the second visit loaded.
+    // original A request is still in flight. That request would then settle
+    // `hasMore` and `isLoading` for the second visit's own paging.
     const scopeRef = useRef(0);
     useLayoutEffect(() => {
       scopeRef.current += 1;
@@ -118,9 +169,12 @@ const History = memo<HistoryProps>(
     // transaction reads run only while neither holds.
     const reading = onScreen && filter !== 'pending';
 
+    // No `keepPreviousData`: both keys carry the address and token, so it would show another
+    // account's (or token's) rows while this one loads; a key's own refresh keeps its data anyway.
     const {
       data: latestTransactions,
       isLoading: transactionsLoading,
+      error: latestError,
       mutate: mutateLatest
     } = useRetryableSWR(
       [`latest-transactions`, address, tokenId],
@@ -129,19 +183,22 @@ const History = memo<HistoryProps>(
         revalidateOnMount: true,
         refreshInterval: 10_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true,
         isPaused: () => !reading
       }
     );
 
-    const { data: latestPendingTransactions, mutate: mutateTx } = useRetryableSWR(
+    const {
+      data: latestPendingTransactions,
+      isLoading: pendingLoading,
+      error: pendingError,
+      mutate: mutateTx
+    } = useRetryableSWR(
       [`latest-pending-transactions`, address, tokenId],
       async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
       {
         revalidateOnMount: true,
         refreshInterval: 5_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true,
         isPaused: () => !reading
       }
     );
@@ -193,13 +250,13 @@ const History = memo<HistoryProps>(
       }
       setIsLoading(true);
       const scope = scopeRef.current;
+      const key = safeStateKey;
       const offset = HISTORY_PAGE_SIZE * page;
       const limit = HISTORY_PAGE_SIZE;
       try {
         const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
-        // Answer for a scope the user has since left: `restEntries` in this
-        // closure is the OLD account's list, so merging would show one account's
-        // history under another's.
+        // Answer for a scope the user has since left: its rows are another
+        // account's history.
         if (scopeRef.current !== scope) return;
         // Key off what the PAGE returned, not the merged list. Merged, the list
         // is non-empty from the first successful page onward, so an exhausted
@@ -210,7 +267,12 @@ const History = memo<HistoryProps>(
         if (olderTransactions.length < limit) {
           setHasMore(false);
         }
-        setRestEntries(mergeAndSort(restEntries, olderTransactions));
+        // Merge against the stored rows, not this render's: a closure from the first render after a switch
+        // still holds the old scope's.
+        setScopedRest(prev => ({
+          key,
+          entries: mergeAndSort(prev.key === key ? prev.entries : [], olderTransactions)
+        }));
       } catch (error) {
         // Stop paging on failure. Clearing `isLoading` without this would spin:
         // the infinite scroller re-arms on every parent render (and SWR re-renders
@@ -232,11 +294,13 @@ const History = memo<HistoryProps>(
       }
     };
 
-    // A card carries its claim's outcome, failed included, so the row that outcome would repeat stays hidden.
+    // A card stands in for the consume row only while there is still something to DO with it: a
+    // claim in flight (the card holds the spinner) or one that failed (the card offers Retry).
+    // An ACCEPTED transfer has no card any more — it is an ordinary row in this feed, drawn by
+    // the same component as every other settled transaction — so its consume row must come
+    // through rather than be hidden behind a card that no longer exists.
     const representedNotes = new Set(
-      pendingItems
-        ?.filter(item => item.status === 'claiming' || item.status === 'claimed' || item.status === 'failed')
-        .map(item => item.note.id)
+      pendingItems?.filter(item => item.status === 'claiming' || item.status === 'failed').map(item => item.note.id)
     );
     let entries: IHistoryEntry[] = allEntries.filter(
       entry =>
@@ -248,16 +312,7 @@ const History = memo<HistoryProps>(
     );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
-      entries = entries.filter(
-        e =>
-          e.message?.toLowerCase().includes(query) ||
-          e.token?.toLowerCase().includes(query) ||
-          // A batch claim displays its secondary assets on the row, so searching
-          // for one has to find it — otherwise typing a symbol the user can see
-          // hides the very row showing it.
-          e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-          e.secondaryAddress?.toLowerCase().includes(query)
-      );
+      entries = entries.filter(e => historyEntryMatchesSearch(e, query));
     }
     if (filter && filter !== 'all') {
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
@@ -277,16 +332,46 @@ const History = memo<HistoryProps>(
         return true;
       });
     }
+    // Last, so a group's page narrows what the search and the filter already left.
+    if (predicate) {
+      entries = entries.filter(predicate);
+    }
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);
       entries = entries.slice(0, maxIndex);
     }
 
+    // Under Pending both reads are paused, and one that never ran reports loading until they resume.
+    // One list, so it is loading until both reads have answered once.
+    const initialLoading = filter !== 'pending' && (transactionsLoading || pendingLoading);
+    // The list is both reads together, so either failing is a failed load, and Retry re-runs both.
+    const loadError = filter !== 'pending' && Boolean(latestError || pendingError);
+    const onRetry = () => {
+      void mutateLatest();
+      void mutateTx();
+    };
+
+    if (renderEntries) {
+      return (
+        <>
+          {renderEntries({
+            entries,
+            initialLoading,
+            loadError,
+            onRetry,
+            hasMore: reading && hasMore,
+            loadMore
+          })}
+        </>
+      );
+    }
+
     return (
       <HistoryView
         entries={entries ?? []}
-        // Under Pending both reads are paused, and one that never ran reports loading until they resume.
-        initialLoading={filter !== 'pending' && transactionsLoading}
+        initialLoading={initialLoading}
+        loadError={loadError}
+        onRetry={onRetry}
         loadMore={loadMore}
         // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
         // row is filtered out, and off screen.
@@ -295,7 +380,7 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
-        pendingItems={pendingItems}
+        pendingItems={drawnPendingItems ?? pendingItems}
         renderPendingItem={renderPendingItem}
         className={className}
       />
@@ -499,9 +584,11 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * to a normal receive row. Shared by the completed and pending fetches so the
  * two lists can't desynchronize. Token-scoped views stay complete because the
  * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
- * the swap row on its requested-token page too.
+ * the swap row on its requested-token page too. The tab's unread mark
+ * (`useHasUnreadActivity`) reads through it as well, so it never counts a row
+ * this feed hides.
  */
-async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
   const suppressed = await suppressedLinkedConsumeIds(transactions);
   return transactions.filter(tx => !suppressed.has(tx.id));
 }

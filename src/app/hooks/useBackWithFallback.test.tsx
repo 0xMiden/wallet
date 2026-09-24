@@ -97,8 +97,8 @@ describe('useBackWithFallback', () => {
   });
 
   it('replaces with the fallback when the screen was opened cold', () => {
-    // `history.go(-1)` is a no-op at position 0 — a deep link, a reload or a
-    // Replace navigation — which left the header chevron inert. It has to
+    // `history.go(-1)` is a no-op at position 0 - a deep link, a reload or a
+    // Replace navigation - which left the header back button inert. It has to
     // REPLACE: pushing would leave an entry that walks straight back in.
     setLive('/settings/language', 0);
     renderLive('/settings');
@@ -120,7 +120,7 @@ describe('useBackWithFallback', () => {
 
   it('pops once however many times it is invoked before the location changes', () => {
     // `history.go(-1)` resolves on a later task, so the screen stays mounted and
-    // its chevron live: a double tap queued two traversals and overshot the
+    // its back button live: a double tap queued two traversals and overshot the
     // intended parent. Every routed settings sub-page header uses this callback.
     renderLive('/settings');
 
@@ -142,7 +142,7 @@ describe('useBackWithFallback', () => {
   });
 
   it('re-arms once the location actually changes', () => {
-    // Otherwise a screen the user navigates back INTO would have a dead chevron.
+    // Otherwise a screen the user navigates back INTO would have a dead back button.
     renderLive('/settings');
     clickBack();
     expect(goBackMock).toHaveBeenCalledTimes(1);

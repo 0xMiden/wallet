@@ -20,9 +20,9 @@ describe('lib/animation/presets', () => {
     mockReduce = false;
   });
 
-  it('exports the eight presets the design system names', () => {
+  it('exports the ten presets the design system names', () => {
     expect([...presetNames].sort()).toEqual(
-      ['fade', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
+      ['count', 'fade', 'page', 'pop', 'press', 'pulse', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
     );
     expect(Object.keys(presets).sort()).toEqual([...presetNames].sort());
   });
@@ -80,6 +80,17 @@ describe('lib/animation/presets', () => {
       expect(presets.press.animate).toBeUndefined();
     });
 
+    it('count: a 0.6s tween on the standard curve, with no targets of its own', () => {
+      expect(presets.count.transition).toEqual({
+        type: 'tween',
+        duration: durations.count,
+        ease: easings.standard
+      });
+      expect(durations.count).toBe(0.6);
+      expect(presets.count.initial).toBeUndefined();
+      expect(presets.count.animate).toBeUndefined();
+    });
+
     it('shimmer: a 1.2s linear loop across the element', () => {
       expect(presets.shimmer.initial).toEqual({ x: '-100%' });
       expect(presets.shimmer.animate).toEqual({ x: '100%' });
@@ -109,7 +120,9 @@ describe('lib/animation/presets', () => {
       expect(resolvePreset(null, name)).toBe(presets[name]);
     });
 
-    it.each(presetNames.filter(name => name !== 'shimmer' && name !== 'shake'))(
+    // A loop and a shake have no end state to jump to, so reduced motion drops their targets
+    // outright rather than applying them instantly.
+    it.each(presetNames.filter(name => name !== 'shimmer' && name !== 'shake' && name !== 'pulse'))(
       'makes %s instant under reduced motion and keeps its targets',
       name => {
         const reduced = resolvePreset(true, name);

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -28,11 +28,15 @@ import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
+import { isValidExpirySeconds } from './expiry';
 import { ReviewSwap } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
 import { useSwapEta } from './useSwapEta';
+
+/** Two minutes, unchanged: long enough for the usual fill, short enough to get the tip back. */
+const DEFAULT_EXPIRY_SECONDS = 120;
 
 const ROUTES: Route[] = [
   { name: SwapFlowStep.SwapAmounts, animationIn: 'push', animationOut: 'pop' },
@@ -57,7 +61,7 @@ const SwapManager: React.FC = () => {
   // True once the user manually edits the receive amount, which pauses the
   // auto-quote until they change the pay amount or a token again.
   const [requestEdited, setRequestEdited] = useState(false);
-  const [expirySeconds, setExpirySeconds] = useState('120');
+  const [expirySeconds, setExpirySeconds] = useState(String(DEFAULT_EXPIRY_SECONDS));
   const [autoConsume, setAutoConsume] = useState(true);
   const [selectingSide, setSelectingSide] = useState<SwapSide>('offer');
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
@@ -89,6 +93,9 @@ const SwapManager: React.FC = () => {
   // Handle mobile hardware/swipe back: close the token drawer first, then step
   // back inside the flow, else close it.
   useMobileBackHandler(() => {
+    // A submission in flight holds the whole intent still (ReviewSwap disables its controls and Back);
+    // a hardware or swipe back is consumed, not followed.
+    if (submitting) return true;
     if (spendingLimitChallenge !== undefined) {
       setSpendingLimitChallenge(undefined);
       return true;
@@ -103,7 +110,7 @@ const SwapManager: React.FC = () => {
     }
     onClose();
     return true;
-  }, [spendingLimitChallenge, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [submitting, spendingLimitChallenge, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on flow entry (see SendManager for the
   // full rationale — entering a swap is a clear "starting a new tx" signal).
@@ -182,12 +189,25 @@ const SwapManager: React.FC = () => {
 
   // Mirror the quote into the editable receive field unless the user has taken
   // it over. `requestEdited` is cleared whenever they change the pay amount or
-  // a token, so the quote resumes driving the field.
+  // a token, so the quote resumes driving the field. A press in flight has
+  // already captured the amount it sends, so the review holds still until the
+  // press settles; a press that stays on Review then catches up. An open
+  // spending-limit challenge is that same press waiting on approval, which
+  // sends the amount it reviewed, so it holds the review too.
   useEffect(() => {
-    if (!requestEdited) {
+    if (!requestEdited && !submitting && spendingLimitChallenge === undefined) {
       setRequestAmount(quote);
     }
-  }, [quote, requestEdited]);
+  }, [quote, requestEdited, submitting, spendingLimitChallenge]);
+
+  // The review's Rate and fill-time lines come from the same quote as its amount, so they
+  // hold with it: a held amount beside a live rate would show a price the swap does not use.
+  const [reviewEta, setReviewEta] = useState(swapEta.eta);
+  useEffect(() => {
+    if (!submitting && spendingLimitChallenge === undefined) {
+      setReviewEta(swapEta.eta);
+    }
+  }, [swapEta.eta, submitting, spendingLimitChallenge]);
 
   // Balances are keyed by `getBech32AddressFromAccountId(faucet)` (BasicWallet
   // interface + active-network HRP), while the swap registry stores
@@ -235,7 +255,10 @@ const SwapManager: React.FC = () => {
   const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
   const quoteUnavailable = Boolean(swapEta.error);
   const expirySecondsValue = Number(expirySeconds);
-  const validExpiry = Number.isInteger(expirySecondsValue) && expirySecondsValue > 0;
+  // Whole seconds inside the wallet's own reclaim window, not merely "a positive integer":
+  // an expiry under the floor is reclaimed before a solver can fill it, and the review screen
+  // is free to hand up nothing but values that pass this (see `expiry.ts` for the bounds).
+  const validExpiry = isValidExpirySeconds(expirySecondsValue);
   // The receive field is auto-derived: show a skeleton from the moment a pay
   // amount is entered until the first quote lands (or errors). Subsequent edits
   // recompute in place from the cached rate, so no skeleton flash there.
@@ -522,7 +545,7 @@ const SwapManager: React.FC = () => {
               offerAmount={offerAmount}
               requestToken={requestToken}
               requestAmount={requestAmount}
-              swapEta={swapEta.eta}
+              swapEta={reviewEta}
               expirySeconds={expirySeconds}
               autoConsume={autoConsume}
               onExpirySecondsChange={setExpirySeconds}
@@ -530,6 +553,7 @@ const SwapManager: React.FC = () => {
               submitError={submitError}
               onGoBack={goBack}
               onSubmit={onSubmit}
+              submitting={submitting}
             />
           );
         default:
@@ -542,9 +566,10 @@ const SwapManager: React.FC = () => {
       offerAmount,
       requestToken,
       requestAmount,
-      swapEta.eta,
+      reviewEta,
       expirySeconds,
       autoConsume,
+      submitting,
       submitError,
       canProceed,
       requestCalculating,
@@ -566,10 +591,8 @@ const SwapManager: React.FC = () => {
   );
 
   return (
-    <div
-      className={classNames('relative mx-auto flex h-full w-full flex-col overflow-hidden bg-app-bg')}
-      data-testid="swap-flow"
-    >
+    // The shared home-group pane box, the same one Send, Receive and Earn are drawn in.
+    <HomeGroupPaneRoot testId="swap-flow">
       <Navigator renderRoute={renderStep} />
 
       <SelectSwapTokenDrawer
@@ -586,7 +609,7 @@ const SwapManager: React.FC = () => {
           onResult={handleSpendingLimitResult}
         />
       )}
-    </div>
+    </HomeGroupPaneRoot>
   );
 };
 

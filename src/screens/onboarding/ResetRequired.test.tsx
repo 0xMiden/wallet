@@ -52,7 +52,7 @@ describe('ResetRequired', () => {
     renderComponent();
     expect(screen.getByTestId('nav-header')).toHaveTextContent('resetRequired');
     // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
   });
 

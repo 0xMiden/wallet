@@ -12,7 +12,7 @@ import { cva } from 'class-variance-authority';
 import { tintForAddress } from 'components/contacts/ContactAvatar';
 import { cn } from 'lib/ui/util';
 
-/** `row`: 48px, in a list row. `tile`: 56px, in a row of tiles. `hero`: 72px, on a featured card. */
+/** `row`: 40px, the design system's list avatar. `tile`: 56px, in a row of tiles. `hero`: 72px, on a featured card. */
 export type AppIconSize = 'row' | 'tile' | 'hero';
 
 /** The surface the icon sits on. An image tile takes the other one, so it keeps its shape. */
@@ -21,7 +21,7 @@ export type AppIconSurface = 'page' | 'fill';
 const tileVariants = cva('flex shrink-0 items-center justify-center overflow-hidden rounded-xl', {
   variants: {
     size: {
-      row: 'h-12 w-12',
+      row: 'h-10 w-10',
       tile: 'h-14 w-14',
       hero: 'h-18 w-18'
     } satisfies Record<AppIconSize, string>
@@ -32,7 +32,7 @@ const tileVariants = cva('flex shrink-0 items-center justify-center overflow-hid
 const imageVariants = cva('object-contain', {
   variants: {
     size: {
-      row: 'h-8 w-8',
+      row: 'h-7 w-7',
       tile: 'h-9 w-9',
       hero: 'h-12 w-12'
     } satisfies Record<AppIconSize, string>
@@ -43,7 +43,7 @@ const imageVariants = cva('object-contain', {
 const letterVariants = cva('font-heading font-extrabold text-pure-white', {
   variants: {
     size: {
-      row: 'text-xl',
+      row: 'text-lg',
       tile: 'text-2xl',
       hero: 'text-3xl'
     } satisfies Record<AppIconSize, string>

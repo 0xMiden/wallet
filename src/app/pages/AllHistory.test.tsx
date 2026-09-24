@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
@@ -26,13 +26,36 @@ jest.mock('components/DeadletteredNotesNotice', () => ({
 }));
 
 // `components/ui` is a barrel that pulls in many heavy sibling components
-// (BalanceCard, AccountsDrawer, …); mock it down to just the two pieces
-// AllHistory consumes, preserving the props under test (title/actions and
-// value/onChange/placeholder).
+// (BalanceCard, AccountsDrawer, …); mock it down to the action button and the REAL shared
+// `TabRootHeader`, which is the thing under test: that the page takes its title row and its
+// filter row from one component rather than assembling a row of its own.
 jest.mock('components/ui', () => ({
-  TabHeaderAction: ({ label, active, onClick }: { label: string; active?: boolean; onClick: () => void }) => (
-    <button type="button" aria-label={label} aria-pressed={active} onClick={onClick} />
-  ),
+  // `forwardRef`, like the real one: the view-switcher action is the popover's anchor, so the ref
+  // has to reach a real button for focus and positioning.
+  TabHeaderAction: jest
+    .requireActual<typeof import('react')>('react')
+    .forwardRef<
+      HTMLButtonElement,
+      { label: string; active?: boolean; onClick: () => void; 'data-testid'?: string }
+    >(function TabHeaderAction({ label, active, onClick, 'data-testid': dataTestId }, ref) {
+      return (
+        <button
+          ref={ref}
+          type="button"
+          aria-label={label}
+          aria-pressed={active}
+          data-testid={dataTestId}
+          onClick={onClick}
+        />
+      );
+    }),
+  TabRootHeader:
+    jest.requireActual<typeof import('components/ui/TabRootHeader')>('components/ui/TabRootHeader').TabRootHeader
+}));
+
+// The title row has its own suite; stubbed here so this one is about what the band puts under it,
+// while keeping the props the page passes through (title/actions and value/onChange/placeholder).
+jest.mock('components/ui/TabHeader', () => ({
   TabHeader: ({
     title,
     actions,
@@ -84,6 +107,27 @@ jest.mock('app/templates/history/ActivityPendingHistory', () => ({
   }
 }));
 
+// The grouped view owns its own data (History + the address book) and has its own suite; stubbed
+// here so this one is about which view the tab shows and what it passes to it.
+jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
+  // `filter` is NOT one of its props any more; reading it back as '' is how this suite pins that.
+  ActivityGroupedHistory: (props: {
+    programId?: string | null;
+    search: string;
+    filter?: string;
+    onInitialLoad?: () => void;
+  }) => (
+    <div
+      data-testid="grouped-history"
+      data-program-id={props.programId ?? ''}
+      data-search-query={props.search}
+      data-filter={props.filter ?? ''}
+    >
+      <button data-testid="grouped-history-loaded" onClick={() => props.onInitialLoad?.()} />
+    </div>
+  )
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
 }));
@@ -99,8 +143,21 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: jest.fn()
 }));
 
+const mockLocationSearch = { value: '' };
+// A replace through a location updater lands its search, like the real history would.
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  HistoryAction: { Push: 'pushstate', Replace: 'replacestate' },
+  navigate: jest.fn((to: unknown) => {
+    if (typeof to === 'function') {
+      mockLocationSearch.value = to({
+        pathname: '/history',
+        search: mockLocationSearch.value,
+        hash: '',
+        state: null
+      }).search;
+    }
+  }),
+  useLocation: () => ({ pathname: '/history', hash: '', search: mockLocationSearch.value })
 }));
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
@@ -128,9 +185,11 @@ const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
     mockReducedMotion.value = false;
+    mockLocationSearch.value = '';
     HTMLElement.prototype.scrollIntoView = jest.fn();
   });
 
@@ -183,13 +242,19 @@ describe('AllHistory', () => {
   it('renders the filters as the shared segmented control: a labelled radiogroup, "all" selected', () => {
     render(<AllHistory />);
 
-    expect(screen.getByRole('radiogroup', { name: 'activityFilters' })).toHaveClass('overflow-x-auto');
+    const row = screen.getByRole('radiogroup', { name: 'activityFilters' });
+    expect(row).toHaveClass('overflow-x-auto');
+    // The header owns the row's padding: 16px page margin, 4px above and below the 40px items,
+    // with the 8px that separates it from the rule carried by the rule.
+    expect(row).toHaveClass('px-4', 'py-1');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
     expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'false');
-    // The selected filter sits on the raised bubble; the rest have no fill of their own.
-    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-raised', 'shadow-raised');
+    // The selection rides the bottom nav's raised bubble in the accent tint, with an
+    // `accent-tint-ink` label; the rest are outlined pills on the page.
+    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-tint', 'shadow-raised');
+    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-accent-tint-ink');
     expect(bubbleIn(getFilterButton('sent'))).toBeNull();
-    expect(getFilterButton('sent').className).not.toMatch(/(^|\s)bg-/);
+    expect(getFilterButton('sent')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
   });
 
   describe('reduced motion', () => {
@@ -229,6 +294,20 @@ describe('AllHistory', () => {
       block: 'nearest',
       inline: 'nearest'
     });
+  });
+
+  it('lands on Pending from a repeat link after the user picked another filter', () => {
+    mockLocationSearch.value = '?filter=pending';
+    const { rerender } = render(<AllHistory />);
+    expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(getFilterButton('all'));
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
+
+    mockLocationSearch.value = '?filter=pending';
+    rerender(<AllHistory />);
+    expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+    expect(getHistory().getAttribute('data-filter')).toBe('pending');
   });
 
   it('scrolls nothing on mount', () => {
@@ -375,5 +454,197 @@ describe('AllHistory', () => {
       expect(telemetryPayload()).not.toContain('prog-42');
       expect(telemetryPayload()).not.toContain('3');
     });
+
+    it('completes the flow when the grouped view has loaded', () => {
+      localStorage.setItem('activity_view_setting', 'groups');
+      render(<AllHistory />);
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('grouped-history-loaded'));
+
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the view switcher', () => {
+    const openMenu = () => fireEvent.click(screen.getByTestId('activity-view-button'));
+
+    it('keeps the menu closed until the header action opens it', () => {
+      render(<AllHistory />);
+      expect(screen.queryByTestId('activity-view-menu')).toBeNull();
+
+      openMenu();
+
+      const menu = screen.getByTestId('activity-view-menu');
+      expect(menu).toHaveAttribute('role', 'dialog');
+      expect(menu).toHaveAttribute('aria-label', 'activityViewOptions');
+      expect(screen.getByTestId('activity-view-button')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('offers the two views as radios, with List chosen by default', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      expect(screen.getByTestId('activity-view-list')).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByTestId('activity-view-groups')).toHaveAttribute('aria-checked', 'false');
+      expect(screen.getByRole('radiogroup', { name: 'activityView' })).toBeTruthy();
+    });
+
+    it('marks each view with the shared selection mark', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      const mark = (view: string) =>
+        screen.getByTestId(`activity-view-${view}`).querySelector('[data-slot="checkbox-indicator"]');
+      expect(mark('list')).toHaveAttribute('data-state', 'checked');
+      expect(mark('groups')).toHaveAttribute('data-state', 'unchecked');
+    });
+
+    it('holds the two views and nothing else: no filters, no divider', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      const menu = screen.getByTestId('activity-view-menu');
+      // One radio group in the panel, and exactly two radios in it.
+      expect(within(menu).getAllByRole('radiogroup')).toHaveLength(1);
+      expect(within(menu).getAllByRole('radio')).toHaveLength(2);
+      for (const id of ['all', 'pending', 'sent', 'received', 'faucet']) {
+        expect(screen.queryByTestId(`activity-filter-${id}`)).toBeNull();
+      }
+    });
+
+    it('switches to the grouped view, which replaces the feed and hides the filter row', async () => {
+      render(<AllHistory />);
+      openMenu();
+
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+      expect(screen.queryByTestId('history')).toBeNull();
+      expect(screen.queryByRole('radiogroup', { name: 'activityFilters' })).toBeNull();
+      expect(hapticSelection).toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+    });
+
+    it('passes the search query to the grouped view, and no filter at all', () => {
+      render(<AllHistory />);
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
+      fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'usdc' } });
+
+      const grouped = screen.getByTestId('grouped-history');
+      expect(grouped.getAttribute('data-search-query')).toBe('usdc');
+      // Grouping by counterparty is what this view narrows by: a filter with no visible control
+      // saying so would be an invisible narrowing.
+      expect(grouped.getAttribute('data-filter')).toBe('');
+    });
+
+    it("keeps the feed's own filter choice while the user is away in Groups", async () => {
+      render(<AllHistory />);
+      fireEvent.click(getFilterButton('sent'));
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-list'));
+
+      expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'true');
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+    });
+
+    it('ignores a tap on the view that is already chosen', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      fireEvent.click(screen.getByTestId('activity-view-list'));
+
+      expect(hapticSelection).not.toHaveBeenCalled();
+      expect(screen.getByTestId('activity-view-menu')).toBeTruthy();
+      expect(screen.getByTestId('history')).toBeTruthy();
+    });
+
+    it('remembers the chosen view for the next visit', () => {
+      const first = render(<AllHistory />);
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+      first.unmount();
+
+      render(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+      expect(screen.queryByTestId('history')).toBeNull();
+    });
+
+    it('opens in the grouped view when that is what was stored', () => {
+      localStorage.setItem('activity_view_setting', 'groups');
+      render(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+    });
+
+    it('closes on Escape and on a tap outside, leaving the view alone', async () => {
+      render(<AllHistory />);
+      openMenu();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+      expect(screen.getByTestId('history')).toBeTruthy();
+
+      openMenu();
+      fireEvent.pointerDown(screen.getByTestId('history'));
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+      expect(screen.getByTestId('history')).toBeTruthy();
+    });
+
+    it('settles the menu instantly under reduced motion', async () => {
+      mockReducedMotion.value = true;
+      render(<AllHistory />);
+      openMenu();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('activity-view-menu').style.transform).toBe('none');
+        expect(screen.getByTestId('activity-view-menu').style.opacity).toBe('1');
+      });
+    });
+  });
+});
+
+describe('AllHistory — opened at a filter', () => {
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  beforeEach(() => {
+    localStorage.clear();
+    HTMLElement.prototype.scrollIntoView = jest.fn();
+  });
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+    mockLocationSearch.value = '';
+  });
+
+  it('opens on the Pending filter when the link asked for it', () => {
+    mockLocationSearch.value = '?filter=pending';
+    render(<AllHistory />);
+
+    expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
+    expect(screen.getByTestId('history')).toHaveAttribute('data-filter', 'pending');
+  });
+
+  it('ignores a filter it does not have, rather than showing an empty list', () => {
+    mockLocationSearch.value = '?filter=nonsense';
+    render(<AllHistory />);
+
+    expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
+  });
+
+  it('follows a later link, because the tab stays mounted under the others', () => {
+    const { rerender } = render(<AllHistory />);
+    expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
+
+    mockLocationSearch.value = '?filter=pending';
+    rerender(<AllHistory />);
+    expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
   });
 });

@@ -74,9 +74,9 @@ export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, className })
             {item.taglineKey ? t(item.taglineKey) : item.tagline}
           </span>
         </span>
-        <Pill tone="selected" className="shrink-0">
-          {t('exploreOpen')}
-        </Pill>
+        {/* The card is the tap target, so this reads as its text action rather than a second
+            button drawn inside one. */}
+        <span className="shrink-0 text-action text-accent-tint-ink">{t('exploreOpen')}</span>
       </span>
     </motion.button>
   );

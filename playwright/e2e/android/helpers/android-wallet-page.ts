@@ -239,13 +239,14 @@ export class AndroidWalletPage implements WalletPage {
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
-    // Claimable notes live on their own /pending-notes page (mounts the claim UI
+    // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
+    // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/pending-notes');
+    await this.navigateTo('/history?filter=pending');
     await sleep(3_000);
 
     await this.pollForCondition(
-      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+      `var btn = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
         `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
         `btn.click(); return true;`,
       60_000
@@ -299,7 +300,7 @@ export class AndroidWalletPage implements WalletPage {
     await pumpProveTimings();
 
     // Nothing authoritative has been read yet. The loop above polls the store IN
-    // PLACE, and for the whole of a claim this page sits on /pending-notes (or
+    // PLACE, and for the whole of a claim this page sits on the Pending list (or
     // the transaction-progress route), where no mounted screen refreshes
     // `st.balances` — that projection is written only by the `useAllBalances`
     // poll in Balance/Explore/TokenDetail. So the loop can report 0 for a
@@ -327,8 +328,8 @@ export class AndroidWalletPage implements WalletPage {
     const surface = await this.cdp
       .eval<string>(
         `var h = String(location.hash || ''); ` +
-          `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
-          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
+          `var claimAll = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
+          `return 'hash=' + h + ' acceptAllButton=' + (claimAll ? 'present' : 'absent');`
       )
       .catch(() => 'unreadable');
     await this.navigateHome();

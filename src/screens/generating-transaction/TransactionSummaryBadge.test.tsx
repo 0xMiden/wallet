@@ -7,7 +7,12 @@ import { act } from 'react-dom/test-utils';
 
 import { ITransaction } from 'lib/miden/db/types';
 
-import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
+import {
+  ArrowFill,
+  TransactionSummaryBadge,
+  arrowInkFor,
+  useTransactionSummaryBadgeContent
+} from './TransactionSummaryBadge';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key })
@@ -91,10 +96,10 @@ describe('TransactionSummaryBadge component', () => {
     act(() => root.unmount());
   });
 
-  // The disc carries white strokes, so it takes the ACTIVITY token rather than the brand action
-  // colour: the two are the same in light, but the action colour flips to a pastel in dark and the
-  // glyph would fall under 3:1 (design-tokens.test.ts pins the resolved value).
-  it.each([
+  // The disc takes the ACTIVITY token rather than the brand action colour: the two are the same in
+  // light, but the action colour flips to a pastel in dark (design-tokens.test.ts pins the resolved
+  // value), and the arrow's ink comes from `arrowInkFor` either way.
+  it.each<[ArrowFill | undefined, string]>([
     [undefined, 'var(--tx-sent)'],
     ['var(--tx-swap)', 'var(--tx-swap)']
   ])('fills the arrow circle in the activity token of its flow (%s)', async (fillForArrow, expected) => {
@@ -102,6 +107,19 @@ describe('TransactionSummaryBadge component', () => {
       <TransactionSummaryBadge lhs="a" rhs="b" fillForArrow={fillForArrow} />
     );
     expect(container.querySelector('rect')?.style.fill).toBe(expected);
+    act(() => root.unmount());
+  });
+
+  it.each<[ArrowFill, string]>([
+    ['#BA839F', '#191919'],
+    ['var(--action-swap)', 'var(--accent-swap-on)'],
+    ['#777487', '#ffffff']
+  ])('strokes the arrow on a %s fill in the ink derived from it', async (fillForArrow, ink) => {
+    const { container, root } = await renderInto(
+      <TransactionSummaryBadge lhs="a" rhs="b" fillForArrow={fillForArrow} />
+    );
+    const strokes = Array.from(container.querySelectorAll('path')).map(path => path.getAttribute('stroke'));
+    expect(strokes).toEqual([ink, ink]);
     act(() => root.unmount());
   });
 
@@ -176,13 +194,15 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
-  it('builds "{amount} {symbol} -> Consumed" for a consume with an amount', async () => {
+  it('builds "{amount} {symbol} -> Accepted" for a consume with an amount', async () => {
     mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
     const { container, root } = await renderProbe(
       baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1' })
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
-    expect(container.textContent).toContain('Consumed');
+    // The accept wording SendSuccess shows for the same transaction, not "Consumed".
+    expect(container.textContent).toContain('Accepted');
+    expect(container.textContent).not.toContain('Consumed');
     act(() => root.unmount());
   });
 
@@ -204,6 +224,66 @@ describe('useTransactionSummaryBadgeContent', () => {
       })
     );
     expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-earn)');
+    act(() => root.unmount());
+  });
+
+  // The arrow sits directly under the transaction's own icon on the detail page, so it takes
+  // that icon's colour. A claim from another account is the received green; a faucet mint is
+  // the dusty rose `TransactionIcon` gives it, which the Receive action green used to contradict
+  // on the very same screen.
+  it("paints an ordinary claim's arrow with the received green", async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1', secondaryAccountId: 'someone-else' })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
+    act(() => root.unmount());
+  });
+
+  it("paints a faucet mint's arrow with the faucet rose its icon carries", async () => {
+    mockNativeAssetId = 'faucet-native';
+    mockState.assetsMetadata = { 'faucet-native': { symbol: 'MIDEN', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 7n,
+        faucetId: 'faucet-native',
+        // The faucet minted it and sent it to itself's owner: sender IS the faucet.
+        secondaryAccountId: 'faucet-native'
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('#BA839F');
+    act(() => root.unmount());
+  });
+
+  it("paints a bridge-in claim's arrow with the bridge slate its Activity row wears", async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 7n,
+        faucetId: 'faucet-1',
+        secondaryAccountId: 'bridge',
+        extraInputs: { bridgeIn: { provider: 'agglayer' } }
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('#777487');
+    act(() => root.unmount());
+  });
+
+  // Before discovery lands the wallet cannot tell a faucet mint from any other claim, so it
+  // reads as the ordinary one rather than guessing the rose.
+  it('leaves a claim green while the native faucet id is still unknown', async () => {
+    mockNativeAssetId = null;
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 7n,
+        faucetId: 'faucet-native',
+        secondaryAccountId: 'faucet-native'
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-received)');
     act(() => root.unmount());
   });
 
@@ -433,5 +513,27 @@ describe('the badge paints no retired activity hue of its own', () => {
 
   it.each(['#91ACC1', '#BEACD2', '#99AC94', '#CCA4B8'])('carries no retired hue (%s)', hex => {
     expect(source).not.toContain(hex);
+  });
+});
+
+// C-24: the two spellings F-054 named as unrecognised - the faucet rose's var() form and the
+// accent alias a swap badge can be given - must map to a real ink, not the white fallback.
+describe('arrowInkFor', () => {
+  it('reads the faucet rose var() as the same ink as its hex spelling', () => {
+    expect(arrowInkFor('var(--tx-faucet)')).toBe('#191919');
+  });
+
+  it("reads the swap accent alias as the swap flow's on-colour", () => {
+    expect(arrowInkFor('var(--accent-swap)')).toBe('var(--accent-swap-on)');
+  });
+
+  it('reads the faucet rose in the exact spelling TRANSACTION_COLORS uses', () => {
+    expect(arrowInkFor('#BA839F')).toBe('#191919');
+  });
+
+  it('refuses at compile time a fill that has no ink', () => {
+    // @ts-expect-error - a fill with no ARROW_INK entry is not an ArrowFill, so yarn ts fails if the prop accepts it
+    const badge = <TransactionSummaryBadge lhs="a" rhs="b" fillForArrow="var(--unknown)" />;
+    expect(badge.props.fillForArrow).toBe('var(--unknown)');
   });
 });

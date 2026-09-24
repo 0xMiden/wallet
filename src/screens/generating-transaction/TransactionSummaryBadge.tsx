@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -27,38 +28,79 @@ export interface TransactionSummaryBadgeProps {
    * when opening an earn position.
    */
   separator?: ReactNode;
-  /** Tints the default horizontal arrow. Ignored when `separator` is provided. */
-  fillForArrow?: string;
+  /**
+   * Tints the default horizontal arrow with the transaction's own Activity colour (send by default, received green
+   * or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent. Ignored when
+   * `separator` is provided.
+   */
+  fillForArrow?: ArrowFill;
 }
 
 export interface TransactionSummaryBadgeContent {
   lhs: ReactNode;
   rhs: ReactNode;
   separator?: ReactNode;
-  fillForArrow?: string;
+  fillForArrow?: ArrowFill;
 }
 
-/**
- * Default separator - the horizontal arrow, tinted by `fill`. The disc carries white strokes, so
- * its colour owes WCAG 1.4.11's 3:1 like every other activity surface. It reads the shared
- * constant rather than a literal: this was a third copy of the send hue and it was left behind
- * when the activity tokens moved, so the detail hero showed one transaction in two shades.
- */
-const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--tx-sent)' }} />
-    <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
-    <path
-      d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
-      stroke="white"
-      stroke-width="2.20995"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-);
+export const ARROW_INK = {
+  'var(--action-send)': 'var(--accent-send-on)',
+  'var(--tx-sent)': 'var(--accent-send-on)',
+  'var(--accent-send)': 'var(--accent-send-on)',
+  'var(--action-receive)': 'var(--accent-receive-on)',
+  'var(--tx-received)': 'var(--accent-receive-on)',
+  'var(--accent-receive)': 'var(--accent-receive-on)',
+  'var(--action-swap)': 'var(--accent-swap-on)',
+  'var(--tx-swap)': 'var(--accent-swap-on)',
+  'var(--accent-swap)': 'var(--accent-swap-on)',
+  'var(--tx-faucet)': '#191919',
+  '#BA839F': '#191919',
+  '#ba839f': '#191919',
+  // Explicit, not merely the fallback: the bridge/guardian slate and the earn action colour all
+  // hold white at 4.5:1 or better, but a spelling this table has not seen must not read as "safe"
+  // by accident.
+  '#777487': '#ffffff',
+  'var(--tx-earn)': '#ffffff',
+  'var(--action-earn)': '#ffffff',
+  'var(--accent-earn)': '#ffffff'
+} as const satisfies Record<string, string>;
 
-/** Separator used when opening an earn position — an up "↑" arrow in the Earn action colour. */
+/** A fill the badge has an arrow ink for; any other fill is a compile error, not an unreadable arrow. */
+export type ArrowFill = keyof typeof ARROW_INK;
+
+/**
+ * The arrow's ink for a badge fill. Derived here rather than passed beside the fill so every caller,
+ * present and future, gets a readable arrow: every alias of send, receive and swap maps to that
+ * flow's on-colour, and the faucet rose and the slate fills map to their fixed ink. A fill this
+ * table has not seen does not compile.
+ */
+export const arrowInkFor = (fill: ArrowFill = 'var(--tx-sent)'): string => ARROW_INK[fill];
+
+/**
+ * Default separator - the horizontal arrow, tinted by `fill` and stroked in `arrowInkFor(fill)`. It
+ * defaults to the send activity token rather than a literal: this was a third copy of the send hue
+ * and it was left behind when the activity tokens moved, so the detail hero showed one transaction
+ * in two shades.
+ */
+const HorizontalArrowGlyph: FC<{ fill?: ArrowFill }> = ({ fill }) => {
+  const ink = arrowInkFor(fill);
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--tx-sent)' }} />
+      <path d="M6.22266 12.0889H16.5071" stroke={ink} stroke-width="2.20995" stroke-linecap="round" />
+      <path
+        d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
+        stroke={ink}
+        stroke-width="2.20995"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+};
+
+/** Separator used when opening an earn position: an up "↑" arrow in the Earn action colour, whose slate
+ * holds white at 4.58:1 in both themes. */
 export const EarnDepositArrowGlyph: FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect width="24" height="24" rx="12" style={{ fill: 'var(--tx-earn)' }} />
@@ -174,14 +216,24 @@ export const resolveSwapAsset = (
 /** USDC fallback decimals for an earn deposit when the faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
 const EARN_USDC_DECIMALS = 6;
 
+/** One faucet of a claim, with the asset and quantity that faucet contributed. */
+export interface ConsumeAssetPart {
+  /** The faucet that minted this asset — an account id, linkable on the explorer. */
+  faucetId: string;
+  /** `"20 A"`, or the symbol alone when the faucet has no trustworthy scale. */
+  label: string;
+}
+
 /**
- * Format a claim's assets as `["20 A", "10 B"]`, one entry per faucet swept up.
+ * A claim's assets, one entry per faucet swept up, each carrying the faucet that
+ * minted it and its formatted `"20 A"` label.
  *
- * Shared by the in-progress badge and the success receipt because they render
- * the SAME claim seconds apart on the SAME screen: the receipt replaces the
- * badge once the row completes. Deriving them separately is what let the receipt
- * silently drop every secondary asset and label an unresolved faucet MIDEN while
- * the badge called it Unknown.
+ * Shared by the in-progress badge, the success receipt and the transaction
+ * detail page because all three render the SAME claim: the receipt replaces the
+ * badge once the row completes, and the detail page is where the user opens it
+ * afterwards. Deriving them separately is what let the receipt silently drop
+ * every secondary asset and label an unresolved faucet MIDEN while the badge
+ * called it Unknown.
  *
  * A batch claim sums per faucet (`assetTotals`); legacy rows without it fall
  * back to the first faucet's `amount`/`faucetId`. Empty when the row carries no
@@ -195,11 +247,11 @@ const EARN_USDC_DECIMALS = 6;
  * which re-renders when the id arrives. `null` means "not yet known", so the
  * native branch simply does not match until it is.
  */
-export const formatConsumeAssetParts = (
+export const consumeAssetBreakdown = (
   transaction: ITransaction,
   assetsMetadata: Record<string, AssetMetadata> | undefined,
   nativeFaucetId: string | null
-): string[] => {
+): ConsumeAssetPart[] => {
   const totals =
     transaction.assetTotals && transaction.assetTotals.length > 0
       ? transaction.assetTotals
@@ -223,11 +275,19 @@ export const formatConsumeAssetParts = (
     // withhold the quantity until real metadata resolves. Checked on the
     // resolved record rather than the placeholder's identity because the
     // placeholder is cached, and a stored copy is never `===` the constant.
-    return hasKnownScale(resolved)
+    const label = hasKnownScale(resolved)
       ? `${formatAmount(total.amount, resolved.decimals)} ${resolved.symbol}`
       : resolved.symbol;
+    return { faucetId: total.faucetId, label };
   });
 };
+
+/** The same claim as `["20 A", "10 B"]`, for the one-line badge and receipt summaries. */
+export const formatConsumeAssetParts = (
+  transaction: ITransaction,
+  assetsMetadata: Record<string, AssetMetadata> | undefined,
+  nativeFaucetId: string | null
+): string[] => consumeAssetBreakdown(transaction, assetsMetadata, nativeFaucetId).map(part => part.label);
 
 /**
  * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
@@ -246,7 +306,7 @@ export const earnMarketLabel = (marketUid: string): string | undefined => {
  *   send          →  {amount} {symbol}        ->  {recipient}
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
- *   consume       →  {amount} {symbol}        ->  Consumed
+ *   consume       →  {amount} {symbol}        ->  Accepted
  *
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
@@ -268,8 +328,10 @@ export const useTransactionSummaryBadgeContent = (
 
       return {
         lhs: parts.join(', '),
-        rhs: t('consumed', { defaultValue: 'Consumed' }),
-        fillForArrow: 'var(--tx-received)'
+        rhs: t('accepted', { defaultValue: 'Accepted' }),
+        // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
+        // dusty rose on this very page (a bridge-in's the slate), and the arrow sat green under it.
+        fillForArrow: claimAccentColor(transaction, nativeFaucetId)
       };
     }
 
@@ -305,8 +367,8 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
         rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
-        // The disc carries white strokes, so it takes the activity token, which clears 3:1 in both
-        // themes, rather than the brand action colour, which does not in dark.
+        // The activity token, matching the swap row's icon above it, rather than the brand action
+        // colour; `arrowInkFor` gives either spelling a stroke that clears 3:1 in both themes.
         fillForArrow: 'var(--tx-swap)'
       };
     }
