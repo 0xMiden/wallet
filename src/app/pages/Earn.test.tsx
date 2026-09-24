@@ -39,8 +39,7 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-// The trailing chevron on each vault row is the only icon on the page. Render a
-// probe that surfaces the requested icon name so we can prove the wiring.
+// Render every icon as a probe with its name, so a test can see which icons a surface draws.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, fill }: { name: string; fill?: string }) => (
     <span data-testid="chevron-icon" data-name={name} data-fill={fill} />
@@ -219,6 +218,10 @@ describe('Earn page', () => {
       .getAllByRole('button')
       .filter(button => button.textContent !== 'earnSeeAll');
     expect(cards).toHaveLength(positions.length);
+    cards.forEach(card => {
+      expect(card).toHaveClass('bg-page', 'border', 'border-hairline');
+      expect(card).not.toHaveClass('bg-fill');
+    });
 
     const first = positions[0]!;
     const firstCard = cards[0]!;
@@ -278,6 +281,11 @@ describe('Earn page', () => {
     const section = vaultsSection();
     const rows = within(section).getAllByRole('button');
     expect(rows).toHaveLength(vaults.length);
+    rows.forEach(row => {
+      expect(row).toHaveClass('bg-page', 'border', 'border-hairline');
+      expect(row).not.toHaveClass('bg-fill');
+      expect(within(row).queryByTestId('chevron-icon')).toBeNull();
+    });
 
     const first = vaults[0]!;
     const firstRow = rows[0]!;
