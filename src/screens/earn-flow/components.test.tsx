@@ -121,8 +121,9 @@ describe('EarnFlowHeader', () => {
     expect(header).toHaveClass('h-15');
     // The page margin sits on the header block, so the rule under the row is inset with it.
     expect(header.parentElement).toHaveClass('px-4', 'shrink-0');
-    // No bespoke divider or 26px title: the page header draws neither.
-    expect(header).not.toHaveClass('border-b');
+    // No divider beyond PageHeader's own rule, and no 26px title. The caller's class lands on the
+    // header block, so that is where a bespoke border would appear.
+    expect(header.parentElement).not.toHaveClass('border-b');
     expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
   });
 
