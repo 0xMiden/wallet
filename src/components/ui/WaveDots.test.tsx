@@ -21,17 +21,18 @@ jest.mock('framer-motion', () => {
   };
 });
 
-// Distinct token values, so the dots can only carry them by reading the shared tokens.
-const mockReducedTransition = { duration: 0.0042 };
+// Distinct token values, so the dots can only carry them by reading the shared tokens. Built inside the
+// factory: jest.mock is hoisted above the module-scope consts, so the factory cannot read one.
 jest.mock('lib/animation', () => {
   const actual = jest.requireActual('lib/animation');
   return {
     ...actual,
     durations: { ...actual.durations, extraSlow: 9, fast: 7 },
     easings: { ...actual.easings, easeInOut: [0.1, 0.2, 0.3, 0.4] },
-    reducedMotionTransition: mockReducedTransition
+    reducedMotionTransition: { duration: 0.0042 }
   };
 });
+const mockedReducedTransition = jest.requireMock('lib/animation').reducedMotionTransition;
 
 beforeEach(() => {
   mockReduce.value = false;
@@ -62,7 +63,7 @@ it('holds still under reduced motion, on the shared reduced-motion transition', 
   render(<WaveDots label="Calculating" />);
   mockDots.forEach(dot => {
     expect(dot.animate).toEqual({ y: 0 });
-    expect(dot.transition).toBe(mockReducedTransition);
+    expect(dot.transition).toBe(mockedReducedTransition);
   });
 });
 
