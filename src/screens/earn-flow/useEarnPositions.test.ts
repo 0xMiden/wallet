@@ -93,6 +93,26 @@ describe('useEarnPositions', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
+  it('reports a per-owner positions error as error only, never as a request failure', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: liveResult, isLoading: false });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.vaults).toHaveLength(1);
+    expect(result.current.error).toBe('owner unavailable');
+    // Present and unset: the hook exposes loadError, and an owner's failure is not a request failure.
+    expect(result.current).toHaveProperty('loadError', undefined);
+  });
+
+  it('reports a request failure as both loadError and error', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined, isLoading: false, error: new Error('owner lookup failed') });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.loadError).toBe('owner lookup failed');
+    expect(result.current.error).toBe('owner lookup failed');
+  });
+
   it('returns stable empty display data before the first response', () => {
     mockUseRetryableSWR.mockReturnValue({ data: undefined, isLoading: true });
 
@@ -107,6 +127,7 @@ describe('useEarnPositions', () => {
       estimatedRewards: '+$0.00'
     });
     expect(result.current.error).toBeUndefined();
+    expect(result.current.loadError).toBeUndefined();
     expect(result.current.isLoading).toBe(true);
   });
 

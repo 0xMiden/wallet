@@ -35,7 +35,10 @@ export function useEarnPositions(): {
   positions: EarnPosition[];
   vaults: EarnVault[];
   isLoading: boolean;
+  /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;
+  /** The request's failure only. A vault read can succeed while one owner's positions fail. */
+  loadError?: string;
   /** Force an immediate re-fetch (backs the error-state Retry). */
   refetch: () => void;
 } {
@@ -57,23 +60,22 @@ export function useEarnPositions(): {
     { revalidateOnMount: true, refreshInterval: 10_000, dedupingInterval: 3_000 }
   );
 
-  return useMemo(
-    () => ({
+  return useMemo(() => {
+    const loadError = swrError ? (swrError instanceof Error ? swrError.message : String(swrError)) : undefined;
+    return {
       positions: (data?.positions ?? []).map(mapEarnPosition),
       vaults: (data?.vaults ?? []).map(mapEarnVault),
       summary: buildEarnSummary(data?.positions ?? []),
       isLoading,
-      // Surface a load failure so the UI can show "couldn't load — retry" instead
+      // Surface a load failure so the UI can show "couldn't load - retry" instead
       // of a misleading empty "$0 / no positions". Prefer the positions service's
       // own per-owner error; fall back to an SWR-level throw (e.g. the owner
       // lookup failed) so no failure mode reads as "you have nothing".
-      error:
-        data?.errors[0]?.error ??
-        (swrError ? (swrError instanceof Error ? swrError.message : String(swrError)) : undefined),
+      error: data?.errors[0]?.error ?? loadError,
+      loadError,
       refetch: () => {
         void mutate();
       }
-    }),
-    [data, isLoading, swrError, mutate]
-  );
+    };
+  }, [data, isLoading, swrError, mutate]);
 }

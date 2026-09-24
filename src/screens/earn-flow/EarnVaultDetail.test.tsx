@@ -23,7 +23,7 @@ import EarnVaultDetail from './EarnVaultDetail';
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
 
 jest.mock('react-i18next', () => ({
@@ -300,7 +300,7 @@ describe('EarnVaultDetail after a failed load', () => {
   });
 
   it('says the load failed, with Retry, instead of drawing a placeholder vault', () => {
-    mockLoadState = { isLoading: false, error: 'boom' };
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
@@ -311,8 +311,17 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
+  it("shows no notice over a found vault when only one owner's positions failed", () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
+  });
+
   it('keeps a vault it already has, under the notice', () => {
-    mockLoadState = { isLoading: false, error: 'boom' };
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     render(<EarnVaultDetail vaultId="v-audited" />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
@@ -322,7 +331,7 @@ describe('EarnVaultDetail after a failed load', () => {
   });
 
   it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom' };
+    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -342,8 +351,8 @@ describe('EarnVaultDetail after a failed load', () => {
   });
 });
 
-const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string }]> = [
-  ['a failed load', { isLoading: false, error: 'boom' }],
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string; loadError?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom', loadError: 'boom' }],
   ['a load in flight', { isLoading: true }],
   ['a settled load without it', { isLoading: false }]
 ];

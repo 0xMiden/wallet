@@ -247,6 +247,13 @@ describe('EarnWithdrawReview after a failed load', () => {
     mockLoadState = { isLoading: false };
   });
 
+  it('says a per-owner positions failure too, which is not a request failure', () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+  });
+
   it('says the load failed, with Retry, instead of offering to withdraw a placeholder position', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnWithdrawReview positionId="unknown" />);

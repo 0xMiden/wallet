@@ -129,6 +129,21 @@ describe('Earn page', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
+  it('says a per-owner positions failure too, which is not a request failure', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults,
+      isLoading: false,
+      error: 'owner unavailable',
+      loadError: undefined,
+      refetch: jest.fn()
+    });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+  });
+
   it('keeps the failure said, and the summary gone, while a retry is loading', () => {
     // SWR keeps the error until a load succeeds and reports the retry as isLoading: the failed state
     // must not lift and flash "$0" back.

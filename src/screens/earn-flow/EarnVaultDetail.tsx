@@ -31,10 +31,10 @@ interface EarnVaultDetailProps {
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
   const { t } = useTranslation();
-  const { vaults, isLoading, error, refetch } = useEarnPositions();
+  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">

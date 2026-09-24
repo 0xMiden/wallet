@@ -387,6 +387,13 @@ describe('EarnPositionDetail after a failed load', () => {
     mockLoadState = { isLoading: false };
   });
 
+  it('says a per-owner positions failure too, which is not a request failure', () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+  });
+
   it('says the load failed, with Retry, instead of drawing a placeholder position', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     renderDetail('no-such-position');

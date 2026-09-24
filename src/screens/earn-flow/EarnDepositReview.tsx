@@ -50,10 +50,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const { vaults, isLoading, error, refetch } = useEarnPositions();
+  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
 
   const { t } = useTranslation();
   const account = useAccount();

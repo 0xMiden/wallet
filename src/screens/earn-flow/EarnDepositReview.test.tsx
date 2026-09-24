@@ -13,7 +13,7 @@ import EarnDepositReview from './EarnDepositReview';
 //     returned string so we can assert the interpolated route/reward values
 //     (mirrors the swap-flow ReviewSwap sibling test).
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
 
 jest.mock('react-i18next', () => ({
@@ -503,7 +503,7 @@ describe('EarnDepositReview after a failed load', () => {
   });
 
   it('says the load failed, with Retry, instead of offering to open a position in a placeholder vault', () => {
-    mockLoadState = { isLoading: false, error: 'boom' };
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     renderReview('no-such-vault', '?amount=10');
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
@@ -514,7 +514,7 @@ describe('EarnDepositReview after a failed load', () => {
   });
 
   it('keeps the failure said while a retry is loading, with no vault in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom' };
+    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
     renderReview('no-such-vault', '?amount=10');
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -530,8 +530,16 @@ describe('EarnDepositReview after a failed load', () => {
     expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();
   });
 
+  it("shows no notice over a found vault when only one owner's positions failed", () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    renderReview(EARN_DATA.vaults[1]!.id, '?amount=10');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeInTheDocument();
+  });
+
   it('keeps a vault it already has, under the notice', () => {
-    mockLoadState = { isLoading: false, error: 'boom' };
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     renderReview(EARN_DATA.vaults[1]!.id, '?amount=10');
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');

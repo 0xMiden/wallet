@@ -10,7 +10,7 @@ import EarnDepositAmount from './EarnDepositAmount';
 // `lib/woozie` reaches for browser history state on import; stub `navigate`
 // so we can assert the deposit-review push without running the real router.
 // A load that did not fully succeed is driven per test; the default is a clean load.
-let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
@@ -246,7 +246,7 @@ describe('EarnDepositAmount after a failed load', () => {
   });
 
   it('says the load failed, with Retry, instead of taking an amount for a placeholder vault', () => {
-    mockLoadState = { isLoading: false, error: 'boom' };
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
@@ -257,7 +257,7 @@ describe('EarnDepositAmount after a failed load', () => {
   });
 
   it('keeps the failure said while a retry is loading, with no vault in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom' };
+    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -272,8 +272,16 @@ describe('EarnDepositAmount after a failed load', () => {
     expect(screen.queryByTestId('select-amount')).toBeNull();
   });
 
+  it("shows no notice over a found vault when only one owner's positions failed", () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('select-amount')).toBeInTheDocument();
+  });
+
   it('keeps a vault it already has, under the notice', () => {
-    mockLoadState = { isLoading: false, error: 'boom' };
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');

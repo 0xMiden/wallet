@@ -257,6 +257,22 @@ describe('EarnPositions', () => {
       expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
     });
 
+    it('says a per-owner positions failure too, which is not a request failure', () => {
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: [],
+        vaults: EARN_DATA.vaults,
+        isLoading: false,
+        error: 'owner unavailable',
+        loadError: undefined,
+        refetch: mockRefetch
+      });
+
+      render(<EarnPositions />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    });
+
     it('refetches when Retry is pressed', () => {
       render(<EarnPositions />);
 
