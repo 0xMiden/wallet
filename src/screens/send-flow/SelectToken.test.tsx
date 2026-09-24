@@ -83,7 +83,8 @@ jest.mock('components/TokenLogo', () => ({
 // `lib/prices` reaches for the live price feed; the fiat column only needs a
 // deterministic price per symbol here.
 jest.mock('lib/prices', () => ({
-  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 0, percentageChange24h: 0 })
+  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 1, percentageChange24h: 0 }),
+  listedFiat: jest.requireActual('lib/prices/binance').listedFiat
 }));
 
 type Balance = {
@@ -270,6 +271,7 @@ describe('SelectTokenDrawer', () => {
   });
 
   it('draws each row like the home assets list: 36px logo, name, balance and fiat value', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
     setBalances([BTC]);
     renderDrawer();
 
@@ -279,6 +281,14 @@ describe('SelectTokenDrawer', () => {
     expect(within(row).getByText('Bitcoin')).toBeInTheDocument();
     expect(within(row).getByText('1.50 BTC')).toBeInTheDocument();
     expect(within(row).getByText('$3.00')).toBeInTheDocument();
+  });
+
+  it('shows no fiat for a token the price feed does not list, rather than a $1-default figure', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
+    setBalances([ETH]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
   });
 
   it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {

@@ -7,7 +7,9 @@ import { AssetListItem } from 'components/ui/AssetListItem';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
+import { listedFiat } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -17,6 +19,15 @@ export interface SelectSwapTokenDrawerProps {
   /** Faucet id currently chosen for this side, rendered as selected. */
   currentFaucetId?: string;
   onSelect: (token: SwapToken) => void;
+}
+
+/** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
+function normalizedFaucetId(faucetId: string): string {
+  try {
+    return getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
+  } catch {
+    return faucetId;
+  }
 }
 
 /**
@@ -29,10 +40,11 @@ export interface SelectSwapTokenDrawerProps {
  * (`SWAP_TOKENS`), and a token the account holds nothing of is still listed with a zero balance —
  * the list is the pair chooser, not an inventory.
  *
- * Balances come from the same path home and the send picker use, `useAllBalances` keyed by the
- * faucet id, so the number here is the one the rest of the wallet shows. Fiat is rendered only
- * where the price feed actually has that symbol: `getTokenPrice`'s $1 fallback would turn every
- * unlisted DEX token into a dollar figure equal to its token count.
+ * Balances come from the same path home and the send picker use, `useAllBalances`, keyed by the
+ * SDK's bech32 form of the faucet id, so a registry id is normalized before the match (with the raw
+ * id as a fallback), as SwapManager does. A token is priced as the asset it stands for (its
+ * logoSymbol: IETH at ETH), and only where the feed lists it (`listedFiat`, shared with the send
+ * picker): IMIDEN shows no fiat.
  *
  * The chosen side carries the design system's round check in the swap flow's purple, and
  * `AssetListItem` fires the tap haptic itself.
@@ -64,16 +76,14 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
           <div className="no-scrollbar min-h-0 overflow-y-auto">
             <div className="flex flex-col divide-y divide-rule-default">
               {getSwapTokens().map(token => {
-                const held = balanceData.find(b => b.tokenId === token.faucetId);
+                const balanceKey = normalizedFaucetId(token.faucetId);
+                const held = balanceData.find(b => b.tokenId === balanceKey || b.tokenId === token.faucetId);
                 // An unheld token is a zero of a registry token, whose decimals we know; a held one
                 // is only a quantity if its own metadata carries real decimals.
                 const scaleIsKnown = held ? hasKnownScale(held.metadata) : true;
                 const balance = held?.balance ?? 0;
-                const price = tokenPrices[token.symbol]?.price;
-                const fiat =
-                  scaleIsKnown && price !== undefined && balance > 0
-                    ? `$${toAdaptiveFixed(balance * price)}`
-                    : undefined;
+                // A swap token is priced as the asset it stands for (IETH at ETH): its logoSymbol.
+                const fiat = listedFiat(tokenPrices, token.logoSymbol, balance, scaleIsKnown);
 
                 return (
                   <AssetListItem

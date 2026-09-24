@@ -46,6 +46,12 @@ jest.mock('lib/miden/front', () => ({
 // `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
 // through a selector, so run the selector against a controllable slice.
 let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
+// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountIdStringToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => `bech32:${id}`
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
@@ -196,9 +202,16 @@ describe('SelectSwapTokenDrawer', () => {
     });
   });
 
+  it('finds a held balance keyed by the normalized faucet id', () => {
+    setBalances([{ tokenId: 'bech32:fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
+    renderDrawer();
+
+    expect(within(tokenButton('IETH')).getByText('1.25 IETH')).toBeInTheDocument();
+  });
+
   describe('fiat value', () => {
-    it('renders the fiat value on the right when the feed prices that symbol', () => {
-      mockStoreState = { tokenPrices: { IETH: { price: 2 } } };
+    it('prices a swap token by the asset it stands for: IETH at the ETH price', () => {
+      mockStoreState = { tokenPrices: { ETH: { price: 2 } } };
       setBalances([{ tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 1.25 }]);
       renderDrawer();
 
@@ -212,8 +225,16 @@ describe('SelectSwapTokenDrawer', () => {
       expect(within(tokenButton('IETH')).queryByText(/^\$/)).not.toBeInTheDocument();
     });
 
+    it('renders no fiat for IMIDEN, whose asset the feed does not list', () => {
+      mockStoreState = { tokenPrices: { ETH: { price: 2 }, MIDEN: undefined as unknown as { price: number } } };
+      setBalances([{ tokenId: 'fid-miden', metadata: { symbol: 'IMIDEN', decimals: 8 }, balance: 3 }]);
+      renderDrawer();
+
+      expect(within(tokenButton('IMIDEN')).queryByText(/^\$/)).not.toBeInTheDocument();
+    });
+
     it('never renders $0.00 for a priced token the account holds none of', () => {
-      mockStoreState = { tokenPrices: { IBTC: { price: 2 } } };
+      mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
       renderDrawer();
 
       expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
