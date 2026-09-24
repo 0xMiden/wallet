@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
@@ -199,6 +199,66 @@ jest.mock('./useEarnPositions', () => ({
           { label: 'B', value: 50 },
           { label: 'C', value: 50 }
         ]
+      },
+      // A `depositsUsd` pair for the animated-USD-figure test below: switching `positionId`
+      // between them changes the SAME AnimatedNumber's value (no remount), so the count travels.
+      {
+        id: 'pos-usd-a',
+        vaultId: 'vault-usd-a',
+        owner: '0xowner',
+        marketUid: 'DUMMY_LENDING',
+        chainId: '11155111',
+        underlyingAddress: '0xusdc',
+        withdrawable: '1234.5',
+        decimals: 6,
+        protocol: 'UsdProto',
+        asset: 'USDC',
+        network: 'Ethereum',
+        amount: '$1,234.50',
+        depositsUsd: 1234.5,
+        depositedAmount: '$1,234.50',
+        rewards: '+$1.00',
+        age: '1d',
+        activeDuration: '1 day active',
+        apy: '5.00%',
+        dailyAverage: '+$0.10',
+        started: 'Jan 01',
+        yearlyEstimate: '+$61.73 / yr',
+        withdrawTime: '~10 sec instant',
+        route: 'Miden -> Usd (Ethereum)',
+        chartData: [
+          { label: 'A', value: 10 },
+          { label: 'B', value: 20 }
+        ]
+      },
+      {
+        id: 'pos-usd-b',
+        vaultId: 'vault-usd-b',
+        owner: '0xowner',
+        marketUid: 'DUMMY_LENDING',
+        chainId: '11155111',
+        underlyingAddress: '0xusdc',
+        withdrawable: '0.001234',
+        decimals: 6,
+        protocol: 'UsdProto',
+        asset: 'USDC',
+        network: 'Ethereum',
+        amount: '$0.0012',
+        depositsUsd: 0.001234,
+        depositedAmount: '$0.0012',
+        rewards: '+$0.00',
+        age: '1d',
+        activeDuration: '1 day active',
+        apy: '5.00%',
+        dailyAverage: '+$0.00',
+        started: 'Jan 01',
+        yearlyEstimate: '+$0.00 / yr',
+        withdrawTime: '~10 sec instant',
+        route: 'Miden -> Usd (Ethereum)',
+        chartData: [
+          { label: 'A', value: 10 },
+          { label: 'B', value: 20 }
+        ]
       }
     ],
     vaults: [],
@@ -380,5 +440,49 @@ describe('EarnPositionDetail', () => {
     const normal = renderDetail('pos-normal');
     expect(normal.getByTestId('area-chart')).toBeInTheDocument();
     expect(normal.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
+  });
+
+  describe('the deposited-USD figure across a count', () => {
+    // jsdom has no `matchMedia`; without it AnimatedNumber never travels (see AnimatedNumber.test.tsx).
+    function installMatchMedia() {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    }
+    function removeMatchMedia() {
+      Reflect.deleteProperty(window, 'matchMedia');
+    }
+
+    afterEach(() => removeMatchMedia());
+
+    it('keeps the destination decimal count through every frame (usdFormatterFor, not formatUsd)', async () => {
+      installMatchMedia();
+      const { rerender } = renderDetail('pos-usd-a');
+      const metricValue = () =>
+        screen.getAllByTestId('metric-card').find(card => card.getAttribute('data-label') === 'earnMetricDeposited')!;
+      expect(metricValue()).toHaveTextContent('$1,234.50');
+
+      // Switching `positionId` (not remounting `EarnPositionDetail`) changes the SAME
+      // AnimatedNumber's `value`, so it travels rather than mounting fresh. The destination,
+      // 0.001234, needs 4dp; a per-frame formatter (formatUsd) would read each frame's OWN
+      // magnitude and show 2dp while the count is still above $1 - only a formatter bound to
+      // the destination (usdFormatterFor) keeps 4dp for the whole trip.
+      rerender(<EarnPositionDetail positionId="pos-usd-b" />);
+
+      const node = metricValue();
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+      await act(() => new Promise(resolve => setTimeout(resolve, 700)));
+      observer.disconnect();
+
+      const midFrames = frames.filter(text => Number(text.replace(/[$,]/g, '')) > 1);
+      expect(midFrames.length).toBeGreaterThan(0);
+      midFrames.forEach(text => expect(text).toMatch(/\.\d{4}$/));
+
+      expect(metricValue()).toHaveTextContent('$0.0012');
+    });
   });
 });
