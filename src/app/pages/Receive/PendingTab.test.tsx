@@ -300,6 +300,14 @@ describe('PendingTab - claims take the receive colour', () => {
     expect(button).toHaveClass('text-accent-receive-ink');
     expect(button).not.toHaveClass('text-accent-primary');
   });
+
+  it('labels the pending total in the receive ink, not the brand', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')] });
+
+    const label = screen.getByText('totalPending');
+    expect(label).toHaveClass('text-accent-receive-ink');
+    expect(label).not.toHaveClass('text-primary-500');
+  });
 });
 
 describe('PendingTab - cache-first notes', () => {

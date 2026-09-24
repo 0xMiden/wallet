@@ -220,7 +220,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
         </div>
 
         <div className="mt-5 flex flex-col gap-1 font-heading">
-          <span className="text-sm font-bold text-primary-500 leading-none">{t('totalPending')}</span>
+          <span className="text-sm font-bold text-accent-receive-ink leading-none">{t('totalPending')}</span>
           <span className="font-heading text-5xl font-extrabold text-ink leading-none tracking-tight">
             {formatUsd(totals.totalUsd)}
           </span>
