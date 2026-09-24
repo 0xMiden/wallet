@@ -35,8 +35,8 @@ jest.mock('framer-motion', () => {
   };
 });
 
-// Pending (claimable) notes moved to their own `/pending-notes` page — see
-// Pending.test.tsx for the claim-flow coverage. Receive is now address-only.
+// Pending (claimable) notes live in the Activity tab's Pending filter - see
+// ActivityPendingHistory.test.tsx for the claim-flow coverage. Receive is address-only.
 
 // Echoes the interpolated values so a test can tell which network reached the copy.
 jest.mock('react-i18next', () => ({

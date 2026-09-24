@@ -130,8 +130,8 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
     // a decline the user backed out of is no decision at all.
     markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
   };
-  // Accepting everything listed: reading them all, then the one batch-claim path. Both the row
-  // beside Restore and the pinned CTA call this, so there is one definition of "Accept All".
+  // Accepting everything listed: reading them all, then the one batch-claim path. The Accept All
+  // button in the row beside Restore is its only caller.
   const acceptAll = () => {
     for (const note of claimableNotes) {
       markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
