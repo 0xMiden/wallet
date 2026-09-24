@@ -2,9 +2,52 @@ import React, { useRef } from 'react';
 
 import { act, render } from '@testing-library/react';
 
-import { springToLinearEasing, springs } from 'lib/animation';
+import { durations, easings, springToLinearEasing, springs } from 'lib/animation';
 
-import { useSlideOnReflow } from './useSlideOnReflow';
+type Hook = typeof import('./useSlideOnReflow').useSlideOnReflow;
+type Engine = 'linear' | 'no-linear' | 'no-supports';
+
+const originalCSS = window.CSS;
+const setEngine = (engine: Engine) => {
+  // A plain function, not jest.fn: afterEach's restoreAllMocks would strip a mock's implementation.
+  const calls: string[][] = [];
+  const supports = Object.assign(
+    (...args: string[]) => {
+      calls.push(args);
+      return engine === 'linear';
+    },
+    { calls }
+  );
+  Object.defineProperty(window, 'CSS', {
+    value: engine === 'no-supports' ? {} : { supports },
+    configurable: true,
+    writable: true
+  });
+  return supports;
+};
+
+/**
+ * The linear() predicate is computed once per module, and importing lib/animation already asks it
+ * (sheet.ts solves its curves at import), so each engine loads its own copy of the modules.
+ */
+const load = (engine: Engine) => {
+  const supports = setEngine(engine);
+  let hook!: Hook;
+  let predicate!: () => boolean;
+  jest.isolateModules(() => {
+    jest.doMock('react', () => React);
+    hook = require('./useSlideOnReflow').useSlideOnReflow;
+    predicate = require('lib/animation').supportsLinearEasing;
+  });
+  jest.dontMock('react');
+  return { hook, predicate, supports };
+};
+
+// jsdom has no CSS.supports; the default suite runs as an engine that parses linear().
+const useSlideOnReflow = load('linear').hook;
+afterAll(() => {
+  Object.defineProperty(window, 'CSS', { value: originalCSS, configurable: true, writable: true });
+});
 
 let reduceMotion = false;
 let mockIsMobile = true;
@@ -153,4 +196,49 @@ it("observes the element's border box, so a padding-only move reaches the slide"
   mockObserved.length = 0;
   const { getByText } = render(<Harness />);
   expect(mockObserved).toContainEqual({ target: getByText('cta'), box: 'border-box' });
+});
+
+// WebKit parses linear() only from Safari 17.2 and Element.animate throws on an easing it cannot
+// parse, so an older engine keeps the cubic-bezier slide.
+describe('on an engine without linear() easing', () => {
+  afterEach(() => setEngine('linear'));
+
+  const slideWith = (hook: Hook) => {
+    const IsolatedHarness = () => {
+      const footer = useRef<HTMLDivElement>(null);
+      hook(footer);
+      return (
+        <div>
+          <div ref={footer}>cta</div>
+        </div>
+      );
+    };
+    render(<IsolatedHarness />);
+    top = 500;
+    act(() => reflow());
+    return options();
+  };
+
+  const asked = [['transition-timing-function', 'linear(0, 1)']];
+  it.each([
+    ['linear', true, asked],
+    ['no-linear', false, asked],
+    ['no-supports', false, []]
+  ] as const)('reports linear() support as the engine does, asking once (%s)', (engine, expected, calls) => {
+    const { predicate, supports } = load(engine);
+    expect(predicate()).toBe(expected);
+    expect(predicate()).toBe(expected);
+    expect(supports.calls).toEqual(calls);
+  });
+
+  it('slides on the linear() spring where the engine parses it', () => {
+    expect(slideWith(load('linear').hook).easing).toMatch(/^linear\(/);
+  });
+
+  it.each(['no-linear', 'no-supports'] as const)('slides on the cubic-bezier curve instead (%s)', engine => {
+    expect(slideWith(load(engine).hook)).toEqual({
+      duration: durations.slow * 1000,
+      easing: `cubic-bezier(${easings.easeOutCubic.join(',')})`
+    });
+  });
 });

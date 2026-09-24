@@ -14,6 +14,7 @@ const mockNavigate = jest.fn();
 let mockPathname = '/';
 const mockSwapEnabled = { value: true };
 const mockReduceMotion = { value: false };
+const mockLinearEasing = { value: true };
 
 const mockAnimateStop = jest.fn();
 const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
@@ -111,7 +112,8 @@ jest.mock('lib/animation', () => ({
   // Reduced motion is asserted through the spring solver instead, which is where
   // the component actually branches on it.
   resolveTransition: (_reduceMotion: boolean, transition: unknown) => transition,
-  springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args)
+  springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args),
+  supportsLinearEasing: () => mockLinearEasing.value
 }));
 
 // A swipe that lands on another page is a tab switch and buzzes once.
@@ -247,6 +249,7 @@ beforeEach(() => {
   mockRoCallback = null;
   mockSwapEnabled.value = true;
   mockReduceMotion.value = false;
+  mockLinearEasing.value = true;
   mockX = 0;
   mockReleases = [];
   document.body.removeAttribute('data-hide-navbar');
@@ -684,6 +687,18 @@ describe('HomeSwipeContainer', () => {
 
     it('jumps straight to the page when reduced motion is on', () => {
       mockReduceMotion.value = true;
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockReleases).toHaveLength(0);
+      expect(mockMotionSet).toHaveBeenCalledWith(-300);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    // Element.animate throws on an easing the engine cannot parse (linear() before Safari 17.2).
+    it('jumps straight to the page where the engine cannot parse linear()', () => {
+      mockLinearEasing.value = false;
       mockPathname = '/';
       render(<HomeSwipeContainer />);
       measure(300);

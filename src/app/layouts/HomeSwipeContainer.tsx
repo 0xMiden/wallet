@@ -5,7 +5,7 @@ import { animate, motion, useDragControls, useMotionValue, useReducedMotion } fr
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
-import { resolveTransition, springToLinearEasing, springs } from 'lib/animation';
+import { resolveTransition, springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
@@ -233,12 +233,15 @@ const HomeSwipeContainer: FC = () => {
    * because the compositor needs a fixed curve; see `springToLinearEasing`. The
    * animation deliberately overrides framer's inline transform for its duration
    * (animations outrank inline styles in the cascade), which is what lets it run
-   * without the main thread writing a frame.
+   * without the main thread writing a frame. An engine that cannot parse `linear()`
+   * jumps to the page, as reduced motion does, since `animate` would throw.
    */
   const startRelease = (from: number, to: number, velocity: number) => {
     const track = trackRef.current;
     const spring =
-      track && !reduceMotion ? springToLinearEasing(springs.dragRelease, { distance: from - to, velocity }) : null;
+      track && !reduceMotion && supportsLinearEasing()
+        ? springToLinearEasing(springs.dragRelease, { distance: from - to, velocity })
+        : null;
     if (!track || !spring) {
       x.set(to);
       return;

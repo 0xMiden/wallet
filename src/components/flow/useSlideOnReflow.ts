@@ -2,7 +2,7 @@ import { RefObject, useEffect } from 'react';
 
 import { useReducedMotion } from 'framer-motion';
 
-import { springToLinearEasing, springs } from 'lib/animation';
+import { durations, easings, springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
 import { isMobile } from 'lib/platform';
 
 /**
@@ -18,7 +18,8 @@ import { isMobile } from 'lib/platform';
  * The curve is `springs.standard` solved into a `linear()` easing, so the slide runs on the
  * compositor at the display's rate rather than through `requestAnimationFrame`, which WKWebView
  * caps at 60Hz (see lib/animation/spring-easing). The spring is all but critically damped: a CTA
- * riding the keyboard must not overshoot past the keyboard's edge on the way up.
+ * riding the keyboard must not overshoot past the keyboard's edge on the way up. An engine that
+ * cannot parse `linear()` gets an ease-out cubic-bezier instead, since `animate` would throw.
  *
  * Observes the element and its parent, which is the page frame the keyboard inset resizes.
  */
@@ -55,10 +56,10 @@ export function useSlideOnReflow(ref: RefObject<HTMLElement | null>) {
       if (reduceMotion) return;
       const spring = springToLinearEasing(springs.standard, { distance: delta });
       if (!spring) return;
-      running = el.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }], {
-        duration: spring.duration,
-        easing: spring.easing
-      });
+      const timing = supportsLinearEasing()
+        ? { duration: spring.duration, easing: spring.easing }
+        : { duration: durations.slow * 1000, easing: `cubic-bezier(${easings.easeOutCubic.join(',')})` };
+      running = el.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }], timing);
       running.onfinish = () => {
         running = undefined;
       };
