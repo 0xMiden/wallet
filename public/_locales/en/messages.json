@@ -4670,20 +4670,20 @@
     "englishSource": "Could not finish removing the recovery phrase. Try again."
   },
   "seedRemovalBusy": {
-    "message": "Wait for the current transactions to finish before removing the seed phrase.",
-    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+    "message": "Wait for the current transactions to finish before removing the recovery phrase.",
+    "englishSource": "Wait for the current transactions to finish before removing the recovery phrase."
   },
   "seedRemovalKeysNotReady": {
-    "message": "Finish account recovery and everyday key activation before removing the seed phrase.",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "message": "Finish account recovery and everyday key activation before removing the recovery phrase.",
+    "englishSource": "Finish account recovery and everyday key activation before removing the recovery phrase."
   },
   "seedRequiredForAccountCreation": {
-    "message": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available.",
-    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+    "message": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available.",
+    "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "This action requires your recovery seed phrase.",
-    "englishSource": "This action requires your recovery seed phrase."
+    "message": "This action requires your recovery phrase.",
+    "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
     "message": "Enter your seed phrase",
