@@ -119,8 +119,8 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<TextFieldElement>) => {
       if (e.key !== 'Enter') return;
-      // Always swallowed: this step is now a page inside the flow's form, so an un-prevented
-      // Enter would submit the EXPORT before the confirmation has even been ticked.
+      // Always swallowed: this step is now a page inside the flow's own form, whose submit
+      // handler only clears errors, and Enter must not fire it before the confirmation is ticked.
       e.preventDefault();
       if (confirmed) onSubmit();
     },
