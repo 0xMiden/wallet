@@ -30,12 +30,16 @@ jest.mock('lib/settings/helpers', () => ({
 
 const mockFetchState = jest.fn<Promise<RegistrationNoteState>, [string]>();
 const mockFetchIssued = jest.fn<Promise<boolean>, [string]>();
-const mockFindDelivery = jest.fn<Promise<RegistryDeliveryScan>, [{ accountId: string; fromBlock: number }]>();
+const mockFindDelivery = jest.fn<
+  Promise<RegistryDeliveryScan>,
+  [{ accountId: string; fromBlock: number; label: string }]
+>();
 const mockChainTip = jest.fn<Promise<number>, []>();
 jest.mock('./reads', () => ({
   fetchRegistrationNoteState: (noteId: string) => mockFetchState(noteId),
   fetchMidenNameIssued: (label: string) => mockFetchIssued(label),
-  findRegistryDeliveryNoteIds: (args: { accountId: string; fromBlock: number }) => mockFindDelivery(args),
+  findRegistryDeliveryNoteIds: (args: { accountId: string; fromBlock: number; label: string }) =>
+    mockFindDelivery(args),
   getChainTip: () => mockChainTip()
 }));
 
@@ -285,7 +289,7 @@ describe('transition 3: issued → claiming', () => {
 
     await pass();
 
-    expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000 });
+    expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000, label: 'alice' });
     expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xdelivery', true, false);
     const inputs = await inputsOf(row.id);
     expect(inputs).toMatchObject({ phase: 'claiming', deliveryNoteId: '0xdelivery', claimTxId: 'consume-1' });
@@ -319,7 +323,7 @@ describe('transition 3: issued → claiming', () => {
     expect(startProcessing).not.toHaveBeenCalled();
 
     await pass();
-    expect(mockFindDelivery).toHaveBeenLastCalledWith({ accountId: ACCOUNT, fromBlock: 1000 });
+    expect(mockFindDelivery).toHaveBeenLastCalledWith({ accountId: ACCOUNT, fromBlock: 1000, label: 'alice' });
     expect((await inputsOf(row.id)).phase).toBe('claiming');
   });
 
@@ -330,14 +334,16 @@ describe('transition 3: issued → claiming', () => {
     await pass();
     expect((await inputsOf(row.id)).deliveryScanFrom).toBe(1201);
     await pass();
-    expect(mockFindDelivery).toHaveBeenLastCalledWith({ accountId: ACCOUNT, fromBlock: 1201 });
+    expect(mockFindDelivery).toHaveBeenLastCalledWith({ accountId: ACCOUNT, fromBlock: 1201, label: 'alice' });
   });
 
-  it('skips a note that a Completed consume row has and a note of an other registration', async () => {
+  it('skips a note that a consume row of an other register row has', async () => {
     const row = registerRow('alice', 'issued');
     await add(
       row,
-      consumeRow('done', '0xold', ITransactionStatus.Completed),
+      consumeRow('done', '0xold', ITransactionStatus.Completed, {
+        midenNameClaim: { label: 'alice', registerTxId: 'r-old' }
+      }),
       consumeRow('theirs', '0xbob', ITransactionStatus.Queued, { midenNameClaim: { label: 'bob', registerTxId: 'r2' } })
     );
     mockFindDelivery.mockResolvedValue({ noteIds: ['0xold', '0xbob', '0xnew'], scannedTo: 1200 });
@@ -379,27 +385,68 @@ describe('transition 3: issued → claiming', () => {
     expect(await inputsOf(row.id)).toMatchObject({ phase: 'claiming', claimTxId: 'mine' });
   });
 
-  it('gives two issued registrations two different delivery notes', async () => {
+  it('asks the scan for the notes of its own label, so two registrations get their own notes', async () => {
     const alice = registerRow('alice', 'issued');
     const bob = registerRow('bob', 'issued');
     await add(alice, bob);
-    mockFindDelivery.mockResolvedValue({ noteIds: ['0xd1', '0xd2'], scannedTo: 1200 });
+    // The registry delivered bob's note first. The scan matches notes by label.
+    mockFindDelivery.mockImplementation(async ({ label }) => ({
+      noteIds: [label === 'alice' ? '0xd-alice' : '0xd-bob'],
+      scannedTo: 1200
+    }));
     await pass();
-    const notes = [(await inputsOf(alice.id)).deliveryNoteId, (await inputsOf(bob.id)).deliveryNoteId];
-    expect(new Set(notes)).toEqual(new Set(['0xd1', '0xd2']));
+    expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000, label: 'alice' });
+    expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000, label: 'bob' });
+    expect((await inputsOf(alice.id)).deliveryNoteId).toBe('0xd-alice');
+    expect((await inputsOf(bob.id)).deliveryNoteId).toBe('0xd-bob');
   });
-});
 
-describe('transition 3: waits and errors', () => {
-  it('waits on a note that a live untagged consume has, and keeps the cursor', async () => {
+  it('adopts a live untagged consume of the name note (the tag write was lost)', async () => {
     const row = registerRow('alice', 'issued');
     await add(row, consumeRow('manual', '0xdelivery', ITransactionStatus.GeneratingTransaction));
     mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
     await pass();
     expect(mockInitiateFromId).not.toHaveBeenCalled();
-    expect((await inputsOf(row.id)).deliveryScanFrom).toBeUndefined();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'claiming',
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'manual'
+    });
+    const claim = await Repo.transactions.where({ id: 'manual' }).first();
+    expect(claim?.extraInputs).toEqual({ midenNameClaim: { label: 'alice', registerTxId: row.id } });
+    expect(startProcessing).toHaveBeenCalledTimes(1);
   });
 
+  it('adopts a Completed untagged consume of the name note: owned, no new consume', async () => {
+    const row = registerRow('alice', 'issued');
+    await add(row, consumeRow('lost-tag', '0xdelivery', ITransactionStatus.Completed));
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+    await pass();
+    expect(mockInitiateFromId).not.toHaveBeenCalled();
+    expect(startProcessing).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'owned',
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'lost-tag'
+    });
+    const claim = await Repo.transactions.where({ id: 'lost-tag' }).first();
+    expect(claim?.extraInputs).toEqual({ midenNameClaim: { label: 'alice', registerTxId: row.id } });
+  });
+
+  it('prefers the Completed untagged consume over a live one of the same note', async () => {
+    const row = registerRow('alice', 'issued');
+    await add(
+      row,
+      consumeRow('retry', '0xdelivery', ITransactionStatus.Queued),
+      consumeRow('lost-tag', '0xdelivery', ITransactionStatus.Completed)
+    );
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+    await pass();
+    expect(await inputsOf(row.id)).toMatchObject({ phase: 'owned', claimTxId: 'lost-tag' });
+  });
+});
+
+describe('transition 3: waits and errors', () => {
   it('logs an other queue error and stays issued', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const row = registerRow('alice', 'issued');
@@ -663,7 +710,7 @@ describe('publish step 3: recorded → returning', () => {
 
     await pass();
 
-    expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000 });
+    expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000, label: 'alice' });
     expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xreturn', true, false);
     const inputs = await publishInputsOf(row.id);
     expect(inputs).toMatchObject({ phase: 'returning', returnNoteId: '0xreturn', returnTxId: 'consume-1' });
@@ -727,7 +774,7 @@ describe('publish step 3: recorded → returning', () => {
     await pass();
     expect((await publishInputsOf(row.id)).returnScanFrom).toBe(1201);
     await pass();
-    expect(mockFindDelivery).toHaveBeenLastCalledWith({ accountId: ACCOUNT, fromBlock: 1201 });
+    expect(mockFindDelivery).toHaveBeenLastCalledWith({ accountId: ACCOUNT, fromBlock: 1201, label: 'alice' });
   });
 
   it('does not move the cursor back when the scan covered no new block', async () => {
@@ -738,11 +785,13 @@ describe('publish step 3: recorded → returning', () => {
     expect((await publishInputsOf(row.id)).returnScanFrom).toBe(1201);
   });
 
-  it('skips settled notes: a Completed consume, a live name claim and a live return of an other publish', async () => {
+  it('skips settled notes: a consume of an other publish, a live name claim and a live return of an other publish', async () => {
     const row = publishRow('alice', 'recorded');
     await add(
       row,
-      consumeRow('done', '0xold', ITransactionStatus.Completed),
+      consumeRow('done', '0xold', ITransactionStatus.Completed, {
+        midenNameReturn: { label: 'alice', publishTxId: 'pub-old' }
+      }),
       consumeRow('claim', '0xclaim', ITransactionStatus.Queued, {
         midenNameClaim: { label: 'bob', registerTxId: 'reg-bob' }
       }),
@@ -759,22 +808,46 @@ describe('publish step 3: recorded → returning', () => {
 
   it('advances the cursor past notes that are all settled', async () => {
     const row = publishRow('alice', 'recorded');
-    await add(row, consumeRow('done', '0xold', ITransactionStatus.Completed));
+    await add(
+      row,
+      consumeRow('done', '0xold', ITransactionStatus.Completed, {
+        midenNameReturn: { label: 'alice', publishTxId: 'pub-old' }
+      })
+    );
     mockFindDelivery.mockResolvedValue({ noteIds: ['0xold'], scannedTo: 1200 });
     await pass();
     expect(mockInitiateFromId).not.toHaveBeenCalled();
     expect((await publishInputsOf(row.id)).returnScanFrom).toBe(1201);
   });
 
-  it('waits on a note that a live untagged consume has, and keeps the cursor', async () => {
+  it('adopts a live untagged consume of the return note (the tag write was lost)', async () => {
     const row = publishRow('alice', 'recorded');
     await add(row, consumeRow('manual', '0xreturn', ITransactionStatus.GeneratingTransaction));
     mockFindDelivery.mockResolvedValue({ noteIds: ['0xreturn'], scannedTo: 1200 });
     await pass();
     expect(mockInitiateFromId).not.toHaveBeenCalled();
-    const inputs = await publishInputsOf(row.id);
-    expect(inputs.phase).toBe('recorded');
-    expect(inputs.returnScanFrom).toBeUndefined();
+    expect(await publishInputsOf(row.id)).toMatchObject({
+      phase: 'returning',
+      returnNoteId: '0xreturn',
+      returnTxId: 'manual'
+    });
+    const returnRow = await Repo.transactions.where({ id: 'manual' }).first();
+    expect(returnRow?.extraInputs).toEqual({ midenNameReturn: { label: 'alice', publishTxId: row.id } });
+    expect(startProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('adopts a Completed untagged consume of the return note: done, no new consume', async () => {
+    const row = publishRow('alice', 'recorded');
+    await add(row, consumeRow('lost-tag', '0xreturn', ITransactionStatus.Completed));
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xreturn'], scannedTo: 1200 });
+    await pass();
+    expect(mockInitiateFromId).not.toHaveBeenCalled();
+    expect(startProcessing).not.toHaveBeenCalled();
+    expect(await publishInputsOf(row.id)).toMatchObject({
+      phase: 'done',
+      returnNoteId: '0xreturn',
+      returnTxId: 'lost-tag'
+    });
   });
 
   it('adopts a live consume row that is already tagged for this publish', async () => {
@@ -854,14 +927,17 @@ describe('publish step 3: recorded → returning', () => {
     expect((await inputsOf(registration.id)).phase).toBe('issued');
   });
 
-  it('gives an issued registration and a recorded publish two different notes', async () => {
+  it('gives an issued registration and a recorded publish the notes of their own labels', async () => {
     const registration = registerRow('bob', 'issued');
     const publish = publishRow('alice', 'recorded');
     await add(registration, publish);
-    mockFindDelivery.mockResolvedValue({ noteIds: ['0xd1', '0xd2'], scannedTo: 1200 });
+    mockFindDelivery.mockImplementation(async ({ label }) => ({
+      noteIds: [label === 'bob' ? '0xd-bob' : '0xr-alice'],
+      scannedTo: 1200
+    }));
     await pass();
-    const notes = [(await inputsOf(registration.id)).deliveryNoteId, (await publishInputsOf(publish.id)).returnNoteId];
-    expect(new Set(notes)).toEqual(new Set(['0xd1', '0xd2']));
+    expect((await inputsOf(registration.id)).deliveryNoteId).toBe('0xd-bob');
+    expect((await publishInputsOf(publish.id)).returnNoteId).toBe('0xr-alice');
   });
 });
 

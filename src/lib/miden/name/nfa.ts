@@ -60,7 +60,14 @@ import {
 import { type PublishNameRecordRequest, randomSerialWord, toAccountId } from './note';
 import { readRegistryStorage } from './reads';
 import { loadRegistryNoteScript } from './script';
-import { domainCommitment, feltsFromWord, idParts, idPartsFromHex } from './sdk-words';
+import {
+  domainCommitment,
+  feltsFromWord,
+  idParts,
+  idPartsFromHex,
+  isRegistryNfa,
+  keyMatchesCommitment
+} from './sdk-words';
 
 /** True: the registry script is vendored and the SDK carries NFAs in notes. */
 export const REGISTRY_PUBLISHING_SUPPORTED = true;
@@ -80,15 +87,6 @@ function requireConfig(): MidenNameConfig {
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
   return config;
-}
-
-function isRegistryNfa(nfa: NonFungibleAsset, registryHex: string): boolean {
-  return nfa.faucetId().toString().toLowerCase() === registryHex.toLowerCase();
-}
-
-/** True when the first two limbs of the vault key are the first two felts of the commitment. */
-function keyMatchesCommitment(key: Felts4, commitment: Felts4): boolean {
-  return key[0] === commitment[0] && key[1] === commitment[1];
 }
 
 /**

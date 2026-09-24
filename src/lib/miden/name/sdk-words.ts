@@ -7,7 +7,7 @@
  * words again for each attempt of a retried RPC call.
  */
 
-import { AccountId, Felt, FeltArray, Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, Felt, FeltArray, type NonFungibleAsset, Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   type AccountIdParts,
@@ -86,4 +86,30 @@ export function decodeAccountWord(felts: Felts4): AccountIdParts | null {
 /** Make an SDK `AccountId` from its prefix and suffix felts. */
 export function accountIdFromParts(parts: AccountIdParts): AccountId {
   return AccountId.fromPrefixSuffix(new Felt(parts.prefix), new Felt(parts.suffix));
+}
+
+/** True when the registry faucet issued the NFA. */
+export function isRegistryNfa(nfa: NonFungibleAsset, registryHex: string): boolean {
+  return nfa.faucetId().toString().toLowerCase() === registryHex.toLowerCase();
+}
+
+/** True when the first two limbs of the vault key are the first two felts of the commitment. */
+export function keyMatchesCommitment(key: Felts4, commitment: Felts4): boolean {
+  return key[0] === commitment[0] && key[1] === commitment[1];
+}
+
+/**
+ * True when one of `nfas` is the name NFA of `label`: issued by the registry,
+ * and its key carries the domain commitment of the label. Frees every NFA.
+ */
+export function nfasCarryLabel(nfas: NonFungibleAsset[], label: string, registryHex: string): boolean {
+  const commitment = domainCommitment(label, idPartsFromHex(registryHex));
+  let found = false;
+  for (const nfa of nfas) {
+    if (isRegistryNfa(nfa, registryHex) && keyMatchesCommitment(feltsFromWord(nfa.vaultKey()), commitment)) {
+      found = true;
+    }
+    nfa.free();
+  }
+  return found;
 }

@@ -28,6 +28,7 @@ import {
 } from 'lib/miden/name/registrations';
 import { type MidenNameRecordState, useMidenNameRecord } from 'lib/miden/name/useMidenNameRecord';
 import { useWalletStore } from 'lib/store';
+import { useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
 import { startMidenNameProcessing } from 'screens/miden-name/processing';
 import { truncateAddress } from 'utils/string';
@@ -120,6 +121,7 @@ interface RegistrationRowProps {
 const RegistrationRow: FC<RegistrationRowProps> = ({ row, accountId, publishing, refreshKey }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
+  const confirm = useConfirm();
   const label = registerNameInputsOf(row)?.label;
   const state = uiStateOf(phaseOf(row));
   // The registry record, read from the chain. Only an owned name needs it.
@@ -127,19 +129,26 @@ const RegistrationRow: FC<RegistrationRowProps> = ({ row, accountId, publishing,
   // True while the registry note is built (a vault read and a chain-tip read).
   const [building, setBuilding] = useState(false);
 
-  const handlePublish = useCallback(() => {
+  const handlePublish = useCallback(async () => {
     if (label === undefined || building) return;
+    // A publish reveals the owner. Ask first, in the wallet's confirm sheet.
+    const accepted = await confirm({
+      title: t('midenNameStepPublishing'),
+      children: t('midenNamePublishExplainer', { name: formatMidenName(label) }),
+      confirmLabel: t('midenNamePublish')
+    });
+    if (!accepted) return;
     setBuilding(true);
-    publishRegistryRecord(accountId, label)
-      .then(txId => {
-        startMidenNameProcessing(signTransaction);
-        navigate(`/generating-transaction/${encodeURIComponent(txId)}`);
-      })
-      .catch(error => {
-        console.warn('[miden-name] Publish to registry failed:', error);
-      })
-      .finally(() => setBuilding(false));
-  }, [accountId, building, label, signTransaction]);
+    try {
+      const txId = await publishRegistryRecord(accountId, label);
+      startMidenNameProcessing(signTransaction);
+      navigate(`/generating-transaction/${encodeURIComponent(txId)}`);
+    } catch (error) {
+      console.warn('[miden-name] Publish to registry failed:', error);
+    } finally {
+      setBuilding(false);
+    }
+  }, [accountId, building, confirm, label, signTransaction, t]);
 
   if (label === undefined) return null;
 
