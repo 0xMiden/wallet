@@ -122,6 +122,12 @@ describe('AssetListItem', () => {
     expect(trailing).toHaveClass('shrink-0');
   });
 
+  it('truncates a long amount on one line, so it never runs under the price or the check', () => {
+    renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
+
+    expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+  });
+
   describe('selection', () => {
     it('renders no check and reports no pressed state when selected is undefined', () => {
       const { container } = renderItem({ onClick: jest.fn() });

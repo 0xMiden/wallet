@@ -74,14 +74,14 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 
   const content = (
     <>
-      {/* The leading group gives way first: a long name truncates rather than pushing the price and
-          the check out of the row. */}
+      {/* The leading group gives way first: a long name or amount truncates rather than pushing the
+          price and the check out of the row. */}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
         <div className="flex flex-col min-w-0">
           <div className="text-row-title text-ink truncate">{name}</div>
-          <div className="text-caption text-muted">{amount}</div>
+          <div className="text-caption text-muted truncate">{amount}</div>
         </div>
       </div>
 
