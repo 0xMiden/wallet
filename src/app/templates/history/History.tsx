@@ -58,6 +58,10 @@ type HistoryProps = {
 // wait for a claim, so it removes every settled history row.
 export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
 
+type ScopedEntries = { key: string; entries: IHistoryEntry[] };
+
+const NO_SCOPED_ENTRIES: ScopedEntries = { key: '', entries: [] };
+
 const History = memo<HistoryProps>(
   ({
     address,
@@ -75,7 +79,10 @@ const History = memo<HistoryProps>(
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
-    const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
+    // Older pages carry the scope they were loaded for: `useSafeState` resets them in a passive effect, after
+    // the first render of a new scope has already committed with the old scope's rows.
+    const [scopedRest, setScopedRest] = useSafeState<ScopedEntries>(NO_SCOPED_ENTRIES, safeStateKey);
+    const restEntries = scopedRest.key === safeStateKey ? scopedRest.entries : NO_SCOPED_ENTRIES.entries;
 
     // `restEntries` is keyed to the scope; these two are not, so without this
     // they outlive it. A failed page sets `hasMore` false to stop the retry spin
@@ -96,9 +103,8 @@ const History = memo<HistoryProps>(
     //
     // A monotonic counter rather than the key itself: comparing keys says "the
     // scope matches now", which an A → B → A round trip satisfies while the
-    // original A request is still in flight. That request would then merge
-    // against the `restEntries` its closure captured — the list as it was before
-    // the user left — discarding whatever the second visit loaded.
+    // original A request is still in flight. That request would then settle
+    // `hasMore` and `isLoading` for the second visit's own paging.
     const scopeRef = useRef(0);
     useLayoutEffect(() => {
       scopeRef.current += 1;
@@ -187,13 +193,13 @@ const History = memo<HistoryProps>(
       }
       setIsLoading(true);
       const scope = scopeRef.current;
+      const key = safeStateKey;
       const offset = HISTORY_PAGE_SIZE * page;
       const limit = HISTORY_PAGE_SIZE;
       try {
         const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
-        // Answer for a scope the user has since left: `restEntries` in this
-        // closure is the OLD account's list, so merging would show one account's
-        // history under another's.
+        // Answer for a scope the user has since left: its rows are another
+        // account's history.
         if (scopeRef.current !== scope) return;
         // Key off what the PAGE returned, not the merged list. Merged, the list
         // is non-empty from the first successful page onward, so an exhausted
@@ -204,7 +210,12 @@ const History = memo<HistoryProps>(
         if (olderTransactions.length < limit) {
           setHasMore(false);
         }
-        setRestEntries(mergeAndSort(restEntries, olderTransactions));
+        // Merge against the stored rows, not this render's: a closure from the first render after a switch
+        // still holds the old scope's.
+        setScopedRest(prev => ({
+          key,
+          entries: mergeAndSort(prev.key === key ? prev.entries : [], olderTransactions)
+        }));
       } catch (error) {
         // Stop paging on failure. Clearing `isLoading` without this would spin:
         // the infinite scroller re-arms on every parent render (and SWR re-renders

@@ -30,6 +30,8 @@ const mockResolveConsumeExtraAmounts = jest.fn();
 // Latest props seen by the mocked HistoryView child, so tests can invoke its
 // `loadMore` callback and read back the filtered/sorted `entries`.
 let mockHistoryViewProps: any;
+// Every props call in order, so a test can see a single committed render that later ones replace.
+let mockHistoryViewCalls: any[] = [];
 // Each SWR read's mutate, by the first element of its key, so a test can see which reads a Retry re-runs.
 const mockSwrMutates: Record<string, jest.Mock> = {};
 // Each SWR read's config, by the first element of its key.
@@ -127,6 +129,7 @@ jest.mock('./HistoryView', () => ({
   __esModule: true,
   default: (props: any) => {
     mockHistoryViewProps = props;
+    mockHistoryViewCalls.push(props);
     return (
       <div
         data-testid="history-view"
@@ -285,6 +288,7 @@ async function renderHistory(props: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockHistoryViewProps = undefined;
+  mockHistoryViewCalls = [];
 
   mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
     offset === undefined ? makeCompleted() : []
@@ -842,6 +846,44 @@ describe('History', () => {
     });
 
     expect(entryKeys()).not.toContain('completed-FROM-A');
+  });
+
+  it("never shows the last scope's older pages after a switch, nor merges them into the new scope's", async () => {
+    const row = (id: string) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: id,
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 10
+    });
+    mockGetCompletedTransactions.mockImplementation(async (addr: string, offset?: number) => {
+      if (offset !== undefined) return addr === '0xme' ? [row('OLD-PAGE')] : [row('NEW-PAGE')];
+      // The new scope's latest read stays unresolved, so the switch renders before any of its data.
+      return addr === '0xme' ? [] : new Promise(() => {});
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    const { rerender } = await renderHistory();
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(0);
+    });
+    expect(entryKeys()).toContain('completed-OLD-PAGE');
+
+    mockHistoryViewCalls = [];
+    await act(async () => {
+      rerender(<History address="0xother" />);
+    });
+
+    expect(mockHistoryViewCalls.length).toBeGreaterThan(0);
+    for (const props of mockHistoryViewCalls) {
+      expect(props.entries.map((e: any) => e.key)).not.toContain('completed-OLD-PAGE');
+    }
+
+    await act(async () => {
+      await mockHistoryViewCalls[0].loadMore(0);
+    });
+    expect(entryKeys()).toEqual(['completed-NEW-PAGE']);
   });
 
   it('cancels a pending transaction by id and no-ops when the entry has no txId', async () => {
