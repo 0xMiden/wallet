@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Transition } from 'framer-motion';
 
 import { hapticSelection } from 'lib/mobile/haptics';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
 
 import { PageActiveContext, usePageActive } from './page-active';
@@ -31,6 +32,10 @@ jest.mock('lib/woozie', () => ({
 // buzz fires on a real tab change and stays silent on no-op re-taps.
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: jest.fn()
+}));
+
+jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
+  useHideNavbarWhileOpen: jest.fn()
 }));
 
 // Platform detectors are pure booleans in production; make them read the shared
@@ -774,7 +779,7 @@ describe('TabLayout — the keyboard hides the bottom nav elsewhere', () => {
   it('raises no navbar flag of its own: keyboard-inset holds it in the keyboard listener', () => {
     const { unmount } = renderLayout();
 
-    expect(document.body.hasAttribute('data-hide-navbar')).toBe(false);
+    expect(useHideNavbarWhileOpen).not.toHaveBeenCalled();
     unmount();
   });
 });

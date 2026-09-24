@@ -185,6 +185,12 @@ describe('SegmentedControl — the raised bubble', () => {
     expect(getRadio('All').querySelector('.tabular-nums')).toBeNull();
   });
 
+  it('quiets the count of an unselected item', () => {
+    renderControl({ value: 'all' });
+
+    expect(getRadio('Pending 3').querySelector('.tabular-nums')).toHaveClass('text-muted');
+  });
+
   it('moves one shared bubble when the value changes, scoped per control', () => {
     const { rerender } = renderControl({ value: 'all' });
     const layoutId = bubbleIn(getRadio('All'))!.getAttribute('data-layout-id');

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { PRIMARY_HEX } from 'utils/brand-colors';
@@ -31,6 +32,8 @@ jest.mock('lib/platform', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
+
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
@@ -528,5 +531,6 @@ describe('SelectAmount', () => {
     expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
     expect(footer).toHaveAttribute('data-flow-footer');
     expect(footer.className).not.toContain('transition-[padding-bottom]');
+    expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: footer }));
   });
 });
