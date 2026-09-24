@@ -198,6 +198,10 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByText('withdrawalStarted')).toBeInTheDocument();
     expect(screen.getByText('status: earnWithdrawStatusRedeeming')).toBeInTheDocument();
     expect(mockSuccessProps?.footerDescription).toBe('withdrawalStartedDescription');
+    // The receipt is the earn flow's own: its Done is earn (the layout colours its CTA from
+    // `accent`), and the arrow is the earn slate like the processing state's.
+    expect(mockSuccessProps?.accent).toBe('earn');
+    expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', 'var(--tx-earn)');
 
     fireEvent.click(screen.getByRole('button', { name: 'done' }));
     fireEvent.click(screen.getByRole('button', { name: 'viewInActivities' }));
