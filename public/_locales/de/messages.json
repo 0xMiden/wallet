@@ -1029,11 +1029,11 @@
   },
   "importHotKeyDescription": {
     "message": "Scannen Sie den QR-Code Ihres privaten Schlüssels oder geben Sie Ihren Miden-Alltagsschlüssel sowie Ihren EVM-Schlüssel ein. Ihr Alltagsschlüssel findet Ihr „Guardian“-Konto. Der angegebene EVM-Schlüssel stellt die entsprechende EVM-Adresse wieder her; die Wallet kann nicht überprüfen, ob diese Schlüssel zusammengehören.",
-    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyPlaceholder": {
     "message": "Alltagsschlüssel (hex)",
-    "englishSource": "Everyday key (hex)"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyInvalid": {
     "message": "Geben Sie beide privaten Schlüssel als gültige, von Null verschiedene 32-Byte-secp256k1-Skalarwerte an (jeweils 64 hexadezimale Zeichen). QR-Codes müssen genau die Form „Hot-Key:EVM-Key“ enthalten.",
@@ -1041,7 +1041,7 @@
   },
   "midenHotPrivateKey": {
     "message": "Miden-Alltags-Privatschlüssel",
-    "englishSource": "Miden everyday private key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "evmPrivateKey": {
     "message": "EVM-Privatschlüssel",
@@ -1093,7 +1093,7 @@
   },
   "importHotKeyWrongScheme": {
     "message": "Dieser Schlüssel verwendet ein nicht unterstütztes Schema. Fügen Sie den regulären Schlüssel eines Guardian-Kontos ein.",
-    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyNoAccount": {
     "message": "Für diesen Schlüssel wurde bei diesem Guardian kein Guardian-Konto gefunden.",
@@ -1101,11 +1101,11 @@
   },
   "importHotKeyIsRecoveryKey": {
     "message": "Das sieht nach Ihrem Wiederherstellungsschlüssel aus. Fügen Sie stattdessen den Alltagsschlüssel ein.",
-    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyNotActive": {
     "message": "Dieser Schlüssel ist für das Konto nicht mehr aktiv. Fügen Sie den aktuellen Alltagsschlüssel ein.",
-    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "recoveryActionsRequireRecoveryKey": {
     "message": "Guardian Für Änderungen und den Schlüsselwechsel ist der Wiederherstellungsschlüssel erforderlich, der sich nicht auf diesem Gerät befindet.",
@@ -1872,11 +1872,11 @@
   },
   "hotKeyRotationPromptTitle": {
     "message": "Alltagsschlüssel müssen regelmäßig gewechselt werden",
-    "englishSource": "Everyday key needs rotation"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationPromptBody": {
     "message": "Dieses Gerät kann Ihren Alltagsschlüssel nicht mehr verwenden. Drehen Sie ihn, um die Signaturfunktion wiederherzustellen – Ihr Guthaben bleibt davon unberührt.",
-    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationPromptAction": {
     "message": "Schlüssel drehen",
@@ -2357,7 +2357,7 @@
   },
   "seedPhraseRecoveryCaption": {
     "message": "Ihr „seed phrase“ ist Ihr Wiederherstellungsschlüssel – er dient dazu, Ihren alltäglichen Schlüssel zu rotieren, nicht für tägliche Transaktionen.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "select": {
     "message": "Auswählen",
@@ -2613,7 +2613,7 @@
   },
   "walletKeyHot": {
     "message": "Alltägliche Schlüsselbegriffe",
-    "englishSource": "Everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "recoveryPhraseCold": {
     "message": "Wiederherstellungsphrase (Cold)",
@@ -2629,11 +2629,11 @@
   },
   "replaceHotKey": {
     "message": "Täglichen Schlüssel rotieren",
-    "englishSource": "Rotate everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "replaceHotKeyDescription": {
     "message": "Generieren Sie einen neuen Alltagsschlüssel und ersetzen Sie den aktuellen in der Blockchain. Dies ist nützlich, wenn Sie den Verdacht haben, dass Ihr Gerät kompromittiert wurde.",
-    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "replaceHotKeyConfirmation": {
     "message": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Cold Key) signiert. Ihr „seed phrase“ wird nicht benötigt, und Ihr Guthaben sowie Ihr Konto bleiben unverändert. Möchten Sie fortfahren?",
@@ -2645,19 +2645,19 @@
   },
   "hotKeyRotationOverlayTitle": {
     "message": "Wechseln Ihres Alltagsschlüssels",
-    "englishSource": "Rotating your everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationOverlayBody": {
     "message": "Ihr Alltagsschlüssel wird gerade rotiert. Dies ist erforderlich, wenn Sie ein wiederhergestelltes Konto einrichten, damit es synchronisiert werden und Transaktionen durchführen kann.",
-    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationFailedTitle": {
     "message": "Die tägliche Schlüsselrotation ist fehlgeschlagen",
-    "englishSource": "Everyday key rotation failed"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationFailedGeneric": {
     "message": "Bei der Rotation Ihres Alltagsschlüssels ist ein Fehler aufgetreten.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationRetry": {
     "message": "Erneut versuchen",
@@ -2697,11 +2697,11 @@
   },
   "revealHotKey": {
     "message": "Alltäglichen Schlüssel anzeigen",
-    "englishSource": "Reveal everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "revealHotKeyDescription": {
     "message": "Deinen Alltagsschlüssel kannst du unter „Einstellungen“ → „Alltagsschlüssel rotieren“ rotieren lassen, sodass dessen Offenlegung ein geringeres Risiko darstellt als bei deinem „seed phrase“ – allerdings kann jeder, der ihn besitzt, Transaktionen signieren, bis du ihn rotiert hast.",
-    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRevealWarningTitle": {
     "message": "Bevor Sie Ihre privaten Schlüssel preisgeben",
@@ -2709,7 +2709,7 @@
   },
   "hotKeyRevealWarningBody": {
     "message": "Jeder, der über diese Schlüssel verfügt, kann Ihre Miden- und EVM-Vermögenswerte kontrollieren. Das tägliche Wechseln Ihres Miden-Schlüssels ändert nichts an einem durchgesickerten EVM-Schlüssel und schützt diesen auch nicht.",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "invalidUrl": {
     "message": "Geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt.",
@@ -4639,7 +4639,7 @@
   },
   "removeSeedPhraseDescription": {
     "message": "Notieren Sie sich Ihre „seed phrase“, bevor Sie sie entfernen. Tägliche Transaktionen funktionieren weiterhin. Bei Änderungen an „Guardian“ und beim täglichen Schlüsselwechsel müssen Sie die „seed phrase“ eingeben.",
-    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "removeSeedPhraseWriteDown": {
     "message": "Schreiben Sie alle Wörter in dieser Reihenfolge auf ein Blatt Papier. Bewahren Sie das Blatt an einem sicheren Ort außerhalb dieses Geräts auf.",
@@ -4675,7 +4675,7 @@
   },
   "seedRemovalKeysNotReady": {
     "message": "Schließen Sie die Kontowiederherstellung und die Aktivierung der Alltagsschlüssel ab, bevor Sie die „seed phrase“ entfernen.",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "seedRequiredForAccountCreation": {
     "message": "Für die Kontoeröffnung ist ein gespeicherter „seed phrase“ erforderlich. Eine temporäre Seed-Eingabe für diesen Vorgang ist noch nicht verfügbar.",

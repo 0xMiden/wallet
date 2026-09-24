@@ -1029,11 +1029,11 @@
   },
   "importHotKeyDescription": {
     "message": "Відскануйте QR-код вашого приватного ключа або введіть свої щоденний ключ Miden та приватний ключ EVM. Ваш щоденний ключ визначає ваш обліковий запис Guardian. Введений ключ EVM відновлює відповідну адресу EVM; гаманець не може перевірити, чи належать ці ключі один одному.",
-    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyPlaceholder": {
     "message": "Повсякденний ключ (шестнадцятковий)",
-    "englishSource": "Everyday key (hex)"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyInvalid": {
     "message": "Надайте обидва приватні ключі у вигляді дійсних скалярних значень формату secp256k1 довжиною 32 байти, що не дорівнюють нулю (по 64 шестнадцяткових символів кожен). QR-коди повинні містити саме послідовність «hot-key:evm-key».",
@@ -1041,7 +1041,7 @@
   },
   "midenHotPrivateKey": {
     "message": "Щоденний приватний ключ Miden",
-    "englishSource": "Miden everyday private key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "evmPrivateKey": {
     "message": "Приватний ключ EVM",
@@ -1093,7 +1093,7 @@
   },
   "importHotKeyWrongScheme": {
     "message": "Цей ключ використовує схему, що не підтримується. Вставте повсякденний ключ облікового запису Guardian.",
-    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyNoAccount": {
     "message": "За цим ключем на сайті Guardian не знайдено жодного облікового запису Guardian.",
@@ -1101,11 +1101,11 @@
   },
   "importHotKeyIsRecoveryKey": {
     "message": "Схоже, це ваш ключ відновлення. Вставте замість нього повсякденний ключ.",
-    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyNotActive": {
     "message": "Цей ключ більше не діє для цього облікового запису. Вставте поточний щоденний ключ.",
-    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "recoveryActionsRequireRecoveryKey": {
     "message": "Guardian Для змін та заміни ключів потрібен ключ відновлення, якого немає на цьому пристрої.",
@@ -1872,11 +1872,11 @@
   },
   "hotKeyRotationPromptTitle": {
     "message": "Щоденна ротація ключів",
-    "englishSource": "Everyday key needs rotation"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationPromptBody": {
     "message": "Цей пристрій більше не може використовувати ваш повсякденний ключ. Поверніть його, щоб відновити підписання — це не вплине на ваші кошти.",
-    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationPromptAction": {
     "message": "Клавіша «Повернути»",
@@ -2357,7 +2357,7 @@
   },
   "seedPhraseRecoveryCaption": {
     "message": "Ваш «seed phrase» — це ваш ключ відновлення, який використовується для ротації вашого повсякденного ключа, а не для щоденних транзакцій.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "select": {
     "message": "Вибрати",
@@ -2613,7 +2613,7 @@
   },
   "walletKeyHot": {
     "message": "Повсякденний ключ",
-    "englishSource": "Everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "recoveryPhraseCold": {
     "message": "Фраза відновлення (холодне зберігання)",
@@ -2629,11 +2629,11 @@
   },
   "replaceHotKey": {
     "message": "Щоденна зміна ключа",
-    "englishSource": "Rotate everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "replaceHotKeyDescription": {
     "message": "Створіть новий щоденний ключ і замініть ним поточний у ланцюжку. Це корисно, якщо ви підозрюєте, що ваш пристрій зламано.",
-    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "replaceHotKeyConfirmation": {
     "message": "Це підписано вашим ключем відновлення (холодним ключем). Ваш ключ «seed phrase» не потрібен, а ваші кошти та рахунок залишаються без змін. Продовжити?",
@@ -2645,19 +2645,19 @@
   },
   "hotKeyRotationOverlayTitle": {
     "message": "Зміна вашого повсякденного ключа",
-    "englishSource": "Rotating your everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationOverlayBody": {
     "message": "Ваш повсякденний ключ замінюється. Це необхідно під час налаштування відновленого облікового запису, щоб він міг синхронізуватися та здійснювати транзакції.",
-    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationFailedTitle": {
     "message": "Повсякденна зміна ключів не вдалася",
-    "englishSource": "Everyday key rotation failed"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationFailedGeneric": {
     "message": "Під час ротації вашого повсякденного ключа сталася помилка.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationRetry": {
     "message": "Спробувати ще раз",
@@ -2697,11 +2697,11 @@
   },
   "revealHotKey": {
     "message": "Розкрийте щоденний ключ",
-    "englishSource": "Reveal everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "revealHotKeyDescription": {
     "message": "Ваш щоденний ключ можна змінити в меню «Налаштування» → «Змінити щоденний ключ», тому його розкриття несе менший ризик, ніж у випадку з вашим ключем «seed phrase» — але будь-хто, хто його має, може підписувати транзакції, доки ви не зміните ключ.",
-    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRevealWarningTitle": {
     "message": "Перш ніж розкривати свої приватні ключі",
@@ -2709,7 +2709,7 @@
   },
   "hotKeyRevealWarningBody": {
     "message": "Будь-хто, хто має ці ключі, може контролювати ваші активи Miden та EVM. Зміна щоденного ключа Miden не змінює та не захищає ключ EVM, який потрапив у чужі руки.",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "invalidUrl": {
     "message": "Введіть дійсну URL-адресу, що починається з http:// або https://",
@@ -4639,7 +4639,7 @@
   },
   "removeSeedPhraseDescription": {
     "message": "Запишіть свій «seed phrase» перед тим, як його видалити. Щоденні транзакції все одно працюватимуть. Зміни «Guardian» та щоденна заміна ключів вимагатимуть введення «seed phrase».",
-    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "removeSeedPhraseWriteDown": {
     "message": "Запишіть усі слова на папері в цьому порядку. Зберігайте папір у безпечному місці поза цим пристроєм.",
@@ -4675,7 +4675,7 @@
   },
   "seedRemovalKeysNotReady": {
     "message": "Завершіть відновлення облікового запису та щоденну активацію ключа, перш ніж видалити файл «seed phrase».",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "seedRequiredForAccountCreation": {
     "message": "Для створення облікового запису необхідне збережене насіння (seed phrase). Тимчасове введення насіння для цієї дії поки що недоступне.",

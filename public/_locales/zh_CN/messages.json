@@ -1029,11 +1029,11 @@
   },
   "importHotKeyDescription": {
     "message": "扫描您的私钥二维码，或输入您的 Miden 日常密钥和 EVM 私钥。您的日常密钥用于定位您的 Guardian 账户。提供的 EVM 密钥用于恢复其 EVM 地址；钱包无法验证这些密钥是否属于同一对。",
-    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyPlaceholder": {
     "message": "日常密钥（十六进制）",
-    "englishSource": "Everyday key (hex)"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyInvalid": {
     "message": "请提供两个私钥，格式均为有效的、不为零的 32 字节 secp256k1 标量（每个由 64 个十六进制字符组成）。二维码必须精确包含 hot-key:evm-key 格式。",
@@ -1041,7 +1041,7 @@
   },
   "midenHotPrivateKey": {
     "message": "Miden 日常私钥",
-    "englishSource": "Miden everyday private key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "evmPrivateKey": {
     "message": "EVM 私钥",
@@ -1093,7 +1093,7 @@
   },
   "importHotKeyWrongScheme": {
     "message": "此密钥使用的方案不受支持。请粘贴 Guardian 账户的常用密钥。",
-    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyNoAccount": {
     "message": "在该 Guardian 地址下，未找到与该密钥对应的 Guardian 账户。",
@@ -1101,11 +1101,11 @@
   },
   "importHotKeyIsRecoveryKey": {
     "message": "这看起来像是您的恢复密钥。请粘贴日常密钥代替。",
-    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "importHotKeyNotActive": {
     "message": "该密钥对该账户已失效。请粘贴当前的日常密钥。",
-    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "recoveryActionsRequireRecoveryKey": {
     "message": "Guardian 更改和密钥替换需要恢复密钥，而该密钥并不存储在此设备上。",
@@ -1872,11 +1872,11 @@
   },
   "hotKeyRotationPromptTitle": {
     "message": "日常密钥需要轮换",
-    "englishSource": "Everyday key needs rotation"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationPromptBody": {
     "message": "该设备无法再使用您的日常密钥。请旋转设备以恢复签名功能——您的资金不受影响。",
-    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationPromptAction": {
     "message": "旋转键",
@@ -2357,7 +2357,7 @@
   },
   "seedPhraseRecoveryCaption": {
     "message": "您的seed phrase是您的恢复密钥——用于轮换您的日常密钥，而非用于日常交易。",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "select": {
     "message": "选择",
@@ -2613,7 +2613,7 @@
   },
   "walletKeyHot": {
     "message": "日常术语表",
-    "englishSource": "Everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "recoveryPhraseCold": {
     "message": "恢复短语（冷存储）",
@@ -2629,11 +2629,11 @@
   },
   "replaceHotKey": {
     "message": "每日轮换密钥",
-    "englishSource": "Rotate everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "replaceHotKeyDescription": {
     "message": "生成一个新的日常密钥，并在链上替换当前密钥。如果您怀疑设备已遭入侵，此操作将非常有用。",
-    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "replaceHotKeyConfirmation": {
     "message": "此操作将使用您的恢复（冷）密钥进行签名。无需提供您的 seed phrase，您的资金和账户均保持不变。继续吗？",
@@ -2645,19 +2645,19 @@
   },
   "hotKeyRotationOverlayTitle": {
     "message": "轮换您的日常密钥",
-    "englishSource": "Rotating your everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationOverlayBody": {
     "message": "您的日常密钥正在轮换。这是设置已恢复账户时必需的步骤，以便该账户能够同步并进行交易。",
-    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationFailedTitle": {
     "message": "日常密钥轮换失败",
-    "englishSource": "Everyday key rotation failed"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationFailedGeneric": {
     "message": "在轮换您的日常密钥时出现了一些问题。",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRotationRetry": {
     "message": "重试",
@@ -2697,11 +2697,11 @@
   },
   "revealHotKey": {
     "message": "揭示日常密钥",
-    "englishSource": "Reveal everyday key"
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "revealHotKeyDescription": {
     "message": "您的日常密钥可在“设置”→“轮换日常密钥”中进行轮换，因此泄露该密钥的风险低于您的“seed phrase”——但任何持有该密钥的人在您进行轮换之前均可签署交易。",
-    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "hotKeyRevealWarningTitle": {
     "message": "在您透露私钥之前",
@@ -2709,7 +2709,7 @@
   },
   "hotKeyRevealWarningBody": {
     "message": "任何持有这些密钥的人都能控制您的 Miden 和 EVM 资产。每天轮换您的 Miden 密钥并不能改变或保护已泄露的 EVM 密钥。",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "invalidUrl": {
     "message": "请输入以 http:// 或 https:// 开头的有效网址",
@@ -4639,7 +4639,7 @@
   },
   "removeSeedPhraseDescription": {
     "message": "在移除您的 seed phrase 之前，请务必将其记录下来。日常交易仍可正常进行。Guardian 发生变更以及日常密钥更换时，您需要输入 seed phrase。",
-    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "removeSeedPhraseWriteDown": {
     "message": "请按此顺序将所有词语写在纸上。将纸张存放在本设备以外的安全地点。",
@@ -4675,7 +4675,7 @@
   },
   "seedRemovalKeysNotReady": {
     "message": "在移除seed phrase之前，请先完成账户恢复和日常密钥激活。",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "englishSource": "stale: re-translate with the everyday-key sense"
   },
   "seedRequiredForAccountCreation": {
     "message": "创建账户需要存储seed phrase。目前尚不支持为此操作提供临时种子输入。",
