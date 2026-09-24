@@ -258,6 +258,7 @@ it('uses the full action area for the claim spinner', () => {
   expect(within(card).queryByRole('button', { name: 'activityRejectTransfer' })).not.toBeInTheDocument();
   expect(within(card).getAllByRole('button')).toHaveLength(2);
   expect(within(card).getByTestId('claim-spinner')).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: 'activityAcceptingTransfer' })).toBeInTheDocument();
   expect(within(card).queryByText('activityAcceptingTransfer')).not.toBeInTheDocument();
 });
 

@@ -385,6 +385,7 @@ describe('EarnSummaryPanel', () => {
       observer.disconnect();
 
       expect(node).toHaveTextContent('$15.67');
+      expect(frames.some(frame => frame !== '$13.01' && frame !== '$15.67')).toBe(true);
       expect(frames.filter(frame => !/^\$[\d,]+\.\d{2}$/.test(frame))).toEqual([]);
     });
   });

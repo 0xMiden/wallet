@@ -180,21 +180,21 @@ describe('AnimatedNumber', () => {
     it('sets the new value immediately', () => {
       installMatchMedia();
       mockReduce = true;
-      const { rerender } = render(<AnimatedNumber value={0} format={usd} data-testid="n" />);
+      const { rerender } = render(<AnimatedNumber value={5} format={usd} data-testid="n" />);
 
-      rerender(<AnimatedNumber value={1000} format={usd} data-testid="n" />);
+      rerender(<AnimatedNumber value={10} format={usd} data-testid="n" />);
 
-      expect(screen.getByTestId('n')).toHaveTextContent('$1000.00');
+      expect(screen.getByTestId('n')).toHaveTextContent('$10.00');
     });
   });
 
   describe('a realm that cannot report the motion preference', () => {
     it('sets the new value immediately, so a test reads it synchronously', () => {
-      const { rerender } = render(<AnimatedNumber value={0} format={usd} data-testid="n" />);
+      const { rerender } = render(<AnimatedNumber value={5} format={usd} data-testid="n" />);
 
-      rerender(<AnimatedNumber value={1000} format={usd} data-testid="n" />);
+      rerender(<AnimatedNumber value={10} format={usd} data-testid="n" />);
 
-      expect(screen.getByTestId('n')).toHaveTextContent('$1000.00');
+      expect(screen.getByTestId('n')).toHaveTextContent('$10.00');
     });
   });
 
