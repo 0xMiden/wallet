@@ -1,11 +1,11 @@
-import React, { useRef } from 'react';
+import React from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
-import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -131,9 +131,6 @@ export const Route: React.FC<RouteStepProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
-  // The pinned CTA moves with the keyboard and the tab bar; slide it there, as FlowFooter does.
-  const footerRef = useRef<HTMLDivElement>(null);
-  useSlideOnReflow(footerRef);
 
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
@@ -149,7 +146,7 @@ export const Route: React.FC<RouteStepProps> = ({
         />
       </div>
 
-      <div ref={footerRef} className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true" data-flow-footer="">
+      <FlowFooter className={footerClassName}>
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}
@@ -158,7 +155,7 @@ export const Route: React.FC<RouteStepProps> = ({
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />
-      </div>
+      </FlowFooter>
     </div>
   );
 };

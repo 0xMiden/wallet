@@ -20,4 +20,26 @@ describe('Route', () => {
     expect(footer).toHaveAttribute('data-flow-footer');
     expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: footer }));
   });
+
+  it('applies the default footer padding, and a footerClassName override', () => {
+    const { rerender } = render(
+      <Route route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} onConfirm={jest.fn()} />
+    );
+    let footer = screen.getByTestId('bridge-route-confirm').parentElement!;
+    expect(footer).toHaveClass('pt-4');
+    expect(footer).toHaveClass('pb-24');
+
+    rerender(
+      <Route
+        route="epoch"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        onConfirm={jest.fn()}
+        footerClassName="pt-2 pb-6"
+      />
+    );
+    footer = screen.getByTestId('bridge-route-confirm').parentElement!;
+    expect(footer).toHaveClass('pb-6');
+    expect(footer.className).not.toContain('pb-24');
+  });
 });

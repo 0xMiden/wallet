@@ -1,12 +1,16 @@
 import React, { useRef } from 'react';
 
-import clsx from 'clsx';
+import { cn } from 'lib/ui/util';
 
 import { stepFooterCushionClass } from './footer-cushion';
 import { useSlideOnReflow } from './useSlideOnReflow';
 
 export interface FlowFooterProps {
   children: React.ReactNode;
+  /** Merged in after the default cushion via `cn` (tailwind-merge): a class here that conflicts
+   *  with it (e.g. a snugger padding-bottom while the navbar is hidden) replaces it; anything else
+   *  just coexists. */
+  className?: string;
 }
 
 /**
@@ -30,7 +34,7 @@ export interface FlowFooterProps {
  * Collapsed, this cushion is the same 1rem the guess resolved to, so nothing moves in the normal
  * case; it moves only when the bar is genuinely there, which is exactly when it must.
  */
-export const FlowFooter: React.FC<FlowFooterProps> = ({ children }) => {
+export const FlowFooter: React.FC<FlowFooterProps> = ({ children, className }) => {
   // The keyboard and the tab bar move the CTA by snapping layout; slide it there instead.
   const ref = useRef<HTMLDivElement>(null);
   useSlideOnReflow(ref);
@@ -40,7 +44,7 @@ export const FlowFooter: React.FC<FlowFooterProps> = ({ children }) => {
       ref={ref}
       data-navbar-cushion="true"
       data-flow-footer=""
-      className={clsx('shrink-0 pt-3', stepFooterCushionClass())}
+      className={cn('shrink-0 pt-3', stepFooterCushionClass(), className)}
     >
       {children}
     </div>
