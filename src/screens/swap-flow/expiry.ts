@@ -92,8 +92,15 @@ export const bestUnitForSeconds = (seconds: number): ExpiryUnit => {
 export const isValidExpirySeconds = (seconds: number): boolean =>
   Number.isInteger(seconds) && seconds >= MIN_EXPIRY_SECONDS && seconds <= MAX_EXPIRY_SECONDS;
 
-/** Pull any number back inside the range, for a unit switch that would otherwise leave it outside. */
-export const clampExpirySeconds = (seconds: number): number => {
-  if (!Number.isFinite(seconds)) return MIN_EXPIRY_SECONDS;
-  return Math.min(MAX_EXPIRY_SECONDS, Math.max(MIN_EXPIRY_SECONDS, Math.round(seconds)));
+/**
+ * The seconds a typed draft stands for, or undefined when it is not a whole number inside this
+ * unit's range. The one rule for the draft: both the range message and what the flow may submit
+ * come from it.
+ */
+export const draftToExpirySeconds = (draft: string, unit: ExpiryUnit): number | undefined => {
+  if (draft.trim() === '') return undefined;
+  const value = Number(draft);
+  const { min, max } = expiryBounds(unit);
+  if (!Number.isInteger(value) || value < min || value > max) return undefined;
+  return unitValueToSeconds(value, unit);
 };

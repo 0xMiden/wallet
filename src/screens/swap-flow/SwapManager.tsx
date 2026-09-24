@@ -422,6 +422,7 @@ const SwapManager: React.FC = () => {
               submitError={submitError}
               onGoBack={goBack}
               onSubmit={onSubmit}
+              submitting={submitting}
             />
           );
         default:
@@ -437,6 +438,7 @@ const SwapManager: React.FC = () => {
       swapEta.eta,
       expirySeconds,
       autoConsume,
+      submitting,
       submitError,
       canProceed,
       requestCalculating,

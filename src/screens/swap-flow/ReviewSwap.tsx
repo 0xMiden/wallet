@@ -16,6 +16,7 @@ import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
 
 import {
   bestUnitForSeconds,
+  draftToExpirySeconds,
   ExpiryUnit,
   EXPIRY_UNIT_LABEL_KEYS,
   EXPIRY_UNITS,
@@ -38,6 +39,8 @@ export interface ReviewSwapProps {
   submitError?: string | null;
   onGoBack: () => void;
   onSubmit: () => void;
+  /** A submission is in flight: the expiry holds still until it settles. */
+  submitting?: boolean;
 }
 
 /** "1 {offer} ≈ {marketPrice} {request}" from the oracle rate, or undefined if unavailable. */
@@ -104,7 +107,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   onAutoConsumeChange,
   submitError,
   onGoBack,
-  onSubmit
+  onSubmit,
+  submitting = false
 }) => {
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
@@ -119,21 +123,15 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     String(secondsToUnitValue(Number(expirySeconds), bestUnitForSeconds(Number(expirySeconds))))
   );
   const bounds = expiryBounds(unit);
-  const draftValue = Number(expiryDraft);
-  const expiryOutOfRange =
-    expiryDraft.trim() === '' || !Number.isInteger(draftValue) || draftValue < bounds.min || draftValue > bounds.max;
+  // An empty or out-of-range draft shows the range message AND blocks Swap: the last valid value
+  // it leaves upstream is no longer on screen, so it must not be what gets submitted.
+  const expiryOutOfRange = draftToExpirySeconds(expiryDraft, unit) === undefined;
 
   const onExpiryValueChange = useCallback(
     (next: string) => {
       setExpiryDraft(next);
-      const value = Number(next);
-      const { min, max } = expiryBounds(unit);
-      // Only a value the guardrail accepts is handed upward; anything else leaves the last good
-      // one in place and puts the range message under the row, rather than silently submitting
-      // an expiry the order would be reclaimed on immediately.
-      if (next.trim() !== '' && Number.isInteger(value) && value >= min && value <= max) {
-        onExpirySecondsChange(String(unitValueToSeconds(value, unit)));
-      }
+      const seconds = draftToExpirySeconds(next, unit);
+      if (seconds !== undefined) onExpirySecondsChange(String(seconds));
     },
     [unit, onExpirySecondsChange]
   );
@@ -155,6 +153,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const unitItems = EXPIRY_UNITS.map(candidate => ({
     id: candidate,
     label: t(EXPIRY_UNIT_LABEL_KEYS[candidate]),
+    disabled: submitting,
     'data-testid': `swap-expiry-unit-${candidate}`
   }));
 
@@ -191,7 +190,13 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       accent="swap"
       heroDivider={false}
       dividers={false}
-      primary={{ label: t('swap'), onPress: onSubmit, 'data-testid': 'swap-submit' }}
+      primary={{
+        label: t('swap'),
+        onPress: onSubmit,
+        disabled: expiryOutOfRange,
+        loading: submitting,
+        'data-testid': 'swap-submit'
+      }}
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
@@ -245,6 +250,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
               aria-invalid={expiryOutOfRange}
               aria-describedby={expiryOutOfRange ? 'swap-expiry-range' : undefined}
               value={expiryDraft}
+              disabled={submitting}
               onChange={event => onExpiryValueChange(event.target.value)}
               className="w-24 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-left font-heading text-[15px] font-bold text-ink outline-none [appearance:textfield] focus:border-accent-swap [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none aria-[invalid=true]:border-negative-ink"
             />

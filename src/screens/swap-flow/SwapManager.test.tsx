@@ -109,7 +109,7 @@ jest.mock('./SwapAmounts', () => ({
 
 jest.mock('./ReviewSwap', () => ({
   ReviewSwap: (props: Record<string, any>) => (
-    <div data-testid="review-swap">
+    <div data-testid="review-swap" data-submitting={String(Boolean(props.submitting))}>
       <span data-testid="rs-offer-token">{props.offerToken.symbol}</span>
       <span data-testid="rs-request-token">{props.requestToken.symbol}</span>
       <span data-testid="rs-offer-amount">{props.offerAmount}</span>
@@ -601,6 +601,21 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 300, false);
       expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n);
+    });
+
+    it('tells the review screen a submission is in flight while the spending limit is assessed', async () => {
+      let settle!: (value: undefined) => void;
+      mockWalletState.assessSpendingLimit.mockReturnValue(new Promise(resolve => (settle = resolve)));
+      renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+
+      await act(async () => settle(undefined));
     });
 
     it('discards a spending-limit assessment minted for another account', async () => {

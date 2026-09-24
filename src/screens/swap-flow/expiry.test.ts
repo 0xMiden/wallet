@@ -1,6 +1,6 @@
 import {
   bestUnitForSeconds,
-  clampExpirySeconds,
+  draftToExpirySeconds,
   EXPIRY_UNIT_SECONDS,
   expiryBounds,
   isValidExpirySeconds,
@@ -107,10 +107,19 @@ describe('validity of a submitted value', () => {
     expect(isValidExpirySeconds(MAX_EXPIRY_SECONDS + 1)).toBe(false);
   });
 
-  it('clamps out-of-range seconds back to the nearest bound', () => {
-    expect(clampExpirySeconds(1)).toBe(MIN_EXPIRY_SECONDS);
-    expect(clampExpirySeconds(MAX_EXPIRY_SECONDS * 3)).toBe(MAX_EXPIRY_SECONDS);
-    expect(clampExpirySeconds(120)).toBe(120);
-    expect(clampExpirySeconds(Number.NaN)).toBe(MIN_EXPIRY_SECONDS);
+  it.each([
+    ['', 'minutes', undefined],
+    ['  ', 'minutes', undefined],
+    ['1.5', 'minutes', undefined],
+    ['abc', 'seconds', undefined],
+    ['29', 'seconds', undefined],
+    ['30', 'seconds', MIN_EXPIRY_SECONDS],
+    ['2', 'minutes', 120],
+    ['168', 'hours', MAX_EXPIRY_SECONDS],
+    ['169', 'hours', undefined],
+    ['7', 'days', MAX_EXPIRY_SECONDS],
+    ['8', 'days', undefined]
+  ] as const)('reads the draft %p in %s as %p seconds', (draft, unit, seconds) => {
+    expect(draftToExpirySeconds(draft, unit)).toBe(seconds);
   });
 });

@@ -47,8 +47,19 @@ jest.mock('components/Button', () => {
   return {
     __esModule: true,
     ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
-    Button: ({ title, onClick, type, accent, 'data-testid': dataTestId }: any) =>
-      R.createElement('button', { type, onClick, 'data-accent': accent, 'data-testid': dataTestId }, title)
+    Button: ({ title, onClick, type, accent, disabled, isLoading, 'data-testid': dataTestId }: any) =>
+      R.createElement(
+        'button',
+        {
+          type,
+          onClick,
+          disabled,
+          'data-accent': accent,
+          'data-loading': String(Boolean(isLoading)),
+          'data-testid': dataTestId
+        },
+        title
+      )
   };
 });
 
@@ -255,6 +266,34 @@ describe('ReviewSwap', () => {
       expect(toggle).toHaveAttribute('data-value', 'true');
       expect(toggle).toHaveClass('!h-8', '!w-16');
       expect(screen.getByText('swapAutoConsume')).toBeInTheDocument();
+    });
+
+    it('never submits while the draft is out of range or empty: the expiry shown is the one that goes', () => {
+      const onSubmit = jest.fn();
+      renderComponent({ onSubmit });
+
+      // 99999 minutes is past the 7-day cap; the last valid value (2 minutes) is no longer on screen.
+      fireEvent.change(expiryInput(), { target: { value: '99999' } });
+      expect(screen.getByTestId('swap-submit')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('swap-submit'));
+
+      fireEvent.change(expiryInput(), { target: { value: '' } });
+      expect(screen.getByTestId('swap-submit')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('swap-submit'));
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      fireEvent.change(expiryInput(), { target: { value: '5' } });
+      expect(screen.getByTestId('swap-submit')).toBeEnabled();
+    });
+
+    it('holds the expiry still while a submission is in flight', () => {
+      renderComponent({ submitting: true });
+
+      expect(expiryInput()).toBeDisabled();
+      for (const unit of ['seconds', 'minutes', 'hours', 'days']) {
+        expect(screen.getByTestId(`swap-expiry-unit-${unit}`)).toBeDisabled();
+      }
+      expect(screen.getByTestId('swap-submit')).toHaveAttribute('data-loading', 'true');
     });
 
     it('forwards an edit as SECONDS, whatever unit is showing', () => {
