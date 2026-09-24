@@ -76,7 +76,7 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
           <motion.span
             key={`${item.id}-label`}
             layout="position"
-            className="relative whitespace-nowrap text-pill max-[359px]:text-badge"
+            className="relative font-bold whitespace-nowrap text-pill max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}
@@ -101,9 +101,10 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
   };
 
   return (
-    // No band of its own: the row sits on the page. The 48px segments set the height; 4px above them
-    // keeps it snug under the status bar, and 8px below them (room for the raised pill's shadow) and
-    // a hairline rule, like the bottom nav's top rule, divide it from the content under it.
+    // No band of its own: a caller that wants one passes it in `className` (Home, on mobile). The
+    // 48px segments set the height; 4px above them keeps it snug under the status bar, and 8px below
+    // them (room for the raised pill's shadow) and a hairline rule, like the bottom nav's top rule,
+    // divide it from the content under it.
     <div
       role="tablist"
       className={cn('flex items-center gap-1 overflow-hidden border-b border-hairline px-3 pt-1 pb-2', className)}

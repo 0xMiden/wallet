@@ -44,64 +44,6 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: mockT })
 }));
 
-// Alert echoes its description so the auth-error branch is assertable.
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description }: { description?: string }) => <div data-testid="alert">{description}</div>
-}));
-
-// Functional input mock so react-hook-form can register the password field
-// and we can drive the software-unlock path. Forwards the ref + the handlers
-// the form wires up, and echoes errorCaption for the submit-error assertion.
-jest.mock('app/atoms/FormField', () =>
-  React.forwardRef(
-    (
-      {
-        name,
-        type,
-        id,
-        placeholder,
-        onChange,
-        onBlur,
-        errorCaption
-      }: {
-        name?: string;
-        type?: string;
-        id?: string;
-        placeholder?: string;
-        onChange?: React.ChangeEventHandler<HTMLInputElement>;
-        onBlur?: React.FocusEventHandler<HTMLInputElement>;
-        errorCaption?: string;
-      },
-      ref: React.Ref<HTMLInputElement>
-    ) => (
-      <div>
-        <input
-          ref={ref}
-          name={name}
-          type={type}
-          id={id}
-          placeholder={placeholder}
-          onChange={onChange}
-          onBlur={onBlur}
-        />
-        {errorCaption ? <span data-testid="error-caption">{errorCaption}</span> : null}
-      </div>
-    )
-  )
-);
-
-// type="button" so a click never doubles as a native form submit.
-jest.mock('components/Button', () => ({
-  __esModule: true,
-  Button: ({ onClick, title, disabled }: { onClick?: () => void; title: string; disabled?: boolean }) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
-      {title}
-    </button>
-  ),
-  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
-}));
-
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name?: string }) => <span data-testid="icon" data-name={name} />,
   IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', EyeOff: 'EyeOff' }
@@ -439,7 +381,9 @@ describe('RevealSeedPhrase', () => {
 
     const container = await render();
 
-    expect(container.querySelector('[data-testid="alert"]')!.textContent).toContain('couldNotCheckUnlockMethod');
+    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')!.textContent).toContain(
+      'couldNotCheckUnlockMethod'
+    );
     // The banner must be TRANSLATED, not rendered as the bare key it stores.
     expect(mockT).toHaveBeenCalledWith('couldNotCheckUnlockMethod');
     expect(buttonWithText(container, 'view')!.disabled).toBe(true);
@@ -451,7 +395,7 @@ describe('RevealSeedPhrase', () => {
     });
     await flush();
 
-    expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
     expect(buttonWithText(container, 'view')!.disabled).toBe(false);
   });
 
@@ -468,7 +412,7 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'retry')!.click();
     });
 
-    expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
     const retry = buttonWithText(container, 'retry');
     expect(retry).toBeTruthy();
     expect(retry!.disabled).toBe(true);
@@ -487,7 +431,7 @@ describe('RevealSeedPhrase', () => {
     });
     await flush();
 
-    expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
     expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
   });
 
@@ -666,7 +610,7 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
 
       // The read finally comes back, well past the deadline.
       await act(async () => {
@@ -676,7 +620,7 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
     } finally {
       jest.useRealTimers();
@@ -711,7 +655,7 @@ describe('RevealSeedPhrase', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
 
       await act(async () => {
         jest.advanceTimersByTime(1);
@@ -720,7 +664,7 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
       expect(buttonWithText(container, 'view')!.disabled).toBe(false);
       // And nothing is left armed once it settles.
       expect(jest.getTimerCount()).toBe(0);
@@ -743,7 +687,7 @@ describe('RevealSeedPhrase', () => {
       });
 
       // Before the bound: nothing to act on, which is the state being escaped.
-      expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).toBeNull();
 
       await act(async () => {
         jest.advanceTimersByTime(6000);
@@ -752,7 +696,7 @@ describe('RevealSeedPhrase', () => {
         await Promise.resolve();
       });
 
-      expect(container.querySelector('[data-testid="alert"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="reveal-seed-probe-error"]')).not.toBeNull();
       expect(buttonWithText(container, 'retry')!.disabled).toBe(false);
     } finally {
       jest.useRealTimers();
@@ -772,10 +716,10 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
-    // Button fires the tap buzz itself, and it is not simulated by the mock above,
-    // so any count here is a SECOND one from the handler. The Settings overlay this
-    // page replaced had the same pair and asserted the same thing.
-    expect(mockHapticLight).not.toHaveBeenCalled();
+    // The real Button fires the tap buzz itself (the PageHeader stub's back does not),
+    // so any count past that one is a SECOND buzz from the handler. The Settings overlay
+    // this page replaced had the same pair and asserted the same thing.
+    expect(mockHapticLight).toHaveBeenCalledTimes(control === 'close' ? 1 : 0);
   });
 
   it('routes to the Settings root from the warning when the page was opened cold', async () => {
@@ -808,14 +752,14 @@ describe('RevealSeedPhrase', () => {
     expect(container.textContent).not.toContain('viewThisInPrivatePlace');
     expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
     expect(mockGoBack).not.toHaveBeenCalled();
-    // Same rule as Close above: View must add no buzz of its own.
-    expect(mockHapticLight).not.toHaveBeenCalled();
+    // Same rule as Close above: View must add no buzz of its own, past the Button's one.
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
   });
 
   // -------------------------------------------------------------------------
   // Hardware-backed success path -> revealed view.
   // -------------------------------------------------------------------------
-  it('reveals the seed phrase via hardware unlock after View and shows the capitalized word grid', async () => {
+  it('reveals the seed phrase via hardware unlock after View and shows the numbered word grid', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
     const container = await renderAndView();
@@ -823,13 +767,14 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
 
-    // Revealed view: PageHeader + capitalized words + copy/hide buttons.
+    // Revealed view: PageHeader + the numbered words + copy/hide buttons.
     expect(container.querySelector('[data-testid="nh-title"]')!.textContent).toBe('recoveryPhrase');
     // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
     expect(container.querySelector('[data-testid="nav-header"]')).toHaveClass('px-4');
-    expect(container.textContent).toContain('Alpha');
-    expect(container.textContent).toContain('Delta');
+    // The same grid the verify flow draws: numbered, in the phrase's own casing.
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(container.querySelector('[data-testid="seed-word-3"]')!.textContent).toBe('delta');
     // Not-yet-copied label + the shared copy glyph.
     expect(container.textContent).toContain('copyToClipboard');
     expect(container.querySelector('[data-copy-icon] [data-name="CopyNew"]')).toBeTruthy();
@@ -871,6 +816,18 @@ describe('RevealSeedPhrase', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
+  it('draws the revealed words on the shared fill surface, with copy as a shared pill', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    const grid = container.querySelector('[data-testid="seed-word-0"]')!.closest('.rounded-2xl')!;
+    expect(grid).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toHaveClass('text-value', 'text-ink');
+    // No lone white block and no bordered one-off copy button any more.
+    expect(container.querySelector('.bg-white')).toBeNull();
+    expect(container.querySelector('.border-border-card')).toBeNull();
+  });
+
   it('runs handleHide from the revealed-view PageHeader back button', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const container = await renderAndView();
@@ -906,7 +863,7 @@ describe('RevealSeedPhrase', () => {
     });
     await flush();
 
-    expect(container.textContent).toContain('Alpha');
+    expect(container.textContent).toContain('alpha');
     const wordsTitle = container.querySelector('[data-testid="nh-title"]');
     // Node identity, not focus: this suite renders into a DETACHED container, so
     // element.focus() is a no-op and document.activeElement never leaves <body>.
@@ -939,7 +896,7 @@ describe('RevealSeedPhrase', () => {
     await flush();
 
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
-    expect(container.textContent).not.toContain('Alpha');
+    expect(container.textContent).not.toContain('alpha');
   });
 
   it('stands on the auth-error view instead of navigating away from it', async () => {
@@ -948,7 +905,8 @@ describe('RevealSeedPhrase', () => {
     const container = await renderAndView();
 
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
-    expect(container.querySelector('[data-testid="alert"]')!.textContent).toBe('biometric failed');
+    // The shared negative Notice carries the message, in place of the Alert atom.
+    expect(container.querySelector('[data-tone="negative"] [data-slot="body"]')!.textContent).toBe('biometric failed');
     // BOTH at zero is the discriminating assertion. A count of 1 could not tell the
     // fix from the bug: the catch and the auto-close effect each wanted out, so
     // removing one merely promoted the other and the total stayed 1.
@@ -974,8 +932,8 @@ describe('RevealSeedPhrase', () => {
     });
     await flush();
 
-    expect(container.querySelector('[data-testid="alert"]')).toBeNull();
-    expect(container.textContent).toContain('Alpha');
+    expect(container.querySelector('[data-tone="negative"]')).toBeNull();
+    expect(container.textContent).toContain('alpha');
     expect(mockGoBack).not.toHaveBeenCalled();
 
     // The words branch renders ahead of the error branch, so a stale authError is
@@ -992,7 +950,7 @@ describe('RevealSeedPhrase', () => {
     });
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('[data-testid="alert"]')).toBeNull();
+    expect(container.querySelector('[data-tone="negative"]')).toBeNull();
   });
 
   it('leaves to the Settings root exactly once when a cold-opened biometric reveal fails', async () => {

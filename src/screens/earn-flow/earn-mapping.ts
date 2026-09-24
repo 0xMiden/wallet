@@ -1,5 +1,5 @@
 import type { EarnPosition as LibEarnPosition, EarnVaultInfo } from 'lib/epoch';
-import { formatUsd } from 'lib/i18n/numbers';
+import { formatUsd, usdFormatterFor } from 'lib/i18n/numbers';
 
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
@@ -26,6 +26,25 @@ export function networkName(chainId: string): string {
 
 export function formatSignedUsd(value: number): string {
   return `+${formatUsd(value)}`;
+}
+
+/** The one shape every APY figure shares, static or animated: two decimals and a percent sign. */
+export function formatApy(apr: number): string {
+  return `${apr.toFixed(2)}%`;
+}
+
+/**
+ * The formatter for an animated earn USD figure: `usdFormatterFor` its value, with the `+` of
+ * `formatSignedUsd` when `signed`. A figure with no value renders its placeholder and never
+ * formats, so no target is invented for it.
+ */
+export function usdFigureFormatter(
+  target: number | null | undefined,
+  { signed = false }: { signed?: boolean } = {}
+): (value: number) => string {
+  if (target == null) return signed ? formatSignedUsd : formatUsd;
+  const format = usdFormatterFor(target);
+  return signed ? value => `+${format(value)}` : format;
 }
 
 /**
@@ -72,12 +91,14 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
     asset: position.symbol,
     network,
     amount: formatUsd(position.depositsUSD),
+    depositsUsd: position.depositsUSD,
     // The positions service reports current deposits only — no principal split.
     depositedAmount: formatUsd(position.depositsUSD),
     rewards: EARN_PLACEHOLDER,
     age: EARN_PLACEHOLDER,
     activeDuration: EARN_PLACEHOLDER,
     apy: `${position.depositApr.toFixed(2)}%`,
+    aprPercent: position.depositApr,
     dailyAverage: EARN_PLACEHOLDER,
     started: EARN_PLACEHOLDER,
     yearlyEstimate: `${formatSignedUsd(yearlyUsd)} / yr`,
@@ -105,6 +126,7 @@ export function mapEarnVault(vault: EarnVaultInfo): EarnVault {
     asset: display.asset,
     network: networkName(vault.chainId),
     apy: `${vault.depositApr.toFixed(2)}%`,
+    aprPercent: vault.depositApr,
     apyChange24h: EARN_PLACEHOLDER,
     tvl: EARN_PLACEHOLDER,
     risk: EARN_PLACEHOLDER,
@@ -125,11 +147,16 @@ export function buildEarnSummary(positions: LibEarnPosition[]): EarnSummary {
     totalDeposits > 0 ? positions.reduce((sum, p) => sum + p.depositsUSD * p.depositApr, 0) / totalDeposits : 0;
   return {
     // No rewards-history endpoint yet — report zero rather than a dash.
-    totalRewards: formatUsd(0),
-    blendedApy: `~${blendedApy.toFixed(1)}%`,
-    totalDeposited: formatUsd(totalDeposits),
-    estimatedRewards: formatSignedUsd(yearlyUsd)
+    totalRewardsUsd: 0,
+    blendedApyPercent: blendedApy,
+    totalDepositedUsd: totalDeposits,
+    estimatedRewardsUsd: yearlyUsd
   };
+}
+
+/** The summary while the first positions read is in flight: no figures yet, so none can count from zero. */
+export function loadingEarnSummary(): EarnSummary {
+  return { totalRewardsUsd: null, blendedApyPercent: null, totalDepositedUsd: null, estimatedRewardsUsd: null };
 }
 
 /** All-placeholder vault for deep links that land before data arrives. */

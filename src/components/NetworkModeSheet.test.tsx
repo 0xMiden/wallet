@@ -152,7 +152,9 @@ describe('NetworkModeSheet', () => {
     const cta = screen.getByTestId('network-mode-sheet-cta');
     expect(cta.closest('.overflow-y-auto')).toBeNull();
     expect(cta.closest('[data-slot="drawer-footer"]')).not.toBeNull();
-    expect(screen.getByTestId('drawer-content')).toHaveClass('overflow-hidden');
+    // The sheet itself never clips: vaul's ::after skirt fills the gap under the sheet at the open
+    // spring's overshoot, and overflow-hidden on the sheet would clip it. The scroll column shrinks.
+    expect(screen.getByTestId('drawer-content')).not.toHaveClass('overflow-hidden');
   });
 
   it('closes on mobile back while open, and passes back on when closed', () => {

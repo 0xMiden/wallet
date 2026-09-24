@@ -26,7 +26,7 @@ describe('StatusBadge', () => {
     ['failed', 'failed', 'negative'],
     ['cancelled', 'cancelled', 'neutral'],
     ['reclaimed', 'reclaimed', 'neutral'],
-    ['claimed', 'activityTransferClaimed', 'positive'],
+    ['claimed', 'accepted', 'positive'],
     ['redeeming', 'earnWithdrawStatusRedeeming', 'pending'],
     ['delivering', 'earnWithdrawStatusDelivering', 'pending'],
     ['received', 'received', 'positive'],

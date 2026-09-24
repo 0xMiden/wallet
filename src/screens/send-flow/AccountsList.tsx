@@ -106,7 +106,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
               />
               <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto pt-5">
                 {mine.length === 0 && contacts.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted">{t('noContactsFound')}</p>
+                  <p className="py-4 text-center text-body-sm text-muted">{t('noContactsFound')}</p>
                 ) : (
                   <>
                     {mine.length > 0 && (

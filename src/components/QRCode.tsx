@@ -19,7 +19,43 @@ export interface QRCodeProps {
    * to (#875). Export only: the page that shows the QR names the network itself.
    */
   caption?: string;
+  /** How the modules are coloured: one of the five account-card treatments. */
+  palette: QRPalette;
+  /**
+   * Fires with the palette once a recolour actually paints: the initial paint, an address/size
+   * change, or a staged recolour once its draw lands. Never fires for a request whose draw fails,
+   * so a caller cycling palettes can tell a shown colour from a merely requested one and retry.
+   */
+  onPaletteCommitted?: (palette: QRPalette) => void;
+  /**
+   * Bump on every recolour request, including a repeat of the current `palette`. A failed staged
+   * draw never changes `applied` (below), so re-requesting the same colour leaves every value this
+   * component keys its redraw effect on unchanged; without this, the effect's dependency check
+   * would see nothing new and skip the retry entirely.
+   */
+  recolourAttempt?: number;
 }
+
+/**
+ * The QR's colour treatments: one per account-card colour, each blending that colour into another
+ * of the five, so a treatment still reads as "the green one" while the modules carry a gradient.
+ */
+export const QR_PALETTES = ['green', 'orange', 'slate', 'blue', 'purple'] as const;
+
+export type QRPalette = (typeof QR_PALETTES)[number];
+
+/**
+ * Each treatment as the two custom properties it blends and the gradient's rotation in radians.
+ * Every colour is a `--qr-*` token — the card palette pinned to its light values, because the
+ * modules are always drawn on a white tile (see src/main.css).
+ */
+const PALETTE_STOPS: Record<QRPalette, { from: string; to: string; rotation: number }> = {
+  green: { from: '--qr-green', to: '--qr-blue', rotation: Math.PI / 4 },
+  orange: { from: '--qr-orange', to: '--qr-purple', rotation: Math.PI / 2 },
+  slate: { from: '--qr-slate', to: '--qr-green', rotation: (3 * Math.PI) / 4 },
+  blue: { from: '--qr-blue', to: '--qr-purple', rotation: Math.PI },
+  purple: { from: '--qr-purple', to: '--qr-orange', rotation: (5 * Math.PI) / 4 }
+};
 
 export interface QRCodeHandle {
   /**
@@ -38,10 +74,34 @@ const CAPTION_STRIP_RATIO = 0.14;
 /** Caption font size in the exported PNG, as a fraction of the QR size. */
 const CAPTION_FONT_RATIO = 0.055;
 
-const getAccentColor = (): string => {
+const readToken = (name: string): string => {
   if (typeof window === 'undefined') return ACCENT_FALLBACK;
-  const value = getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim();
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return value || ACCENT_FALLBACK;
+};
+
+type DotsOptions = NonNullable<Options['dotsOptions']>;
+
+/**
+ * The module colouring for a treatment: a linear gradient between its two stops. Both stops are card
+ * colours, so a treatment never lightens the modules past what the palette already ships - the QR
+ * stays scannable.
+ */
+const paletteOptions = (palette: QRPalette): { color: string; gradient: DotsOptions['gradient'] } => {
+  const stops = PALETTE_STOPS[palette];
+  const from = readToken(stops.from);
+  const to = readToken(stops.to);
+  return {
+    color: from,
+    gradient: {
+      type: 'linear',
+      rotation: stops.rotation,
+      colorStops: [
+        { offset: 0, color: from },
+        { offset: 1, color: to }
+      ]
+    }
+  };
 };
 
 /**
@@ -73,105 +133,177 @@ async function composeCaptionedPng(qrPng: Blob, size: number, caption: string, c
   return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'));
 }
 
+const isUsableDraw = (data: unknown) =>
+  (data instanceof Blob && data.size > 0) ||
+  (typeof Buffer !== 'undefined' && Buffer.isBuffer(data) && data.length > 0);
+
 /**
  * QR code display component for Miden addresses.
- * Renders a styled QR (circular dots, accent-primary color, Miden logo centered)
+ * Renders a styled QR (circular dots in the `palette` treatment, Miden logo centered)
  * encoding the address in miden:<address> format via qr-code-styling.
  */
-export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, caption }, ref) => {
-  const qrValue = encodeAddress(address);
-  const containerRef = useRef<HTMLDivElement>(null);
+export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
+  ({ address, size, caption, palette, onPaletteCommitted, recolourAttempt }, ref) => {
+    const qrValue = encodeAddress(address);
+    // Two slots: the painted code stays on screen while a new colour is drawn into the other one.
+    const slotA = useRef<HTMLDivElement>(null);
+    const slotB = useRef<HTMLDivElement>(null);
 
-  const options = useMemo<Options>(() => {
-    const color = getAccentColor();
-    return {
-      type: 'svg',
-      width: size,
-      height: size,
-      // Quiet zone around the modules for reliable scanning.
-      margin: 6,
-      data: qrValue,
-      image: midenLogoUrl,
-      // Higher error correction compensates for the centered logo cutout.
-      qrOptions: { errorCorrectionLevel: 'H' },
-      imageOptions: { crossOrigin: 'anonymous', margin: 6, imageSize: 0.35, hideBackgroundDots: true },
-      dotsOptions: { type: 'dots', color },
-      cornersSquareOptions: { type: 'extra-rounded', color },
-      cornersDotOptions: { type: 'dot', color },
-      backgroundOptions: { color: '#FFFFFF' }
-    };
-  }, [qrValue, size]);
+    const options = useMemo<Options>(() => {
+      const colors = paletteOptions(palette);
+      return {
+        type: 'svg',
+        width: size,
+        height: size,
+        // Quiet zone around the modules for reliable scanning.
+        margin: 6,
+        data: qrValue,
+        image: midenLogoUrl,
+        // Higher error correction compensates for the centered logo cutout.
+        qrOptions: { errorCorrectionLevel: 'H' },
+        imageOptions: { crossOrigin: 'anonymous', margin: 6, imageSize: 0.35, hideBackgroundDots: true },
+        dotsOptions: { type: 'dots', ...colors },
+        cornersSquareOptions: { type: 'extra-rounded', ...colors },
+        cornersDotOptions: { type: 'dot', ...colors },
+        backgroundOptions: { color: '#FFFFFF' }
+      };
+    }, [qrValue, size, palette]);
 
-  // Create the styling instance once; re-use across data/size changes via update().
-  const qrCode = useMemo(() => new QRCodeStyling(options), []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Create the first styling instance once; re-use it across data/size changes via update().
+    const firstInstance = useMemo(() => new QRCodeStyling(options), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The payload the encoder was LAST handed — see the attribute comment below.
-  const [paintedValue, setPaintedValue] = useState('');
+    // The instance on screen, its slot and palette: what is visible AND what a share exports.
+    const committed = useRef<{ instance: QRCodeStyling; slot: 0 | 1; palette: QRPalette }>({
+      instance: firstInstance,
+      slot: 0,
+      palette
+    });
+    const [shownSlot, setShownSlot] = useState<0 | 1>(0);
+    // The palette the visible code was painted with, set only where a paint commits.
+    const [shownPalette, setShownPalette] = useState<QRPalette>(palette);
+    // What the committed instance was last drawn with, and a counter over every option change: a
+    // staged colour that finishes after a newer change (another tap, a new address) is dropped.
+    const applied = useRef<{ qrValue: string; size: number; palette: QRPalette } | null>(null);
+    const generation = useRef(0);
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    container.innerHTML = '';
-    qrCode.append(container);
-    return () => {
+    // The payload the encoder was LAST handed — see the attribute comment below.
+    const [paintedValue, setPaintedValue] = useState('');
+
+    useEffect(() => {
+      const container = slotA.current;
+      const other = slotB.current;
+      if (!container) return;
       container.innerHTML = '';
-    };
-  }, [qrCode]);
+      firstInstance.append(container);
+      return () => {
+        container.innerHTML = '';
+        if (other) other.innerHTML = '';
+      };
+    }, [firstInstance]);
 
-  useEffect(() => {
-    qrCode.update(options);
-    setPaintedValue(typeof options.data === 'string' ? options.data : '');
-  }, [qrCode, options]);
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      getImageBlob: async () => {
-        const data = await qrCode.getRawData('png');
-        // In the browser getRawData resolves to a Blob; guard for the node Buffer path.
-        if (!(data instanceof Blob)) return null;
-        if (!caption) return data;
-        try {
-          const composed = await composeCaptionedPng(data, size, caption, getAccentColor());
-          if (composed) return composed;
-          // The shared image loses its network caption here; leave a trace.
-          console.warn('[QRCode] caption compose unavailable, sharing the raw QR');
-          return data;
-        } catch (e) {
-          console.warn('[QRCode] caption compose failed, sharing the raw QR:', e);
-          return data;
-        }
+    useEffect(() => {
+      const gen = ++generation.current;
+      const last = applied.current;
+      const sameCode = last !== null && last.qrValue === qrValue && last.size === size;
+      // Back to the palette already painted, with a staged draw still pending: the bumped generation
+      // drops that draw, and the painted code is left alone (update() would blank it).
+      if (sameCode && last.palette === palette) return;
+      // A colour change alone never clears the painted code: qr-code-styling's update() empties its
+      // container and redraws asynchronously, so the new colour is drawn into the other slot and
+      // swapped in once it is complete.
+      if (sameCode) {
+        const slot = committed.current.slot === 0 ? 1 : 0;
+        const container = (slot === 0 ? slotA : slotB).current;
+        if (!container) return;
+        container.innerHTML = '';
+        const staged = new QRCodeStyling(options);
+        staged.append(container);
+        void Promise.resolve(staged.getRawData('svg'))
+          .then(drawn => {
+            if (gen !== generation.current) return;
+            // A draw can settle without drawing; committing it would swap a working code for a blank slot.
+            if (!isUsableDraw(drawn) || !container.firstElementChild) {
+              throw new Error('recolour draw produced no code');
+            }
+            committed.current = { instance: staged, slot, palette };
+            applied.current = { qrValue, size, palette };
+            setShownSlot(slot);
+            setShownPalette(palette);
+            onPaletteCommitted?.(palette);
+          })
+          .catch(e => {
+            console.warn('[QRCode] recolour draw failed, keeping the painted palette:', e);
+          });
+        return;
       }
-    }),
-    [caption, qrCode, size]
-  );
+      committed.current.instance.update(options);
+      committed.current = { ...committed.current, palette };
+      applied.current = { qrValue, size, palette };
+      setPaintedValue(typeof options.data === 'string' ? options.data : '');
+      setShownPalette(palette);
+      onPaletteCommitted?.(palette);
+    }, [options, qrValue, size, palette, recolourAttempt, onPaletteCommitted]);
 
-  return (
-    // `data-qr-payload` mirrors the payload the encoder was last PAINTED with, and
-    // is deliberately written from inside the `qrCode.update(options)` effect above
-    // rather than straight from `qrValue`. The instance is created once and only
-    // that effect repaints it, so mirroring `qrValue` here would report what the
-    // component computed even when the repaint never ran — a QR left showing a
-    // previous account would still read as correct. Sourcing the attribute from the
-    // repaint means a broken/removed `update()` leaves the attribute stale (or, on
-    // first mount, absent) alongside the stale picture.
-    //
-    // The attribute exists because the rendered SVG carries no trace of its own
-    // payload and the repo has no QR *decoder* (qr-code-styling is an encoder;
-    // qrcode/qrcode-generator are transitive-only). It exposes nothing new — the
-    // same address already renders in `receive-address-full` and the copy button.
-    // Always fills its parent as a square: the layout sizes the QR, and `size` is only the resolution
-    // it renders and exports at. The caption is painted into the EXPORTED image only - the page names
-    // the network itself, so an on-screen copy of it had no caller.
-    <div
-      className="flex w-full flex-col items-center bg-pure-white rounded-2xl p-2"
-      data-testid="qr-code"
-      data-qr-payload={paintedValue || undefined}
-    >
-      <div ref={containerRef} className="aspect-square w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full" />
-    </div>
-  );
-});
+    useImperativeHandle(
+      ref,
+      () => ({
+        getImageBlob: async () => {
+          const { instance, palette: shownPalette } = committed.current;
+          const data = await instance.getRawData('png');
+          // In the browser getRawData resolves to a Blob; guard for the node Buffer path.
+          if (!(data instanceof Blob)) return null;
+          if (!caption) return data;
+          try {
+            // The caption is painted in the treatment's own leading colour, so a shared image
+            // matches the QR the sender is looking at.
+            const composed = await composeCaptionedPng(data, size, caption, paletteOptions(shownPalette).color);
+            if (composed) return composed;
+            // The shared image loses its network caption here; leave a trace.
+            console.warn('[QRCode] caption compose unavailable, sharing the raw QR');
+            return data;
+          } catch (e) {
+            console.warn('[QRCode] caption compose failed, sharing the raw QR:', e);
+            return data;
+          }
+        }
+      }),
+      [caption, size]
+    );
+
+    return (
+      // `data-qr-payload` and `data-qr-palette` mirror what was last PAINTED, and are
+      // written where a paint commits (the committed instance's `update()`, or a staged
+      // recolour once its draw lands) rather than straight from the props. Mirroring the
+      // props would report what the component computed even when the paint never ran or
+      // failed: a QR left showing a previous account, or its old colour, would still read
+      // as correct. Sourcing them from the commit means a broken paint leaves them stale
+      // (or, on first mount, absent) alongside the stale picture.
+      //
+      // The attribute exists because the rendered SVG carries no trace of its own
+      // payload and the repo has no QR *decoder* (qr-code-styling is an encoder;
+      // qrcode/qrcode-generator are transitive-only). It exposes nothing new — the
+      // same address already renders in `receive-address-full` and the copy button.
+      // Always fills its parent as a square: the layout sizes the QR, and `size` is only the resolution
+      // it renders and exports at. The caption is painted into the EXPORTED image only - the page names
+      // the network itself, so an on-screen copy of it had no caller.
+      <div
+        className="flex w-full flex-col items-center bg-pure-white rounded-2xl p-2"
+        data-testid="qr-code"
+        data-qr-payload={paintedValue || undefined}
+        data-qr-palette={shownPalette}
+      >
+        {([slotA, slotB] as const).map((slotRef, slot) => (
+          <div
+            key={slot}
+            ref={slotRef}
+            hidden={shownSlot !== slot}
+            className="aspect-square w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+          />
+        ))}
+      </div>
+    );
+  }
+);
 
 QRCode.displayName = 'QRCode';
 

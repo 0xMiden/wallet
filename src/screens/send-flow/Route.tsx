@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -145,7 +146,7 @@ export const Route: React.FC<RouteStepProps> = ({
         />
       </div>
 
-      <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true">
+      <FlowFooter className={footerClassName}>
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}
@@ -154,7 +155,7 @@ export const Route: React.FC<RouteStepProps> = ({
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />
-      </div>
+      </FlowFooter>
     </div>
   );
 };

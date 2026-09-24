@@ -94,18 +94,9 @@
     "message": "Loading",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "Returns to the sender if unclaimed by $date$",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "Returns to the sender if not accepted by $date$",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -415,6 +406,10 @@
     "message": "Couldn't load your positions. Check your connection and try again.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Couldn't load this vault. Check your connection and try again.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -435,6 +430,14 @@
   "earnSeeAll": {
     "message": "See All",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "No active positions",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Deposit into a vault below to start earning rewards.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Featured Vaults",
@@ -611,24 +614,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Delivery confirmed",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "The recipient has received and spent this private note, so its delivery is confirmed on chain.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -888,8 +891,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "Claiming note",
-    "englishSource": "Claiming note"
+    "message": "Accepting transfer",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "Executing transaction",
@@ -980,12 +983,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "Delivering note",
-    "englishSource": "Delivering note"
+    "message": "Delivering transfer",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "Securely sending the note to the recipient.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "Securely sending the transfer to the recipient.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "Status",
@@ -1548,6 +1551,10 @@
     "message": "Send to",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Enter Miden or Ethereum Address",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Select Amount",
     "englishSource": "Select Amount"
@@ -1555,6 +1562,10 @@
   "enterAmount": {
     "message": "Enter amount",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "Calculating",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "Select a token",
@@ -1657,8 +1668,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Auto consume",
-    "englishSource": "Auto consume"
+    "message": "Auto accept",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "Pick two different tokens to swap.",
@@ -1694,8 +1705,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1810,20 +1821,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "Scanning private notes: draining the note transport…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "Checking for private transfers…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "Scanning private notes: importing notes from pending proposals…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "Checking for private transfers: importing pending proposals…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "Syncing public notes…",
-    "englishSource": "Syncing public notes…"
+    "message": "Syncing public transfers…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "Syncing public notes: block $current$ of $latest$",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "Syncing public transfers: block $current$ of $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1834,14 +1845,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "You have Pending Notes",
-    "englishSource": "You have Pending Notes"
+    "message": "You have transfers to accept",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "You have pending notes worth $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$ waiting",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2627,6 +2638,10 @@
     "message": "Rotate device key",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "New device key",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
@@ -2815,18 +2830,6 @@
     "message": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Each claim pays its own fee. Claiming them together pays one.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Charged once per asset claimed.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "You need MIDEN to pay the network fee. Receive some MIDEN to continue.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -2836,12 +2839,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "Auto-accept MIDEN transfers",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Creating your wallet file…",
@@ -3118,6 +3121,10 @@
     "message": "Home",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "Earn",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note ID",
     "englishSource": "Note ID"
@@ -3286,137 +3293,17 @@
     "message": "Send Payment",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Claim All",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Claim All? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Total Pending",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes pending",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "assets",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ Incoming",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes pending across $assets$ assets",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ incoming transfers",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ unresolved",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "Claim failed — tap Retry to try again",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "Could not accept — tap Retry to try again",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "This note is no longer available",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Pending notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "What are pending notes?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Consume your notes",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Add these pending funds to your balance to start spending.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "When someone sends you funds, they arrive as private",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— sealed packages only you can open.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Consuming",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "You have",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "This transfer is no longer available",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "Get tokens",
@@ -3437,6 +3324,18 @@
   "faucetId": {
     "message": "Faucet ID",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "Offered Faucet ID",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "Requested Faucet ID",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Set new Faucet ID",
@@ -3499,12 +3398,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "Incoming notes need a retry",
-    "englishSource": "Incoming notes need a retry"
+    "message": "Incoming transfers need a retry",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "An incoming note needs a retry",
-    "englishSource": "An incoming note needs a retry"
+    "message": "An incoming transfer needs a retry",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ couldn't be imported automatically.",
@@ -3516,8 +3415,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note couldn't be imported automatically.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "1 transfer couldn't be imported automatically.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Tomorrow",
@@ -3881,13 +3780,9 @@
     "message": "Haptic Feedback",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "You don't currently have notes to claim.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "You have received a note",
-    "englishSource": "You have received a note"
+    "message": "You have an incoming transfer",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "Transaction failed",
@@ -3898,16 +3793,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "Tap here to claim it",
-    "englishSource": "Tap here to claim it"
+    "message": "Tap here to accept it",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Click to view and claim it",
-    "englishSource": "Click to view and claim it"
+    "message": "Click to review and accept it",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes to claim",
-    "englishSource": "$count$ notes to claim",
+    "message": "$count$ transfers to accept",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3994,10 +3889,6 @@
     "message": "Enter Address",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "Failed to claim note",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "Testnet",
     "englishSource": "Testnet"
@@ -4029,6 +3920,18 @@
   "recentActivity": {
     "message": "Recent activity",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "No activity yet",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Transactions with this token will appear here.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Couldn't load this activity.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Type",
@@ -4103,12 +4006,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes bundled into this swap",
-    "englishSource": "Notes bundled into this swap"
+    "message": "Fills bundled into this swap",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Fill note $number$",
-    "englishSource": "Fill note $number$",
+    "message": "Fill $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4116,8 +4019,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Consumed · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "Accepted · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4145,24 +4048,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "No fill notes have been bundled yet.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "No fills have been bundled yet.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Go to Pending Notes",
-    "englishSource": "Go to Pending Notes"
+    "message": "Go to pending transfers",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Cancel swap",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Cancel this swap?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "The amount still on offer comes back to your account. Anything already matched stays yours.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Returning the amount still on offer to your account. This can take a moment.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "Not available",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Consume TX ID",
-    "englishSource": "Consume TX ID"
+    "message": "Accept TX ID",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Consume TX ID $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "Accept TX ID $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4542,12 +4461,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "Total Consumed",
-    "englishSource": "Total Consumed"
+    "message": "Total Accepted",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes Consumed",
-    "englishSource": "Notes Consumed"
+    "message": "Transfer IDs",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "Consumed",
@@ -4755,8 +4674,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "Claimed on",
-    "englishSource": "Claimed on"
+    "message": "Accepted on",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "Connect a test wallet only",
@@ -4776,8 +4695,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "Search activity",
@@ -4828,8 +4747,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "Not yet accepted — review and accept to claim these funds.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "Not yet accepted — review and accept to add these funds to your balance.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "The network can reset",
@@ -4987,9 +4906,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "Claimed",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$ waiting",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ waiting · $hidden$ hidden",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
@@ -5214,5 +5150,115 @@
   "couldNotCheckUnlockMethod": {
     "message": "Couldn't check this wallet's unlock method. Check your connection and try again.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Change the QR code colour",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "Receive at",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Your Earnings",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "Sec",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Min",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Hour",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "Day",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Expiry unit",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "More information about $label$",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "Enter a whole number from $min$ to $max$.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Activity view",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "View options",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "List",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Groups",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Swaps",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Other activity",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "Accepted",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "Accepting…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "Transfers",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "Unread",
+    "englishSource": "Unread"
   }
 }

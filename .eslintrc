@@ -337,22 +337,15 @@
       "files": [
         "src/app/atoms/**",
         "src/app/ConfirmPage.tsx",
-        "src/app/pages/ExportAccountFile.tsx",
-        "src/app/pages/ImportAccount.tsx",
         "src/app/pages/Receive/AddressTab.tsx",
         "src/app/templates/AccountBanner.tsx",
         "src/app/templates/AddressChip.tsx",
-        "src/app/templates/AdvancedSettings.tsx",
         "src/app/templates/ConnectBanner.tsx",
         "src/app/templates/HashChip.tsx",
         "src/app/templates/history/HistoryItem.tsx",
         "src/app/templates/PrivateDataPermissionCheckbox.tsx",
-        "src/app/templates/RevealSecret.tsx",
-        "src/app/templates/RevealSeedPhrase.tsx",
         "src/app/templates/SettingToggle.tsx",
-        "src/app/templates/VerifySeedPhraseFlow.tsx",
-        "src/components/Avatar.tsx",
-        "src/screens/encrypted-file-flow/EncryptedWalletFileWalletPassword.tsx"
+        "src/components/Avatar.tsx"
       ],
       "rules": {
         "@typescript-eslint/no-restricted-imports": "off"

@@ -6,11 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { DetailRow } from 'components/ui/DetailCard';
+import { Notice } from 'components/ui/Notice';
 import { Status, StatusBadge } from 'components/ui/StatusBadge';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
 
 import HashChip from '../HashChip';
@@ -62,6 +63,18 @@ interface SwapDetailProps {
    * a navigation the receipt would never call.
    */
   onOpenPendingNotes?: () => void;
+  /**
+   * Whether "Cancel swap" can succeed - `deriveSwapReceipt.offerCancel`. Derived
+   * there rather than here for the same reason `isPartialFill` is: it is a
+   * statement about the order, and a prop this component computed from a subset
+   * of what the receipt knows could contradict the status line above it.
+   */
+  offerCancelOrder: boolean;
+  /** The expiry has lapsed and the tip has not come back yet - `reclaimPending`. */
+  reclaimPending: boolean;
+  isCancellingOrder: boolean;
+  cancelOrderError: string | null;
+  onCancelOrder: () => void;
 }
 
 interface SwapNoteRowProps {
@@ -237,7 +250,12 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   approximateUsdAmount,
   fromAccount,
   showActions,
-  onOpenPendingNotes
+  onOpenPendingNotes,
+  offerCancelOrder,
+  reclaimPending,
+  isCancellingOrder,
+  cancelOrderError,
+  onCancelOrder
 }) => {
   const { t } = useTranslation();
   const progressTransition = useMotion(springs.standard);
@@ -265,6 +283,13 @@ export const SwapDetail: FC<SwapDetailProps> = ({
     filledAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(filledAmount, requestedDecimals);
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
+  const showClaimRoute = showActions && onOpenPendingNotes !== undefined;
+  // The footer is drawn only when it has something in it. The three order-side
+  // states are mutually exclusive with the page's own Cancel/Retry footer
+  // (`HistoryDetails`), which needs a Queued or a Failed row: an order can only
+  // be open once its place-order transaction has COMPLETED, so the two bars are
+  // never both filled.
+  const showFooter = showClaimRoute || offerCancelOrder || reclaimPending || cancelOrderError !== null;
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
   const hasSettlementRows = settledTransactions.length > 0 || reclaimedTransactions.length > 0;
 
@@ -421,6 +446,28 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                 `entry.fee` is already resolved by the caller. */}
             {entry.fee && <DetailRow label={t('networkFee')}>{entry.fee}</DetailRow>}
             <DetailRow label={t('from')}>{fromAccount}</DetailRow>
+            {/*
+              A swap touches two faucets, so neither can be labelled "Faucet ID" on
+              its own: the offered side is `entry.faucetId` (the order's own field)
+              and the requested side arrives as a prop. Same chip-over-account-explorer
+              treatment as the transaction id above and as every other faucet row.
+            */}
+            {entry.faucetId && (
+              <DetailRow label={t('faucetIdOffered')} data-testid="swap-detail-offered-faucet-id">
+                <ExternalLinkValue
+                  displayValue={<HashChip hash={entry.faucetId} trimHash />}
+                  href={getExplorerAccountUrl(entry.faucetId)}
+                />
+              </DetailRow>
+            )}
+            {requestedFaucetId && (
+              <DetailRow label={t('faucetIdRequested')} data-testid="swap-detail-requested-faucet-id">
+                <ExternalLinkValue
+                  displayValue={<HashChip hash={requestedFaucetId} trimHash />}
+                  href={getExplorerAccountUrl(requestedFaucetId)}
+                />
+              </DetailRow>
+            )}
             {consumeTransactions.map((transaction, index) => {
               const label =
                 consumeTransactions.length === 1 ? t('consumeTxId') : t('consumeTxIdNumber', { number: index + 1 });
@@ -439,16 +486,42 @@ export const SwapDetail: FC<SwapDetailProps> = ({
       </div>
 
       {/* The receipt is left via the page's own back button, not a dismiss
-          control here - there is no other action once an order has reached
-          the DEX, so the only thing this bar ever offers is the claim route. */}
-      {showActions && onOpenPendingNotes && (
+          control here - this bar carries only what can be DONE to the order:
+          the claim route, and taking the offer back. */}
+      {showFooter && (
         <div className="shrink-0 space-y-3 pb-4 pt-3">
-          <Button
-            variant={ButtonVariant.Primary}
-            title={t('swapOpenPendingNotes')}
-            onClick={onOpenPendingNotes}
-            className="max-w-none"
-          />
+          {cancelOrderError && (
+            <Notice tone="negative" role="alert" data-testid="swap-cancel-order-error">
+              {cancelOrderError}
+            </Notice>
+          )}
+          {/* Not an error and not a button: the wallet owes this account its tip
+              back and will take it on the next settlement tick, so the honest
+              thing to show is what is happening, with nothing to tap. */}
+          {reclaimPending && (
+            <Notice tone="warning" role="status" data-testid="swap-cancel-order-pending">
+              {t('swapCancelOrderPending')}
+            </Notice>
+          )}
+          {showClaimRoute && (
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('swapOpenPendingNotes')}
+              onClick={onOpenPendingNotes}
+              className="max-w-none"
+            />
+          )}
+          {offerCancelOrder && (
+            <Button
+              data-testid="swap-cancel-order-button"
+              variant={ButtonVariant.Destructive}
+              title={t('swapCancelOrder')}
+              isLoading={isCancellingOrder}
+              disabled={isCancellingOrder}
+              onClick={onCancelOrder}
+              className="max-w-none"
+            />
+          )}
         </div>
       )}
     </div>

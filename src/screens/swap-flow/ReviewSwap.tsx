@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -7,10 +7,24 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { InfoHint } from 'components/ui/InfoHint';
 import { Pill } from 'components/ui/Pill';
+import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
+
+import {
+  bestUnitForSeconds,
+  draftToExpirySeconds,
+  ExpiryUnit,
+  EXPIRY_UNIT_LABEL_KEYS,
+  EXPIRY_UNITS,
+  expiryBounds,
+  secondsToUnitValue,
+  unitValueToSeconds
+} from './expiry';
 
 export interface ReviewSwapProps {
   offerToken: SwapToken;
@@ -26,14 +40,35 @@ export interface ReviewSwapProps {
   submitError?: string | null;
   onGoBack: () => void;
   onSubmit: () => void;
+  /** A submission is in flight: the expiry holds still until it settles. */
+  submitting?: boolean;
 }
 
-/** "1 {offer} ≈ {marketPrice} {request}" from the oracle rate, or undefined if unavailable. */
-function formatRate(offerSymbol: string, requestSymbol: string, marketPrice?: string): string | undefined {
+/** The oracle rate as a number, or `undefined` when there isn't one to show. */
+function parseRate(marketPrice?: string): number | undefined {
   const rate = Number(marketPrice);
   if (!rate || !Number.isFinite(rate)) return undefined;
-  const formatted = Number(rate.toPrecision(4)).toString();
-  return `1 ${offerSymbol} ≈ ${formatted} ${requestSymbol}`;
+  return rate;
+}
+
+/**
+ * The rate figure's formatter for one destination. The destination prints at four significant
+ * figures, plain or exponential as `Number#toString` picks; every frame of a count keeps that
+ * string's shape (its decimals, or its mantissa digits), so the row does not jitter and the last
+ * frame is the settled string. The exponential frame stays a string: a `Number` round-trip would
+ * strip a trailing zero.
+ */
+function rateFormatterFor(rate: number): (value: number) => string {
+  const settled = Number(rate.toPrecision(4)).toString();
+  const exponent = settled.indexOf('e');
+  const point = settled.indexOf('.');
+  if (exponent !== -1) {
+    const digits = point === -1 ? 0 : exponent - point - 1;
+    return value => value.toExponential(digits);
+  }
+  const decimals = point === -1 ? 0 : settled.length - point - 1;
+  // Rounded to four figures first, or a rate past 9999 would settle on 12346 where the quote says 12350.
+  return value => Number(value.toPrecision(4)).toFixed(decimals);
 }
 
 /**
@@ -53,7 +88,7 @@ function formatFillsIn(t: TFunction, swapEta?: SwapEta): string {
 }
 
 const SwapArrows: React.FC = () => (
-  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-pure-white">
+  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-swap text-accent-swap-on">
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M5.5 13V4M5.5 4L3 6.5M5.5 4L8 6.5"
@@ -92,12 +127,57 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   onAutoConsumeChange,
   submitError,
   onGoBack,
-  onSubmit
+  onSubmit,
+  submitting = false
 }) => {
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
-  const rate = formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice);
+  // The quote is re-fetched while this screen is open, so the rate counts to each new one.
+  const rate = parseRate(swapEta?.marketPrice);
+  const formatRateValue = rateFormatterFor(rate ?? 0);
+
+  // Seconds stay the value the flow owns (`expirySeconds` in, seconds out). The unit and the
+  // typed digits are this screen's own: without a local draft, a half-typed "1" out of "12"
+  // would be pushed up, clamped to the floor and typed over under the user's fingers.
+  const [unit, setUnit] = useState<ExpiryUnit>(() => bestUnitForSeconds(Number(expirySeconds)));
+  const [expiryDraft, setExpiryDraft] = useState(() =>
+    String(secondsToUnitValue(Number(expirySeconds), bestUnitForSeconds(Number(expirySeconds))))
+  );
+  const bounds = expiryBounds(unit);
+  // An empty or out-of-range draft shows the range message AND blocks Swap: the last valid value
+  // it leaves upstream is no longer on screen, so it must not be what gets submitted.
+  const expiryOutOfRange = draftToExpirySeconds(expiryDraft, unit) === undefined;
+
+  const onExpiryValueChange = useCallback(
+    (next: string) => {
+      setExpiryDraft(next);
+      const seconds = draftToExpirySeconds(next, unit);
+      if (seconds !== undefined) onExpirySecondsChange(String(seconds));
+    },
+    [unit, onExpirySecondsChange]
+  );
+
+  const onExpiryUnitChange = useCallback(
+    (next: ExpiryUnit) => {
+      // The same duration re-expressed, not the same NUMBER: 120 seconds becomes 2 minutes.
+      // `secondsToUnitValue` clamps into the new unit, so switching to a coarser one can only
+      // land on a value that unit can hold.
+      const seconds = Number(expirySeconds);
+      const value = secondsToUnitValue(seconds, next);
+      setUnit(next);
+      setExpiryDraft(String(value));
+      onExpirySecondsChange(String(unitValueToSeconds(value, next)));
+    },
+    [expirySeconds, onExpirySecondsChange]
+  );
+
+  const unitItems = EXPIRY_UNITS.map(candidate => ({
+    id: candidate,
+    label: t(EXPIRY_UNIT_LABEL_KEYS[candidate]),
+    disabled: submitting,
+    'data-testid': `swap-expiry-unit-${candidate}`
+  }));
 
   // A caption pill identifies which side of the swap each amount belongs to — Hero's own
   // slots are visual + value + a subtitle *below* the value, with no room for a heading
@@ -129,52 +209,100 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   return (
     <ReviewLayout
       hero={hero}
-      heroDivider={false}
+      accent="swap"
       dividers={false}
-      primary={{ label: t('swap'), onPress: onSubmit, 'data-testid': 'swap-submit' }}
-      secondary={{ label: t('back'), onPress: onGoBack }}
+      primary={{
+        label: t('swap'),
+        onPress: onSubmit,
+        disabled: expiryOutOfRange,
+        loading: submitting,
+        'data-testid': 'swap-submit'
+      }}
+      secondary={{ label: t('back'), onPress: onGoBack, disabled: submitting }}
     >
-      <DetailCard>
-        {/* The solver spread rides along as this row's own sub-line, since it explains the
-            rate figure above it. */}
+      {/* The card is its own block under the hero, not the next line of it: without this the
+          receive amount and the first row read as one run of text. */}
+      <DetailCard className="mt-8">
+        {/* The solver spread explains the rate figure, but it is a sentence: as a sub-line it
+            wrapped over three lines and pushed the rows apart, so it waits behind the (i). */}
         <DetailRow
           label={t('rate')}
-          sub={rate ? t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` }) : undefined}
+          info={
+            rate !== undefined ? (
+              <InfoHint label={t('moreInfoAbout', { label: t('rate') })} data-testid="swap-rate-info">
+                {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
+              </InfoHint>
+            ) : undefined
+          }
           data-testid="swap-rate-row"
         >
-          {rate}
+          {rate !== undefined && (
+            <AnimatedNumber
+              value={rate}
+              format={value => `1 ${offerToken.symbol} ≈ ${formatRateValue(value)} ${requestToken.symbol}`}
+            />
+          )}
         </DetailRow>
         {networkFee && (
           // Kept as its own row so the solver spread noted above isn't read as the whole price
           // of the swap — the two are different costs.
-          <DetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
+          <DetailRow
+            label={t('networkFeeMax')}
+            info={
+              <InfoHint label={t('moreInfoAbout', { label: t('networkFeeMax') })} data-testid="swap-network-fee-info">
+                {t('networkFeeEstimateNote')}
+              </InfoHint>
+            }
+          >
             {networkFee}
           </DetailRow>
         )}
         <DetailRow label={t('usuallyFillsIn')} data-testid="swap-fills-in-row">
           {formatFillsIn(t, swapEta)}
         </DetailRow>
-        <DetailRow label={t('expires')}>
-          <label className="inline-flex items-center gap-2">
+        {/* Stacked: a number, a four-way unit picker and a range message do not fit beside a
+            label on a phone. */}
+        <DetailRow label={t('expires')} stacked data-testid="swap-expiry-row">
+          <div className="flex w-full flex-col gap-2">
             <input
               data-testid="swap-expiry-seconds"
               type="number"
-              min={1}
+              min={bounds.min}
+              max={bounds.max}
               step={1}
               inputMode="numeric"
               enterKeyHint="done"
-              value={expirySeconds}
-              onChange={event => onExpirySecondsChange(event.target.value)}
-              className="w-16 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-right font-heading text-[15px] font-bold text-ink outline-none [appearance:textfield] focus:border-accent-primary [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              aria-label={t('expires')}
+              aria-invalid={expiryOutOfRange}
+              aria-describedby={expiryOutOfRange ? 'swap-expiry-range' : undefined}
+              value={expiryDraft}
+              disabled={submitting}
+              onChange={event => onExpiryValueChange(event.target.value)}
+              className="w-24 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-left font-heading text-[15px] font-bold text-ink outline-none [appearance:textfield] focus:border-accent-swap [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none aria-[invalid=true]:border-negative-ink"
             />
-            <span>{t('seconds')}</span>
-          </label>
+            <SegmentedControl
+              items={unitItems}
+              value={unit}
+              onChange={onExpiryUnitChange}
+              size="sm"
+              layout="fill"
+              aria-label={t('swapExpiryUnit')}
+              data-testid="swap-expiry-unit"
+            />
+            {expiryOutOfRange && (
+              <span id="swap-expiry-range" role="alert" className="text-caption text-negative-ink">
+                {t('swapExpiryRange', { min: String(bounds.min), max: String(bounds.max) })}
+              </span>
+            )}
+          </div>
         </DetailRow>
         <DetailRow label={t('swapAutoConsume')}>
           <Toggle
             data-testid="swap-auto-consume"
+            accent="swap"
             value={autoConsume}
             onChangeValue={onAutoConsumeChange}
+            disabled={submitting}
             aria-label={t('swapAutoConsume')}
             className="!h-8 !w-16 !px-1.5 [&>div]:!h-5 [&>div]:!w-5"
           />

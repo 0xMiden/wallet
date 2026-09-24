@@ -2,6 +2,7 @@ import './xhr-shim';
 
 import browser, { tabs, runtime } from 'webextension-polyfill';
 
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
@@ -64,9 +65,9 @@ if (process.env.TARGET_BROWSER === 'safari') {
 
 browser.notifications.onClicked.addListener(notificationId => {
   browser.notifications.clear(notificationId);
-  // Deep-link to the incoming-notes list (claim actions), matching the mobile
-  // handler — not the generic wallet QR/receive page (#467).
-  tabs.create({ url: runtime.getURL('fullpage.html#/pending-notes') });
+  // Deep-link to the Activity tab's Pending filter — where an incoming transfer is accepted or
+  // declined — matching the mobile handler, not the generic wallet QR/receive page (#467).
+  tabs.create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) });
 });
 
 function openFullPage() {

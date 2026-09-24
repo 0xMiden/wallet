@@ -3,25 +3,26 @@ import React, { FC, useRef, useState } from 'react';
 import classNames from 'clsx';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
-import { Line, LineChart, Tooltip, YAxis } from 'recharts';
+import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
-import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
-import HashChip from 'app/templates/HashChip';
 import History from 'app/templates/history/History';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Button, ButtonVariant } from 'components/ui/Button';
+import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
@@ -35,6 +36,7 @@ import { useRetryableSWR } from 'lib/swr';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
+import { truncateHash } from 'utils/string';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -74,18 +76,19 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const token = balances?.find(b => b.tokenId === tokenId);
   const metadata = token?.metadata || allTokensMetadata[tokenId];
   const symbol = metadata?.symbol || t('unknown');
-  const balance = token?.balance ?? 0;
+  // No figure until the balances have been read: the page shows the placeholder, not a made-up
+  // 0.00. Once read, a token with no entry holds nothing.
+  const balance = balances ? (token?.balance ?? 0) : null;
   const priceInfo = getTokenPrice(tokenPrices, symbol);
-  const fiatValue = balance * priceInfo.price;
+  const fiatValue = balance === null ? null : balance * priceInfo.price;
   // `balance` was divided by the placeholder's guessed decimals upstream, so for
   // an unresolved faucet it is not this user's holding — and the fiat figure
   // below is that same wrong number multiplied by a price. The hero is the most
   // emphatic number in the wallet; an em dash says "not known" where a rendered
   // quantity would say "this is what you have".
   const scaleIsKnown = hasKnownScale(metadata);
-  // An em dash, not a translated phrase: this slot is a number in the hero,
-  // and the header above it already names the token.
-  const heroBalance = scaleIsKnown ? toAdaptiveFixed(balance) : '—';
+  const formatBalance = adaptiveFormatterFor(balance ?? 0);
+  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
 
   const handleBack = () => goBack();
 
@@ -104,15 +107,35 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
         <div className="flex flex-col gap-5 px-4 pb-4">
           <Hero
             data-testid="token-detail-hero"
-            className="pt-3"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
-            value={heroBalance}
-            subtitle={scaleIsKnown ? `$${toAdaptiveFixed(fiatValue)}` : undefined}
+            value={
+              <AnimatedNumber
+                value={scaleIsKnown ? balance : null}
+                format={formatBalance}
+                // An em dash, not a translated phrase: this slot is a number in the hero,
+                // and the header above it already names the token.
+                placeholder="—"
+              />
+            }
+            subtitle={
+              scaleIsKnown ? (
+                <AnimatedNumber
+                  value={fiatValue}
+                  format={value => `$${formatFiat(value)}`}
+                  // Same dash as the value above: this line hasn't priced anything yet either.
+                  placeholder="—"
+                />
+              ) : undefined
+            }
           />
 
           <div className="flex gap-2.5">
+            {/* The pair names the two flows it opens, so each takes that flow's colour, like the
+                tab bar's icons: Send blue, Receive green. Labels are the 19px bold CTA face, which
+                is the size the 3:1 floor on an action colour is allowed at. */}
             <Button
               variant={ButtonVariant.Primary}
+              accent="send"
               onClick={() => navigate({ pathname: '/send', search: `?tokenId=${tokenId}` })}
               data-testid="token-detail-send"
               className="min-w-0 flex-1 max-w-none"
@@ -121,7 +144,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               <span className="truncate">{t('send')}</span>
             </Button>
             <Button
-              variant={ButtonVariant.Secondary}
+              variant={ButtonVariant.Primary}
+              accent="receive"
               onClick={() => navigate('/receive')}
               data-testid="token-detail-receive"
               className="min-w-0 flex-1 max-w-none"
@@ -136,7 +160,9 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <TokenInfo tokenId={tokenId} />
 
           <section data-testid="token-detail-activity">
-            <SectionHeader>{t('recentActivity')}</SectionHeader>
+            <SectionHeader size="lg" tone="muted">
+              {t('recentActivity')}
+            </SectionHeader>
             <History
               address={account.publicKey}
               tokenId={tokenId}
@@ -187,24 +213,47 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const yDomain: [number, number] = [minVal - padding, maxVal + padding];
 
   const change = priceChange(priceInfo.change24h);
+  // Three decimals is the price line's own shape (`toAdaptiveFixed(price, 3)`), pinned to the
+  // destination so a count does not change how many it shows on the way. Built once per render,
+  // not per frame; the format closure below only calls it.
+  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, 3);
+  const formatPrice = (value: number) => `$${formatAdaptivePrice(value)}`;
 
   // Sits on `page`, not a `Card`: the chart reads better at the full content width than inset in a
   // card, and a neutral `Pill` on a `fill` card would not show at all.
   return (
     <section data-testid="token-detail-price">
-      <SectionHeader>{t('tokenPrice')}</SectionHeader>
+      <SectionHeader size="lg" tone="muted">
+        {t('tokenPrice')}
+      </SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
-        <span className="min-w-0 truncate text-title-page text-ink">${toAdaptiveFixed(priceInfo.price, 3)}</span>
-        <Pill size="sm" tone={change.tone} data-testid="token-detail-price-change">
-          {t('tokenDetailChange24h', { change: change.label })}
+        <AnimatedNumber
+          className="min-w-0 truncate text-hero-value text-ink"
+          value={priceInfo.price}
+          format={formatPrice}
+        />
+        {/* The tone is the SHOWN change's, read once from the destination, so the pill does not
+            change colour on its way there; the label follows each frame. */}
+        <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
+          <AnimatedNumber
+            value={priceInfo.change24h}
+            format={value => t('tokenDetailChange24h', { change: priceChange(value).label })}
+          />
         </Pill>
       </div>
-      <div className="mt-3 h-20">
+      <div className="mt-4 h-28">
         {loading ? (
           <Skeleton className="h-full w-full rounded-2xl" />
         ) : (
           <ChartContainer config={CHART_CONFIG} className="h-full w-full aspect-auto">
-            <LineChart data={chartData}>
+            <AreaChart data={chartData}>
+              <defs>
+                {/* The line's own colour fading to nothing: an area, not a second colour. */}
+                <linearGradient id="token-price-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={CHART_STROKE} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={CHART_STROKE} stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <YAxis domain={yDomain} hide />
               <Tooltip
                 content={({ active, payload }) => {
@@ -218,15 +267,16 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   );
                 }}
               />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="value"
                 stroke={CHART_STROKE}
                 strokeWidth={2}
+                fill="url(#token-price-fill)"
                 dot={false}
                 activeDot={{ r: 4, stroke: CHART_STROKE, fill: 'var(--ds-page)', strokeWidth: 2 }}
               />
-            </LineChart>
+            </AreaChart>
           </ChartContainer>
         )}
       </div>
@@ -234,7 +284,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         items={TIMEFRAME_ITEMS}
         value={timeframe}
         onChange={setTimeframe}
-        size="sm"
+        size="md"
         layout="fill"
         aria-label={t('chartTimeframe')}
         className="mt-2"
@@ -259,16 +309,23 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
 
   return (
     <section data-testid="token-detail-info">
-      <SectionHeader>{t('tokenInfo')}</SectionHeader>
+      <SectionHeader size="lg" tone="muted">
+        {t('tokenInfo')}
+      </SectionHeader>
       <DetailCard>
-        {/* The same compact middle-truncated hash chip as history and contacts (`HashChip`, a
-            `CopyChip` around `HashShortView`): trimmed to read, copied and stored in full — the
-            hidden sibling input `CopyChip` renders carries the untrimmed id for the E2E suite. */}
-        <DetailRow label={t('contract')} data-testid="token-detail-contract">
-          <HashChip
-            hash={tokenId}
+        {/* The faucet that mints this token, under the name the transaction detail page gives every
+            faucet id. A bare copy glyph beside the id cut by the shared `truncateHash`, in the row's
+            value style; the full id is what gets copied. */}
+        <DetailRow label={t('faucetId')} data-testid="token-detail-contract">
+          <CopyButton
+            text={tokenId}
+            label={truncateHash(tokenId, 8)}
+            // The visible label is a value, so the control is named by what it does.
+            aria-label={copied => (copied ? t('copied') : t('copyToClipboard'))}
+            icon="leading"
+            className="min-w-0 text-ink"
+            contentClassName="text-value"
             data-testid="token-detail-copy-contract"
-            className="min-w-0 font-sans text-[15px] font-normal text-ink"
           />
         </DetailRow>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
@@ -285,10 +342,10 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
             type="button"
             onClick={handleViewExplorer}
             data-testid="token-detail-explorer"
-            className="flex w-full items-center justify-between px-4 py-3 text-left font-heading text-[15px] font-bold text-accent-tint-ink"
+            className="flex w-full items-center justify-between px-4 py-3 text-left text-action text-accent-tint-ink"
           >
             {t('viewOnMidenscan')}
-            <ExternalLinkSmallIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            <Icon name={IconName.ArrowRightUp} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
           </button>
         )}
       </DetailCard>

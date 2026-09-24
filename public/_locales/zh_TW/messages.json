@@ -94,18 +94,9 @@
     "message": "載入中",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "若未經 $date$ 領取，將退回寄件人。",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "如果在 $date$ 前未被接受，將退回給傳送方",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -415,6 +406,10 @@
     "message": "無法載入您的持倉。請檢查網路連線並重新嘗試。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "無法載入此金庫。請檢查您的連線並重試。",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -435,6 +430,14 @@
   "earnSeeAll": {
     "message": "查看全部",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "無持倉",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "請將資金存入下方的金庫，即可開始賺取獎勵。",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "精選保險庫",
@@ -611,24 +614,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "此筆交易雖在鏈上進行，但私有note無法傳遞至note傳輸服務。在完成傳遞之前，收款人無法查看或動用該資產。",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "該交易已上鏈，但私密轉帳未能交付給投遞服務。在此之前，收款人無法查看或使用它。",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "此交易發生於鏈上，但錢包無法確認私鑰 note 是否已傳送至 note 傳輸服務。",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "該交易已上鏈，但錢包無法確認私密轉帳是否已送達投遞服務。",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "請保持此錢包開啟並連線——發送後系統會自動重試傳輸一段時間，若傳輸成功，此警告便會消失。若一小時後收件人仍未收到款項，請勿再次發送；請保存下方的交易 ID 並聯繫客服，因為仍可透過該 ID 找回 note。",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "請保持此錢包處於開啟並連線狀態——傳送後的一段時間內會自動重試投遞，成功後該警告會消失。如果一小時後收款人仍未收到，請勿重複傳送；儲存下方的交易 ID 並聯絡支援，因為仍可憑它復原該轉帳。",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "已確認送達",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "收件人已收到並使用這筆私有note，因此其交付已在區塊鏈上確認。",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "收款人已接受並使用該私密轉帳，因此其投遞已在鏈上確認。",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -888,8 +891,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "領取 note",
-    "englishSource": "Claiming note"
+    "message": "正在接受轉帳",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "執行交易",
@@ -980,12 +983,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "推出「note」",
-    "englishSource": "Delivering note"
+    "message": "正在投遞轉帳",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "將 note 安全地傳送給收件者。",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "正在安全地將轉帳傳送給收款人。",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "狀態",
@@ -1548,6 +1551,10 @@
     "message": "傳送至",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "輸入 Miden 或 Ethereum 位址",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "選擇金額",
     "englishSource": "Select Amount"
@@ -1555,6 +1562,10 @@
   "enterAmount": {
     "message": "輸入金額",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "計算中",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "選擇一個代幣",
@@ -1657,8 +1668,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "自動消耗",
-    "englishSource": "Auto consume"
+    "message": "自動接受",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "請選擇兩個不同的代幣來交換。",
@@ -1694,8 +1705,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "若屆時仍未領取，您可以將$amount$領回您的錢包。資金不會遺失。",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "如果到那時仍未被接受，$amount$ 將作為待接受的轉帳退回，由您接受。資金不會遺失。",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1810,20 +1821,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "正在掃描私有區塊鏈 notes：正在清空 note 傳輸通道……",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "正在檢查私密轉帳…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "正在掃描私有 notes：從待審議提案中匯入 notes……",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "正在檢查私密轉帳：正在匯入待處理提案…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "正在同步公開區塊鏈 notes…",
-    "englishSource": "Syncing public notes…"
+    "message": "正在同步公開轉帳…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "同步公開區塊鏈 notes：$latest$ 的第 $current$ 個區塊",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "正在同步公開轉帳：區塊 $current$ / $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1834,14 +1845,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "您有待處理的 Notes",
-    "englishSource": "You have Pending Notes"
+    "message": "您有待接受的轉帳",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "您目前持有價值 $amount$ 的待處理 notes。",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$ 筆等待中",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2627,6 +2638,10 @@
     "message": "裝置旋轉鍵",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "新裝置金鑰",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "產生一個新的裝置（熱）鍵，並在區塊鏈上取代目前的裝置鍵。若您懷疑裝置已遭入侵，此功能將十分實用。",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
@@ -2815,18 +2830,6 @@
     "message": "您的 MIDEN 已預留作為網路手續費。欲進行轉帳，請先取得更多 MIDEN。",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "每筆索取皆需支付相應手續費。若將多筆索取合併處理，則僅需支付一次手續費。",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "每項申領的資產僅收取一次費用。",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "您需要 MIDEN 來支付網路手續費。請領取一些 MIDEN 以繼續操作。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -2836,12 +2839,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "自動接受 MIDEN 轉帳",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "會自動將收到的 MIDEN notes 兌換至您的餘額中——效果與手動點擊「兌換」相同。其兌換頻率不會比您手動點擊「兌換」更高，所產生的手續費也不會比手動操作更多。",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "自動將收到的 MIDEN 轉帳接受到您的餘額中，與點擊「接受」相同。它不會更頻繁地接受，也不會比您自己點擊「接受」產生更多手續費。",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "正在建立您的錢包檔案……",
@@ -3118,6 +3121,10 @@
     "message": "首頁",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "賺取",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note ID",
     "englishSource": "Note ID"
@@ -3286,137 +3293,17 @@
     "message": "付款",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "全數申領",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "「全數申領？」（$unclaimed$ / $total$）",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "待處理總數",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes 待定",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "資產",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ 即將到來",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden 採用一套名為「notes」的獨特系統。這是您手動申領入帳款項的介面，也是讓您能保護錢包免受惡意行為者侵害的一種方式",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$ 旗下各項資產中尚待處理的事項",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ 入帳轉帳",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ 未解決",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "領取失敗 — 點擊「重試」再次嘗試",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "接受失敗——點擊重試再試一次",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "這款 note 已不再供應",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "待處理 notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "什麼是待處理的「notes」？",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "請參閱您的 notes",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "將這些待處理資金加入您的餘額中，即可開始消費。",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "當有人向您轉帳時，資金會以私有形式到達",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— 僅您本人能開啟的密封包。",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "使用說明",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "note會將其解鎖至您的可用餘額中。在此之前，資金雖屬於您，但尚無法動用。",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "您有",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "請稍候。您可隨時使用這些功能——無需急於行事，且資金絕不會面臨任何風險。",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "此轉帳已無法使用",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "取得代幣",
@@ -3437,6 +3324,18 @@
   "faucetId": {
     "message": "Faucet ID",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "提供的 Faucet ID",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "請求的 Faucet ID",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "設定新的Faucet識別碼",
@@ -3499,12 +3398,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "收到的 notes 連結需要重新嘗試",
-    "englishSource": "Incoming notes need a retry"
+    "message": "收到的轉帳需要重試",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "傳入的 note 需要重新嘗試",
-    "englishSource": "An incoming note needs a retry"
+    "message": "有一筆收到的轉帳需要重試",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ 無法自動匯入。",
@@ -3516,8 +3415,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 無法自動匯入 note。",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "有 1 筆轉帳無法自動匯入。",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "明天",
@@ -3881,13 +3780,9 @@
     "message": "觸覺回饋",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "您目前沒有可申領的 notes。",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "您已收到一封來自 note 的電子郵件",
-    "englishSource": "You have received a note"
+    "message": "您有一筆待接收的轉帳",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "交易失敗",
@@ -3898,16 +3793,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "點擊此處領取",
-    "englishSource": "Tap here to claim it"
+    "message": "點擊此處接受",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "點擊查看並領取",
-    "englishSource": "Click to view and claim it"
+    "message": "點擊查看並接受",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes 申領",
-    "englishSource": "$count$ notes to claim",
+    "message": "$count$ 筆待接受的轉帳",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3994,10 +3889,6 @@
     "message": "輸入地址",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "無法領取 note",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "測試網",
     "englishSource": "Testnet"
@@ -4029,6 +3920,18 @@
   "recentActivity": {
     "message": "近期活動",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "目前尚無活動",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "與此代幣相關的交易將顯示於此處。",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "無法載入此活動。",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "類型",
@@ -4103,12 +4006,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "打包進此交換的 Notes",
-    "englishSource": "Notes bundled into this swap"
+    "message": "此次兌換中打包的成交",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "成交 Note $number$",
-    "englishSource": "Fill note $number$",
+    "message": "成交 $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4116,8 +4019,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "已消耗 · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "已接受 · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4145,24 +4048,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "尚未打包任何 Note。",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "尚未打包任何成交。",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "前往 Pending Notes",
-    "englishSource": "Go to Pending Notes"
+    "message": "前往待接受的轉帳",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "取消兌換",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "要取消這筆兌換嗎？",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "仍在掛單中的金額將退回你的帳戶。已經成交的部分仍歸你所有。",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "正在將仍在掛單中的金額退回你的帳戶，這可能需要一點時間。",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "暫無",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "消耗交易 ID",
-    "englishSource": "Consume TX ID"
+    "message": "接受交易 ID",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "消耗交易 ID $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "接受交易 ID $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4542,12 +4461,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "總消耗量",
-    "englishSource": "Total Consumed"
+    "message": "接受總額",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes 消耗",
-    "englishSource": "Notes Consumed"
+    "message": "轉帳 ID",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "消耗",
@@ -4755,8 +4674,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "已申領於",
-    "englishSource": "Claimed on"
+    "message": "接受於",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "僅連接測試錢包",
@@ -4776,8 +4695,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "要將此轉帳從本裝置的「活動」中隱藏嗎？此操作不會將資金退還給寄件者，也不會刪除該筆note。您可以在「活動」中還原已隱藏的轉帳。",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "在此裝置的活動中隱藏這筆轉帳？此操作不會將資金退回傳送方，也不會取消轉帳。您可以在活動中復原已隱藏的轉帳。",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "搜尋活動",
@@ -4828,8 +4747,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "尚未接受 — 請審閱並接受以領取這些資金。",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "尚未接受——查看並接受即可將這筆資金計入您的餘額。",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "網路可重置",
@@ -4987,9 +4906,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "已申領",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$ 筆等待中",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ 筆等待中 · $hidden$ 筆隱藏",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "請僅將 Miden $network$ 代幣發送至此處。若將真實資金發送至此地址，將無法追回。",
@@ -5214,5 +5150,115 @@
   "couldNotCheckUnlockMethod": {
     "message": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "更改 QR Code 顏色",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "接收地址",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "您的收益",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "秒",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "分鐘",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "小時",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "天",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "到期單位",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "關於$label$的更多資訊",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "請輸入 $min$ 到 $max$ 之間的整數。",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "活動檢視",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "檢視選項",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "清單",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "群組",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "兌換",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "其他活動",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "已接受",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "正在接受…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "轉帳",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "未讀",
+    "englishSource": "Unread"
   }
 }

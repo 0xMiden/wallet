@@ -130,7 +130,7 @@ describe('EditMidenFaucetId', () => {
     fireEvent.submit(form());
 
     await waitFor(() => expect(screen.getByText('faucetIdUpdated')).toBeInTheDocument());
-    expect(screen.getByRole('status')).toHaveClass('text-positive-ink');
+    expect(screen.getByRole('status')).toHaveClass('text-caption', 'text-positive-ink');
     expect(mockSetFaucetIdSetting).toHaveBeenCalledTimes(1);
     expect(mockSetFaucetIdSetting).toHaveBeenCalledWith('0xnewfaucet');
     // The success button reflects the settled (not-submitting) state.

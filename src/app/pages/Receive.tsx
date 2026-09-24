@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 
-import classNames from 'clsx';
-
+import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { useAccount } from 'lib/miden/front';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
@@ -11,9 +10,9 @@ import { navigate, useLocation } from 'lib/woozie';
 export interface ReceiveProps {}
 
 /**
- * Receive surface — shows the account address (QR + copy/share). Pending
- * (claimable) notes live on their own `/pending-notes` screen, reached from the
- * Activity header.
+ * Receive surface - shows the account address (QR + copy/share). Pending
+ * (claimable) notes live in the Activity tab's Pending filter
+ * (`ACTIVITY_PENDING_PATH`).
  */
 const ReceiveManager: React.FC<ReceiveProps> = () => {
   const account = useAccount();
@@ -73,12 +72,10 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
   }, []);
 
   return (
-    <div
-      className={classNames('h-full w-full mx-auto overflow-hidden flex flex-col bg-app-bg relative')}
-      data-testid="receive-flow"
-    >
+    // The shared home-group pane box, the same one Send, Earn and Swap are drawn in.
+    <HomeGroupPaneRoot testId="receive-flow">
       <AddressTab address={address} onBridgeDeposit={openBridgeDeposit} />
-    </div>
+    </HomeGroupPaneRoot>
   );
 };
 

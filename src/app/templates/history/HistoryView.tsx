@@ -12,12 +12,17 @@ import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
+import { TextAction } from 'components/ui/TextAction';
+import { UnreadDot } from 'components/ui/UnreadDot';
 import { springs, useMotion } from 'lib/animation';
+import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
+import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
+import { isGuardianOp } from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
@@ -39,6 +44,10 @@ type HistoryViewProps = {
   centerEmptyState?: boolean;
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+  /** A read behind the list failed: with no rows to show, say so instead of "no activity". */
+  loadError?: boolean;
+  /** Re-runs the failed reads; backs the load-error card's Retry. */
+  onRetry?: () => void;
   className?: string;
 };
 
@@ -158,7 +167,7 @@ function buildRowProps(
   } else if (isFailed) {
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-[#CC5D5D]';
-  } else if (entry.txType === 'switch-guardian') {
+  } else if (isGuardianOp(entry.txType)) {
     iconNode = <SwapIcon className="w-5 h-5" />;
     iconBg = 'bg-[#777487]';
   } else if (icon === 'RECEIVE') {
@@ -332,7 +341,48 @@ function buildRowProps(
   };
 }
 
-function shortAddr(addr: string): string {
+/** A failed history read with nothing on screen: says so, with Retry, in place of "no activity". */
+export const HistoryLoadErrorCard: React.FC<{ surface?: 'fill' | 'dashed'; onRetry?: () => void }> = ({
+  surface = 'fill',
+  onRetry
+}) => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      role="alert"
+      icon={IconName.ArrowUpDown}
+      surface={surface}
+      title={t('tokenActivityLoadError')}
+      secondaryAction={
+        onRetry ? { label: t('retry'), onClick: onRetry, 'data-testid': 'history-load-retry' } : undefined
+      }
+      className="w-full"
+      data-testid="history-load-error"
+    />
+  );
+};
+
+/** A failed history read under rows already on screen: they are not the whole history. */
+export const HistoryLoadErrorNotice: React.FC<{ onRetry?: () => void }> = ({ onRetry }) => {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="alert"
+      data-testid="history-load-error-notice"
+      className="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-fill px-4 py-3"
+    >
+      <span className="text-body-sm text-ink">{t('tokenActivityLoadError')}</span>
+      {onRetry && (
+        <TextAction onClick={onRetry} data-testid="history-load-retry">
+          {t('retry')}
+        </TextAction>
+      )}
+    </div>
+  );
+};
+
+/** The wallet's one address ellipsis, shared with the Groups view so both read a row the same way. */
+export function shortAddr(addr: string): string {
   if (addr.length <= 12) return addr;
   const underscoreIdx = addr.indexOf('_');
   if (underscoreIdx === -1) return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -351,12 +401,15 @@ const HistoryView = memo<HistoryViewProps>(
     centerEmptyState,
     pendingItems,
     renderPendingItem,
+    loadError,
+    onRetry,
     className
   }) => {
     const { t } = useTranslation();
     // Same spring as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useMotion(springs.settle);
+    const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
       const pending: TimelineEntry[] = pendingItems.map(item => ({
@@ -378,36 +431,60 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (initialLoading)
+      // One read failing while the other still loads is already a failure worth a Retry.
+      if (initialLoading && !loadError)
         return (
           <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
         );
+      // A failed read with nothing to show must not read as "no activity": in every empty mode the
+      // card says the load failed and offers Retry instead.
+      const loadErrorCard = loadError ? (
+        <HistoryLoadErrorCard surface={tokenId ? 'dashed' : 'fill'} onRetry={onRetry} />
+      ) : null;
       if (centerEmptyState) {
         // Sits right under the filters, at the same top offset the first date
         // group gets once the list has entries (`pt-4` on the first `dateGroups`
         // row below) — not vertically centered in the remaining tab height.
         return (
           <div className="flex flex-col pt-4">
-            <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            {loadErrorCard ?? (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            )}
           </div>
         );
       }
       return (
         // Full history outside the Activity tab (the token page) sits under its own section
-        // header, which already spaces it; the summary view keeps its own margin.
+        // header, which already spaces it; the summary view keeps its own margin. One token's history
+        // is a slot waiting to be filled, so it gets the dashed card and its own copy.
         <div className={classNames('flex flex-col justify-left', !fullHistory && 'm-4')}>
-          <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+          {loadErrorCard ??
+            (tokenId ? (
+              <EmptyState
+                icon={IconName.ArrowUpDown}
+                surface="dashed"
+                title={t('tokenActivityEmptyTitle')}
+                description={t('tokenActivityEmptyBody')}
+                className="w-full"
+              />
+            ) : (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            ))}
         </div>
       );
     }
+
+    // Rows on screen with a failed read behind them are not the whole history: say so above them.
+    const loadErrorNotice = loadError ? <HistoryLoadErrorNotice onRetry={onRetry} /> : null;
 
     // Summary view (used outside the full Activity page) keeps the legacy
     // HistoryItem look — small list of recent entries, no grouping or chrome.
     if (!fullHistory) {
       return (
         <div className={classNames('w-full', 'flex flex-col', className)}>
+          {loadErrorNotice}
           {entries.map((entry, index) => (
             <HistoryItem
               entry={entry}
@@ -430,7 +507,10 @@ const HistoryView = memo<HistoryViewProps>(
             filter change behaves like a native list update. Position-only, because
             a full `layout` would also scale this group and Framer cannot correct a
             radius that lives in a class rather than `style` - the row below passes
-            exactly such a radius. */}
+            exactly such a radius. A layout animation cannot play on a fresh mount -
+            the node's first measurement IS the mount - so this does not replay when
+            a filter change rebuilds the list; only the rows that survive the change
+            move. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
           <motion.div
             layout="position"
@@ -447,14 +527,39 @@ const HistoryView = memo<HistoryViewProps>(
               {dateEntries.map(entry => {
                 if (entry.pendingActivity && renderPendingItem) {
                   return (
-                    <div key={entry.key} data-pending-note-id={entry.pendingActivity.note.id}>
+                    // `layout="position"`, so a pending card travels the list the way the settled
+                    // rows beside it do. Every other child of this group is a Framer projection
+                    // node (a `Card asChild` renders onto `ActivityRow`, which is one) and the
+                    // pending card was the single exception: a plain div. It therefore JUMPED to
+                    // its new place while the `ActivityRow` inside it — a projection node of its
+                    // own — slid there, tearing the header row out of its own card for the length
+                    // of a filter change; and it was the one child the group's `layout` squashed
+                    // instead of scale-correcting while the group resized.
+                    // POSITION, never full `layout`: the card's height changes when its disclosure
+                    // opens, and full `layout` would animate that box — putting back, one level up,
+                    // the height tween `PendingActivityCard` just dropped. Position-only snaps the
+                    // size and animates the move alone.
+                    <motion.div
+                      layout="position"
+                      transition={layoutTransition}
+                      key={entry.key}
+                      data-pending-note-id={entry.pendingActivity.note.id}
+                    >
                       {renderPendingItem(entry.pendingActivity)}
-                    </div>
+                    </motion.div>
                   );
                 }
                 const props = buildRowProps(entry, t, tokenId);
+                const unread = isHistoryEntryUnread(readState, entry);
                 return (
-                  <Card key={entry.key} asChild padding="row" pressable={Boolean(entry.txId)}>
+                  <Card
+                    key={entry.key}
+                    asChild
+                    surface="outline"
+                    padding="row"
+                    pressable={Boolean(entry.txId)}
+                    className="relative"
+                  >
                     <ActivityRow
                       entryKey={entry.key}
                       testId="activity-row"
@@ -464,7 +569,23 @@ const HistoryView = memo<HistoryViewProps>(
                       subtitle={props.subtitle}
                       amount={props.amount}
                       status={props.status}
-                      onClick={entry.txId ? () => navigate(`/history-details/${entry.txId}`) : undefined}
+                      // The row is read the moment its detail is opened — not when the tab is,
+                      // the way an inbox does not read its messages when you open it.
+                      leading={
+                        <UnreadDot
+                          unread={unread}
+                          label={t('activityUnread')}
+                          data-testid={unread ? 'activity-row-unread' : undefined}
+                        />
+                      }
+                      onClick={
+                        entry.txId
+                          ? () => {
+                              markActivityRead(historyEntryUnreadKey(entry), entry.timestamp);
+                              navigate(`/history-details/${entry.txId}`);
+                            }
+                          : undefined
+                      }
                     />
                   </Card>
                 );
@@ -477,6 +598,7 @@ const HistoryView = memo<HistoryViewProps>(
 
     return (
       <div className={classNames('w-full pb-6 flex flex-col', className)}>
+        {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
             loadMore={loadMore}

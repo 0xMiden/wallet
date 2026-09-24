@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input-field';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { Skeleton } from 'components/ui/Skeleton';
 
 /**
@@ -55,9 +56,14 @@ export interface AmountInputProps {
   invalid?: boolean;
   /** Secondary lines under the amount, e.g. "Available 200 USDC" / "≈ $200 USD". */
   helper?: React.ReactNode;
-  /** Token chip rendered under the orange divider (e.g. "Select a token" / "USDC ▾"). */
+  /** Token chip rendered under the accent divider (e.g. "Select a token" / "USDC ▾"). */
   tokenSelector?: React.ReactNode;
-  /** Whether to render the orange divider. Defaults to true. */
+  /**
+   * The flow this field belongs to, which colours the divider under the amount
+   * (design-system.md, "Action colours"). Defaults to the brand orange.
+   */
+  accent?: FlowAccent;
+  /** Whether to render the accent divider. Defaults to true. */
   showDivider?: boolean;
   autoFocus?: boolean;
   disabled?: boolean;
@@ -82,6 +88,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   invalid = false,
   helper,
   tokenSelector,
+  accent = 'brand',
   showDivider = true,
   autoFocus,
   disabled,
@@ -150,7 +157,12 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         <div className="flex flex-col pt-2">{helper}</div>
       ) : null}
 
-      {showDivider && <div data-testid="amount-token-divider" className="mt-3 h-2 rounded-full bg-primary-500 w-55" />}
+      {showDivider && (
+        <div
+          data-testid="amount-token-divider"
+          className={classNames('mt-3 h-2 rounded-full w-55', ACCENT_CLASSES[accent].bg)}
+        />
+      )}
 
       {tokenSelector != null && <div className={classNames(showDivider && 'mt-4')}>{tokenSelector}</div>}
     </div>

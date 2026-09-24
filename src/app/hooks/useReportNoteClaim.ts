@@ -11,7 +11,7 @@ export type ReportClaim = <T>(attempt: () => Promise<T>) => Promise<T>;
 /**
  * Reports note claims as `note_handle` flows.
  *
- * Scope: one flow per claim attempt, not per visit to the pending-notes screen.
+ * Scope: one flow per claim attempt, not per visit to the Pending list.
  * Opening the screen and leaving is not handling a note, and a per-visit flow
  * would report every such look as an abandoned claim. A retry after a failure
  * is its own attempt, so its outcome is never swallowed by the (idempotent)
