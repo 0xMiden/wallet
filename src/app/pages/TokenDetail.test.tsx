@@ -442,7 +442,8 @@ describe('TokenDetail', () => {
       const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
 
       const hero = screen.getByTestId('token-detail-hero');
-      expect(hero).toHaveTextContent('—');
+      // The hero's placeholder, an em dash.
+      expect(hero).toHaveTextContent('\u2014');
       expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
 
       mockUseAllBalances.mockReturnValue({

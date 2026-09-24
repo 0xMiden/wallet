@@ -6,6 +6,7 @@ import { IconName } from 'app/icons/v2';
 import { goBack } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnFlowHeader, EarnHero, MetricCard, EarnSummaryPanel } from './components';
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import { EarnSummary, EarnVault } from './types';
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
@@ -334,9 +335,11 @@ describe('EarnSummaryPanel', () => {
 
       expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
       expect(screen.queryByText('+$0.00')).not.toBeInTheDocument();
-      expect(screen.getAllByText('—')).toHaveLength(3);
+      expect(screen.getAllByText(EARN_PLACEHOLDER)).toHaveLength(3);
       expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
-      expect((container.querySelector('section') as HTMLElement).textContent).toMatch(/^—earnTotalEarnedRewards/);
+      expect((container.querySelector('section') as HTMLElement).textContent).toMatch(
+        new RegExp(`^${EARN_PLACEHOLDER}earnTotalEarnedRewards`)
+      );
     });
 
     it('lands on the loaded figures instead of counting up to them', () => {
