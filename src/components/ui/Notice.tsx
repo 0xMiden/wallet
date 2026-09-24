@@ -22,8 +22,12 @@ export type NoticeTone = 'neutral' | 'warning' | 'negative' | 'positive';
 export type NoticeVariant = 'block' | 'inline';
 
 export interface NoticeProps {
-  /** The body copy: one or two short lines. */
-  children: React.ReactNode;
+  /**
+   * The body copy: one or two short lines. Optional, so a notice whose whole message is its
+   * `title` — an explanation with nothing subordinate under it — renders as that one line rather
+   * than as a line plus an empty one.
+   */
+  children?: React.ReactNode;
   /** Optional bold first line, in the tone's ink. */
   title?: React.ReactNode;
   /** Leading glyph, drawn 16px in the tone's ink. Decorative: the text carries the meaning. */
@@ -135,12 +139,14 @@ export const Notice: React.FC<NoticeProps> = ({
       )}
       {/* Off a surface there is nothing for `ink` to carry, and a caption is meant to be quiet:
           every inline tone takes `muted` (5.3:1 on `page`). */}
-      <span
-        data-slot="body"
-        className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
-      >
-        {children}
-      </span>
+      {children !== undefined && (
+        <span
+          data-slot="body"
+          className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
+        >
+          {children}
+        </span>
+      )}
     </div>
   </div>
 );

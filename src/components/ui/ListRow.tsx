@@ -4,6 +4,7 @@ import { cva } from 'class-variance-authority';
 
 import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
 import { ACCENT_CLASSES, type FlowAccent } from 'components/flow/accent';
+import { UnreadDot } from 'components/ui/UnreadDot';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { Link } from 'lib/woozie';
@@ -18,6 +19,13 @@ interface ListRowBaseProps {
   avatar?: React.ReactNode;
   /** Leading glyph, drawn in a 30px circle. Ignored when `avatar` is set. */
   icon?: React.ReactNode;
+  /**
+   * Marks the row unread: a dot in the row's own left margin, ahead of the leading visual, so the
+   * title column stays put between a read row and an unread one. Needs `unreadLabel`.
+   */
+  unread?: boolean;
+  /** What assistive tech hears for the unread dot. Required whenever `unread` can be true. */
+  unreadLabel?: string;
   /** Trailing `muted` value, such as the current language. */
   value?: React.ReactNode;
   /** Trailing control, such as a `Toggle`. */
@@ -128,6 +136,8 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
     subtitle,
     avatar,
     icon,
+    unread,
+    unreadLabel,
     value,
     trailing,
     checked,
@@ -162,6 +172,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
 
   const content = (
     <>
+      <UnreadDot unread={Boolean(unread)} label={unreadLabel ?? ''} data-testid="list-row-unread" />
       {avatar ? (
         <span className="flex h-10 w-10 shrink-0 items-center justify-center">{avatar}</span>
       ) : (

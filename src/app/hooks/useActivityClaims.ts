@@ -2,7 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import { useReportNoteClaim } from 'app/hooks/useReportNoteClaim';
 import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
@@ -14,6 +14,7 @@ import {
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -61,6 +62,10 @@ export function useActivityClaims() {
   const claim = useClaimNotes();
   const { signTransaction } = useMidenContext();
   const nativeFaucetId = useMidenFaucetId();
+  // Each queue call is one `note_handle` attempt. It wraps the call, not the whole action: the
+  // catches below absorb a queue-time throw, so a wrapper further out would report every failure
+  // as a success.
+  const reportClaim = useReportNoteClaim();
   const key = `${claim.account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
   const attempts = useSyncExternalStore(subscribe, () => slots.get(key)?.attempts ?? noAttempts);
   const setAttempts = (update: (previous: Attempts) => Attempts) => updateAttempts(key, update);
@@ -106,7 +111,7 @@ export function useActivityClaims() {
     for (const note of claim.safeClaimableNotes) {
       let status: PendingActivityStatus = 'pending';
       switch (true) {
-        case note.isBeingClaimed || claim.claimingNoteIds.has(note.id):
+        case note.isBeingClaimed:
           status = 'claiming';
           break;
         // The check holds back a note until its state is known; a cached note cannot be accepted, so it stays listed.
@@ -132,16 +137,9 @@ export function useActivityClaims() {
       result.set(id, { ...attempt, note: current?.note ?? attempt.note });
     }
     return [...result.values()];
-  }, [
-    claim.safeClaimableNotes,
-    claim.claimingNoteIds,
-    claim.checkingNoteIds,
-    claim.invalidNoteIds,
-    claim.retriableNoteIds,
-    attempts
-  ]);
+  }, [claim.safeClaimableNotes, claim.checkingNoteIds, claim.invalidNoteIds, claim.retriableNoteIds, attempts]);
 
-  const accept = async (note: NoteWithMetadata) => {
+  const accept = async (note: ClaimableNoteWithMetadata) => {
     // A cache-first entry is displayed before any live read has confirmed it, so it
     // cannot start a claim. The live read replaces it within one poll lap.
     if (note.fromCache) return;
@@ -150,11 +148,8 @@ export function useActivityClaims() {
     busy.add(note.id);
     setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming' }));
     try {
-      const txId = await initiateConsumeTransaction(
-        claim.account.publicKey,
-        note,
-        claim.isDelegatedProvingEnabled,
-        true
+      const txId = await reportClaim(() =>
+        initiateConsumeTransaction(claim.account.publicKey, note, claim.isDelegatedProvingEnabled, true)
       );
       setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming', txId }));
     } catch (error) {
@@ -175,7 +170,7 @@ export function useActivityClaims() {
 
   // Queues a claim for many notes at once. Every note shows as `claiming`
   // before the first queue call, so the list reacts on tap on all platforms.
-  const acceptMany = async (notes: readonly NoteWithMetadata[]) => {
+  const acceptMany = async (notes: readonly ClaimableNoteWithMetadata[]) => {
     const accepted = notes.filter(note => {
       // Same gate as `accept`: unconfirmed cache entries are never claimed.
       if (note.fromCache) return false;
@@ -193,11 +188,8 @@ export function useActivityClaims() {
     let queued = false;
     for (const groupNotes of groupNotesForClaim(accepted, nativeFaucetId)) {
       try {
-        const txId = await initiateConsumeNotesTransaction(
-          claim.account.publicKey,
-          groupNotes,
-          claim.isDelegatedProvingEnabled,
-          true
+        const txId = await reportClaim(() =>
+          initiateConsumeNotesTransaction(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
         );
         queued = true;
         setAttempts(previous => {

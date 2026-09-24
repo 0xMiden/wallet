@@ -94,15 +94,6 @@
     "message": "Carregando",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "Regressa ao remetente se não for aceite até $date$",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -1854,14 +1845,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "Tem transferências para aceitar",
+    "message": "Você tem transferências para aceitar",
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "Transferências no valor de $amount$ aguardam a sua aceitação.",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$ aguardando",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2839,18 +2830,6 @@
     "message": "Seu MIDEN é reservado para a taxa de rede. Receba mais MIDEN para enviar.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Cada reivindicação paga sua própria taxa. Reivindicá-las juntas implica o pagamento de uma única taxa.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Cobrado uma vez por ativo reivindicado.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Você precisa de MIDEN para pagar a taxa de rede. Receba alguns MIDEN para continuar.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3314,72 +3293,9 @@
     "message": "Enviar pagamento",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Reivindicar tudo",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Resgatar tudo? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Total pendente",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "ativos",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ Chegando",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "A Miden utiliza um sistema exclusivo chamado “notes”. É nele que você reivindica manualmente o dinheiro recebido. É uma forma de manter sua carteira protegida contra agentes mal-intencionados",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes pendentes em todos os ativos d$assets$",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ transferências recebidas",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ não resolvido",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "Não foi possível aceitar — toque em Repetir para tentar de novo",
@@ -3388,10 +3304,6 @@
   "noteUnavailable": {
     "message": "Esta transferência já não está disponível",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "notes pendentes",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "Obter tokens",
@@ -3868,10 +3780,6 @@
     "message": "Retroalimentação tátil",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "No momento, você não tem nenhumnotese a ser resgatado.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "Tem uma transferência recebida",
     "englishSource": "You have an incoming transfer"
@@ -3980,10 +3888,6 @@
   "enterAddress": {
     "message": "Digite o endereço",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "Falha ao reivindicar note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Rede de teste",
@@ -4150,6 +4054,22 @@
   "swapOpenPendingNotes": {
     "message": "Ir para as transferências pendentes",
     "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Cancelar swap",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Cancelar este swap?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "O valor ainda em oferta volta para a sua conta. O que já foi correspondido continua seu.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "A devolver para a sua conta o valor ainda em oferta. Pode demorar um momento.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "Indisponível",
@@ -4986,6 +4906,27 @@
       }
     }
   },
+  "activityPendingWaiting": {
+    "message": "$count$ aguardando",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ aguardando · $hidden$ ocultas",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
+  },
   "receiveTestFundsBody": {
     "message": "Envie apenas tokens Miden $network$ para este endereço. Fundos reais enviados para este endereço não podem ser recuperados.",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
@@ -5315,5 +5256,9 @@
   "transfersSection": {
     "message": "Transferências",
     "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "Não lida",
+    "englishSource": "Unread"
   }
 }

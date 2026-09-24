@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { resetActivityReadState } from 'lib/settings/activity-read';
+
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { PendingActivityItem } from './PendingActivityCard';
 
@@ -29,7 +31,12 @@ const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: 
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('react-i18next', () => ({
+  // Interpolations are appended to the key, so a test can read the count a line was given.
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${Object.values(params).join(':')}` : key)
+  })
+}));
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
     items: mockState.items,
@@ -41,9 +48,19 @@ jest.mock('app/hooks/useActivityClaims', () => ({
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 jest.mock('lib/animation', () => ({
-  springs: { standard: {} },
+  springs: { standard: {}, settle: {} },
   durations: { extraSlow: 0 },
-  useMotion: () => ({ duration: 0 })
+  presets: { count: { transition: { duration: 0 } } },
+  useMotion: () => ({ duration: 0 }),
+  // The pending card takes its disclosure motion from the `reveal` preset, and falls back to the
+  // instant transition whenever the open or close did not come from a tap.
+  usePreset: () => ({
+    initial: { height: 0, opacity: 0 },
+    animate: { height: 'auto', opacity: 1 },
+    exit: { height: 0, opacity: 0 },
+    transition: { duration: 0 }
+  }),
+  reducedMotionTransition: { duration: 0.001 }
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: mockPathname }) }));
@@ -51,7 +68,17 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: (open: boolean) => mockHideNavbar(open)
 }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
-jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
+jest.mock('lib/i18n/numbers', () => ({
+  formatBigInt: () => '1',
+  getAdaptiveDecimalPlaces: () => 3,
+  usdFormatterFor: () => (value: number) => `$${value.toFixed(2)}`
+}));
+// Every fixture note is 1 TOK (1000000 at 6 decimals) and TOK is priced at $2, so the row's
+// total is $2 per LISTED transfer - the arithmetic the assertions below count on.
+const mockTokenPrices = { TOK: { price: 2, priceChange24h: 0 } };
+jest.mock('lib/store', () => ({
+  useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
+}));
 const mockHistoryRenders: Array<{
   pendingItems: PendingActivityItem[];
   drawnPendingItems?: PendingActivityItem[];
@@ -91,7 +118,12 @@ jest.mock('components/Button', () => ({
     children,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; isLoading?: boolean; size?: string }) => (
-    <button {...props} data-size={size}>
+    // `aria-busy` mirrors the real Button (components/ui/Button), where a loading button is also
+    // `pointer-events-none`. It is the only thing on the DOM that separates "already accepting"
+    // from "ready to accept", so the assertions below can pin it. The real Button also keeps its
+    // label laid out but transparent while loading, so it keeps its accessible name: `aria-label`
+    // stands in for that here.
+    <button aria-label={isLoading ? title : undefined} {...props} data-size={size} aria-busy={isLoading || undefined}>
       {children ?? (isLoading ? <span data-testid="claim-spinner" /> : title)}
     </button>
   )
@@ -140,6 +172,40 @@ it('leaves a transfer in place when the decline is cancelled', async () => {
   expect(mockHide).not.toHaveBeenCalled();
 });
 
+describe('the unread mark on a declined transfer', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetActivityReadState();
+  });
+
+  const decline = async (noteId: string) => {
+    const card = expandCard(noteId);
+    expect(within(card).getByTestId('pending-activity-unread')).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+    await waitFor(() => expect(mockHide).toHaveBeenCalledWith(noteId));
+    await act(async () => {});
+    return card;
+  };
+
+  it('stays while the hide write failed, so the transfer is still marked as needing a decision', async () => {
+    mockHide.mockResolvedValue(false);
+    render(<ActivityPendingHistory search="" filter="all" />);
+
+    const card = await decline('first');
+
+    expect(within(card).getByTestId('pending-activity-unread')).toBeInTheDocument();
+  });
+
+  it('clears once the hide write succeeded', async () => {
+    mockHide.mockResolvedValue(true);
+    render(<ActivityPendingHistory search="" filter="all" />);
+
+    const card = await decline('first');
+
+    expect(within(card).queryByTestId('pending-activity-unread')).toBeNull();
+  });
+});
+
 it('does not hide a transfer claimed while the decline dialog was open', async () => {
   let answer: (accepted: boolean) => void = () => {};
   mockConfirm.mockImplementationOnce(
@@ -159,10 +225,10 @@ it('does not hide a transfer claimed while the decline dialog was open', async (
   expect(mockHide).not.toHaveBeenCalled();
 });
 
-it('hands History a claimed note a search hides, so its consume row stays hidden, without drawing its card', () => {
-  const [, , claimed] = mockItems;
-  if (!claimed) throw new Error('Missing note fixtures');
-  claimed.status = 'claimed';
+it('hands History a claiming note a search hides, so its consume row stays hidden, without drawing its card', () => {
+  const [, , claiming] = mockItems;
+  if (!claiming) throw new Error('Missing note fixtures');
+  claiming.status = 'claiming';
   render(<ActivityPendingHistory search="zzzz-nothing" filter="all" />);
   const last = mockHistoryRenders[mockHistoryRenders.length - 1];
   expect(last?.pendingItems.map(item => item.note.id)).toContain('third');
@@ -186,44 +252,100 @@ it('shows Accept All on the pending tab and claims every listed note that can be
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
 });
 
-it('pins Accept All below the list and hides the navbar while the pending tab has notes', () => {
+it('puts Accept All in the actions row above the list, and leaves the navbar alone', () => {
   render(<ActivityPendingHistory search="" filter="pending" />);
-  const button = screen.getByRole('button', { name: 'acceptAll' });
-  // The footer is a sibling after the scroller, not a row inside it, so it stays at the bottom edge.
+  const button = screen.getByTestId('pending-row-accept-all');
+  // The one bulk action lives in the row above the list, not pinned over the tab bar, so the
+  // Activity tab keeps its navbar the way every other tab does.
   const scroller = screen.getByTestId('timeline').closest('.overflow-y-auto');
   if (!scroller) throw new Error('The timeline is not inside the scroller');
-  expect(scroller).not.toContainElement(button);
-  expect(scroller.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(true);
+  expect(scroller).toContainElement(button);
+  expect(mockHideNavbar).not.toHaveBeenCalledWith(true);
 });
 
-it('gives the navbar back when a Pending search lists no transfer', () => {
+it('stands Accept All beside Restore when declined transfers exist, and alone when they do not', () => {
+  mockHidden.ids = new Set(['third']);
+  const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+
+  mockHidden.ids = new Set();
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
+  // Alone, it is still at the right edge — the summary on the left fills the row, so it never
+  // floats against a band of empty space.
+  expect(screen.getByTestId('pending-row-accept-all')).toHaveClass('shrink-0');
+});
+
+it('leads the row with what Accept All is about to accept, in both states', () => {
+  // No declined transfers: three listed at $2 each, the count and the money and nothing else.
+  const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$6.00');
+
+  // One declined: it leaves the count AND the total, and joins the same line as a clause rather
+  // than becoming a second sentence under it.
+  mockHidden.ids = new Set(['third']);
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaitingHidden:2:1')).toBeInTheDocument();
+  expect(screen.queryByText('activityPendingWaiting:3')).not.toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$4.00');
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-accept-all')).toBeInTheDocument();
+});
+
+it('reports only the hidden count, and no money, once every transfer is declined', () => {
+  mockHidden.ids = new Set(['first', 'second', 'third']);
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  // Nothing is waiting, so there is no total to report and the hidden count takes the slot.
+  expect(screen.getByText('activityHiddenTransfers:3')).toBeInTheDocument();
+  expect(screen.queryByTestId('pending-row-total')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityRestoreTransfers' })).toBeInTheDocument();
+});
+
+it('offers no Accept All when a Pending search lists no transfer', () => {
   render(<ActivityPendingHistory search="zzz" filter="pending" />);
-  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
 });
 
-it('keeps the navbar on the other filters and when every note is claimed', () => {
+it('offers no Accept All on the other filters, or once every transfer is accepted', () => {
   const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
   mockItems.forEach(item => {
     item.status = 'claimed';
   });
   rerender(<ActivityPendingHistory search="" filter="pending" />);
-  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
 });
 
-it('keeps the navbar while the Activity tab is mounted under another tab', () => {
-  // TabLayout keeps a visited tab mounted; the pending list must not hide the
-  // navbar on the tab that is actually showing.
-  mockPathname = '/';
+it('keeps Accept All, and marks it busy, while the batch it started is still in flight', () => {
+  // THE STATE THE E2E DRAIN COULD NOT READ. Accept All queued a consume for every listed
+  // transfer, so there is nothing left to accept — but the control must not vanish from under
+  // the tap that started it, so it stays in its loading state instead. `aria-busy` is what says
+  // so, and it is load-bearing beyond the screen reader: the real Button is also
+  // `pointer-events-none` while loading, so anything that clicks this control without reading
+  // the flag (`ChromeWalletPage.claimAllNotes`) can only wait out its own timeout. The retired
+  // Claim All unmounted here, which is why nothing had to tell the two states apart before.
+  mockState.items = mockItems.map(item => ({ ...item, status: 'claiming' as const }));
   render(<ActivityPendingHistory search="" filter="pending" />);
-  expect(screen.getByRole('button', { name: 'acceptAll' })).toBeInTheDocument();
-  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  expect(screen.getByTestId('pending-row-accept-all')).toHaveAttribute('aria-busy', 'true');
 });
 
-it('opens the same details and footer for a pending and a claimed note', () => {
+it('leaves Accept All idle, and accepting the rest, while only some transfers are in flight', () => {
+  const [, , claiming] = mockItems;
+  if (!claiming) throw new Error('Missing note fixtures');
+  claiming.status = 'claiming';
+  mockState.items = [...mockItems];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  // One in flight is not "accepting everything": two transfers are still waiting on a decision,
+  // so the control is live and takes exactly those two.
+  const button = screen.getByTestId('pending-row-accept-all');
+  expect(button).not.toHaveAttribute('aria-busy');
+  fireEvent.click(button);
+  expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
+});
+
+it('folds the details of a transfer waiting on a decision, and drops the card once it is accepted', () => {
   const [, , claimed] = mockItems;
   if (!claimed) throw new Error('Missing note fixtures');
   claimed.status = 'claimed';
@@ -232,10 +354,11 @@ it('opens the same details and footer for a pending and a claimed note', () => {
   const pendingCard = expandCard('first');
   expect(within(pendingCard).getByText('activityNotYetAccepted')).toBeInTheDocument();
   expect(within(pendingCard).getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
-  const claimedCard = expandCard('third');
-  expect(within(claimedCard).getByText('activityTransferAccepted')).toBeInTheDocument();
-  expect(within(claimedCard).getByRole('button', { name: 'activityTransferDetails' })).toBeInTheDocument();
-  expect(within(claimedCard).queryByRole('button', { name: 'activityAcceptTransfer' })).not.toBeInTheDocument();
+
+  // The decision is made, so there is no card at all: `History` stops standing the consume row
+  // down and the transfer is an ordinary row in the feed, drawn by the same component as every
+  // other settled transaction.
+  expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
   delete claimed.txId;
 });
 
@@ -288,7 +411,7 @@ it('offers Restore under the Pending filter while declined transfers can still b
 
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).toBeNull();
-  expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
+  expect(screen.getByText(/^activityPendingWaitingHidden:/)).toBeInTheDocument();
   const restoreButton = screen.getByRole('button', { name: 'activityRestoreTransfers' });
   // The canonical `sm` size replaces the old manual px-3/py-2/text-xs override.
   expect(restoreButton).toHaveAttribute('data-size', 'sm');

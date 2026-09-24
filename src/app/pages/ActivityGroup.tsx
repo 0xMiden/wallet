@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { RestoreDeclinedTransfers } from 'app/templates/history/ActivityClaimsStatus';
+import { ActivityGroupAvatar } from 'app/templates/history/ActivityGroupAvatar';
 import {
   ACTIVITY_GROUP_LABELS,
   activityClaimMatcher,
@@ -13,7 +14,6 @@ import {
 import History from 'app/templates/history/History';
 import { shortAddr } from 'app/templates/history/HistoryView';
 import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
-import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -71,15 +71,16 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   if (!isActivityGroupKind(kind) || !predicate) return <Redirect to={ACTIVITY_PATH} />;
   if (kind === 'address' && !address) return <Redirect to={ACTIVITY_PATH} />;
 
-  const title =
-    kind !== 'address'
-      ? t(ACTIVITY_GROUP_LABELS[kind])
-      : address && (
-          <span className="flex min-w-0 items-center gap-2">
-            <ContactAvatar address={address} name={contactName} size="sm" />
-            <span className="min-w-0 truncate">{contactName ?? shortAddr(address)}</span>
-          </span>
-        );
+  // The title wears the same mark as the row that opened it: a contact's avatar, or the
+  // category's glyph on its own colour (`ActivityGroupAvatar`).
+  const title = (
+    <span className="flex min-w-0 items-center gap-2">
+      <ActivityGroupAvatar kind={kind} id={address ?? kind} name={contactName} size="sm" />
+      <span className="min-w-0 truncate">
+        {kind !== 'address' ? t(ACTIVITY_GROUP_LABELS[kind]) : address && (contactName ?? shortAddr(address))}
+      </span>
+    </span>
+  );
 
   return (
     <SubPageLayout title={title} onBack={back} focusTitleOnMount bodyRef={bodyRef} data-testid="activity-group-page">

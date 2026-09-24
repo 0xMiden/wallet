@@ -205,7 +205,7 @@ describe('ActivityGroupPage', () => {
     const represented = () => ((historyProps.pendingItems ?? []) as PendingActivityItem[]).map(item => item.note.id);
 
     it('draws the claim card of a note from this address and keeps its consume row out', () => {
-      mockClaims.items = [{ note: claimNote('from-alice', 'MTST1ALICEADDRESS0000'), status: 'claimed', txId: 'tx' }];
+      mockClaims.items = [{ note: claimNote('from-alice', 'MTST1ALICEADDRESS0000'), status: 'claiming', txId: 'tx' }];
       render(<ActivityGroupPage kind="address" id="mtst1aliceaddress0000" />);
 
       expect(drawn()).toEqual(['from-alice']);

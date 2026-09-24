@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
+import { createListenerSet } from 'lib/listener-set';
+
 /**
  * A per-device display preference kept as plain text in `localStorage`, for choices that are not
  * account data and so stay out of the vault-backed `WalletSettings`.
@@ -8,7 +10,7 @@ import { useSyncExternalStore } from 'react';
  * storage that throws on read is treated as empty: a preference is never worth a crash.
  */
 export function createPersistedSetting<T extends string>(key: string, allowed: readonly T[], fallback: T) {
-  const listeners = new Set<() => void>();
+  const { subscribe, notify } = createListenerSet();
   // Set only while the last write failed, so the choice still takes effect; storage stays the source
   // otherwise and is read fresh each time.
   let unsaved: T | undefined;
@@ -31,12 +33,7 @@ export function createPersistedSetting<T extends string>(key: string, allowed: r
     } catch {
       unsaved = value;
     }
-    listeners.forEach(listener => listener());
-  }
-
-  function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
+    notify();
   }
 
   function useValue(): T {

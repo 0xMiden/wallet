@@ -56,6 +56,7 @@ import { TabHeader, TabHeaderAction } from './TabHeader';
 import { TabRootHeader } from './TabRootHeader';
 import { TextAction } from './TextAction';
 import { TextField } from './TextField';
+import { UnreadDot } from './UnreadDot';
 import { WaveDots } from './WaveDots';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
@@ -109,6 +110,7 @@ describe('components/ui barrel', () => {
     Spinner,
     Skeleton,
     TextField,
+    UnreadDot,
     Button,
     DetailCard,
     DetailRow,

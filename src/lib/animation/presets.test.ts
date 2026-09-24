@@ -20,9 +20,9 @@ describe('lib/animation/presets', () => {
     mockReduce = false;
   });
 
-  it('exports the nine presets the design system names', () => {
+  it('exports the ten presets the design system names', () => {
     expect([...presetNames].sort()).toEqual(
-      ['count', 'fade', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
+      ['count', 'fade', 'page', 'pop', 'press', 'pulse', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
     );
     expect(Object.keys(presets).sort()).toEqual([...presetNames].sort());
   });
@@ -120,7 +120,9 @@ describe('lib/animation/presets', () => {
       expect(resolvePreset(null, name)).toBe(presets[name]);
     });
 
-    it.each(presetNames.filter(name => name !== 'shimmer' && name !== 'shake'))(
+    // A loop and a shake have no end state to jump to, so reduced motion drops their targets
+    // outright rather than applying them instantly.
+    it.each(presetNames.filter(name => name !== 'shimmer' && name !== 'shake' && name !== 'pulse'))(
       'makes %s instant under reduced motion and keeps its targets',
       name => {
         const reduced = resolvePreset(true, name);

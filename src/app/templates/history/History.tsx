@@ -290,11 +290,13 @@ const History = memo<HistoryProps>(
       }
     };
 
-    // A card carries its claim's outcome, failed included, so the row that outcome would repeat stays hidden.
+    // A card stands in for the consume row only while there is still something to DO with it: a
+    // claim in flight (the card holds the spinner) or one that failed (the card offers Retry).
+    // An ACCEPTED transfer has no card any more — it is an ordinary row in this feed, drawn by
+    // the same component as every other settled transaction — so its consume row must come
+    // through rather than be hidden behind a card that no longer exists.
     const representedNotes = new Set(
-      pendingItems
-        ?.filter(item => item.status === 'claiming' || item.status === 'claimed' || item.status === 'failed')
-        .map(item => item.note.id)
+      pendingItems?.filter(item => item.status === 'claiming' || item.status === 'failed').map(item => item.note.id)
     );
     let entries: IHistoryEntry[] = allEntries.filter(
       entry =>
@@ -572,9 +574,11 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * to a normal receive row. Shared by the completed and pending fetches so the
  * two lists can't desynchronize. Token-scoped views stay complete because the
  * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
- * the swap row on its requested-token page too.
+ * the swap row on its requested-token page too. The tab's unread mark
+ * (`useHasUnreadActivity`) reads through it as well, so it never counts a row
+ * this feed hides.
  */
-async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
   const suppressed = await suppressedLinkedConsumeIds(transactions);
   return transactions.filter(tx => !suppressed.has(tx.id));
 }

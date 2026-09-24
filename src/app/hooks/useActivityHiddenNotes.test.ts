@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
-import { useActivityHiddenNotes } from './useActivityHiddenNotes';
+import { resetActivityHiddenNotes, useActivityHiddenNotes } from './useActivityHiddenNotes';
 
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn(), putToStorage: jest.fn() }));
 const read = jest.mocked(fetchFromStorage);
@@ -10,6 +10,8 @@ const write = jest.mocked(putToStorage);
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The set is a module-level store now, so it outlives a test the way it outlives a mount.
+  resetActivityHiddenNotes();
   read.mockResolvedValue(['old']);
   write.mockResolvedValue(undefined);
 });
@@ -18,9 +20,12 @@ it('loads account-specific hidden notes, persists a rejection, and restores them
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
   await waitFor(() => expect(result.current.loaded).toBe(true));
   expect(read).toHaveBeenCalledWith('activity-hidden-notes:account');
+  let stored: boolean | undefined;
   await act(async () => {
-    await result.current.hide('new');
+    stored = await result.current.hide('new');
   });
+  // A caller that settles something on a stored decline reads this.
+  expect(stored).toBe(true);
   expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['old', 'new']);
   await act(async () => {
     await result.current.restore();
@@ -34,9 +39,11 @@ it('restores the previous notes if storage fails', async () => {
   write.mockRejectedValueOnce(new Error('Storage unavailable'));
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
   await waitFor(() => expect(result.current.loaded).toBe(true));
+  let stored: boolean | undefined;
   await act(async () => {
-    await result.current.hide('new');
+    stored = await result.current.hide('new');
   });
+  expect(stored).toBe(false);
   expect([...result.current.ids]).toEqual(['old']);
   expect(result.current.failed).toBe(true);
   log.mockRestore();
@@ -56,6 +63,24 @@ it('reports a storage read failure and never overwrites the list it could not re
   expect(write).not.toHaveBeenCalled();
   expect(result.current.ids.size).toBe(0);
   expect(result.current.failed).toBe(true);
+  log.mockRestore();
+});
+
+it('reads the list again on the next mount after a failed read', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  // Not a once-queue: a second read this case never makes must not leak into the next case.
+  let reads = 0;
+  read.mockImplementation(() =>
+    ++reads === 1 ? Promise.reject(new Error('Read unavailable')) : Promise.resolve(['a'])
+  );
+  const first = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(first.result.current.failed).toBe(true));
+  first.unmount();
+
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+  expect([...result.current.ids]).toEqual(['a']);
+  expect(result.current.failed).toBe(false);
   log.mockRestore();
 });
 
@@ -115,9 +140,11 @@ it('ignores saves before the list is read and runs saves made during a write aft
   );
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
 
+  let stored: boolean | undefined;
   await act(async () => {
-    await result.current.hide('too-early');
+    stored = await result.current.hide('too-early');
   });
+  expect(stored).toBe(false);
   expect(write).not.toHaveBeenCalled();
   await act(async () => releaseRead(['old']));
   await waitFor(() => expect(result.current.loaded).toBe(true));
@@ -145,4 +172,37 @@ it('restores only the notes it is given', async () => {
   });
   expect([...result.current.ids]).toEqual(['kept']);
   expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['kept']);
+});
+
+it('shows one consumer the set another consumer just wrote', async () => {
+  // The bug this store replaced: the Activity tab declined a transfer, and the home banner -
+  // mounted, never remounted, holding its own copy - went on counting it as waiting.
+  const decliner = renderHook(() => useActivityHiddenNotes('account'));
+  const banner = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(banner.result.current.loaded).toBe(true));
+  expect(read).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    await decliner.result.current.hide('new');
+  });
+  expect([...banner.result.current.ids]).toEqual(['old', 'new']);
+
+  await act(async () => {
+    await banner.result.current.restore();
+  });
+  expect(decliner.result.current.ids.size).toBe(0);
+});
+
+it('keeps one account set out of another', async () => {
+  read.mockImplementation((key: string) => Promise.resolve(key.endsWith(':a') ? ['a-note'] : ['b-note']));
+  const a = renderHook(() => useActivityHiddenNotes('a'));
+  const b = renderHook(() => useActivityHiddenNotes('b'));
+  await waitFor(() => expect(a.result.current.loaded).toBe(true));
+  await waitFor(() => expect(b.result.current.loaded).toBe(true));
+
+  await act(async () => {
+    await a.result.current.hide('new');
+  });
+  expect([...a.result.current.ids]).toEqual(['a-note', 'new']);
+  expect([...b.result.current.ids]).toEqual(['b-note']);
 });

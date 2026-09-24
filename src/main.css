@@ -794,6 +794,9 @@ body[data-home-band]::before {
     --tx-swap: var(--action-swap);
     --tx-earn: var(--action-earn);
     --tx-faucet: #ba839f;
+    /* A mark with no category of its own (the Activity groups' "Other"): the same neutral a
+     * cancelled row's mark already wears. */
+    --tx-other: #737373;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -863,6 +866,11 @@ body[data-home-band]::before {
     --ds-pending-tint-ink: #7a5b26;
     --ds-negative-tint: #f6e5e1;
     --ds-negative-tint-ink: #9b4638;
+    /* The unread / notification mark. Its own token, NOT `--status-negative`: an unread transfer
+     * is not an error, and the two must be free to diverge. Red because that is what a
+     * notification mark means on every platform the wallet ships on; 3.3:1 on `page`, which is
+     * the bar for a non-text mark. */
+    --ds-notification: #ff3b30;
   }
 
   .dark {
@@ -932,6 +940,7 @@ body[data-home-band]::before {
     --tx-swap: #a289bf;
     --tx-earn: #777487;
     --tx-faucet: #ba839f;
+    --tx-other: #737373;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;
@@ -976,5 +985,7 @@ body[data-home-band]::before {
     --ds-pending-tint-ink: #d8bc86;
     --ds-negative-tint: #3d2724;
     --ds-negative-tint-ink: #e7a193;
+    /* Lifted on #191919, where the light red sits at 2.9:1. */
+    --ds-notification: #ff453a;
   }
 }

@@ -22,6 +22,9 @@
  *   never held. The curve is `standard` rather than the sharper `easeOutCubic`, which spends most
  *   of a count in its first few frames and so reads as a flash with a tail.
  * - `shimmer`: a pending runner moving across its track.
+ * - `pulse`: a slow breath that draws the eye to something unread. Deliberately small — an
+ *   indicator that throbs is worse than none — and, like `shimmer`, it simply does not run under
+ *   reduced motion.
  * - `shake`: a horizontal shake that says "wrong" (a rejected passcode). It has no end state
  *   to jump to, so under reduced motion it does not run at all.
  */
@@ -44,7 +47,18 @@ export interface MotionPreset {
   transition: Transition;
 }
 
-export const presetNames = ['fade', 'reveal', 'pop', 'sheet', 'page', 'press', 'count', 'shimmer', 'shake'] as const;
+export const presetNames = [
+  'fade',
+  'reveal',
+  'pop',
+  'sheet',
+  'page',
+  'press',
+  'count',
+  'shimmer',
+  'pulse',
+  'shake'
+] as const;
 
 export type PresetName = (typeof presetNames)[number];
 
@@ -91,6 +105,12 @@ export const presets: Record<PresetName, MotionPreset> = {
     animate: { x: '100%' },
     transition: { type: 'tween', duration: durations.shimmer, ease: 'linear', repeat: Infinity }
   },
+  pulse: {
+    // Scale only, and only to 1.06: the badge is 8px, so this is about a third of a pixel of
+    // travel each way. Opacity is left alone — a fading indicator reads as "loading", not "new".
+    animate: { scale: [1, 1.06, 1] },
+    transition: { type: 'tween', duration: durations.pulse, ease: easings.easeInOut, repeat: Infinity }
+  },
   shake: {
     animate: { x: [0, -10, 10, -8, 8, -4, 4, 0] },
     transition: { type: 'tween', duration: durations.slow, ease: easings.easeInOut }
@@ -107,6 +127,7 @@ const reducedPresets: Record<PresetName, MotionPreset> = {
   count: reduce(presets.count),
   // A loop has no end state to jump to, so it simply does not run.
   shimmer: { transition: resolveTransition(true, presets.shimmer.transition) },
+  pulse: { transition: resolveTransition(true, presets.pulse.transition) },
   // Nor does a shake: it starts and ends at rest, so an instant one is no motion at all.
   shake: { transition: resolveTransition(true, presets.shake.transition) }
 };

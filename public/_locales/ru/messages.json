@@ -94,15 +94,6 @@
     "message": "Загрузка",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "Вернётся отправителю, если не будет принят до $date$",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -1858,10 +1849,10 @@
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "Переводы на сумму $amount$ ожидают вашего принятия.",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$ в ожидании",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2839,18 +2830,6 @@
     "message": "Ваши MIDEN зарезервированы для оплаты сетевой комиссии. Получите больше MIDEN, чтобы отправить.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "За каждое требование взимается отдельная комиссия. При одновременном предъявлении нескольких требований комиссия взимается только одна.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Взимается один раз за каждый заявленный актив.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Для оплаты сетевой комиссии вам понадобится MIDEN. Получите некоторое количество MIDEN, чтобы продолжить.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3314,72 +3293,9 @@
     "message": "Отправить оплату",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Получить всё",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Получить всё? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Всего в процессе рассмотрения",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "активы",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ Входящие",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden использует уникальную систему под названием «notes». Именно здесь вы вручную запрашиваете поступающие средства. Это способ защитить ваш кошелёк от злоумышленников",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes находящиеся в процессе перехода по всем активам $assets$",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ поступающие переводы",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ нерешенный",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "Не удалось принять — нажмите «Повторить»",
@@ -3388,10 +3304,6 @@
   "noteUnavailable": {
     "message": "Этот перевод больше недоступен",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Ожидающие выплаты (notes)",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "Получить токены",
@@ -3868,10 +3780,6 @@
     "message": "Тактильная обратная связь",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "В настоящее время у вас нет «notes», которые можно было бы получить.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "У вас входящий перевод",
     "englishSource": "You have an incoming transfer"
@@ -3980,10 +3888,6 @@
   "enterAddress": {
     "message": "Введите адрес",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "Не удалось получить вознаграждение note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "Тестовая сеть",
@@ -4150,6 +4054,22 @@
   "swapOpenPendingNotes": {
     "message": "К ожидающим переводам",
     "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Отменить обмен",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Отменить этот обмен?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "Сумма, всё ещё выставленная в заявке, вернётся на ваш счёт. Уже исполненная часть останется у вас.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Возвращаем на ваш счёт сумму, остававшуюся в заявке. Это может занять момент.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "Нет в наличии",
@@ -4986,6 +4906,27 @@
       }
     }
   },
+  "activityPendingWaiting": {
+    "message": "$count$ в ожидании",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ в ожидании · $hidden$ скрыто",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
+  },
   "receiveTestFundsBody": {
     "message": "Отправляйте на этот адрес только токены Miden $network$. Реальные средства, отправленные на этот адрес, не подлежат возврату.",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
@@ -5315,5 +5256,9 @@
   "transfersSection": {
     "message": "Переводы",
     "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "Непрочитанное",
+    "englishSource": "Unread"
   }
 }

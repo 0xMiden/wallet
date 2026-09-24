@@ -14,7 +14,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
+import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { PageActiveContext, usePageActive, usePageOnScreen } from 'app/layouts/page-active';
@@ -182,7 +182,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
-  const hasUnclaimedNotes = useHasUnclaimedNotes();
+  const hasUnreadActivity = useHasUnreadActivity();
   // Content of each tab that has been shown. The active tab's entry is
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
@@ -220,7 +220,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'activity',
       label: t('activity'),
       icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
-      showDot: hasUnclaimedNotes
+      unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
       id: 'settings',

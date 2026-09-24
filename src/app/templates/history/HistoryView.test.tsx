@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { resetActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
 import HistoryView from './HistoryView';
@@ -15,6 +16,10 @@ import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
+
+// The pending card wrapper's props, recorded by the framer-motion mock below. A layout animation
+// is measured, never written to markup, so its mode cannot be asserted from the DOM alone.
+const mockPendingWrapper: { props: Record<string, unknown> | null } = { props: null };
 
 // Icon: expose the requested glyph name + size + className so buildRowProps'
 // icon selection (the white-fill classes, and that every row asks for the
@@ -51,11 +56,14 @@ jest.mock('framer-motion', () => {
         (
           { children, layout, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
-        ) => (
-          <div ref={ref} data-layout={String(layout)} {...rest}>
-            {children}
-          </div>
-        )
+        ) => {
+          if (rest['data-pending-note-id'] !== undefined) mockPendingWrapper.props = { layout, transition, ...rest };
+          return (
+            <div ref={ref} data-layout={String(layout)} {...rest}>
+              {children}
+            </div>
+          );
+        }
       )
     }
   };
@@ -73,7 +81,8 @@ jest.mock('components/ui', () => ({
     amount,
     status,
     onClick,
-    className
+    className,
+    leading
   }: {
     icon: React.ReactNode;
     iconBg?: string;
@@ -88,6 +97,7 @@ jest.mock('components/ui', () => ({
     status: string;
     onClick?: () => void;
     className?: string;
+    leading?: React.ReactNode;
   }) => (
     <div
       data-testid="activity-row"
@@ -105,6 +115,7 @@ jest.mock('components/ui', () => ({
       data-clickable={onClick ? 'yes' : 'no'}
       onClick={onClick}
     >
+      {leading}
       {icon}
     </div>
   ),
@@ -805,6 +816,37 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     fireEvent.click(rowByTitle('Received'));
     expect(navigate).toHaveBeenCalledWith('/history-details/tx-receive');
   });
+
+  describe('unread', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      resetActivityReadState();
+      // Before every fixture's timestamp, so the whole list arrives unread.
+      jest.spyOn(Date, 'now').mockReturnValue(0);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('marks a row unread until its own detail is opened', () => {
+      const { rerender } = renderFull();
+      const row = rowByTitle('Received');
+      expect(within(row).getByTestId('activity-row-unread')).toHaveClass('bg-notification');
+
+      // Opening THAT row reads it. Opening the tab reads nothing, which is why the other rows
+      // keep their dots.
+      fireEvent.click(row);
+      rerender(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+      expect(within(rowByTitle('Received')).queryByTestId('activity-row-unread')).toBeNull();
+      expect(screen.getAllByTestId('activity-row-unread').length).toBeGreaterThan(0);
+    });
+
+    it('leaves an existing history read on first run', () => {
+      jest.spyOn(Date, 'now').mockReturnValue((DAY_B + 86_400) * 1000);
+      resetActivityReadState();
+      renderFull();
+
+      expect(screen.queryByTestId('activity-row-unread')).toBeNull();
+    });
+  });
 });
 
 describe('HistoryView token-scoped swap rows', () => {
@@ -1282,6 +1324,44 @@ it('places pending notes between transactions by inclusion date in the same date
   ]);
   expect(screen.getAllByText('January 15, 2024')).toHaveLength(1);
   expect(screen.getAllByText('January 16, 2024')).toHaveLength(1);
+});
+
+it('moves a pending card with the rows beside it, and never animates its height', () => {
+  // The card is the only child of a date group that is not a row, and it used to be the only one
+  // that was not a Framer projection node either: it jumped to its new place on a filter change
+  // while the `ActivityRow` inside it slid there. `layout="position"` puts it in the projection
+  // tree with its neighbours. Position-only is load-bearing: the card's box grows when its
+  // disclosure opens, and full `layout` would animate that — the height tween the card itself
+  // just lost, moved one level up.
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'moving-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span data-testid="pending-moving-row">Pending note</span>}
+    />
+  );
+
+  const wrapperProps = mockPendingWrapper.props;
+  expect(wrapperProps).not.toBeNull();
+  expect(wrapperProps?.layout).toBe('position');
+  expect(wrapperProps?.['data-pending-note-id']).toBe('moving-note');
 });
 
 it('keeps an undated note visible without assigning a false date', () => {

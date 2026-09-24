@@ -4,36 +4,29 @@ import { formatDistanceToNowStrict } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { IconName } from 'app/icons/v2';
 import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
+import { useActivityReadState } from 'lib/settings/activity-read';
 
+import { ActivityGroupAvatar } from './ActivityGroupAvatar';
 import {
   ACTIVITY_GROUP_LABELS,
   ActivityCounterpartyName,
   ActivityGroup,
-  ActivityGroupKind,
   activityGroupPath,
   groupActivityEntries
 } from './activityGroups';
+import { isActivityGroupUnread } from './activityUnread';
 import { historyEntryMatchesSearch } from './History';
 import { shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
-
-/** The glyph of each category group. An `address` group wears its counterparty's avatar instead. */
-const KIND_ICONS: Record<Exclude<ActivityGroupKind, 'address'>, IconName> = {
-  swap: IconName.Convert,
-  faucet: IconName.Faucet,
-  guardian: IconName.Key,
-  other: IconName.More
-};
 
 export function activityGroupTitle(group: ActivityGroup, t: Translate): string {
   if (group.kind !== 'address') return t(ACTIVITY_GROUP_LABELS[group.kind]);
@@ -116,6 +109,7 @@ function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): 
 export const ActivityGroupList = memo<ActivityGroupListProps>(
   ({ entries, nameOf, initialLoading, hasMore, loadMore, scrollParentRef, searchQuery }) => {
     const { t } = useTranslation();
+    const readState = useActivityReadState();
     const query = searchQuery?.trim().toLowerCase() ?? '';
     const groups = useMemo(() => {
       const all = groupActivityEntries(entries, nameOf);
@@ -149,12 +143,13 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
           <ListRow
             key={`${group.kind}:${group.id}`}
             to={activityGroupPath(group)}
-            avatar={group.kind === 'address' ? <ContactAvatar address={group.id} name={group.name} /> : undefined}
-            icon={
-              group.kind === 'address' ? undefined : (
-                <Icon name={KIND_ICONS[group.kind]} size="sm" fill="currentColor" />
-              )
-            }
+            // Every kind takes the same 40px round mark, so the title column starts at one x
+            // down the whole list. See `ActivityGroupAvatar`.
+            avatar={<ActivityGroupAvatar kind={group.kind} id={group.id} name={group.name} />}
+            // Opening a group does not read what is inside it — the dot goes out when the last
+            // unread child has been opened. See `isActivityGroupUnread`.
+            unread={isActivityGroupUnread(readState, group)}
+            unreadLabel={t('activityUnread')}
             title={activityGroupTitle(group, t)}
             subtitle={activityGroupSubtitle(group, t)}
             trailing={

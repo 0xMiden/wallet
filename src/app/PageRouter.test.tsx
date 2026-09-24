@@ -26,7 +26,7 @@
 
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
@@ -136,10 +136,6 @@ jest.mock('app/pages/OpenSidePanel', () => ({
 jest.mock('app/pages/HelpImproveWallet', () => ({
   __esModule: true,
   default: () => <div data-testid="help-improve-wallet" />
-}));
-jest.mock('app/pages/PendingNotes', () => ({
-  __esModule: true,
-  default: () => <div data-testid="pending" />
 }));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
 jest.mock('app/pages/BridgeDeposit', () => ({
@@ -591,9 +587,14 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('import-account'));
   });
 
-  it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
+  it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending');
+    cleanup();
+
+    // Where that redirect lands: the Activity page, which reads `filter` off the location.
+    renderAt('/history', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('all-history'));
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {

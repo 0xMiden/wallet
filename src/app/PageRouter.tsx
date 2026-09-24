@@ -35,13 +35,13 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
 import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
-import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
@@ -254,14 +254,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/pending-notes',
-    onlyReady(() => (
-      <FullScreenPage>
-        <PendingNotes />
-      </FullScreenPage>
-    ))
-  ],
-  [
     '/rotate-guardian',
     onlyReady(() => (
       <FullScreenPage>
@@ -444,6 +436,8 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
+  // The retired Pending notes page: an old link or a restored URL still lands where it went.
+  ['/pending-notes', () => <Woozie.Redirect to={ACTIVITY_PENDING_PATH} />],
   ['*', () => <Woozie.Redirect to="/" />]
 ]);
 

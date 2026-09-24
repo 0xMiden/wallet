@@ -1,8 +1,11 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+
+import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupList } from './ActivityGroupList';
+import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 
 const FAUCET = 'miden-native-faucet';
@@ -89,6 +92,68 @@ const CATEGORY_ENTRIES = () => [
   entry({ timestamp: 600, txType: 'execute' })
 ];
 
+describe('ActivityGroupList — unread', () => {
+  // Everything in the fixtures is dated after the seed, so a fresh install sees it all as unread.
+  beforeEach(() => {
+    localStorage.clear();
+    resetActivityReadState();
+    jest.spyOn(Date, 'now').mockReturnValue(0);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const unreadRows = () => rows().filter(row => within(row).queryByTestId('list-row-unread'));
+
+  it('marks a group unread while any of its entries is, and names it', () => {
+    renderList([entry({ timestamp: 900, secondaryAddress: 'mtst1alice' })]);
+
+    const dot = screen.getByTestId('list-row-unread');
+    expect(dot).toHaveClass('bg-notification');
+    expect(dot).toHaveTextContent('activityUnread');
+  });
+
+  it('keeps the dot while ONE child is still unread, and drops it when the last one is read', () => {
+    const first = entry({ timestamp: 900, key: 'a', txId: 'a', secondaryAddress: 'mtst1alice' });
+    const second = entry({ timestamp: 800, key: 'b', txId: 'b', secondaryAddress: 'mtst1alice' });
+
+    const { rerender } = renderList([first, second]);
+    expect(unreadRows()).toHaveLength(1);
+
+    // Opening one child is not opening the group: the folder still holds something unread.
+    markActivityRead(historyEntryUnreadKey(first), first.timestamp);
+    rerender(
+      <ActivityGroupList
+        entries={[first, second]}
+        nameOf={() => undefined}
+        initialLoading={false}
+        hasMore={false}
+        loadMore={jest.fn()}
+      />
+    );
+    expect(unreadRows()).toHaveLength(1);
+
+    markActivityRead(historyEntryUnreadKey(second), second.timestamp);
+    rerender(
+      <ActivityGroupList
+        entries={[first, second]}
+        nameOf={() => undefined}
+        initialLoading={false}
+        hasMore={false}
+        loadMore={jest.fn()}
+      />
+    );
+    expect(unreadRows()).toHaveLength(0);
+  });
+
+  it('leaves an existing history read on first run, instead of a wall of dots', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(10_000_000);
+    resetActivityReadState();
+
+    renderList([entry({ timestamp: 900, secondaryAddress: 'mtst1alice' }), entry({ timestamp: 800, txType: 'swap' })]);
+
+    expect(screen.queryByTestId('list-row-unread')).toBeNull();
+  });
+});
+
 describe('ActivityGroupList', () => {
   it('spins while the first page is still loading', () => {
     const { container } = renderList([], { initialLoading: true });
@@ -161,6 +226,57 @@ describe('ActivityGroupList', () => {
     expect(screen.getByText('activityGroupGuardian')).toBeTruthy();
     expect(screen.getByText('activityGroupFaucet')).toBeTruthy();
     expect(screen.getByText('activityGroupOther')).toBeTruthy();
+  });
+
+  it('gives every kind of group the same 40px round mark, tinted by kind', () => {
+    renderList([
+      entry({ timestamp: 900, secondaryAddress: 'mtst1aliceaddress0000' }),
+      entry({ timestamp: 800, txType: 'swap' }),
+      entry({ timestamp: 700, txType: 'switch-guardian' }),
+      entry({
+        timestamp: 600,
+        txType: 'consume',
+        transactionIcon: 'RECEIVE',
+        faucetId: FAUCET,
+        secondaryAddress: FAUCET
+      }),
+      entry({ timestamp: 500, txType: 'execute' })
+    ]);
+
+    // The contact keeps its initials avatar; the four category groups each get the circle they
+    // were missing, so the title column starts at the same x on every row.
+    expect(screen.getAllByTestId('contact-avatar')).toHaveLength(1);
+    const marks = screen.getAllByTestId('activity-group-avatar');
+    expect(marks.map(mark => mark.getAttribute('data-group-kind'))).toEqual(['swap', 'guardian', 'faucet', 'other']);
+    for (const mark of [...marks, ...screen.getAllByTestId('contact-avatar')]) {
+      const circle = mark.firstElementChild;
+      expect(circle).toHaveClass('rounded-full', 'h-10', 'w-10');
+    }
+  });
+
+  it('paints each category mark in the colour the flat feed gives that kind of row', () => {
+    renderList([
+      entry({ timestamp: 900, txType: 'swap' }),
+      entry({ timestamp: 800, txType: 'switch-guardian' }),
+      entry({
+        timestamp: 700,
+        txType: 'consume',
+        transactionIcon: 'RECEIVE',
+        faucetId: FAUCET,
+        secondaryAddress: FAUCET
+      }),
+      entry({ timestamp: 600, txType: 'execute' })
+    ]);
+
+    const colorOf = (kind: string) => {
+      const mark = screen.getAllByTestId('activity-group-avatar').find(m => m.dataset.groupKind === kind);
+      return mark?.firstElementChild?.getAttribute('style');
+    };
+    expect(colorOf('swap')).toContain('var(--tx-swap)');
+    expect(colorOf('faucet')).toContain('var(--tx-faucet)');
+    // The slate `HistoryView` already paints a guardian row with (jsdom prints it as rgb).
+    expect(colorOf('guardian')).toContain('rgb(119, 116, 135)');
+    expect(colorOf('other')).toContain('var(--tx-other)');
   });
 
   it("reads the latest event and how long ago it was as the row's subtitle", () => {

@@ -1374,7 +1374,7 @@ it('suppresses a consume row represented by its claiming note, but retains a bat
   expect(mockHistoryViewProps.entries[0].txId).toBe('batch');
 });
 
-it('suppresses legacy single-note consume rows behind a claimed card, keeps rows no card represents, and hides history under Pending', async () => {
+it('suppresses a legacy single-note consume row behind a CLAIMING card, keeps rows no card represents, and hides history under Pending', async () => {
   mockGetCompletedTransactions.mockResolvedValue([
     {
       id: 'legacy',
@@ -1423,7 +1423,9 @@ it('suppresses legacy single-note consume rows behind a claimed card, keeps rows
       type: 'unknown',
       metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
     },
-    status: 'claimed',
+    // `claiming`, not `claimed`: an ACCEPTED transfer has no card any more, so its consume row is
+    // exactly what the feed must show. A claim still in flight is the case a card stands in for.
+    status: 'claiming',
     txId: 'legacy'
   };
   const { rerender } = await renderHistory({ pendingItems: [claimed] });
@@ -1453,11 +1455,44 @@ it('hides the consume row of every represented claim while drawing only the card
       type: 'unknown',
       metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
     },
-    status: 'claimed'
+    status: 'claiming'
   };
   await renderHistory({ pendingItems: [item], drawnPendingItems: [] });
   expect(entryKeys()).toEqual([]);
   expect(mockHistoryViewProps.pendingItems).toEqual([]);
+});
+
+it('shows the consume row of an ACCEPTED transfer: the card it used to hide behind is gone', async () => {
+  mockGetCompletedTransactions.mockResolvedValue([
+    {
+      id: 'accepted',
+      status: STATUS.Completed,
+      displayMessage: 'Received',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      noteIds: ['note-accepted'],
+      completedAt: 700
+    }
+  ]);
+  mockGetUncompletedTransactions.mockResolvedValue([]);
+  const accepted: PendingActivityItem = {
+    note: {
+      id: 'note-accepted',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'claimed',
+    txId: 'accepted'
+  };
+
+  await renderHistory({ pendingItems: [accepted] });
+  // Standing it down would leave the transaction with nothing on screen at all: the card has no
+  // accepted state any more, so the row IS the accepted transfer.
+  await waitFor(() => expect(entryKeys()).toEqual(['completed-accepted']));
 });
 
 it('hides a failed consume row while its failed card offers the retry, and shows it again once no card does', async () => {

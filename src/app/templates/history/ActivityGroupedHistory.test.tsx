@@ -128,7 +128,9 @@ jest.mock('lib/animation', () => ({
   durations: {},
   easings: {},
   reducedMotionTransition: {},
-  useMotion: () => ({ duration: 0 })
+  useMotion: () => ({ duration: 0 }),
+  // C9's pending card takes its disclosure motion from the `reveal` preset.
+  usePreset: () => ({ initial: {}, animate: {}, exit: {}, transition: { duration: 0 } })
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: '/history' }) }));
@@ -209,31 +211,31 @@ describe('ActivityGroupedHistory', () => {
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
-  it("hands History the claims, so a claimed note's consume row is not a group row", () => {
+  it("hands History the claims, so a claiming note's consume row is not a group row", () => {
     mockRealHistory = true;
-    const claimed = claim('note-claimed', 'claimed');
-    mockClaims.items = [claimed];
+    const claiming = claim('note-claiming', 'claiming');
+    mockClaims.items = [claiming];
     mockLatest.push(
-      entry({ key: 'consume-claimed', txType: 'consume', consumedNoteIds: ['note-claimed'] }),
+      entry({ key: 'consume-claiming', txType: 'consume', consumedNoteIds: ['note-claiming'] }),
       entry({ key: 'send-1' })
     );
     render(<ActivityGroupedHistory search="" />);
 
-    expect(historyProps.pendingItems).toEqual([claimed]);
+    expect(historyProps.pendingItems).toEqual([claiming]);
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-keys', 'send-1');
   });
 
-  it("keeps a claimed note's consume row out of the groups while a search hides its card", () => {
+  it("keeps a claiming note's consume row out of the groups while a search hides its card", () => {
     mockRealHistory = true;
-    const claimed = claim('note-claimed', 'claimed');
-    mockClaims.items = [claimed];
+    const claiming = claim('note-claiming', 'claiming');
+    mockClaims.items = [claiming];
     mockLatest.push(
-      entry({ key: 'consume-claimed', txType: 'consume', consumedNoteIds: ['note-claimed'] }),
+      entry({ key: 'consume-claiming', txType: 'consume', consumedNoteIds: ['note-claiming'] }),
       entry({ key: 'send-1' })
     );
     render(<ActivityGroupedHistory search="zzzz-nothing" />);
 
-    expect(historyProps.pendingItems).toEqual([claimed]);
+    expect(historyProps.pendingItems).toEqual([claiming]);
     expect(screen.queryByTestId('activity-group-claims')).toBeNull();
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-keys', 'send-1');
   });

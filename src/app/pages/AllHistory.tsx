@@ -14,22 +14,30 @@ import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { setActivityView, useActivityView } from 'lib/settings/activity-view';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 type AllHistoryProps = {
   programId?: string | null;
 };
 
+/**
+ * The filter a link asked for, e.g. `/history?filter=pending` - which is where every
+ * received-transfer notification and the home prompt now land (`ACTIVITY_PENDING_PATH`). Only an
+ * id the segmented control offers is accepted.
+ */
+function filterFromSearch(
+  search: string,
+  filters: readonly SegmentedControlItem<ActivityFilter>[]
+): ActivityFilter | undefined {
+  const asked = new URLSearchParams(search).get('filter');
+  return filters.find(candidate => candidate.id === asked)?.id;
+}
+
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<ActivityFilter>('all');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  // Remembered per device in the app's settings module, so the tab reopens in the view the user
-  // left it in; `list` until they choose otherwise.
-  const view = useActivityView();
-  const menuAnchorRef = useRef<HTMLButtonElement>(null);
+  const { search: locationSearch } = useLocation();
 
   /**
    * `activity_view` is a view flow, so its terminal state is the user actually
@@ -67,6 +75,29 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     ],
     [t]
   );
+  const [filter, setFilter] = useState<ActivityFilter>(() => filterFromSearch(locationSearch, filters) ?? 'all');
+  // `TabLayout` keeps a visited tab mounted, so a notification arriving while Activity is already
+  // open does not remount this page — the initial state above would never be re-read. Following
+  // the location is what makes the deep link work on the second and every later tap.
+  useEffect(() => {
+    const asked = filterFromSearch(locationSearch, filters);
+    if (asked) setFilter(asked);
+  }, [locationSearch, filters]);
+  // A pick is written back to the URL, so a later link to a filter the URL no longer names is a
+  // change of location the effect above sees.
+  const pickFilter = (next: ActivityFilter) => {
+    setFilter(next);
+    navigate(
+      ({ pathname, hash, state }) => ({ pathname, search: `?filter=${next}`, hash, state }),
+      HistoryAction.Replace
+    );
+  };
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Remembered per device in the app's settings module, so the tab reopens in the view the user
+  // left it in; `list` until they choose otherwise.
+  const view = useActivityView();
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
   // The search button in the header shows and hides the search field. A
   // closed field also clears the query, so the list goes back to the full set.
@@ -106,7 +137,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         // kept while the user is away in Groups, and the row shows it again on the way back.
         filter={
           view === 'list'
-            ? { items: filters, value: filter, onChange: setFilter, 'aria-label': t('activityFilters') }
+            ? { items: filters, value: filter, onChange: pickFilter, 'aria-label': t('activityFilters') }
             : undefined
         }
       />

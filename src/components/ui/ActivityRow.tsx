@@ -50,6 +50,13 @@ export interface ActivityRowProps {
   status?: Status;
   /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
   timestamp?: string;
+  /**
+   * A mark the row positions in its own left margin rather than in the content flow — an
+   * `UnreadDot`. Absolutely placed on purpose: a dot that took layout would shift the leading
+   * avatar and the title column between a read row and an unread one, and the column has to
+   * start at the same x down the whole list.
+   */
+  leading?: ReactNode;
   onClick?: () => void;
   /**
    * Layout, or the surface a `Card asChild` draws onto the row. Merged with `cn`, so a card's
@@ -104,6 +111,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   amount,
   status,
   timestamp,
+  leading,
   onClick,
   className,
   testId,
@@ -149,8 +157,13 @@ export const ActivityRow: FC<ActivityRowProps> = ({
       onClick={onClick ? handleClick : undefined}
       // Every row is the same height: the title and subtitle each hold one line, so a long
       // subtitle (a guardian's two provider names) truncates instead of pushing the row taller.
-      className={cn('w-full flex items-center py-4 justify-between gap-3', onClick && 'cursor-pointer', className)}
+      className={cn(
+        'relative w-full flex items-center py-4 justify-between gap-3',
+        onClick && 'cursor-pointer',
+        className
+      )}
     >
+      {leading}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <div
           className={classNames(

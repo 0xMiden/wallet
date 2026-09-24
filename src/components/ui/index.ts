@@ -114,6 +114,8 @@ export type { SkeletonProps, SkeletonTone } from './Skeleton';
 export { TextField } from './TextField';
 export type { TextFieldProps, TextFieldElement } from './TextField';
 
+export { UnreadDot } from './UnreadDot';
+
 export { Card, CardButton } from './Card';
 export type { CardProps, CardButtonProps, CardPadding } from './Card';
 

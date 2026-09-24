@@ -1,10 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
 
-const note: NoteWithMetadata = {
+const note: ClaimableNoteWithMetadata = {
   id: 'note-one',
   faucetId: 'faucet',
   amount: '1000000',
@@ -38,6 +38,22 @@ const mockClaim = {
 };
 
 jest.mock('./useClaimNotes', () => ({ useClaimNotes: () => mockClaim }));
+// A pass-through reporter that records what each wrapped queue call settled with.
+const mockReported: Array<'ok' | 'failed'> = [];
+jest.mock('app/hooks/useReportNoteClaim', () => ({
+  useReportNoteClaim:
+    () =>
+    async <T>(attempt: () => Promise<T>): Promise<T> => {
+      try {
+        const result = await attempt();
+        mockReported.push('ok');
+        return result;
+      } catch (error) {
+        mockReported.push('failed');
+        throw error;
+      }
+    }
+}));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
@@ -85,6 +101,7 @@ beforeEach(() => {
   mockQueueMany.mockReset();
   mockAnyOf.mockReset();
   mockSubscriptions.length = 0;
+  mockReported.length = 0;
   mockFlags.extension = false;
   __resetActivityClaimsForTest();
   mockEndpoint.rpc = 'rpc';
@@ -257,14 +274,14 @@ it('marks every batch note as claiming at once, queues the native faucet group f
 });
 
 it('projects every live note state and leaves an undated note undated', () => {
+  // A claim in flight is read from the note's own row (`isBeingClaimed`, written the moment the
+  // consume is enqueued), not from a set the retired batch claimer used to keep in memory.
   const live = { ...note, id: 'live', receivedAt: 123, isBeingClaimed: true };
-  const claimed = { ...note, id: 'claimed' };
   const checking = { ...note, id: 'checking' };
   const unavailable = { ...note, id: 'unavailable' };
   const failed = { ...note, id: 'failed' };
   const pending = { ...note, id: 'pending' };
-  mockClaim.safeClaimableNotes = [live, claimed, checking, unavailable, failed, pending];
-  mockClaim.claimingNoteIds.add(claimed.id);
+  mockClaim.safeClaimableNotes = [live, checking, unavailable, failed, pending];
   mockClaim.checkingNoteIds.add(checking.id);
   mockClaim.invalidNoteIds.add(unavailable.id);
   mockClaim.retriableNoteIds.add(failed.id);
@@ -272,7 +289,6 @@ it('projects every live note state and leaves an undated note undated', () => {
   const { result } = renderHook(() => useActivityClaims());
   expect(result.current.items.map(item => [item.note.id, item.status, item.note.receivedAt])).toEqual([
     ['live', 'claiming', 123],
-    ['claimed', 'claiming', undefined],
     ['checking', 'checking', undefined],
     ['unavailable', 'unavailable', undefined],
     ['failed', 'failed', undefined],
@@ -542,5 +558,42 @@ describe('a claim shared across the Activity views', () => {
       await pending;
     });
     expect(mockQueue).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('note_handle reporting', () => {
+  it('reports an accepted note as one attempt around its queue call', async () => {
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockReported).toEqual(['ok']);
+  });
+
+  it('lets the reporter see a queue-time failure the hook then absorbs', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockQueue.mockRejectedValue(new Error('queue failed'));
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockReported).toEqual(['failed']);
+    expect(result.current.items[0]?.status).toBe('failed');
+    log.mockRestore();
+  });
+
+  it('reports each faucet group of Accept All as its own attempt', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const other = { ...note, id: 'note-two', faucetId: 'other-faucet' };
+    mockClaim.safeClaimableNotes = [note, other];
+    mockQueueMany.mockResolvedValueOnce('tx-batch').mockRejectedValueOnce(new Error('queue failed'));
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.acceptMany([note, other]);
+    });
+    expect(mockQueueMany).toHaveBeenCalledTimes(2);
+    expect(mockReported).toEqual(['ok', 'failed']);
+    log.mockRestore();
   });
 });

@@ -94,15 +94,6 @@
     "message": "載入中",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "如果在 $date$ 前未被接受，將退回給傳送方",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -1858,10 +1849,10 @@
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "價值 $amount$ 的轉帳正在等待您接受。",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$ 筆等待中",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2839,18 +2830,6 @@
     "message": "您的 MIDEN 已預留作為網路手續費。欲進行轉帳，請先取得更多 MIDEN。",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "每筆索取皆需支付相應手續費。若將多筆索取合併處理，則僅需支付一次手續費。",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "每項申領的資產僅收取一次費用。",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "您需要 MIDEN 來支付網路手續費。請領取一些 MIDEN 以繼續操作。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3314,72 +3293,9 @@
     "message": "付款",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "全數申領",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "「全數申領？」（$unclaimed$ / $total$）",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "待處理總數",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "資產",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ 即將到來",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden 採用一套名為「notes」的獨特系統。這是您手動申領入帳款項的介面，也是讓您能保護錢包免受惡意行為者侵害的一種方式",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$ 旗下各項資產中尚待處理的事項",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ 入帳轉帳",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ 未解決",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "接受失敗——點擊重試再試一次",
@@ -3388,10 +3304,6 @@
   "noteUnavailable": {
     "message": "此轉帳已無法使用",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "待處理 notes",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "取得代幣",
@@ -3868,10 +3780,6 @@
     "message": "觸覺回饋",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "您目前沒有可申領的 notes。",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "您有一筆待接收的轉帳",
     "englishSource": "You have an incoming transfer"
@@ -3980,10 +3888,6 @@
   "enterAddress": {
     "message": "輸入地址",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "無法領取 note",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "測試網",
@@ -4150,6 +4054,22 @@
   "swapOpenPendingNotes": {
     "message": "前往待接受的轉帳",
     "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "取消兌換",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "要取消這筆兌換嗎？",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "仍在掛單中的金額將退回你的帳戶。已經成交的部分仍歸你所有。",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "正在將仍在掛單中的金額退回你的帳戶，這可能需要一點時間。",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "暫無",
@@ -4986,6 +4906,27 @@
       }
     }
   },
+  "activityPendingWaiting": {
+    "message": "$count$ 筆等待中",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ 筆等待中 · $hidden$ 筆隱藏",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
+  },
   "receiveTestFundsBody": {
     "message": "請僅將 Miden $network$ 代幣發送至此處。若將真實資金發送至此地址，將無法追回。",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
@@ -5315,5 +5256,9 @@
   "transfersSection": {
     "message": "轉帳",
     "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "未讀",
+    "englishSource": "Unread"
   }
 }

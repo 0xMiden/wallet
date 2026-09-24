@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 
@@ -42,8 +42,24 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title: string; onClick: () => void }) => <button onClick={onClick}>{title}</button>,
-  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    variant,
+    'data-testid': testId
+  }: {
+    title: string;
+    onClick: () => void;
+    disabled?: boolean;
+    variant?: string;
+    'data-testid'?: string;
+  }) => (
+    <button onClick={onClick} disabled={disabled} data-variant={variant} data-testid={testId}>
+      {title}
+    </button>
+  ),
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
 }));
 
 jest.mock('../HashChip', () => ({
@@ -103,6 +119,8 @@ const entry = {
   faucetId: OFFERED_FAUCET
 } as unknown as IHistoryEntry;
 
+const mockCancelOrder = jest.fn();
+
 const consume = (over: Partial<SwapSettlementTransaction> = {}): SwapSettlementTransaction => ({
   id: 'local-row-1',
   transactionId: '0xchain1',
@@ -129,6 +147,11 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       reclaimedTransactions={[]}
       fromAccount={<span>me</span>}
       showActions={false}
+      offerCancelOrder={false}
+      reclaimPending={false}
+      isCancellingOrder={false}
+      cancelOrderError={null}
+      onCancelOrder={mockCancelOrder}
       {...over}
     />
   );
@@ -412,5 +435,69 @@ describe('SwapDetail actions', () => {
 
     expect(screen.queryByText('close')).not.toBeInTheDocument();
     expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+  });
+});
+
+describe('SwapDetail cancelling a live order', () => {
+  it('offers Cancel swap while the order is open, and calls back on the tap', () => {
+    renderDetail({ offerCancelOrder: true });
+
+    const button = screen.getByTestId('swap-cancel-order-button');
+    expect(button).toHaveTextContent('swapCancelOrder');
+    // Destructive, not primary: the offer cannot be put back once it is taken.
+    expect(button).toHaveAttribute('data-variant', 'destructive');
+
+    fireEvent.click(button);
+    expect(mockCancelOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no cancel control when the order cannot be cancelled', () => {
+    // The eligibility is decided once, in `deriveSwapReceipt`; this card never
+    // draws a control the receipt did not offer.
+    renderDetail({ offerCancelOrder: false });
+
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('holds the button in its loading state while the cancel is in flight', () => {
+    renderDetail({ offerCancelOrder: true, isCancellingOrder: true });
+
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeDisabled();
+  });
+
+  it('replaces the button with the reclaim notice once the expiry has lapsed', () => {
+    // Nothing to tap: the wallet owes this account its tip back and will take it
+    // on the next settlement tick. A button there would restate a decision that
+    // has already been made.
+    renderDetail({ offerCancelOrder: false, reclaimPending: true });
+
+    expect(screen.getByTestId('swap-cancel-order-pending')).toHaveTextContent('swapCancelOrderPending');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a failed cancel as a notice, keeping the button available to retry', () => {
+    renderDetail({ offerCancelOrder: true, cancelOrderError: 'nope' });
+
+    const notice = screen.getByTestId('swap-cancel-order-error');
+    expect(notice).toHaveTextContent('nope');
+    expect(notice).toHaveAttribute('data-tone', 'negative');
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+  });
+
+  it('draws the error even when nothing else would open the action bar', () => {
+    // The bar is rendered only when it has something in it, and a refusal the
+    // user cannot see is the same as no refusal at all.
+    renderDetail({ showActions: false, offerCancelOrder: false, cancelOrderError: 'nope' });
+
+    expect(screen.getByTestId('swap-cancel-order-error')).toBeInTheDocument();
+  });
+
+  it('keeps the claim route and the cancel side by side when both apply', () => {
+    // An order with no expiry is both claimable (nothing will auto-settle it)
+    // and cancellable (the stamp is the only thing that can end its wait).
+    renderDetail({ showActions: true, onOpenPendingNotes: jest.fn(), offerCancelOrder: true });
+
+    expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
   });
 });

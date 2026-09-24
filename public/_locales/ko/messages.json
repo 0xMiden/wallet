@@ -94,15 +94,6 @@
     "message": "로딩 중",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
     "message": "$date$까지 수락하지 않으면 보낸 사람에게 반환됩니다",
     "englishSource": "Returns to the sender if not accepted by $date$",
@@ -1854,14 +1845,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "수락할 이체가 있습니다",
+    "message": "수락할 전송이 있습니다",
     "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "$amount$ 상당의 이체가 수락을 기다리고 있습니다.",
-    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
+    "message": "$count$건 대기 중",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2839,18 +2830,6 @@
     "message": "사용자의 MIDEN은 네트워크 수수료로 예약되어 있습니다. 더 많은 MIDEN을 수령하여 송금하십시오.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "각 청구는 별도의 수수료를 지불합니다. 이를 한꺼번에 청구하면 수수료는 한 번만 지불됩니다.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "청구한 자산당 1회 요금이 부과됩니다.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3314,72 +3293,9 @@
     "message": "결제 보내기",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "모두 청구하기",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "모두 청구하기? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "미결 처리 건수 총계",
-    "englishSource": "Total Pending"
-  },
   "pendingAssetsCount": {
     "message": "자산",
     "englishSource": "assets"
-  },
-  "incomingCount": {
-    "message": "$count$ 수신",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden은 ‘수령 확인(notes)’이라는 독자적인 시스템을 사용합니다. 이는 입금된 자금을 수동으로 청구하는 과정입니다. 이는 악의적인 행위자로부터 지갑을 안전하게 보호할 수 있는 방법입니다.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$의 모든 자산에 걸쳐 보류 중",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ 입금 내역",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ 미해결",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
   },
   "noteClaimFailedRetry": {
     "message": "수락하지 못했습니다 — 다시 시도를 누르세요",
@@ -3388,10 +3304,6 @@
   "noteUnavailable": {
     "message": "이 이체는 더 이상 사용할 수 없습니다",
     "englishSource": "This transfer is no longer available"
-  },
-  "pendingNotes": {
-    "message": "대기 중인 notes",
-    "englishSource": "Pending notes"
   },
   "getTokens": {
     "message": "토큰 받기",
@@ -3868,10 +3780,6 @@
     "message": "햅틱 피드백",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "현재 청구할 수 있는 notes는 없습니다.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
     "message": "받은 이체가 있습니다",
     "englishSource": "You have an incoming transfer"
@@ -3980,10 +3888,6 @@
   "enterAddress": {
     "message": "주소 입력",
     "englishSource": "Enter Address"
-  },
-  "failedToClaimNote": {
-    "message": "note 청구 실패",
-    "englishSource": "Failed to claim note"
   },
   "testnet": {
     "message": "테스트넷",
@@ -4150,6 +4054,22 @@
   "swapOpenPendingNotes": {
     "message": "보류 중인 이체로 이동",
     "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "스왑 취소",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "이 스왑을 취소할까요?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "아직 제공 중인 금액이 계정으로 돌아옵니다. 이미 체결된 부분은 그대로 유지됩니다.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "아직 제공 중인 금액을 계정으로 돌려받는 중입니다. 잠시 걸릴 수 있습니다.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "이용 불가",
@@ -4986,6 +4906,27 @@
       }
     }
   },
+  "activityPendingWaiting": {
+    "message": "$count$건 대기 중",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$건 대기 중 · $hidden$건 숨김",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
+  },
   "receiveTestFundsBody": {
     "message": "이 주소로는 Miden $network$ 토큰만 보내주십시오. 이 주소로 실제 자금을 보내면 복구할 수 없습니다.",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
@@ -5315,5 +5256,9 @@
   "transfersSection": {
     "message": "이체",
     "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "읽지 않음",
+    "englishSource": "Unread"
   }
 }
