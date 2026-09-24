@@ -154,11 +154,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   }, [step]);
 
   // Meet your Guardian is left for the picker and come back to, so its ticks and locked operator live
-  // here for the whole create flow; returning to Welcome starts a new one.
+  // here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
   const [meetGuardianProgress, setMeetGuardianProgress] = useState(EMPTY_MEET_GUARDIAN_PROGRESS);
   useEffect(() => {
     if (step === OnboardingStep.Welcome) setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
   }, [step]);
+  useEffect(() => {
+    setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
+  }, [seedPhrase]);
   // The choose-protection step only exists where biometric can work (mobile).
   // On the extension/desktop it's skipped, so the create flow is one step
   // shorter — render 3 segments and shift every position down by one.

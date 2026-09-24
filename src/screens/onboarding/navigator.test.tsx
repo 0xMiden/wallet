@@ -330,6 +330,19 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null });
   });
 
+  it('starts the Meet your Guardian step afresh for a new seed, which is a new create attempt', () => {
+    const first = ['alpha'];
+    const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian, seedPhrase: first });
+    const done = { checked: { 'local-state': true, 'seed-phrase': true, guardian: true }, chosenId: 'g1' };
+    act(() => mockCaptured['meet-guardian'].onProgressChange(done));
+
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={first} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual(done);
+
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={['beta']} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null });
+  });
+
   // Written out, not compared with each other: two missing table entries would agree on the fallback.
   it.each([
     [true, '3', '4'],

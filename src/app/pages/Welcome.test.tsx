@@ -513,6 +513,98 @@ describe('Welcome — hash → step routing', () => {
     }
   );
 
+  // Every point that starts a create resets the whole flow state an earlier attempt left behind.
+  const CREATE_ENTRIES: Array<[string, () => Promise<void>]> = [
+    ['the choose-protection action', () => dispatch({ id: 'choose-protection' })],
+    ['#select-wallet-type', () => setHash('#select-wallet-type')],
+    ['#choose-protection', () => setHash('#choose-protection')],
+    ['#setup-biometric', () => setHash('#setup-biometric')]
+  ];
+
+  it.each(CREATE_ENTRIES)('%s drops a seed import and its password', async (_name, enter) => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await enter();
+    expect(mockFlowProps.current.seedPhrase).toBeNull();
+    expect(mockFlowProps.current.password).toBeNull();
+  });
+
+  it.each(CREATE_ENTRIES)('%s drops a pasted-key import', async (_name, enter) => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-hot-key-submit', payload: 'deadbeef' });
+    expect(mockFlowProps.current.importViaKey).toBe(true);
+    await enter();
+    expect(mockFlowProps.current.importViaKey).toBe(false);
+  });
+
+  it('a create begun after a staged file restore neither restores the file nor offers the way back to it', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await stageFileRestore();
+    await setHash('#choose-protection');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    // Back from Confirmation is offered only to a file restore (importType WalletFile).
+    expect(mockFlowProps.current.canGoBack).toBe(false);
+
+    // register() checks for a staged file before anything else, so a kept payload would restore it here.
+    await dispatch({ id: 'confirmation' });
+    expect(mockImportWalletFromClient).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalled();
+  });
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome when the seed belongs to an import still in progress',
+    async hash => {
+      await renderWelcome();
+      await dispatch({ id: 'select-import-type' });
+      await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+      expect(mockFlowProps.current.seedPhrase).not.toBeNull();
+      mockNavigate.mockClear();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+      expect(currentStep()).not.toBe(OnboardingStep.MeetGuardian);
+      expect(currentStep()).not.toBe(OnboardingStep.ChooseGuardian);
+    }
+  );
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome after a seed import is turned into a create by #setup-biometric',
+    async hash => {
+      await renderWelcome();
+      await dispatch({ id: 'select-import-type' });
+      await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+      await setHash('#setup-biometric');
+      mockNavigate.mockClear();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    }
+  );
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome after the create it belonged to was cancelled',
+    async hash => {
+      mockIsMobileFn.mockReturnValue(false);
+      await renderWelcome();
+      await dispatch({ id: 'choose-protection' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      expect(mockFlowProps.current.seedPhrase).not.toBeNull();
+      // Back from the flow's first step cancels it and returns to Welcome.
+      await setHash('#network-notice');
+      await dispatch({ id: 'back' });
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+      mockNavigate.mockClear();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    }
+  );
+
   it.each(['#meet-guardian', '#choose-guardian'])(
     'redirects %s back to Welcome when the only seed is left over from an import',
     async hash => {

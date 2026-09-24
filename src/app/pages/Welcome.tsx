@@ -192,12 +192,15 @@ const Welcome: FC = () => {
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
-  // A create flow starts with no credentials: a seed, key or password left by an abandoned import or an
-  // earlier create would otherwise pass for this flow's own. Setters only, so the identity is stable.
-  const clearFlowCredentials = useCallback(() => {
+  // A flow's state belongs to one attempt: a create starts, and a cancel back to Welcome ends, with nothing
+  // an abandoned import or an earlier create left behind (a seed, key, password or staged wallet file would
+  // otherwise pass for this flow's own). Setters only, so the identity is stable.
+  const resetFlowState = useCallback(() => {
     setSeedPhrase(null);
     setKeyPairPayload(null);
     setPassword(null);
+    setWalletFilePayload(null);
+    setImportType(null);
   }, []);
   // The guardian operator endpoint the user picked (choose-guardian) or that the
   // import recovery-method screen resolved. Threaded explicitly into
@@ -298,8 +301,9 @@ const Welcome: FC = () => {
     (target: string) => {
       if (target !== '/') return;
       settleOnboardingFlow(handle => handle.cancel());
+      resetFlowState();
     },
-    [settleOnboardingFlow]
+    [settleOnboardingFlow, resetFlowState]
   );
 
   // An unmount with the flow still open is an abandonment we can actually see,
@@ -565,7 +569,7 @@ const Welcome: FC = () => {
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
-        clearFlowCredentials();
+        resetFlowState();
         // On a test network the chosen flow waits behind the network notice
         // (#875); acknowledging the notice starts it.
         if (getTestNetworkNameKey()) {
@@ -929,12 +933,10 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.NetworkNotice);
         break;
       case '#select-wallet-type':
-        clearFlowCredentials();
         setOnboardingType(OnboardingType.Create);
         setStep(OnboardingStep.SelectWalletType);
         break;
       case '#choose-protection':
-        clearFlowCredentials();
         setOnboardingType(OnboardingType.Create);
         // Never render the choose-protection screen where biometric can't work
         // (guards direct hash navigation / reload); redirect to the platform's
@@ -964,7 +966,7 @@ const Welcome: FC = () => {
       case '#choose-guardian':
         // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
         // a create, and a history jump can land here before any protection step generated it (a create
-        // starts with no credentials, see clearFlowCredentials). The seed is read through a ref: in the
+        // starts with no credentials, see resetFlowState). The seed is read through a ref: in the
         // deps it would re-run the import cases, and #import-from-seed would reset the probe its submit
         // just started.
         if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
@@ -1025,7 +1027,16 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType, resetGuardianProbe, clearFlowCredentials]);
+  }, [hash, password, onboardingType, resetGuardianProbe]);
+
+  // Entering a screen a create begins at resets the flow state. Its own effect, keyed on the hash alone: in
+  // the routing effect above it would re-run on every password or type change while the hash stays here and
+  // wipe what the next action just set.
+  useEffect(() => {
+    if (hash === '#select-wallet-type' || hash === '#choose-protection' || hash === '#setup-biometric') {
+      resetFlowState();
+    }
+  }, [hash, resetFlowState]);
 
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.
