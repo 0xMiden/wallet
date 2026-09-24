@@ -2961,6 +2961,7 @@ const generateGuardianTransaction = async (
       await completeUpdateProcedureThresholdTransaction(
         transaction as UpdateProcedureThresholdTransaction,
         result,
+        guardianProvider,
         service
       );
       break;

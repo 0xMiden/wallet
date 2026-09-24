@@ -490,6 +490,28 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.displayMessage).toBe('Guardian switched');
   });
 
+  it('persists the endpoint and evicts the cache under the stored id when the row was queued under another spelling', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }],
+      setGuardianEndpoint
+    };
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
+
+    // The vault matches the account with ===, so the raw queued id writes nothing.
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1_suffix', 'https://new.guardian');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalled();
+    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ endpointPersistFailed: false });
+  });
+
   // By the time this runs, `update_guardian` has COMMITTED — the account's
   // guardian IS the new operator, so a vault still naming the old one is wrong,
   // and the row is terminal either way (`switch-guardian` is in no requeue set
@@ -6434,6 +6456,29 @@ describe('completeReplaceHotKeyTransaction', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.displayMessage).toBe('Failed to rotate device key');
   });
+
+  it('moves the hot pointer of the stored account when the row was queued under another spelling', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    // Vault.swapHotKey matches with ===, so the raw queued id leaves the pointer where it was.
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalled();
+    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
 });
 
 describe('completeUpdateProcedureThresholdTransaction', () => {
@@ -6452,12 +6497,18 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
       tx,
       makeResult() as never,
       {
+        ...makeGuardianProvider(true),
+        getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }]
+      } as never,
+      {
         reRegisterCurrentStateOnGuardian
       } as never
     );
 
     expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
-    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    // Queued as 'acc-1', stored as 'acc-1_suffix': the cache is keyed by the stored id.
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1_suffix');
+    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Account secured');
@@ -6470,6 +6521,7 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     await completeUpdateProcedureThresholdTransaction(
       tx,
       makeResult() as never,
+      makeGuardianProvider(true) as never,
       {
         reRegisterCurrentStateOnGuardian: jest.fn(async () => {
           throw new Error('guardian down');
