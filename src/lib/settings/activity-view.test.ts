@@ -42,12 +42,23 @@ describe('activity view setting', () => {
       expect(getActivityView()).toBe('groups');
     });
 
-    it('does not throw when localStorage.setItem throws', () => {
+    it('switches the view when storage refuses the write, then reads storage again once a write succeeds', () => {
+      const { result } = renderHook(() => useActivityView());
       const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new Error('Storage full');
       });
-      expect(() => setActivityView('groups')).not.toThrow();
+      expect(() => act(() => setActivityView('groups'))).not.toThrow();
       spy.mockRestore();
+
+      expect(localStorage.getItem(ACTIVITY_VIEW_STORAGE_KEY)).toBeNull();
+      expect(getActivityView()).toBe('groups');
+      expect(result.current).toBe('groups');
+
+      act(() => setActivityView('list'));
+      expect(localStorage.getItem(ACTIVITY_VIEW_STORAGE_KEY)).toBe('list');
+      expect(result.current).toBe('list');
+      localStorage.setItem(ACTIVITY_VIEW_STORAGE_KEY, 'groups');
+      expect(getActivityView()).toBe('groups');
     });
   });
 

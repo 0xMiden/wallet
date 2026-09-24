@@ -52,24 +52,35 @@ describe('card color setting', () => {
       });
       expect(() => setCardColor('green')).not.toThrow();
       spy.mockRestore();
+      expect(getCardColor()).toBe('green');
+      // A successful write ends the in-memory value, so it cannot leak into the next case.
+      setCardColor(DEFAULT_CARD_COLOR);
     });
 
-    it('notifies subscribers even when persistence fails', () => {
+    it('takes effect when storage refuses the write, then reads storage again once a write succeeds', () => {
       const { result } = renderHook(() => useCardColor());
       expect(result.current).toBe(DEFAULT_CARD_COLOR);
 
       const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new Error('Storage full');
       });
-      // Persistence throws so nothing is written, but the subscriber
-      // notification path must still run without throwing; the re-read then
-      // returns the (unchanged) default.
       act(() => {
         setCardColor('purple');
       });
       spy.mockRestore();
 
-      expect(result.current).toBe(DEFAULT_CARD_COLOR);
+      expect(localStorage.getItem(CARD_COLOR_STORAGE_KEY)).toBeNull();
+      expect(getCardColor()).toBe('purple');
+      expect(result.current).toBe('purple');
+
+      act(() => {
+        setCardColor('blue');
+      });
+      expect(localStorage.getItem(CARD_COLOR_STORAGE_KEY)).toBe('blue');
+      expect(result.current).toBe('blue');
+      // Storage is the source again, read fresh: a value written behind the setting's back is seen.
+      localStorage.setItem(CARD_COLOR_STORAGE_KEY, 'orange');
+      expect(getCardColor()).toBe('orange');
     });
   });
 

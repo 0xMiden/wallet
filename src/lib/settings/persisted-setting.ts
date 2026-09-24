@@ -5,12 +5,16 @@ import { useSyncExternalStore } from 'react';
  * account data and so stay out of the vault-backed `WalletSettings`.
  *
  * A stored value outside `allowed` (an old build's choice, a hand edit) reads as `fallback`, and
- * storage that throws is treated as empty: a preference is never worth a crash.
+ * storage that throws on read is treated as empty: a preference is never worth a crash.
  */
 export function createPersistedSetting<T extends string>(key: string, allowed: readonly T[], fallback: T) {
   const listeners = new Set<() => void>();
+  // Set only while the last write failed, so the choice still takes effect; storage stays the source
+  // otherwise and is read fresh each time.
+  let unsaved: T | undefined;
 
   function get(): T {
+    if (unsaved !== undefined) return unsaved;
     try {
       const stored = localStorage.getItem(key);
       const match = allowed.find(value => value === stored);
@@ -19,11 +23,14 @@ export function createPersistedSetting<T extends string>(key: string, allowed: r
     return fallback;
   }
 
-  /** Subscribers are told even when the write fails, so they re-read rather than go stale. */
+  /** Subscribers are told even when the write fails; the value then holds in memory until a write succeeds. */
   function set(value: T) {
     try {
       localStorage.setItem(key, value);
-    } catch {}
+      unsaved = undefined;
+    } catch {
+      unsaved = value;
+    }
     listeners.forEach(listener => listener());
   }
 
