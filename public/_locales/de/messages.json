@@ -2144,12 +2144,12 @@
     "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
   },
   "meetGuardianSeedPhraseTitle": {
-    "message": "Ein „seed phrase“ reicht nicht aus",
-    "englishSource": "A seed phrase isn't enough"
+    "message": "Eine Wiederherstellungsphrase reicht nicht aus",
+    "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "Ihr Seed stellt Ihre Schlüssel wieder her, nicht Ihren Kontostand. Verlieren Sie das Gerät, sind diese unwiederbringlich verloren.",
-    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+    "message": "Ihre Wiederherstellungsphrase stellt Ihre Schlüssel wieder her, nicht Ihren Kontostand. Verlieren Sie das Gerät, sind diese verloren.",
+    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Ein „Guardian“ kann Sie schützen",
@@ -2160,8 +2160,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "Schnellster Anbieter von „$operators$“-Diensten",
-    "englishSource": "Fastest of $operators$ operators",
+    "message": "Der derzeit schnellste Anbieter von „$operators$“-Diensten",
+    "englishSource": "Fastest of $operators$ operators right now",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2172,22 +2172,17 @@
     "message": "Der Betreiber dieses Netzwerks",
     "englishSource": "The operator on this network"
   },
-  "meetGuardianLatencyMs": {
-    "message": "$ms$ ms",
-    "englishSource": "$ms$ ms",
-    "placeholders": {
-      "ms": {
-        "content": "$1"
-      }
-    }
-  },
   "meetGuardianCannotMoveFunds": {
     "message": "Kann Ihre Gelder nicht eigenständig bewegen",
     "englishSource": "Cannot move your funds on its own"
   },
+  "meetGuardianBacksUpState": {
+    "message": "Sichert den Status Ihres Kontos",
+    "englishSource": "Backs up your account state"
+  },
   "meetGuardianCanSwitch": {
-    "message": "Wechseln Sie jederzeit mit Ihrem „seed phrase“",
-    "englishSource": "Switch any time with your seed phrase"
+    "message": "Kann über Ihre Wiederherstellungsphrase geändert werden",
+    "englishSource": "Can be switched with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "Mal sehen, welcher Betreiber am schnellsten antwortet…",

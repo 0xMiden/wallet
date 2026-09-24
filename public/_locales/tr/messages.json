@@ -2144,12 +2144,12 @@
     "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
   },
   "meetGuardianSeedPhraseTitle": {
-    "message": "seed phrase'u yeterli değildir",
-    "englishSource": "A seed phrase isn't enough"
+    "message": "Bir kurtarma ifadesi yeterli değildir",
+    "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "Tohumunuz, durumunuzu değil, anahtarlarınızı geri yükler. Cihazınızı kaybederseniz, anahtarlarınız da kaybolur.",
-    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+    "message": "Kurtarma ifadeniz, durumunuzu değil, anahtarlarınızı geri yükler. Cihazı kaybederseniz, anahtarlarınız da kaybolur.",
+    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Guardian'i sizi koruyabilir",
@@ -2160,8 +2160,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "$operators$'daki en hızlı operatörlerden biri",
-    "englishSource": "Fastest of $operators$ operators",
+    "message": "Şu anda $operators$ operatörleri arasında en hızlısı",
+    "englishSource": "Fastest of $operators$ operators right now",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2172,22 +2172,17 @@
     "message": "Bu ağdaki operatör",
     "englishSource": "The operator on this network"
   },
-  "meetGuardianLatencyMs": {
-    "message": "$ms$ ms",
-    "englishSource": "$ms$ ms",
-    "placeholders": {
-      "ms": {
-        "content": "$1"
-      }
-    }
-  },
   "meetGuardianCannotMoveFunds": {
     "message": "Fonlarınızı kendi başına taşıyamaz",
     "englishSource": "Cannot move your funds on its own"
   },
+  "meetGuardianBacksUpState": {
+    "message": "Hesap durumunuzu yedekler",
+    "englishSource": "Backs up your account state"
+  },
   "meetGuardianCanSwitch": {
-    "message": "seed phrase'ınızla istediğiniz zaman geçiş yapabilirsiniz",
-    "englishSource": "Switch any time with your seed phrase"
+    "message": "Kurtarma ifadenizle değiştirilebilir",
+    "englishSource": "Can be switched with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "Hangi operatörün en hızlı yanıt verdiğini kontrol ediyorum…",

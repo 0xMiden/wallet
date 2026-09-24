@@ -2144,12 +2144,12 @@
     "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
   },
   "meetGuardianSeedPhraseTitle": {
-    "message": "僅有seed phrase是不夠的",
-    "englishSource": "A seed phrase isn't enough"
+    "message": "僅靠恢復短語是不夠的",
+    "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "您的種子金句可還原您的金鑰，但無法還原您的帳戶狀態。若遺失裝置，種子金句即告失效。",
-    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+    "message": "您的復原短語僅能恢復您的金鑰，而非您的帳戶狀態。一旦遺失裝置，資料便無法挽回。",
+    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Guardian 可為您提供保障",
@@ -2160,8 +2160,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "$operators$ 中最快的營運商",
-    "englishSource": "Fastest of $operators$ operators",
+    "message": "目前$operators$中速度最快的營運商",
+    "englishSource": "Fastest of $operators$ operators right now",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2172,22 +2172,17 @@
     "message": "本網路的營運方",
     "englishSource": "The operator on this network"
   },
-  "meetGuardianLatencyMs": {
-    "message": "$ms$ ms",
-    "englishSource": "$ms$ ms",
-    "placeholders": {
-      "ms": {
-        "content": "$1"
-      }
-    }
-  },
   "meetGuardianCannotMoveFunds": {
     "message": "無法自行移動您的資金",
     "englishSource": "Cannot move your funds on its own"
   },
+  "meetGuardianBacksUpState": {
+    "message": "備份您的帳戶狀態",
+    "englishSource": "Backs up your account state"
+  },
   "meetGuardianCanSwitch": {
-    "message": "您可隨時透過 seed phrase 進行切換",
-    "englishSource": "Switch any time with your seed phrase"
+    "message": "可透過您的恢復短語進行切換",
+    "englishSource": "Can be switched with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "正在確認哪位客服人員回應最快……",

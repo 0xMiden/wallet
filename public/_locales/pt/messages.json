@@ -2144,12 +2144,12 @@
     "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
   },
   "meetGuardianSeedPhraseTitle": {
-    "message": "Um “seed phrase” não é suficiente",
-    "englishSource": "A seed phrase isn't enough"
+    "message": "Uma frase de recuperação não é suficiente",
+    "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "Sua semente restaura suas chaves, não seu estado. Se você perder o dispositivo, tudo se perde.",
-    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+    "message": "Sua frase de recuperação restaura suas chaves, não seu estado. Se você perder o dispositivo, elas se perdem.",
+    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Um “Guardian” pode proteger você",
@@ -2160,8 +2160,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "A mais rápida entre as operadoras de “$operators$”",
-    "englishSource": "Fastest of $operators$ operators",
+    "message": "Atualmente, a mais rápida entre as operadoras de “$operators$”",
+    "englishSource": "Fastest of $operators$ operators right now",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2172,22 +2172,17 @@
     "message": "O operador desta rede",
     "englishSource": "The operator on this network"
   },
-  "meetGuardianLatencyMs": {
-    "message": "$ms$ ms",
-    "englishSource": "$ms$ ms",
-    "placeholders": {
-      "ms": {
-        "content": "$1"
-      }
-    }
-  },
   "meetGuardianCannotMoveFunds": {
     "message": "Não é possível transferir seus fundos por conta própria",
     "englishSource": "Cannot move your funds on its own"
   },
+  "meetGuardianBacksUpState": {
+    "message": "Faz backup do estado da sua conta",
+    "englishSource": "Backs up your account state"
+  },
   "meetGuardianCanSwitch": {
-    "message": "Mude a qualquer momento com seu seed phrase",
-    "englishSource": "Switch any time with your seed phrase"
+    "message": "Pode ser alterado com sua frase de recuperação",
+    "englishSource": "Can be switched with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "Verificando qual operador responde mais rápido…",
