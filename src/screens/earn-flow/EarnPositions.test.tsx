@@ -245,7 +245,7 @@ describe('EarnPositions', () => {
     it('keeps last-good positions on a transient error, under a notice that they may be incomplete', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
-        positions: EARN_DATA.positions, // stale-but-real data survived via keepPreviousData
+        positions: EARN_DATA.positions, // stale-but-real data: SWR keeps a key's own data across a failed refresh
         vaults: EARN_DATA.vaults,
         isLoading: false,
         error: 'positions request failed (503)',
