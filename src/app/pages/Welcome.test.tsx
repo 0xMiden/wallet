@@ -464,17 +464,43 @@ describe('Welcome — hash → step routing', () => {
     expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
   });
 
-  it('routes #meet-guardian to MeetGuardian', async () => {
+  it('routes #meet-guardian to MeetGuardian inside a create flow', async () => {
     await renderWelcome();
+    await setHash('#select-wallet-type');
     await setHash('#meet-guardian');
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
   });
 
-  it('routes #choose-guardian to ChooseGuardian', async () => {
+  it('routes #choose-guardian to ChooseGuardian inside a create flow', async () => {
     await renderWelcome();
+    await setHash('#select-wallet-type');
     await setHash('#choose-guardian');
     expect(currentStep()).toBe(OnboardingStep.ChooseGuardian);
   });
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome when onboarding state was lost',
+    async hash => {
+      await renderWelcome();
+      await setHash(hash);
+      // A reload keeps the hash and loses the generated seed; Confirmation would never register.
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+      expect(currentStep()).toBe(OnboardingStep.Welcome);
+      expect(mockFlowProps.current.onboardingType).toBeNull();
+    }
+  );
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome instead of turning an import into a create',
+    async hash => {
+      await renderWelcome();
+      await setHash('#select-import-type');
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+      expect(currentStep()).toBe(OnboardingStep.SelectImportType);
+      expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    }
+  );
 
   it('routes #import-from-seed to ImportFromSeed (import)', async () => {
     await renderWelcome();

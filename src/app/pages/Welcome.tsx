@@ -950,12 +950,13 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.SetupBiometric);
         break;
       case '#meet-guardian':
-        setOnboardingType(OnboardingType.Create);
-        setStep(OnboardingStep.MeetGuardian);
-        break;
       case '#choose-guardian':
-        setOnboardingType(OnboardingType.Create);
-        setStep(OnboardingStep.ChooseGuardian);
+        // Both need the create flow's in-memory seed: a reload loses it (onboardingType is null), and an
+        // import must not turn into a create. Every create path generates the seed before it
+        // navigates here, so a Create type is enough; the seed stays out of this effect's deps.
+        if (onboardingType !== OnboardingType.Create) navigate('/');
+        else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
+        else setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#select-import-type':
         setOnboardingType(OnboardingType.Import);
