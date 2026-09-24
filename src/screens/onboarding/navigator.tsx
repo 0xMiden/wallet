@@ -33,6 +33,7 @@ import {
   EMPTY_MEET_GUARDIAN_PROGRESS,
   GuardianProbeState,
   ImportType,
+  NO_GUARDIAN_ID,
   OnboardingAction,
   OnboardingStep,
   OnboardingType,
@@ -249,6 +250,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onBiometricSwitchToPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
+    // Back from the next step lands on Meet your Guardian, so its card must show what the picker submitted.
+    const onPickerSubmit = (payload: { guardianId: string; guardianEndpoint: string }) => {
+      if (payload.guardianId !== NO_GUARDIAN_ID) {
+        setMeetGuardianProgress(prev => ({ ...prev, chosenId: payload.guardianId, pickedByUser: true }));
+      }
+      onChooseGuardianSubmit(payload);
+    };
 
     switch (step) {
       case OnboardingStep.Welcome:
@@ -279,12 +287,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           />
         );
       case OnboardingStep.ChooseGuardian:
-        return (
-          <ChooseGuardianScreen
-            onSubmit={onChooseGuardianSubmit}
-            showNoGuardianOption={getEffectiveAllowNoGuardian()}
-          />
-        );
+        return <ChooseGuardianScreen onSubmit={onPickerSubmit} showNoGuardianOption={getEffectiveAllowNoGuardian()} />;
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:

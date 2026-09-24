@@ -179,11 +179,14 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                 <div className="flex items-center gap-3">
                   <GuardianLogoTile guardianId={chosen.id} />
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-caption text-muted">
-                      {options.length > 1
-                        ? t('meetGuardianFastestOf', { operators: String(options.length) })
-                        : t('meetGuardianOnlyOperator')}
-                    </span>
+                    {/* "Fastest" is true of the operator locked in here, not of one picked in the full picker. */}
+                    {!(progress.pickedByUser && options.length > 1) && (
+                      <span className="text-caption text-muted">
+                        {options.length > 1
+                          ? t('meetGuardianFastestOf', { operators: String(options.length) })
+                          : t('meetGuardianOnlyOperator')}
+                      </span>
+                    )}
                     <span className="truncate text-row-title text-ink" data-testid="meet-guardian-name">
                       {chosen.name}
                     </span>

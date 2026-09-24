@@ -52,7 +52,10 @@ type HarnessProps = Omit<React.ComponentProps<typeof MeetGuardianScreen>, 'progr
 };
 
 /** Owns the step's progress the way OnboardingFlow does. */
-const Harness: React.FC<HarnessProps> = ({ initialProgress = { checked: {}, chosenId: null }, ...props }) => {
+const Harness: React.FC<HarnessProps> = ({
+  initialProgress = { checked: {}, chosenId: null, pickedByUser: false },
+  ...props
+}) => {
   const [progress, setProgress] = React.useState<MeetGuardianProgress>(initialProgress);
   return <MeetGuardianScreen {...props} progress={progress} onProgressChange={setProgress} />;
 };
@@ -233,13 +236,35 @@ describe('MeetGuardianScreen', () => {
 
   it('shows a card kept from before the picker at once, still checking rather than offline', () => {
     renderScreen({
-      initialProgress: { checked: { 'local-state': true, 'seed-phrase': true, guardian: true }, chosenId: GATEWAY.id }
+      initialProgress: {
+        checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
+        chosenId: GATEWAY.id,
+        pickedByUser: false
+      }
     });
 
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
     expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
     expect(screen.queryByTestId('meet-guardian-latency')).toBeNull();
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
+  });
+
+  it('drops the "fastest" caption for an operator the user picked in the full picker', () => {
+    const view = renderScreen({
+      initialProgress: {
+        checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
+        chosenId: OZ.id,
+        pickedByUser: true
+      }
+    });
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
+    expect(screen.queryByText(/meetGuardianFastestOf/)).toBeNull();
+    expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
   });
 
   it('names the only operator without a count when the network has one', () => {

@@ -5,7 +5,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 
 import { OnboardingFlow } from './navigator';
-import { ImportType, OnboardingStep, OnboardingType, WalletType } from './types';
+import { ImportType, NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from './types';
 
 // ---------------------------------------------------------------------------
 // Mutable mock state. The factories below close over these `mock*`-prefixed
@@ -317,7 +317,11 @@ describe('OnboardingFlow — action wiring per screen', () => {
 
   it('keeps the Meet your Guardian ticks and choice across the picker round trip, and clears them on Welcome', () => {
     const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian });
-    const done = { checked: { 'local-state': true, 'seed-phrase': true, guardian: true }, chosenId: 'g1' };
+    const done = {
+      checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
+      chosenId: 'g1',
+      pickedByUser: false
+    };
     act(() => mockCaptured['meet-guardian'].onProgressChange(done));
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
@@ -327,20 +331,52 @@ describe('OnboardingFlow — action wiring per screen', () => {
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.Welcome} />);
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null });
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null, pickedByUser: false });
+  });
+
+  it('records a pick from the full picker on the Meet your Guardian card, and still submits it', () => {
+    const onAction = jest.fn();
+    const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
+    act(() => mockCaptured['meet-guardian'].onProgressChange({ checked: {}, chosenId: 'g1', pickedByUser: false }));
+
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
+    const pick = { guardianId: 'g2', guardianEndpoint: 'https://g2.example' };
+    act(() => mockCaptured['choose-guardian'].onSubmit(pick));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload: pick });
+
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g2', pickedByUser: true });
+  });
+
+  it("leaves the card alone for the fully private account and for the card's own Continue", () => {
+    const onAction = jest.fn();
+    const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
+    const locked = { checked: {}, chosenId: 'g1', pickedByUser: false };
+    act(() => mockCaptured['meet-guardian'].onProgressChange(locked));
+    act(() => mockCaptured['meet-guardian'].onSubmit({ guardianId: 'g1', guardianEndpoint: 'https://g1.example' }));
+    expect(mockCaptured['meet-guardian'].progress).toEqual(locked);
+
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
+    act(() => mockCaptured['choose-guardian'].onSubmit({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' }));
+    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual(locked);
   });
 
   it('starts the Meet your Guardian step afresh for a new seed, which is a new create attempt', () => {
     const first = ['alpha'];
     const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian, seedPhrase: first });
-    const done = { checked: { 'local-state': true, 'seed-phrase': true, guardian: true }, chosenId: 'g1' };
+    const done = {
+      checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
+      chosenId: 'g1',
+      pickedByUser: false
+    };
     act(() => mockCaptured['meet-guardian'].onProgressChange(done));
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={first} />);
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={['beta']} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null });
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null, pickedByUser: false });
   });
 
   // Written out, not compared with each other: two missing table entries would agree on the fallback.

@@ -159,9 +159,11 @@ export type SelectRecoveryMethodAction = {
 export interface MeetGuardianProgress {
   checked: Readonly<Record<string, boolean>>;
   chosenId: string | null;
+  /** Picked in the full picker rather than locked in as the fastest, so the card does not call it that. */
+  pickedByUser: boolean;
 }
 
-export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { checked: {}, chosenId: null };
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { checked: {}, chosenId: null, pickedByUser: false };
 
 /** Open the full operator picker from the Meet your Guardian step. */
 export type ChooseGuardianAction = {
