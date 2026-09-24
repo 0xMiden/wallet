@@ -154,11 +154,12 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     const describedBy = error ? errorId : hint ? hintId : undefined;
 
     // The cover needs to know whether there is anything to hide. A controlled field says so
-    // directly; an uncontrolled one (a `register`ed field) only ever tells us through `onChange`.
+    // directly; an uncontrolled one (a `register`ed field) has no prop that tracks its live value,
+    // so we mirror it ourselves, seeded from defaultValue and updated on every change.
     const fieldRef = useRef<TextFieldElement | null>(null);
     const [focused, setFocused] = useState(false);
-    const [typed, setTyped] = useState(false);
-    const hasValue = value !== undefined ? value !== '' : typed || Boolean(defaultValue);
+    const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? '');
+    const hasValue = value !== undefined ? value !== '' : uncontrolledValue !== '';
     const covered = Boolean(secret) && hasValue && !focused;
 
     // A revealed secret gives itself back: after half a minute, or the moment the window goes
@@ -201,7 +202,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
 
     const handleChange = useCallback(
       (event: React.ChangeEvent<TextFieldElement>) => {
-        setTyped(event.target.value !== '');
+        setUncontrolledValue(event.target.value);
         onChange?.(event);
       },
       [onChange]

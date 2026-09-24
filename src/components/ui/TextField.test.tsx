@@ -254,6 +254,18 @@ describe('TextField — secret', () => {
     expect(cover()).toBeNull();
   });
 
+  it('covers a secret seeded from defaultValue, and uncovers once it is cleared', () => {
+    render(<TextField secret defaultValue="my private key" data-testid="key" />);
+    const field = screen.getByTestId('key');
+
+    expect(cover()).toBeInTheDocument();
+
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.blur(field);
+    expect(cover()).toBeNull();
+  });
+
   describe('once revealed', () => {
     beforeEach(() => jest.useFakeTimers());
     afterEach(() => jest.useRealTimers());
