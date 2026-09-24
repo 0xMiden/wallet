@@ -6208,6 +6208,7 @@ describe('initiateReplaceHotKeyTransaction', () => {
     };
     try {
       await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).resolves.toBeDefined();
+      expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
       expect(txStore).toHaveLength(1);
       expect(
         (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
