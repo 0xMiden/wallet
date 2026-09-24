@@ -1,9 +1,8 @@
-import fs from 'fs';
-import path from 'path';
-
 import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
