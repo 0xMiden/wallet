@@ -51,6 +51,7 @@ jest.mock('components/Button', () => ({
     onClick,
     disabled,
     variant,
+    accent,
     children,
     'aria-label': ariaLabel,
     'data-testid': dataTestId
@@ -59,6 +60,7 @@ jest.mock('components/Button', () => ({
     onClick?: () => void;
     disabled?: boolean;
     variant?: string;
+    accent?: string;
     children?: React.ReactNode;
     'aria-label'?: string;
     'data-testid'?: string;
@@ -66,6 +68,7 @@ jest.mock('components/Button', () => ({
     <button
       data-testid={dataTestId}
       data-variant={variant}
+      data-accent={accent}
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
@@ -301,6 +304,12 @@ describe('SwapAmounts', () => {
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
 
+    it('gives the review button the swap flow colour', () => {
+      renderComponent({ canProceed: true });
+
+      expect(screen.getByTestId('swap-review-submit')).toHaveAttribute('data-accent', 'swap');
+    });
+
     it('disables the review button when canProceed is false', () => {
       renderComponent({ canProceed: false });
       expect(screen.getByTestId('swap-review-submit')).toBeDisabled();
@@ -330,6 +339,16 @@ describe('SwapAmounts', () => {
 
       fireEvent.click(toggle);
       expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 360 });
+    });
+  });
+
+  describe('direction toggle colour', () => {
+    it('draws the arrow in the swap on-colour, never a fixed white', () => {
+      renderComponent();
+
+      const toggle = screen.getAllByRole('button', { name: 'swapDirection' }).at(-1)!;
+      expect(toggle).toHaveClass('bg-accent-swap', 'text-accent-swap-on');
+      expect(toggle).not.toHaveClass('text-pure-white');
     });
   });
 

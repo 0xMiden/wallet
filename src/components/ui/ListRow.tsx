@@ -54,15 +54,21 @@ interface ListRowBaseProps {
    */
   haptic?: boolean;
   /**
-   * Paints the row's chrome in a flow's colour: the leading glyph and its circle, the chevron and
-   * the hairline above the row. The title, subtitle and value stay `ink`/`muted`, which is what
-   * keeps the row readable — an accent is under 4.5:1 as text. Undefined leaves the neutral row.
+   * Paints the row's chrome in a flow's colour: the leading glyph and its circle, the chevron, the
+   * check of a selected row and the hairline above the row. The title, subtitle and value stay
+   * `ink`/`muted`, which is what keeps the row readable — an accent is under 4.5:1 as text.
+   * Undefined leaves the neutral row.
    */
   accent?: FlowAccent;
   /** Layout only (margins). */
   className?: string;
   'aria-label'?: string;
   'data-testid'?: string;
+  /**
+   * Identifies the value the row stands for, where the title and the test id cannot: two tokens
+   * can share a symbol, so a caller that has to address one exactly passes its id here.
+   */
+  'data-token-id'?: string;
 }
 
 type Leading = 'none' | 'avatar' | 'icon';
@@ -136,7 +142,8 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
     accent,
     className,
     'aria-label': ariaLabel,
-    'data-testid': dataTestId
+    'data-testid': dataTestId,
+    'data-token-id': dataTokenId
   },
   ref
 ) {
@@ -181,9 +188,14 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         <span
           data-slot="check"
           aria-hidden="true"
-          className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-accent-primary"
+          className={cn(
+            'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-accent-primary',
+            // A selected state is one of the things a flow's colour carries (design-system.md,
+            // "Action colours"), so an accented row's check is the flow's fill, not the brand's.
+            tone?.bg
+          )}
         >
-          <CheckIcon className="h-2 w-2.5 fill-pure-white" />
+          <CheckIcon className={cn('h-2 w-2.5', (tone ?? ACCENT_CLASSES.brand).onFill)} />
         </span>
       )}
       {showChevron && (
@@ -198,7 +210,14 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
 
   if (to) {
     return (
-      <Link to={to} testID={dataTestId} data-testid={dataTestId} aria-label={ariaLabel} className={classes}>
+      <Link
+        to={to}
+        testID={dataTestId}
+        data-testid={dataTestId}
+        data-token-id={dataTokenId}
+        aria-label={ariaLabel}
+        className={classes}
+      >
         {content}
       </Link>
     );
@@ -213,6 +232,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         onClick={() => hapticLight()}
         aria-label={ariaLabel}
         data-testid={dataTestId}
+        data-token-id={dataTokenId}
         className={classes}
       >
         {content}
@@ -222,7 +242,13 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
 
   if (htmlFor) {
     return (
-      <label htmlFor={htmlFor} aria-label={ariaLabel} data-testid={dataTestId} className={classes}>
+      <label
+        htmlFor={htmlFor}
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
+        data-token-id={dataTokenId}
+        className={classes}
+      >
         {content}
       </label>
     );
@@ -245,6 +271,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         aria-pressed={radio ? undefined : checked}
         aria-label={ariaLabel}
         data-testid={dataTestId}
+        data-token-id={dataTokenId}
         className={classes}
       >
         {content}
@@ -253,7 +280,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
   }
 
   return (
-    <div aria-label={ariaLabel} data-testid={dataTestId} className={classes}>
+    <div aria-label={ariaLabel} data-testid={dataTestId} data-token-id={dataTokenId} className={classes}>
       {content}
     </div>
   );

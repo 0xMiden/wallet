@@ -92,6 +92,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           )}
           <div className="min-h-0 flex-1">
             <SelectAmount
+              accent="earn"
               token={token}
               amount={amount}
               isValidAmount={isValidAmount}

@@ -31,3 +31,4 @@ export {
   type ExploreMotion
 } from './explore';
 export { copyMotion, COPY_FEEDBACK_MS, type CopyMotion, type CopySwapMotion } from './copy';
+export { sheetMotion, sheetMotionVars, type SheetCurve } from './sheet';

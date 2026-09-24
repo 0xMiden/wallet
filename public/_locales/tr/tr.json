@@ -1180,5 +1180,12 @@
   "contactAdded": "Eklendi",
   "guardianCardMeta": "İşleten: $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
-  "receiveQrColorAction": "QR kodu rengini değiştir"
+  "receiveQrColorAction": "QR kodu rengini değiştir",
+  "durationUnitSeconds": "Sn.",
+  "durationUnitMinutes": "Dk.",
+  "durationUnitHours": "Saat",
+  "durationUnitDays": "Gün",
+  "swapExpiryUnit": "Son kullanma birimi",
+  "moreInfoAbout": "$label$ hakkında daha fazla bilgi",
+  "swapExpiryRange": "$min$ ile $max$ arasında bir tam sayı girin."
 }

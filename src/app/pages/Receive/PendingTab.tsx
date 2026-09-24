@@ -225,7 +225,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
         </div>
 
         <div className="mt-5 flex flex-col gap-1 font-heading">
-          <span className="text-sm font-bold text-primary-500 leading-none">{t('totalPending')}</span>
+          <span className="text-sm font-bold text-accent-receive-ink leading-none">{t('totalPending')}</span>
           <span className="font-heading text-5xl font-extrabold text-ink leading-none tracking-tight">
             {formatUsd(totals.totalUsd)}
           </span>
@@ -285,6 +285,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               data-testid="claim-all-button"
               className="w-full"
               variant={ButtonVariant.Primary}
+              accent="receive"
               onClick={onClaimAll}
               title={t('claimAll')}
             />
@@ -507,7 +508,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
             onClick={handleClaimGroup}
             disabled={!canClaimAllGroup}
             className={classNames(
-              'w-full rounded-2xl bg-fill py-3.5 text-base font-bold text-accent-primary',
+              'w-full rounded-2xl bg-fill py-3.5 text-base font-bold text-accent-receive-ink',
               'hover:bg-grey-50 transition-colors',
               !canClaimAllGroup && 'opacity-50 cursor-not-allowed'
             )}
@@ -692,6 +693,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
             size="sm"
             className="w-auto shrink-0"
             variant={ButtonVariant.Primary}
+            accent="receive"
             onClick={handleClaim}
             disabled={note.fromCache === true}
             title={isRetriable ? t('retry') : t('claim')}

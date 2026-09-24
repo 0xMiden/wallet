@@ -1180,5 +1180,12 @@
   "contactAdded": "Added",
   "guardianCardMeta": "Operated by $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Couldn't check this wallet's unlock method. Check your connection and try again.",
-  "receiveQrColorAction": "Change the QR code colour"
+  "receiveQrColorAction": "Change the QR code colour",
+  "durationUnitSeconds": "Sec",
+  "durationUnitMinutes": "Min",
+  "durationUnitHours": "Hour",
+  "durationUnitDays": "Day",
+  "swapExpiryUnit": "Expiry unit",
+  "moreInfoAbout": "More information about $label$",
+  "swapExpiryRange": "Enter a whole number from $min$ to $max$."
 }

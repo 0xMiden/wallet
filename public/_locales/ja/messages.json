@@ -5250,5 +5250,46 @@
   "receiveQrColorAction": {
     "message": "QRコードの色を変更",
     "englishSource": "Change the QR code color"
+  },
+  "durationUnitSeconds": {
+    "message": "秒",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "分",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "時間",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "日",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "有効期限の単位",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "$label$ の詳細",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "$min$ から $max$ までの整数を入力してください。",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
   }
 }

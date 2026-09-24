@@ -162,6 +162,11 @@ export default {
         'accent-swap': 'var(--accent-swap)',
         'accent-swap-tint': 'var(--accent-swap-tint)',
         'accent-swap-ink': 'var(--accent-swap-ink)',
+        'accent-brand-on': 'var(--accent-brand-on)',
+        'accent-send-on': 'var(--accent-send-on)',
+        'accent-receive-on': 'var(--accent-receive-on)',
+        'accent-earn-on': 'var(--accent-earn-on)',
+        'accent-swap-on': 'var(--accent-swap-on)',
         'network-miden-tint': 'var(--network-miden-tint)',
         'network-miden-border': 'var(--network-miden-border)',
         'network-miden-text': 'var(--network-miden-text)',
@@ -188,6 +193,8 @@ export default {
         'rule-strong': 'var(--rule-strong)',
         // Design system, direction B. See skills/miden-wallet-frontend/references/design-system.md.
         page: 'var(--ds-page)',
+        /* The dim behind a sheet or an overlay — one value in both themes, no blur. */
+        scrim: 'var(--ds-scrim)',
         fill: 'var(--ds-fill)',
         'fill-pressed': 'var(--ds-fill-pressed)',
         // The top action bar's strip, a hair off `page` so the bar reads as its own band.

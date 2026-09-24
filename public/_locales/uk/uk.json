@@ -1180,5 +1180,12 @@
   "contactAdded": "Додано",
   "guardianCardMeta": "Оператор: $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Не вдалося перевірити спосіб розблокування цього гаманця. Перевірте з’єднання та спробуйте ще раз.",
-  "receiveQrColorAction": "Змінити колір QR-коду"
+  "receiveQrColorAction": "Змінити колір QR-коду",
+  "durationUnitSeconds": "Сек.",
+  "durationUnitMinutes": "Хв.",
+  "durationUnitHours": "Год.",
+  "durationUnitDays": "День",
+  "swapExpiryUnit": "Одиниця терміну дії",
+  "moreInfoAbout": "Докладніше про $label$",
+  "swapExpiryRange": "Введіть ціле число від $min$ до $max$."
 }

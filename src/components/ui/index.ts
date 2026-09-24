@@ -45,6 +45,9 @@ export type { CopyLabelProps } from './CopyLabel';
 export { WaveDots } from './WaveDots';
 export type { WaveDotsProps } from './WaveDots';
 
+export { InfoHint } from './InfoHint';
+export type { InfoHintProps } from './InfoHint';
+
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
 

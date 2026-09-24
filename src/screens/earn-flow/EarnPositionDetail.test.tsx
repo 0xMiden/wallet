@@ -76,6 +76,17 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+// Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
+// Withdraw CTA's flow colour is assertable without the real Button's cva class computation.
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
+}));
+
 // `lib/woozie`'s real barrel reaches for browser history/analytics on import.
 // Stub `goBack`/`navigate` so we can assert the back-button and the action
 // buttons without the router.
@@ -273,6 +284,12 @@ describe('EarnPositionDetail', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
   });
 
+  it('gives the Withdraw CTA the earn flow colour', () => {
+    renderDetail('pos-flat');
+
+    expect(screen.getByTestId('earn-withdraw-btn')).toHaveAttribute('data-accent', 'earn');
+  });
+
   it('carries only grid-placement layout on the action buttons, no restyled variant colors', () => {
     renderDetail('pos-flat');
 
@@ -288,7 +305,7 @@ describe('EarnPositionDetail', () => {
     expect(withdraw).toHaveClass('max-w-none');
     expect(withdraw.className).not.toMatch(/h-14|\btext-base\b|\bfont-bold\b/);
 
-    // The spec's 10px gap between the two side-by-side 52px CTAs.
+    // The spec's 10px gap between the two side-by-side 48px CTAs.
     expect(depositMore.parentElement).toBe(withdraw.parentElement);
     expect(depositMore.parentElement).toHaveClass('gap-2.5');
     expect(depositMore.parentElement).not.toHaveClass('gap-3');

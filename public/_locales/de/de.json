@@ -1180,5 +1180,12 @@
   "contactAdded": "Hinzugefügt",
   "guardianCardMeta": "Betrieben von $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
-  "receiveQrColorAction": "Farbe des QR-Codes ändern"
+  "receiveQrColorAction": "Farbe des QR-Codes ändern",
+  "durationUnitSeconds": "Sek.",
+  "durationUnitMinutes": "Min.",
+  "durationUnitHours": "Std.",
+  "durationUnitDays": "Tag",
+  "swapExpiryUnit": "Ablaufeinheit",
+  "moreInfoAbout": "Weitere Informationen zu $label$",
+  "swapExpiryRange": "Geben Sie eine ganze Zahl von $min$ bis $max$ ein."
 }

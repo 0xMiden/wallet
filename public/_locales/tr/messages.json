@@ -5250,5 +5250,46 @@
   "receiveQrColorAction": {
     "message": "QR kodu rengini değiştir",
     "englishSource": "Change the QR code color"
+  },
+  "durationUnitSeconds": {
+    "message": "Sn.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Dk.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Saat",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "Gün",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Son kullanma birimi",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "$label$ hakkında daha fazla bilgi",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "$min$ ile $max$ arasında bir tam sayı girin.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
   }
 }

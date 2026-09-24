@@ -76,8 +76,9 @@ const renderDrawer = (overrides: Partial<React.ComponentProps<typeof SelectSwapT
 };
 
 const tokenButton = (symbol: string) => screen.getByTestId(`swap-token-${symbol}`);
-// The selected-side indicator is an unlabeled `bg-primary-500` dot inside the row.
-const selectedDot = (symbol: string) => tokenButton(symbol).querySelector('.bg-primary-500');
+// The selected side is `ListRow`'s own round check (the design system's mark), not a loose dot,
+// and the swap flow's own colour fills it (design-system.md, "Action colours").
+const selectedCheck = (symbol: string) => tokenButton(symbol).querySelector('[data-slot="check"]');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -108,31 +109,44 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // `logoSymbol` (not `symbol`) drives the logo, and the row uses the md size.
+    // `logoSymbol` (not `symbol`) drives the logo, at the list row's 40px avatar size.
     expect(logo).toHaveAttribute('data-symbol', 'ETH');
-    expect(logo).toHaveAttribute('data-size', 'md');
+    expect(logo).toHaveAttribute('data-size', 'lg');
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {
     renderDrawer({ currentFaucetId: 'fid-eth' });
 
-    expect(selectedDot('IETH')).toBeInTheDocument();
-    expect(selectedDot('IMIDEN')).toBeNull();
-    expect(selectedDot('IBTC')).toBeNull();
+    expect(selectedCheck('IETH')).toBeInTheDocument();
+    expect(selectedCheck('IETH')).toHaveClass('bg-accent-swap');
+    expect(tokenButton('IETH')).toHaveAttribute('aria-pressed', 'true');
+    expect(selectedCheck('IMIDEN')).toBeNull();
+    expect(selectedCheck('IBTC')).toBeNull();
   });
 
   it('renders no selected indicator when currentFaucetId is undefined', () => {
     renderDrawer();
 
-    expect(selectedDot('IMIDEN')).toBeNull();
-    expect(selectedDot('IETH')).toBeNull();
-    expect(selectedDot('IBTC')).toBeNull();
+    expect(selectedCheck('IMIDEN')).toBeNull();
+    expect(selectedCheck('IETH')).toBeNull();
+    expect(selectedCheck('IBTC')).toBeNull();
   });
 
   it('renders no selected indicator when currentFaucetId matches no token', () => {
     renderDrawer({ currentFaucetId: 'fid-unknown' });
 
-    expect(document.querySelector('.bg-primary-500')).toBeNull();
+    expect(document.querySelector('[data-slot="check"]')).toBeNull();
+  });
+
+  it('groups the rows on the shared fill with inset hairlines, not full-bleed rules', () => {
+    renderDrawer();
+
+    const group = tokenButton('IMIDEN').parentElement!;
+    expect(group.className).toContain('bg-fill');
+    expect(group.className).toContain('rounded-2xl');
+    // The hairline is drawn by each row, inset past its 40px avatar, and tinted with the flow.
+    expect(tokenButton('IETH').className).toContain('before:bg-accent-swap/25');
+    expect(tokenButton('IETH').className).toContain('before:left-[68px]');
   });
 
   it('fires haptics, forwards the token and closes the drawer on select', () => {

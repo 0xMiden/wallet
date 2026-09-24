@@ -1180,5 +1180,12 @@
   "contactAdded": "Añadido",
   "guardianCardMeta": "Operado por $operator$ · $location$",
   "couldNotCheckUnlockMethod": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo.",
-  "receiveQrColorAction": "Cambiar el color del código QR"
+  "receiveQrColorAction": "Cambiar el color del código QR",
+  "durationUnitSeconds": "Seg.",
+  "durationUnitMinutes": "Min.",
+  "durationUnitHours": "Hora",
+  "durationUnitDays": "Día",
+  "swapExpiryUnit": "Unidad de caducidad",
+  "moreInfoAbout": "Más información sobre $label$",
+  "swapExpiryRange": "Introduce un número entero de $min$ a $max$."
 }

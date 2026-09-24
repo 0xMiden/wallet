@@ -1180,5 +1180,12 @@
   "contactAdded": "Dodano",
   "guardianCardMeta": "Obsługiwany przez $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
-  "receiveQrColorAction": "Zmień kolor kodu QR"
+  "receiveQrColorAction": "Zmień kolor kodu QR",
+  "durationUnitSeconds": "Sek.",
+  "durationUnitMinutes": "Min.",
+  "durationUnitHours": "Godz.",
+  "durationUnitDays": "Dzień",
+  "swapExpiryUnit": "Jednostka wygaśnięcia",
+  "moreInfoAbout": "Więcej informacji o $label$",
+  "swapExpiryRange": "Wprowadź liczbę całkowitą od $min$ do $max$."
 }

@@ -31,6 +31,17 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
 
+// Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
+// Deposit CTA's flow colour is assertable without the real Button's cva class computation.
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary' },
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
+}));
+
 jest.mock('./components', () => ({
   EarnFlowHeader: jest.requireActual<typeof import('./components')>('./components').EarnFlowHeader,
   MetricCard: ({
@@ -181,6 +192,12 @@ describe('EarnVaultDetail', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
     expect(screen.getByRole('button', { name: 'earnDeposit' })).not.toBeDisabled();
+  });
+
+  it('gives the Deposit CTA the earn flow colour', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByTestId('earn-vault-deposit-btn')).toHaveAttribute('data-accent', 'earn');
   });
 
   it('carries only layout on the deposit CTA, no restyled height/radius/weight', () => {

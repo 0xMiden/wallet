@@ -50,6 +50,7 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `fill` | #F3F0EC | #262422 | Every contained element: list groups, detail cards, search, pills, inputs, secondary buttons, the sheet ✕. |
 | `fill-pressed` | #E9E5E0 | #33302D | A pressed or selected element on `fill`; the sheet handle. |
 | `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; a header once content scrolls under it. |
+| `scrim` | #000 at 55% | same | The dim behind a sheet or an overlay. One value in both themes, and never blurred: the job is to dim the page, not to frost it. |
 
 ### Text
 
@@ -112,9 +113,12 @@ currency at 3:1 and the change pill at 4.5:1.
 
 Home's five actions each take one colour of the account card palette (`card-*`, the AccountsDrawer
 "Card color" picker), and that one brand colour is both the tab's icon in the top action bar and the
-accent of the tab's flow: back arrows, chevrons, the address caret, route card borders, the
-processing spinner and the summary arrow. The activity icon squares follow it too (`tx-sent`,
-`tx-received`, `tx-swap`, `tx-earn`); the faucet has no tab and keeps its rose #CCA4B8.
+accent of the tab's flow, on EVERY page of it: back arrows, chevrons, the address caret, route card
+borders, the processing spinner, selected states, the swap direction glyph, a row's toggle, and the
+primary CTA, from the first step through review, processing and the receipt. The one exception is the
+summary arrow: it wears the transaction's own Activity colour, which can differ from the flow's.
+The activity icon squares follow it too (`tx-sent`, `tx-received`, `tx-swap`, `tx-earn`); the faucet
+has no tab and keeps its rose #CCA4B8.
 
 The action colours are the card colours, so they are brand colours too (rule 7): never darkened for
 contrast. Glyphs, icons and borders take the brand colour, which needs 3:1. Text in an action's
@@ -146,8 +150,16 @@ Contrast of the brand colour as a glyph, light (dark is 3.37:1 or better everywh
   `fill`.
 - Text never takes the bare action colour: `text-accent-{flow}-ink` (or `ACCENT_CLASSES[flow].ink`),
   never `text-accent-{flow}`. A chevron that belongs to a text action takes the ink with its label.
-- The tint is the colour at 12% over the page, solid. The primary CTA stays `accent` (#E77537) in
-  every flow.
+- The tint is the colour at 12% over the page, solid.
+- The primary CTA takes the FLOW's colour (`Button`'s `accent` prop → `ACCENT_CLASSES[flow].cta`):
+  the fill at rest, at 90% on hover, at 40% disabled — the same ratio the brand's pre-blended
+  `primary-disabled` is, kept translucent so one string stays right in both themes. A flow is one
+  colour end to end, and a CTA in a different colour from the page it sits on was the one thing
+  that broke that. The brand orange stays on app-level surfaces, which belong to no tab:
+  onboarding, settings, global confirmations, the stand-alone contacts screens and the EVM
+  bridge-in screens. The add-contact step inside the send flow is a step of that flow and takes
+  the send colour. Overview's action colour IS the brand orange, so its flow needs nothing done to
+  it.
 - `design-tokens.test.ts` asserts the brand values, the mapping, the aliases, the tints and the
   contrast of both the colour and its ink.
 
@@ -174,8 +186,8 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 | `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | Page titles: `TabHeader`, `PageHeader` and `FlowLayout` step titles; an onboarding step's title |
 | `text-hero-value` | Nunito | 32 / 36 | 900 | `Hero` value: amounts on review and receipt |
 | `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name, outcome and passcode titles |
-| `text-title-page` | Nunito | 20 / 26 | 800 | `DrawerTitle`, `AlertSheet`, `SectionHeader` `xl` |
-| `text-title-section` | Nunito | 18 / 24 | 800 | `SectionHeader` `lg`, `EmptyState` title, Explore app names |
+| `text-title-page` | Nunito | 20 / 26 | 800 | `SectionHeader` `xl` |
+| `text-title-section` | Nunito | 18 / 24 | 800 | `DrawerTitle` (every sheet, `AlertSheet` included), `SectionHeader` `lg`, `EmptyState` title, Explore app names |
 | `text-cta` | Nunito | 19 / 24 | 800 | `Button` `lg` |
 | `text-cta-sm` | Nunito | 15 / 20 | 800 | `Button` `sm` |
 | `text-row-title` | Nunito | 16 / 20 | 700 | `ListRow`, Activity and asset row titles, a row's price |
@@ -204,7 +216,7 @@ side by side sit 10px apart (`gap-2.5`), each `flex-1`.
 | Element | Height |
 | --- | --- |
 | Page header | 60px row (taller for a two-line title), then the 4px rule |
-| CTA (`Button` lg) | 52px |
+| CTA (`Button` lg) | 48px (label stays 19px bold: white on `accent` is 3.0:1, which only clears at 19px bold) |
 | Compact button (`Button` sm) | 36px |
 | Search, single-line input | 44px / 52px |
 | Pill | 32px (24px status in a header, 20px status in a row) |
@@ -248,7 +260,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 
 | Element | Canonical (`components/ui`) | Anatomy | Replaces |
 | --- | --- | --- | --- |
-| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 52px pill. `primary`: `accent`, white `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `ghost`: transparent on `page`, a `hairline` border, `ink` label, `fill` on hover, for a quiet action where a filled `secondary` is too heavy (Keys: Rotate device key). `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. | `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
+| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 48px pill. `primary`: fill from `ACCENT_CLASSES[accent].cta` (`brand` by default), its `accent-{flow}-on` `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `ghost`: transparent on `page`, a `hairline` border, `ink` label, `fill` on hover, for a quiet action where a filled `secondary` is too heavy (Keys: Rotate device key). `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen, except TokenDetail's Send/Receive pair; two side by side are 10px apart. | `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
 | Icon button | `IconButton` | `bare`: a 24px `ink` glyph in a 44px hit area (tab-root actions). `circle`: a 32px (or 36px) circle on `fill`, `muted` glyph (sheets and overlays). `filled`: a 44px circle on `fill` with an `ink` 24px glyph (a pushed page's back button). | `NavButton`, `CircleButton`, ad-hoc round buttons |
 | Pushed page header | `PageHeader` (`components/PageHeader`) | Row of at least 60px, growing for a two-line title: the `filled` `IconButton` back button (`ArrowLeft`), the `text-title-tab` title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last; then `HeaderRule`, the 4px rounded rule on `fill`, under the row. No horizontal padding of its own: `className` lands on the block holding the row and the rule, so a caller in an unpadded parent passes `className="px-4"` and both inset together. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), grey title bars |
 | Tab root header | `TabHeader` | `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px. Ends in the 4px `HeaderRule` on `fill`, inset to the page margin. | hand-built tab titles |
@@ -273,7 +285,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
 | Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, `text-title-section` title, `text-body-sm` `muted` body, a 36px `secondary` button. `surface="dashed"`: on `page` inside a dashed hairline (icon circle on `fill`), for a slot waiting to be filled. | `components/EmptyState` (moved), ad-hoc "No …" lines |
-| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 20px title left, 32px ✕ right, 16px margin; one decision per sheet; CTA pinned. | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
+| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 18px title left, 32px ✕ right, 16px margin, no rule under the header; rows in `ListGroup`s on `fill`; one decision per sheet; CTA pinned. Opens and closes on the tab-bar springs over a plain `scrim` (see Motion). | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
 | Confirm / alert | `useConfirm` / `useAlert` (`lib/ui/dialog`), rendered by `AlertSheet` with Radix AlertDialog semantics | Title, one sentence, a `destructive` or `primary` button over a `secondary` Cancel. | `ConfirmationModal`, `AlertModal` |
 | Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner`, `CircularProgress` |
 | Skeleton | `Skeleton` | `fill` blocks shaped like the content (`inverse` on a colored surface); tests find it by `data-slot="skeleton"`. | `lib/ui/skeleton`, ad-hoc `animate-pulse` |
@@ -298,6 +310,23 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `press` | `whileTap` scale 0.96, `springs.snappy` | `Button` (inline 800/35), `Toggle` (700/30), CSS `active:scale-*` |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
 | `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
+
+### Sheets
+
+Every `Drawer` moves like a tab switch, through `lib/animation/sheet.ts`:
+
+- **In.** `springs.tabSwitch` — the nav highlight's own spring: ~350ms with one visible 7%
+  overshoot past the resting edge. vaul's `::after` skirt fills the gap the overshoot opens under
+  the sheet.
+- **Out.** `springs.tabIconPop` — ~225ms and flat, so dismissing is quick and never wobbles.
+- **Drag release.** The snap-back to rest uses the `in` curve; drag-to-dismiss and the snap
+  behaviour are vaul's, unchanged.
+- **Backdrop.** The `scrim` fades on the same curve and duration as the sheet it belongs to.
+- **How.** vaul runs the sheet as a CSS `animation` and the snap-back as an inline `transition`, so
+  these springs cannot be framer transitions: `springToLinearEasing` solves each one and
+  `lib/ui/drawer.tsx` hands it to `main.css` as a `linear()` curve in a custom property.
+- **Reduced motion.** `main.css`'s `prefers-reduced-motion` block clamps every vaul duration, so
+  the sheet and its scrim land at once, with no overshoot.
 
 ### Tab bars and segmented controls
 
@@ -354,7 +383,7 @@ caller of what it replaces and deletes the retired component.
 3. **Motion foundation**: `presets.ts`, `MotionConfig`, the unguarded `Button` and `Toggle`
    springs.
 4. **Headers**: `PageHeader` in direction B, then `NavigationHeader`, `ScreenHeader` and the earn
-   headers onto it; `TabHeader` without its bar; `DrawerTitle` at 20px.
+   headers onto it; `TabHeader` without its bar; `DrawerTitle` at 18px.
 5. **Buttons**: `Button` and `IconButton` in `components/ui`.
 6. **Lists**: `ListGroup`, `ListRow`, `SectionHeader`, `EmptyState`; the contact picker (search and
    sections) is built on them.

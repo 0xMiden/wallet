@@ -26,8 +26,8 @@ jest.mock('app/icons/v2', () => ({
 }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
-  Button: ({ title, variant: _variant, ...rest }: any) => (
-    <button type="button" {...rest}>
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
       {title}
     </button>
   )
@@ -78,6 +78,12 @@ describe('SendAmount', () => {
     expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
     fireEvent.click(screen.getByTestId('flow-back'));
     expect(props.onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives Confirm the send flow colour', () => {
+    renderAmount();
+
+    expect(screen.getByTestId('send-amount-confirm')).toHaveAttribute('data-accent', 'send');
   });
 
   it('enables Confirm for a valid amount and shows its fiat value', () => {

@@ -245,6 +245,7 @@ const PositionActions: FC<{
           data-testid="earn-withdraw-btn"
           title={t('withdraw')}
           variant={ButtonVariant.Primary}
+          accent="earn"
           disabled={!position.id || Number(position.withdrawable) <= 0}
           onClick={() => {
             hapticLight();

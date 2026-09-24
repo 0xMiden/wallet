@@ -31,6 +31,7 @@ import { HeaderRule } from './HeaderRule';
 import { Hero } from './Hero';
 import { IconButton } from './IconButton';
 import * as UI from './index';
+import { InfoHint } from './InfoHint';
 import { ListGroup } from './ListGroup';
 import { ListRow } from './ListRow';
 import { Notice } from './Notice';
@@ -72,6 +73,7 @@ describe('components/ui barrel', () => {
     AccountsDrawer,
     AlertSheet,
     Avatar,
+    InfoHint,
     Pill,
     StatusBadge,
     WaveDots,

@@ -5250,5 +5250,46 @@
   "receiveQrColorAction": {
     "message": "Изменить цвет QR-кода",
     "englishSource": "Change the QR code color"
+  },
+  "durationUnitSeconds": {
+    "message": "Сек.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Мин.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Час",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "День",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Единица срока действия",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "Подробнее о $label$",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "Введите целое число от $min$ до $max$.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
   }
 }

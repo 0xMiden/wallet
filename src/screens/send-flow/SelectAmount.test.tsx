@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -41,8 +43,18 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="confirm-btn" onClick={onClick} disabled={disabled}>
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    accent
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    accent?: string;
+  }) => (
+    <button data-testid="confirm-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
@@ -50,7 +62,9 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} className={className} />
+  ),
   IconName: { ChevronDown: 'chevron-down', ChevronRightLucide: 'chevron-right', Globe: 'Globe' }
 }));
 
@@ -216,6 +230,20 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('confirm-btn')).toHaveTextContent('Swap Now');
     });
 
+    it('draws the confirm CTA in the accent it is given', () => {
+      renderComponent({ accent: 'earn' });
+      expect(screen.getByTestId('confirm-btn')).toHaveAttribute('data-accent', 'earn');
+    });
+
+    // 12px text needs 4.5:1, which white on the light fills never reaches: the flow's ink on its tint.
+    it('draws the network pill in the flow ink on its tint', () => {
+      renderComponent({ accent: 'send' });
+
+      const pill = screen.getByText('miden');
+      expect(pill).toHaveClass('bg-accent-send-tint', 'text-accent-send-ink');
+      expect(pill).not.toHaveClass('text-pure-white', 'bg-accent-send');
+    });
+
     it('hides the network pill when showNetworkPill is false', () => {
       renderComponent({ showNetworkPill: false });
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
@@ -293,10 +321,26 @@ describe('SelectAmount', () => {
       expect(def.innerHTML).toContain(defaultFooterPb);
       expect(def.querySelector('[data-navbar-cushion="true"]')).not.toBeNull();
 
+      // Keyboard padding snaps (lib/mobile/keyboard-inset.ts): animating it reflows every frame. The
+      // footer adds no transition of its own, and main.css exempts a flow footer's cushion collapse.
+      expect(def.querySelector('[data-navbar-cushion="true"]')!.className).not.toContain('transition-[padding-bottom]');
+      expect(def.querySelector('[data-navbar-cushion="true"]')).toHaveAttribute('data-flow-footer');
+
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();
       expect(override.innerHTML).not.toContain(defaultFooterPb);
     });
+  });
+
+  it("snaps a flow footer's cushion: main.css sets no transition on it", () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodies = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g), ([, selector = '', body = '']) => ({
+      selector: selector.trim(),
+      body: body.trim()
+    }))
+      .filter(rule => rule.selector === "[data-navbar-cushion='true'][data-flow-footer]")
+      .map(rule => rule.body);
+    expect(bodies.some(body => /(^|;)\s*transition:\s*none\s*(;|$)/.test(body))).toBe(true);
   });
 
   describe('token selector', () => {
@@ -505,6 +549,8 @@ describe('SelectAmount', () => {
       const circle = globeIcon?.parentElement as HTMLElement;
       expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
       expect(circle.className).not.toContain('bg-primary-500');
+      expect(globeIcon).toHaveClass('text-accent-brand-on');
+      expect(globeIcon).not.toHaveClass('text-pure-white');
     });
   });
 

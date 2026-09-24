@@ -79,13 +79,15 @@ jest.mock('components/Button', () => ({
   Button: ({
     title,
     onClick,
-    disabled
+    disabled,
+    accent
   }: {
     title?: string;
     onClick?: React.MouseEventHandler<HTMLButtonElement>;
     disabled?: boolean;
+    accent?: string;
   }) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
+    <button type="button" data-accent={accent} onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
@@ -151,6 +153,12 @@ describe('EarnWithdrawReview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(goBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives the withdraw confirm the earn flow colour', () => {
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    expect(screen.getByRole('button', { name: 'withdraw' })).toHaveAttribute('data-accent', 'earn');
   });
 
   it('falls back to an empty position and disables withdrawal for an unknown id', () => {

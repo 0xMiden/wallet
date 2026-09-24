@@ -344,16 +344,18 @@ describe('TokenDetail', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/receive');
   });
 
-  it('draws Send and Receive as the pill Button pair, primary then secondary, side by side', () => {
+  it('draws Send and Receive as a pill pair, each in the colour of the flow it opens', () => {
     renderPage();
 
     const send = screen.getByTestId('token-detail-send');
     const receive = screen.getByTestId('token-detail-receive');
     expect(send).toBe(screen.getByRole('button', { name: 'send' }));
     expect(receive).toBe(screen.getByRole('button', { name: 'receive' }));
-    // The 52px pill: accent fill for the primary, `fill` for the secondary.
-    expect(send).toHaveClass('rounded-full', 'h-13', 'bg-accent-primary', 'flex-1');
-    expect(receive).toHaveClass('rounded-full', 'h-13', 'bg-fill', 'text-ink', 'flex-1');
+    // The 48px pill, each filled with its own flow's action colour — the tab bar's pairing.
+    expect(send).toHaveClass('rounded-full', 'h-12', 'bg-accent-send', 'flex-1');
+    expect(receive).toHaveClass('rounded-full', 'h-12', 'bg-accent-receive', 'flex-1');
+    expect(send.className).not.toContain('bg-accent-primary');
+    expect(receive.className).not.toContain('bg-fill');
     // 10px apart, each taking half the row.
     expect(send.parentElement).toBe(receive.parentElement);
     expect(send.parentElement).toHaveClass('flex', 'gap-2.5');

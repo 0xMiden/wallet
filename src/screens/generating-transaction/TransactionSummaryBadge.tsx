@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -27,38 +28,79 @@ export interface TransactionSummaryBadgeProps {
    * when opening an earn position.
    */
   separator?: ReactNode;
-  /** Tints the default horizontal arrow. Ignored when `separator` is provided. */
-  fillForArrow?: string;
+  /**
+   * Tints the default horizontal arrow with the transaction's own Activity colour (send by default, received green
+   * or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent. Ignored when
+   * `separator` is provided.
+   */
+  fillForArrow?: ArrowFill;
 }
 
 export interface TransactionSummaryBadgeContent {
   lhs: ReactNode;
   rhs: ReactNode;
   separator?: ReactNode;
-  fillForArrow?: string;
+  fillForArrow?: ArrowFill;
 }
 
-/**
- * Default separator - the horizontal arrow, tinted by `fill`. The disc carries white strokes, so
- * its colour owes WCAG 1.4.11's 3:1 like every other activity surface. It reads the shared
- * constant rather than a literal: this was a third copy of the send hue and it was left behind
- * when the activity tokens moved, so the detail hero showed one transaction in two shades.
- */
-const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--tx-sent)' }} />
-    <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
-    <path
-      d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
-      stroke="white"
-      stroke-width="2.20995"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-);
+export const ARROW_INK = {
+  'var(--action-send)': 'var(--accent-send-on)',
+  'var(--tx-sent)': 'var(--accent-send-on)',
+  'var(--accent-send)': 'var(--accent-send-on)',
+  'var(--action-receive)': 'var(--accent-receive-on)',
+  'var(--tx-received)': 'var(--accent-receive-on)',
+  'var(--accent-receive)': 'var(--accent-receive-on)',
+  'var(--action-swap)': 'var(--accent-swap-on)',
+  'var(--tx-swap)': 'var(--accent-swap-on)',
+  'var(--accent-swap)': 'var(--accent-swap-on)',
+  'var(--tx-faucet)': '#191919',
+  '#BA839F': '#191919',
+  '#ba839f': '#191919',
+  // Explicit, not merely the fallback: the bridge/guardian slate and the earn action colour all
+  // hold white at 4.5:1 or better, but a spelling this table has not seen must not read as "safe"
+  // by accident.
+  '#777487': '#ffffff',
+  'var(--tx-earn)': '#ffffff',
+  'var(--action-earn)': '#ffffff',
+  'var(--accent-earn)': '#ffffff'
+} as const satisfies Record<string, string>;
 
-/** Separator used when opening an earn position — an up "↑" arrow in the Earn action colour. */
+/** A fill the badge has an arrow ink for; any other fill is a compile error, not an unreadable arrow. */
+export type ArrowFill = keyof typeof ARROW_INK;
+
+/**
+ * The arrow's ink for a badge fill. Derived here rather than passed beside the fill so every caller,
+ * present and future, gets a readable arrow: every alias of send, receive and swap maps to that
+ * flow's on-colour, and the faucet rose and the slate fills map to their fixed ink. A fill this
+ * table has not seen does not compile.
+ */
+export const arrowInkFor = (fill: ArrowFill = 'var(--tx-sent)'): string => ARROW_INK[fill];
+
+/**
+ * Default separator - the horizontal arrow, tinted by `fill` and stroked in `arrowInkFor(fill)`. It
+ * defaults to the send activity token rather than a literal: this was a third copy of the send hue
+ * and it was left behind when the activity tokens moved, so the detail hero showed one transaction
+ * in two shades.
+ */
+const HorizontalArrowGlyph: FC<{ fill?: ArrowFill }> = ({ fill }) => {
+  const ink = arrowInkFor(fill);
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--tx-sent)' }} />
+      <path d="M6.22266 12.0889H16.5071" stroke={ink} stroke-width="2.20995" stroke-linecap="round" />
+      <path
+        d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
+        stroke={ink}
+        stroke-width="2.20995"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+};
+
+/** Separator used when opening an earn position: an up "↑" arrow in the Earn action colour, whose slate
+ * holds white at 4.58:1 in both themes. */
 export const EarnDepositArrowGlyph: FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect width="24" height="24" rx="12" style={{ fill: 'var(--tx-earn)' }} />
@@ -269,7 +311,9 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: parts.join(', '),
         rhs: t('consumed', { defaultValue: 'Consumed' }),
-        fillForArrow: 'var(--tx-received)'
+        // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
+        // dusty rose on this very page (a bridge-in's the slate), and the arrow sat green under it.
+        fillForArrow: claimAccentColor(transaction, nativeFaucetId)
       };
     }
 
@@ -305,8 +349,8 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
         rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
-        // The disc carries white strokes, so it takes the activity token, which clears 3:1 in both
-        // themes, rather than the brand action colour, which does not in dark.
+        // The activity token, matching the swap row's icon above it, rather than the brand action
+        // colour; `arrowInkFor` gives either spelling a stroke that clears 3:1 in both themes.
         fillForArrow: 'var(--tx-swap)'
       };
     }

@@ -108,7 +108,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <SelectAmount
             embedded
             label={fieldLabel(t('youPay'))}
-            accentClassName="text-accent-swap"
+            accent="swap"
             token={swapTokenToUIToken(offerToken, offerBalance)}
             logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
@@ -131,7 +131,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             {...motionTokens.press}
             animate={{ rotate: reduceMotion ? 0 : flips * 180 }}
             transition={flipTransition}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-swap text-pure-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-swap text-accent-swap-on"
             aria-label={t('swapDirection')}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -154,7 +154,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             // isn't the spendable amount here, so no available-balance helper.
             showBalanceHelper={false}
             label={fieldLabel(t('youReceive'))}
-            accentClassName="text-accent-swap"
+            accent="swap"
             token={swapTokenToUIToken(requestToken)}
             logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
@@ -182,11 +182,12 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           // The dots below replace the label while the quote loads, so the button is named by its action.
           aria-label={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
           variant={ButtonVariant.Primary}
+          // The whole flow is the swap colour, CTA included (design-system.md, "Action colours").
+          accent="swap"
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="swap-review-submit"
-          // The whole page is the swap flow's colour, CTA included (design-system.md, Action colours).
-          className="w-full max-w-none bg-accent-swap hover:bg-accent-swap disabled:bg-accent-swap/40"
+          className="w-full max-w-none"
         >
           {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
         </Button>

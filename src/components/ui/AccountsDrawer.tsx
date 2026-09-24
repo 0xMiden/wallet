@@ -11,6 +11,9 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer'
 import { navigate } from 'lib/woozie';
 
 import { CARD_COLOR_BG } from './BalanceCard';
+import { ListGroup } from './ListGroup';
+import { ListRow } from './ListRow';
+import { SectionHeader } from './SectionHeader';
 
 export interface AccountsDrawerProps {
   open: boolean;
@@ -26,14 +29,13 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
   const { t } = useTranslation();
   const selectedCardColor = useCardColor();
 
+  // `ListRow` fires the tap haptic itself, so the handlers only close and navigate.
   const handleSettings = () => {
-    hapticLight();
     onOpenChange(false);
     navigate('/settings');
   };
 
   const handleImportAccount = () => {
-    hapticLight();
     onOpenChange(false);
     navigate('/import-account');
   };
@@ -51,9 +53,9 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
           <DrawerTitle>{t('accounts')}</DrawerTitle>
         </DrawerHeader>
 
-        <div className="flex flex-col gap-4 px-4 pb-6">
-          <div className="flex flex-col gap-2">
-            <span className="px-1 text-label text-muted">{t('cardColor')}</span>
+        <div className="flex flex-col gap-5 px-4 pb-6">
+          <section>
+            <SectionHeader>{t('cardColor')}</SectionHeader>
             <div className="flex items-center justify-between">
               {CARD_COLORS.map(color => {
                 const isSelected = color === selectedCardColor;
@@ -77,35 +79,24 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
                 );
               })}
             </div>
-          </div>
+          </section>
 
-          <button
-            type="button"
-            onClick={handleSettings}
-            className={classNames(
-              'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
-              'bg-fill',
-              'text-row-title text-gray-secondary dark:text-pure-white',
-              'transition-colors hover:bg-fill-pressed'
-            )}
-          >
-            <Icon name={IconName.SettingsNew} className="w-4 h-4" fill="currentColor" />
-            <span>{t('settings')}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleImportAccount}
-            className={classNames(
-              'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
-              'bg-fill',
-              'text-row-title text-gray-secondary dark:text-pure-white',
-              'transition-colors hover:bg-fill-pressed'
-            )}
-          >
-            <Icon name={IconName.Add} className="w-4 h-4" fill="currentColor" />
-            <span>{t('importAccount')}</span>
-          </button>
+          {/* The two account actions as one grouped list, like Settings' own rows: both navigate,
+              so both carry the chevron. */}
+          <ListGroup>
+            <ListRow
+              title={t('settings')}
+              icon={<Icon name={IconName.SettingsNew} fill="currentColor" />}
+              chevron
+              onClick={handleSettings}
+            />
+            <ListRow
+              title={t('importAccount')}
+              icon={<Icon name={IconName.Add} fill="currentColor" />}
+              chevron
+              onClick={handleImportAccount}
+            />
+          </ListGroup>
         </div>
       </DrawerContent>
     </Drawer>

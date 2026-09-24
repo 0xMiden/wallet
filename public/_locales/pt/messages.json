@@ -5250,5 +5250,46 @@
   "receiveQrColorAction": {
     "message": "Alterar a cor do código QR",
     "englishSource": "Change the QR code color"
+  },
+  "durationUnitSeconds": {
+    "message": "Seg.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Min.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Hora",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "Dia",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Unidade de expiração",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "Mais informações sobre $label$",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "Introduza um número inteiro de $min$ a $max$.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
   }
 }

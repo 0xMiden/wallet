@@ -2,10 +2,14 @@ import React, { useCallback, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { AssetRow } from 'components/AssetRow';
-import { SearchInput } from 'components/ui';
+import { TokenLogo } from 'components/TokenLogo';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SearchInput } from 'components/ui/SearchInput';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { getTokenPrice } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -53,33 +57,42 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
         <DrawerHeader>
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>
         </DrawerHeader>
-        <div className="flex flex-col min-h-0 px-4 pb-4 h-120">
+        <div className="flex h-120 min-h-0 flex-col px-4 pb-4">
           <SearchInput
             value={searchQuery}
             onChange={setSearchQuery}
             placeholder={t('searchForTokens')}
             data-testid="send-token-search"
+            className="shrink-0"
           />
-          <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar divide-y divide-rule-default">
-            {filteredBalances.map(b => (
-              <div key={b.tokenId} data-token-id={b.tokenId}>
-                <AssetRow
-                  asset={b}
-                  tokenPrices={tokenPrices}
-                  data-testid={`send-token-${b.metadata.symbol}`}
-                  onClick={() =>
-                    onSelectToken({
-                      id: b.tokenId,
-                      name: b.metadata.symbol,
-                      decimals: b.metadata.decimals,
-                      balance: b.balance,
-                      fiatPrice: b.fiatPrice,
-                      scaleIsKnown: hasKnownScale(b.metadata)
-                    })
-                  }
-                />
-              </div>
-            ))}
+          <div className="no-scrollbar min-h-0 overflow-y-auto pt-5">
+            <ListGroup>
+              {filteredBalances.map(b => {
+                const scaleIsKnown = hasKnownScale(b.metadata);
+                const price = getTokenPrice(tokenPrices, b.metadata.symbol).price;
+                return (
+                  <ListRow
+                    key={b.tokenId}
+                    title={b.metadata.name || b.metadata.symbol}
+                    subtitle={scaleIsKnown ? `${toAdaptiveFixed(b.balance)} ${b.metadata.symbol}` : b.metadata.symbol}
+                    avatar={<TokenLogo symbol={b.metadata.symbol} size="lg" />}
+                    value={scaleIsKnown ? `$${toAdaptiveFixed(b.balance * price)}` : undefined}
+                    data-testid={`send-token-${b.metadata.symbol}`}
+                    data-token-id={b.tokenId}
+                    onClick={() =>
+                      onSelectToken({
+                        id: b.tokenId,
+                        name: b.metadata.symbol,
+                        decimals: b.metadata.decimals,
+                        balance: b.balance,
+                        fiatPrice: b.fiatPrice,
+                        scaleIsKnown
+                      })
+                    }
+                  />
+                );
+              })}
+            </ListGroup>
           </div>
         </div>
       </DrawerContent>

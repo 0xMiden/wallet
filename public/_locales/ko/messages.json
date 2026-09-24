@@ -5250,5 +5250,46 @@
   "receiveQrColorAction": {
     "message": "QR 코드 색상 변경",
     "englishSource": "Change the QR code color"
+  },
+  "durationUnitSeconds": {
+    "message": "초",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "분",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "시간",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "일",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "만료 단위",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "$label$ 자세히 보기",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "$min$에서 $max$ 사이의 정수를 입력하세요.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
   }
 }

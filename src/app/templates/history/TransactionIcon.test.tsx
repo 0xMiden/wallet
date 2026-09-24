@@ -30,7 +30,7 @@ jest.mock('./transactionUtils', () => ({
   // Faithful to the real one-liner (`entry.earnDepositStatus ?? 'pending'`) so the
   // failed-lending-leg branch is exercised, not stubbed away.
   earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
-  TRANSACTION_COLORS: { send: '#7697B2', receive: '#839A7D', faucet: '#BA839F' }
+  TRANSACTION_COLORS: { send: '#7697B2', receive: '#839A7D', faucet: '#BA839F', bridge: '#777487' }
 }));
 
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;

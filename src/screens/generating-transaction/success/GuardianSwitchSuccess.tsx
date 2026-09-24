@@ -7,6 +7,7 @@ import { ReactComponent as GuardianSwitchArt } from 'app/icons/guardian-switch-s
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
 
@@ -73,6 +74,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       hero={<GuardianSwitchArt className="h-40 w-auto" aria-hidden="true" />}
       title={t(commitUnconfirmed ? 'guardianSwitchUnconfirmedHeading' : 'guardianSwitchSuccessTitle')}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}

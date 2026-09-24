@@ -1180,5 +1180,12 @@
   "contactAdded": "Добавлен",
   "guardianCardMeta": "Оператор: $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
-  "receiveQrColorAction": "Изменить цвет QR-кода"
+  "receiveQrColorAction": "Изменить цвет QR-кода",
+  "durationUnitSeconds": "Сек.",
+  "durationUnitMinutes": "Мин.",
+  "durationUnitHours": "Час",
+  "durationUnitDays": "День",
+  "swapExpiryUnit": "Единица срока действия",
+  "moreInfoAbout": "Подробнее о $label$",
+  "swapExpiryRange": "Введите целое число от $min$ до $max$."
 }
