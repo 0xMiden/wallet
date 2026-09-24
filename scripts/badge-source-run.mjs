@@ -12,8 +12,9 @@
  * pull request into main) or `no-artifact` (no run of that PR's head carries an
  * unexpired coverage-badge-data). BADGE_SOURCE_FILE is the badges branch's
  * source.json, {"sha": "<main commit the badges came from>"}; `status` is `none`
- * when it is missing or holds no valid sha. Every key is printed, so the output
- * can go straight into $GITHUB_OUTPUT.
+ * when it is missing, holds no valid sha, or names a commit GitHub cannot find.
+ * Every key is printed, so the output can go straight into $GITHUB_OUTPUT. Any
+ * other API failure exits 1 with nothing on stdout.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -22,7 +23,8 @@ import { fileURLToPath } from 'node:url';
 
 export const BADGE_ARTIFACT = 'coverage-badge-data';
 
-// ghApi(path) resolves to every page of the response, as `gh api --paginate --slurp` gives them.
+// ghApi(path, { paginate }) resolves to the response's pages, as `gh api --paginate --slurp` gives them; unpaginated
+// it is one page. A failure rejects with the HTTP status on `status` when there is one.
 function items(pages, key) {
   return pages.flatMap(page => (key ? (page?.[key] ?? []) : (page ?? [])));
 }
@@ -40,8 +42,9 @@ export async function findBadgeRun({ ghApi, repo, sha }) {
   )
     .filter(r => r?.event === 'pull_request')
     // A fork head's runs list no pull requests, so such a run must at least come from the PR's own head
-    // repository: another fork can push the same head sha. Any other run must name this PR.
-    .filter(r => (r.pull_requests?.length ? r.pull_requests.some(p => p?.number === pr.number) : sameRepo(r, pr)))
+    // repository and branch: another fork, or another branch of it, can push the same head sha. Any other
+    // run must name this PR.
+    .filter(r => (r.pull_requests?.length ? r.pull_requests.some(p => p?.number === pr.number) : samePrHead(r, pr)))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || b.id - a.id);
 
   for (const run of runs) {
@@ -51,10 +54,9 @@ export async function findBadgeRun({ ghApi, repo, sha }) {
   return { reason: 'no-artifact', pr: pr.number };
 }
 
-function sameRepo(run, pr) {
-  const runRepo = run?.head_repository?.full_name;
-  const prRepo = pr?.head?.repo?.full_name;
-  return typeof runRepo === 'string' && typeof prRepo === 'string' && runRepo === prRepo;
+function samePrHead(run, pr) {
+  const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a === b;
+  return same(run?.head_repository?.full_name, pr?.head?.repo?.full_name) && same(run?.head_branch, pr?.head?.ref);
 }
 
 function recordedSha(sourceFile) {
@@ -73,22 +75,51 @@ function recordedSha(sourceFile) {
   }
 }
 
-// Main only moves forward, so publish when this commit is ahead of the one the badges came from. A run for an
-// older commit that finishes last sees `behind` and leaves the newer numbers alone.
+// GitHub's answers when the recorded sha is not a commit it knows, e.g. one force-pushed away.
+function isUnknownCommit(err) {
+  return err?.status === 404 || (err?.status === 422 && /no common ancestor|no commit found/i.test(err.message));
+}
+
+// Main only moves forward, so publish when this commit is ahead of the one the badges came from. A rerun for an
+// older commit sees `behind` and leaves the newer numbers alone. Compare is unpaginated: every page repeats the
+// status and only the commit list pages.
 export async function shouldPublish({ ghApi, repo, sha, sourceFile }) {
   const recorded = recordedSha(sourceFile);
   if (!recorded) return { publish: true, status: 'none' };
-  const [page] = await ghApi(`repos/${repo}/compare/${recorded}...${sha}?per_page=100`);
-  const status = String(page?.status ?? '');
+  let pages;
+  try {
+    pages = await ghApi(`repos/${repo}/compare/${recorded}...${sha}?per_page=1`, { paginate: false });
+  } catch (err) {
+    if (isUnknownCommit(err)) return { publish: true, status: 'none' };
+    throw err;
+  }
+  const status = String(pages[0]?.status ?? '');
   return { publish: status === 'ahead', status };
 }
 
-function ghApiCli(path) {
-  const out = execFileSync('gh', ['api', '--paginate', '--slurp', path], {
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024
-  });
-  return Promise.resolve(JSON.parse(out));
+function ghApiCli(path, { paginate = true } = {}) {
+  const args = paginate ? ['api', '--paginate', '--slurp', path] : ['api', path];
+  let out;
+  try {
+    out = execFileSync('gh', args, {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+  } catch (err) {
+    // gh prints the error body on stdout and `gh: <message> (HTTP <status>)` on stderr.
+    const stderr = String(err.stderr ?? '').trim();
+    const status = Number(/\(HTTP (\d{3})\)/.exec(stderr)?.[1]) || undefined;
+    let message = stderr || err.message;
+    try {
+      message = JSON.parse(String(err.stdout)).message || message;
+    } catch {
+      // not a JSON body; keep gh's own message
+    }
+    return Promise.reject(Object.assign(new Error(`gh api ${path}: ${message}`), { status }));
+  }
+  const body = JSON.parse(out);
+  return Promise.resolve(paginate ? body : [body]);
 }
 
 function integerOrEmpty(value) {
