@@ -12,12 +12,10 @@ import EarnVaultDetail from './EarnVaultDetail';
 // Mocks
 // ---------------------------------------------------------------------------
 
-// `./components` imports `...aave.svg?url` (a webpack `?url` query that jest's
-// `\.svg$` mapper does not match), so a virtual mock stands in for it. The
-// real `EarnFlowHeader` draws the page header; `MetricCard` is a stub that
-// echoes its props via data-* attributes so we can assert what
-// `EarnVaultDetail` passed (label / value / valueClassName), which is where the
-// audited-branch styling lives.
+// Stub `./components` so we only pull in a light `MetricCard`. The stub echoes its
+// props via data-* attributes so we can assert what `EarnVaultDetail` passed
+// (label / value / valueClassName), which is where the audited-branch styling
+// lives.
 // i18n: the component and the shared Button/IconButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
@@ -28,8 +26,6 @@ const mockRefetch = jest.fn();
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
-
-jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
 
 // Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
 // Deposit CTA's flow colour is assertable without the real Button's cva class computation.
@@ -42,24 +38,43 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-jest.mock('./components', () => ({
-  EarnFlowHeader: jest.requireActual<typeof import('./components')>('./components').EarnFlowHeader,
-  MetricCard: ({
-    label,
-    value,
-    valueClassName,
-    className
-  }: {
-    label: string;
-    value: string;
-    valueClassName?: string;
-    className?: string;
-  }) => (
-    <div data-testid="metric-card" data-label={label} data-value-class={valueClassName ?? ''} className={className}>
-      {value}
-    </div>
-  )
-}));
+jest.mock('./components', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    MetricCard: ({
+      label,
+      value,
+      valueClassName,
+      className
+    }: {
+      label: string;
+      value: string;
+      valueClassName?: string;
+      className?: string;
+    }) =>
+      R.createElement(
+        'div',
+        {
+          'data-testid': 'metric-card',
+          'data-label': label,
+          'data-value-class': valueClassName ?? '',
+          className
+        },
+        value
+      ),
+    // The shared hero: a probe that keeps the figure, its caption and the change line assertable.
+    EarnHero: ({ labelId, value, label, meta }: { labelId: string; value: string; label: string; meta?: string }) =>
+      R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, `${value} ${label} ${meta ?? ''}`),
+    // The token mark that replaced the "{asset} on {network}" pill in the header.
+    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+      R.createElement(
+        'span',
+        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
+        'earnAssetOnNetwork'
+      )
+  };
+});
 
 // `lib/woozie` back/forward navigation is native-history-backed; stub the two
 // entry points the component calls so we can assert them without a real router.
@@ -217,16 +232,23 @@ describe('EarnVaultDetail', () => {
     // Page root.
     expect(screen.getByTestId('earn-vault-detail-page')).toBeInTheDocument();
 
-    // Header: "{protocol} • {asset}" title and "{asset} on {network}" pill.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
-    // "{{asset}} on {{network}}" pill — the stubbed t() echoes the key.
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    // Header: the protocol alone, so the title holds one line, plus the asset's compact mark.
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent('Aave');
+    // The asset belongs to the mark; naming it twice wrapped the header onto a second line.
+    expect(heading).not.toHaveTextContent('•');
+    // The mark rides the header row, in place of the pill that took the title's width.
+    const mark = screen.getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', 'USDC');
+    expect(mark).toHaveAttribute('data-network', 'Ethereum');
+    expect(screen.getByRole('banner')).toContainElement(mark);
 
-    // APY section.
-    expect(screen.getByText('earnCurrentApy')).toBeInTheDocument();
-    expect(screen.getByText('+0.12% (24h)')).toBeInTheDocument();
-    // "5.24%" appears in the APY headline (and in the mocked tooltip body).
-    expect(screen.getAllByText('5.24%').length).toBeGreaterThanOrEqual(1);
+    // APY hero: the figure, its caption and the 24h move, through the shared hero.
+    const hero = screen.getByTestId('earn-hero');
+    expect(hero).toHaveAttribute('id', 'earn-vault-apy-title');
+    expect(hero).toHaveTextContent('5.24%');
+    expect(hero).toHaveTextContent('earnCurrentApy');
+    expect(hero).toHaveTextContent('+0.12% (24h)');
 
     // Stats: audited → "✓ yes" with the ink value class.
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
@@ -249,8 +271,8 @@ describe('EarnVaultDetail', () => {
   it('renders the unaudited vault with flat chart data (padding fallback + "No")', () => {
     render(<EarnVaultDetail vaultId="v-unaudited" />);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound • DAI');
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound');
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', 'DAI');
 
     // Not audited → "no" and no explicit value class (undefined → '').
     const audited = metricValue('earnAuditedLabel');
@@ -269,6 +291,7 @@ describe('EarnVaultDetail', () => {
     // `?? placeholderVault()`: every body field is the EARN_PLACEHOLDER value, the header names only the
     // route, and the empty id disables the Deposit CTA.
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
+    expect(screen.queryByTestId('earn-asset-mark')).toBeNull();
     expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
   });
@@ -318,7 +341,8 @@ describe('EarnVaultDetail after a failed load', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', 'USDC');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
   });
 
@@ -328,7 +352,8 @@ describe('EarnVaultDetail after a failed load', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
     expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', 'USDC');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
   });
 

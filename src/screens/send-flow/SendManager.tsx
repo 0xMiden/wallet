@@ -2,12 +2,12 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState }
 
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
-import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
@@ -890,25 +890,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
     ]
   );
 
-  // SendManager is rendered inside TabLayout > HomeSwipeContainer, which already
-  // constrains its size. Hardcoded heights (h-[600px]/h-[640px]) overflow the
-  // parent (which loses ~50px to the top action bar), clipping the bottom CTA.
-  // Inherit from the parent chain instead.
-  const containerClass = 'h-full w-full';
-
   return (
-    <div
-      className={classNames(
-        containerClass,
-        'mx-auto overflow-hidden',
-        'flex flex-col bg-app-bg',
-        'overflow-hidden relative'
-      )}
-      data-testid="send-flow"
-    >
-      <div className="flex flex-col flex-1 h-full min-h-0">
-        <Navigator renderRoute={renderStep} />
-      </div>
+    // The shared home-group pane box. SendManager is rendered inside TabLayout >
+    // HomeSwipeContainer and inherits its size from that chain: hardcoded heights
+    // (h-[600px]/h-[640px]) overflow the parent, which loses ~50px to the top action bar, and
+    // clip the bottom CTA.
+    <HomeGroupPaneRoot testId="send-flow">
+      <Navigator renderRoute={renderStep} />
 
       <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
 
@@ -934,7 +922,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         onDetected={applyScannedAddress}
         onError={applyScanError}
       />
-    </div>
+    </HomeGroupPaneRoot>
   );
 };
 

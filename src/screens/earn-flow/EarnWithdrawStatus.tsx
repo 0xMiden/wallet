@@ -5,10 +5,10 @@ import { useTranslation } from 'react-i18next';
 import { formatEarnWithdrawAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
-import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
@@ -103,36 +103,38 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-ink">
-      <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
-      <main className="flex flex-1 flex-col">
-        <section className="flex flex-1 flex-col items-center pt-5">
-          <Hero
-            visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
-            name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
-          />
-          <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
-          {/* The `Hero`'s own secondary line; an error takes the negative ink, as on every other
-              screen that reports one. */}
-          <p className={cn('mt-4 text-center text-body-sm', failed ? 'text-negative-ink' : 'text-muted')}>
-            {failed
-              ? (inputs.error ?? t('transactionErrorDescription'))
-              : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
-          </p>
-        </section>
-        <div className="w-full shrink-0 pt-10 pb-6">
-          <Button
-            type="button"
-            variant={ButtonVariant.Primary}
-            accent="earn"
-            onClick={onDone}
-            className="w-full max-w-none"
-          >
-            {failed ? t('done') : t('hide')}
-          </Button>
-        </div>
-      </main>
-    </div>
+    // The shared pushed-page frame, like every other earn page: header, body, pinned action.
+    <SubPageLayout
+      data-testid="earn-withdraw-status-page"
+      title={t('transactionProcessingHeader')}
+      onClose={onDone}
+      footer={
+        <Button
+          type="button"
+          variant={ButtonVariant.Primary}
+          accent="earn"
+          onClick={onDone}
+          className="w-full max-w-none"
+        >
+          {failed ? t('done') : t('hide')}
+        </Button>
+      }
+    >
+      <section className="flex flex-1 flex-col items-center pt-5">
+        <Hero
+          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+          name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
+        />
+        <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
+        {/* The `Hero`'s own secondary line; an error takes the negative ink, as on every other
+            screen that reports one. */}
+        <p className={cn('mt-4 text-center text-body-sm', failed ? 'text-negative-ink' : 'text-muted')}>
+          {failed
+            ? (inputs.error ?? t('transactionErrorDescription'))
+            : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
+        </p>
+      </section>
+    </SubPageLayout>
   );
 };
 

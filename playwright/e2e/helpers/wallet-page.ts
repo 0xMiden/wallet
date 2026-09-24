@@ -1405,17 +1405,22 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     const flow = this.page.getByTestId('encrypted-file-manager-flow');
     await flow.waitFor({ state: 'attached', timeout: 60_000 });
-    await this.page.locator('input[type="password"]').fill(options.walletPassword);
-    await this.page.getByText('I will not share my Encrypted Wallet File with anyone, including Bread.').click();
-    await this.page.getByRole('button', { name: 'Continue' }).click();
 
-    const inputs = flow.locator('input');
-    await inputs.nth(0).fill(options.fileName);
-    await inputs.nth(1).fill(options.filePassword);
-    await inputs.nth(2).fill(options.filePassword);
+    // Address each step's own page, never the flow as a whole: every step is now a page inside the
+    // flow, so a field looked up on the flow resolves against whichever step happens to be mounted
+    // — and the unlock the first step runs keeps it mounted well past the click that leaves it.
+    const unlockStep = flow.getByTestId('encrypted-file-wallet-password');
+    await unlockStep.getByTestId('encrypted-file-wallet-password-input').fill(options.walletPassword);
+    await unlockStep.getByTestId('encrypted-file-wallet-password-consent').click();
+    await unlockStep.getByTestId('encrypted-file-wallet-password-submit').click();
+
+    const fileStep = flow.getByTestId('export-file-password');
+    await fileStep.getByTestId('export-file-name-input').fill(options.fileName);
+    await fileStep.getByTestId('export-file-password-input').fill(options.filePassword);
+    await fileStep.getByTestId('export-file-password-verify-input').fill(options.filePassword);
 
     const downloadPromise = this.page.waitForEvent('download', { timeout: 120_000 });
-    await flow.getByRole('button', { name: 'Continue' }).click();
+    await fileStep.getByTestId('export-file-submit').click();
     const download = await downloadPromise;
     await flow.getByText('Exported!').waitFor({ timeout: 120_000 });
 

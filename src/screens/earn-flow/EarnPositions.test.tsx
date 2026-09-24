@@ -46,15 +46,17 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
-// Sibling `./components` imports `aave.svg?url`, which jest's `\.svg$` mapper
-// does NOT match (the `?url` suffix defeats the `$` anchor). Stub the two
-// exports this screen consumes so the module never resolves that asset.
+// Probes for the two shared widgets this screen consumes: the summary hero, whose own coverage
+// lives in `components.test.tsx`, and the provider logo, whose own coverage lives in
+// `ProviderLogo.test.tsx`.
 jest.mock('./components', () => ({
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewards: string }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId}>
       {summary.totalRewards}
     </div>
-  ),
+  )
+}));
+jest.mock('./ProviderLogo', () => ({
   ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
     <span data-testid="provider-logo" data-protocol={protocol} className={className} />
   )
@@ -108,10 +110,11 @@ describe('EarnPositions', () => {
     const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
     expect(cards).toHaveLength(EARN_DATA.positions.length);
-    // Each card is the shared fill card, never an outlined one.
+    // Each card is the shared outlined card, the same one the tab root draws for this position:
+    // Earn's cards stand on the page rather than reading as one grey block.
     cards.forEach(card => {
-      expect(card).toHaveClass('bg-fill', 'rounded-2xl');
-      expect(card.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+      expect(card).toHaveClass('bg-page', 'rounded-2xl', 'border', 'border-hairline');
+      expect(card).not.toHaveClass('bg-fill');
     });
 
     // ProviderLogo + trailing sr-only chevron Icon appear once per card.
@@ -251,8 +254,11 @@ describe('EarnPositions', () => {
     it('shows a retryable error instead of an empty "$0 / no positions" state', () => {
       render(<EarnPositions />);
 
-      expect(screen.getByTestId('earn-positions-load-error')).toBeInTheDocument();
-      expect(screen.getByText('earnPositionsLoadError')).toBeInTheDocument();
+      // The shared `Notice` in its negative tone, announced as an alert — not a page-local block.
+      const notice = screen.getByTestId('earn-positions-load-error');
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(notice).toHaveAttribute('data-tone', 'negative');
+      expect(notice).toHaveTextContent('earnPositionsLoadError');
       // The misleading empty affordances must NOT render on a load failure.
       expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
       expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();

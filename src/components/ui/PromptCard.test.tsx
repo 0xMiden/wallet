@@ -217,6 +217,46 @@ describe('PromptCard', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 
+  describe('the card draws every icon in one bubble', () => {
+    // The hero used to be the odd one out: a 28px `rounded-lg` square on a SOLID accent fill with a
+    // white glyph, beside three round siblings on a tinted fill in the tint's own ink. Brian, on
+    // the Funding prompt: the icon should be in a bubble, like the rest of the wallet.
+    const bubble = (el: HTMLElement | null) => el?.parentElement ?? null;
+
+    it('gives the hero the round tinted bubble its siblings wear', () => {
+      const hero = { icon: IconName.Loader, label: 'Funding', subLabel: 'soon', tone: 'accent' } as const;
+      render(<PromptCard title="Fund your wallet" hero={hero} status="loading" />);
+
+      // The glyph sits inside the flip wrapper, which sits inside the bubble.
+      const mark = bubble(bubble(screen.getByTestId('icon-Loader')));
+      expect(mark).toHaveClass('rounded-full', 'bg-accent-primary/15', 'text-accent-primary', 'h-9', 'w-9');
+      expect(mark?.className).not.toMatch(/rounded-lg|text-pure-white/);
+      // The tone still splits accent from positive — as the tinted pair, not a solid fill.
+      expect(mark?.className).not.toMatch(/(^|\s)bg-accent-primary(\s|$)/);
+    });
+
+    it('gives a positive hero the status tint rather than a solid green tile', () => {
+      const hero = { icon: IconName.Checkmark, label: 'Funds deposited', tone: 'positive' } as const;
+      render(<PromptCard title="Fund your wallet" hero={hero} status="success" />);
+
+      const mark = bubble(bubble(screen.getAllByTestId('icon-Checkmark')[0]!));
+      expect(mark).toHaveClass('rounded-full', 'bg-status-positive/15', 'text-status-positive');
+    });
+
+    it('draws the leading icon and the status marks as the same bubble', () => {
+      const { container } = render(
+        <PromptCard title="Fund your wallet" icon={IconName.ChevronRight} status="success" />
+      );
+
+      // The card draws the same glyph again as its trailing chevron; the leading one comes first.
+      const leading = bubble(screen.getAllByTestId('icon-ChevronRight')[0]!);
+      expect(leading).toHaveClass('rounded-full', 'bg-accent-primary/15', 'text-accent-primary', 'h-9', 'w-9');
+
+      const status = container.querySelector('[role="status"][aria-label="success"]');
+      expect(status).toHaveClass('rounded-full', 'bg-status-positive/15', 'text-status-positive', 'h-6', 'w-6');
+    });
+  });
+
   it('does not loop the funding animations when the user asks for reduced motion', () => {
     const hero = { icon: IconName.Loader, label: 'Funding', subLabel: 'soon', tone: 'accent' } as const;
     const loopingCount = () =>

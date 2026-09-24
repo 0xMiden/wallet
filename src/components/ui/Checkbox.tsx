@@ -60,6 +60,60 @@ export const CheckboxIndicator: React.FC<CheckboxIndicatorProps> = ({ checked, c
   );
 };
 
+export interface CheckboxConsentProps {
+  checked: boolean;
+  /**
+   * Called with the new state on every toggle. No haptic of its own: a consent tick is not a
+   * navigation, and the pages that use it disagree on whether it buzzes — the caller decides.
+   */
+  onCheckedChange: (checked: boolean) => void;
+  /** The sentence the user is agreeing to, in `body` `ink`: the control's accessible name. */
+  children: ReactNode;
+  disabled?: boolean;
+  /** Layout only (margins). */
+  className?: string;
+  'data-testid'?: string;
+}
+
+/**
+ * The "I understand" tick a page asks for before it reveals or exports key material: the mark and
+ * the sentence, on the page rather than in a group, inset 4px so it lines up with a section's
+ * label and copy. The whole line is the checkbox.
+ *
+ * Distinct from `CheckboxRow`, which is a 64px row inside a `ListGroup` with its own hairline and
+ * pressed fill. This one carries no surface, because it sits between a `Notice` and a CTA.
+ */
+export const CheckboxConsent: React.FC<CheckboxConsentProps> = ({
+  checked,
+  onCheckedChange,
+  children,
+  disabled = false,
+  className,
+  'data-testid': dataTestId
+}) => (
+  <button
+    type="button"
+    role="checkbox"
+    aria-checked={checked}
+    disabled={disabled}
+    data-testid={dataTestId}
+    data-state={checked ? 'checked' : 'unchecked'}
+    onClick={() => {
+      if (disabled) return;
+      onCheckedChange(!checked);
+    }}
+    className={cn(
+      'flex items-start gap-2 rounded-xl px-1 text-left select-none',
+      'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
+      'disabled:cursor-default disabled:opacity-50',
+      className
+    )}
+  >
+    <CheckboxIndicator checked={checked} />
+    <span className="text-body text-ink">{children}</span>
+  </button>
+);
+
 export interface CheckboxRowProps {
   checked: boolean;
   /** Called with the new state on every toggle, after the selection haptic. */

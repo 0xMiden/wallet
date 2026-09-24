@@ -81,7 +81,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
-      <EarnFlowHeader vault={found} />
+      <EarnFlowHeader subject={found} />
 
       {loadFailed && !found ? (
         <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10 px-4" />

@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { Notice } from 'components/ui/Notice';
 
 /**
  * A positions load that did not fully succeed. It must not read as "you have no positions": that
@@ -20,12 +21,11 @@ export const EarnLoadError: FC<{ onRetry: () => void; className?: string; messag
   const { t } = useTranslation();
 
   return (
-    <div
-      className={classNames('flex flex-col items-center gap-4 text-center', className)}
-      data-testid="earn-positions-load-error"
-      role="alert"
-    >
-      <p className="max-w-xs text-body text-ink">{message ?? t('earnPositionsLoadError')}</p>
+    <div className={classNames('flex flex-col items-center gap-4', className)}>
+      {/* The shared notice, in the negative tone, rather than a page-local alert block. */}
+      <Notice tone="negative" role="alert" data-testid="earn-positions-load-error">
+        {message ?? t('earnPositionsLoadError')}
+      </Notice>
       {/* The shared compact secondary button, which brings the tap haptic and the press motion
           with it. */}
       <Button

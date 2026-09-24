@@ -4,8 +4,8 @@ import clsx from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
-import { FlowFooter } from 'components/flow/FlowFooter';
 import { WaveDots } from 'components/ui';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
@@ -100,8 +100,28 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg px-4">
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-x-hidden overflow-y-auto no-scrollbar pt-6">
+    // The shared home-group pane body: the page margin, the offset to the first line ("You Pay",
+    // which SelectAmount draws as its label), the scroll and gesture contract, and the pinned CTA
+    // - the same frame Send's recipient step, Receive and Earn are drawn in.
+    <HomeGroupPaneBody
+      footer={
+        <Button
+          title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
+          // The dots below replace the label while the quote loads, so the button is named by its action.
+          aria-label={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
+          variant={ButtonVariant.Primary}
+          // The whole flow is the swap colour, CTA included (design-system.md, "Action colours").
+          accent="swap"
+          onClick={onConfirm}
+          disabled={!canProceed}
+          data-testid="swap-review-submit"
+          className="w-full max-w-none"
+        >
+          {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-5">
         <motion.div {...sideMotion(-24)} data-testid="swap-pay-side">
           <SelectAmount
             embedded
@@ -172,25 +192,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           </span>
         )}
       </div>
-
-      {/* The same pinned footer a send step uses, so both flows' buttons sit on one line and ride
-          the keyboard the same way, and clear the docked bar for as long as it is up. */}
-      <FlowFooter>
-        <Button
-          title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
-          // The dots below replace the label while the quote loads, so the button is named by its action.
-          aria-label={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
-          variant={ButtonVariant.Primary}
-          // The whole flow is the swap colour, CTA included (design-system.md, "Action colours").
-          accent="swap"
-          onClick={onConfirm}
-          disabled={!canProceed}
-          data-testid="swap-review-submit"
-          className="w-full max-w-none"
-        >
-          {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
-        </Button>
-      </FlowFooter>
-    </div>
+    </HomeGroupPaneBody>
   );
 };

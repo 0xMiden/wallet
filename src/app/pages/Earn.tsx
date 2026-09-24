@@ -3,13 +3,15 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { HomeGroupPane } from 'app/layouts/HomeGroupPane';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { TextAction } from 'components/ui/TextAction';
 import { navigate } from 'lib/woozie';
-import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
+import { EarnSummaryPanel } from 'screens/earn-flow/components';
 import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
+import { ProviderLogo } from 'screens/earn-flow/ProviderLogo';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
@@ -21,76 +23,75 @@ const Earn: FC = () => {
   const loadFailed = Boolean(error);
 
   return (
-    <div className="h-full overflow-hidden bg-page" data-testid="earn-page">
-      <div className="h-full overflow-y-auto">
-        {/* The 16px page margin, 20px between sections, and Explore's bottom clearance: the two
-            home-group tab pages end the same distance above the floating tab bar. */}
-        <div className="flex flex-col gap-5 px-4 pt-3 pb-24">
-          {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
-          {!(positions.length === 0 && (isLoading || loadFailed)) && (
-            <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
-          )}
+    // The shared home-group pane (HomeGroupPane): the page margin, the offset to the title, the
+    // scroll and gesture contract and the clearance over the tab bar, the same as Send, Receive
+    // and Swap. 20px between sections is this page's own.
+    <HomeGroupPane paneTestId="earn-page" title={t('earnTitle')} titleTestId="earn-title">
+      <div className="flex flex-col gap-5 pt-5">
+        {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
+        {!(positions.length === 0 && (isLoading || loadFailed)) && (
+          <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
+        )}
 
-          <section aria-label={t('earnCurrentPositionsTitle')}>
-            {/* The tab root's section title, with its text action, through the shared header. */}
-            <SectionHeader
-              size="xl"
-              action={
-                <TextAction onClick={() => navigate('/earn/positions')} data-testid="earn-see-all">
-                  {t('earnSeeAll')}
-                </TextAction>
-              }
-            >
-              {t('earnCurrentPositionsTitle')}
-            </SectionHeader>
+        <section aria-label={t('earnCurrentPositionsTitle')}>
+          {/* The tab root's section title, with its text action, through the shared header. */}
+          <SectionHeader
+            size="xl"
+            action={
+              <TextAction onClick={() => navigate('/earn/positions')} data-testid="earn-see-all">
+                {t('earnSeeAll')}
+              </TextAction>
+            }
+          >
+            {t('earnCurrentPositionsTitle')}
+          </SectionHeader>
 
-            {/* Only a load that settled with nothing says "no positions": while the first load is in
-                flight the slot stays empty, and a failed load says so and retries - in place of the
-                list when there is nothing to show, above the last-good cards when there is. */}
-            {positions.length === 0 && loadFailed ? (
-              <EarnLoadError onRetry={refetch} />
-            ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
-              <EmptyState
-                surface="dashed"
-                icon={IconName.Earn}
-                title={t('earnNoActivePositionsTitle')}
-                description={t('earnNoActivePositionsBody')}
-                data-testid="earn-positions-empty"
-              />
-            ) : (
-              <>
-                {loadFailed && <EarnLoadError onRetry={refetch} />}
-                <div
-                  className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
-                  onPointerDown={event => event.stopPropagation()}
-                >
-                  <div className="flex gap-3 px-4 pb-1">
-                    {positions.map(position => (
-                      <PositionCard key={position.id} position={position} />
-                    ))}
-                  </div>
+          {/* Only a load that settled with nothing says "no positions": while the first load is in
+              flight the slot stays empty, and a failed load says so and retries - in place of the
+              list when there is nothing to show, above the last-good cards when there is. */}
+          {positions.length === 0 && loadFailed ? (
+            <EarnLoadError onRetry={refetch} />
+          ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
+            <EmptyState
+              surface="dashed"
+              icon={IconName.Earn}
+              title={t('earnNoActivePositionsTitle')}
+              description={t('earnNoActivePositionsBody')}
+              data-testid="earn-positions-empty"
+            />
+          ) : (
+            <>
+              {loadFailed && <EarnLoadError onRetry={refetch} />}
+              <div
+                className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
+                onPointerDown={event => event.stopPropagation()}
+              >
+                <div className="flex gap-3 px-4 pb-1">
+                  {positions.map(position => (
+                    <PositionCard key={position.id} position={position} />
+                  ))}
                 </div>
-              </>
-            )}
-          </section>
-
-          {/* Fed by the same read as the positions: with no vaults, loading, failed or settled, there is
-              nothing to feature, and a failure is already said once above. */}
-          {vaults.length > 0 && (
-            <section aria-label={t('earnVaultsTitle')}>
-              <SectionHeader size="xl">{t('earnVaultsTitle')}</SectionHeader>
-
-              {/* Cards in a list are separated by space, 12px, not hairlines. */}
-              <div className="flex flex-col gap-3">
-                {vaults.map(vault => (
-                  <VaultRow key={vault.id} vault={vault} />
-                ))}
               </div>
-            </section>
+            </>
           )}
-        </div>
+        </section>
+
+        {/* Fed by the same read as the positions: with no vaults, loading, failed or settled, there is
+            nothing to feature, and a failure is already said once above. */}
+        {vaults.length > 0 && (
+          <section aria-label={t('earnVaultsTitle')}>
+            <SectionHeader size="xl">{t('earnVaultsTitle')}</SectionHeader>
+
+            {/* Cards in a list are separated by space, 12px, not hairlines. */}
+            <div className="flex flex-col gap-3">
+              {vaults.map(vault => (
+                <VaultRow key={vault.id} vault={vault} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
-    </div>
+    </HomeGroupPane>
   );
 };
 

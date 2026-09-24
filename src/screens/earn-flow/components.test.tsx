@@ -1,21 +1,15 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
 import { goBack } from 'lib/woozie';
 
-import { EarnFlowHeader, MetricCard, EarnSummaryPanel, ProviderLogo, PositionLogo } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnFlowHeader, EarnHero, MetricCard, EarnSummaryPanel } from './components';
 import { EarnSummary, EarnVault } from './types';
 
-// `components.tsx` imports the Aave logo as `...aave.svg?url`. The `?url` query
-// suffix means it does NOT match the `\.svg$` asset mapper (which anchors on a
-// trailing `.svg`), and the `^app/` path mapper would point at a non-existent
-// `aave.svg?url` file. A virtual mock short-circuits resolution and gives the
-// import a distinct, assertable value (mirrors `Logo.test.tsx`).
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
-jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
 
 // `EarnFlowHeader` hands `lib/woozie`'s `goBack` to its PageHeader's back button,
 // which reaches for browser history on import. Stub it so we can assert the
@@ -57,9 +51,27 @@ jest.mock('components/ui/IconButton', () => ({
 }));
 
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size, className }: { symbol: string; size?: string; className?: string }) => (
-    <div data-testid="token-logo" data-symbol={symbol} data-size={size} className={className} />
+  TokenLogo: ({
+    symbol,
+    size,
+    badge,
+    className
+  }: {
+    symbol: string;
+    size?: string;
+    badge?: React.ReactNode;
+    className?: string;
+  }) => (
+    <div data-testid="token-logo" data-symbol={symbol} data-size={size} className={className}>
+      {badge}
+    </div>
   )
+}));
+
+// The network mark badged onto the token logo. A probe so the mark's wiring is assertable without
+// the real inline SVGs.
+jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: ({ kind }: { kind: string }) => <span data-testid="network-logo" data-kind={kind} />
 }));
 
 const mockGoBack = goBack as jest.Mock;
@@ -89,17 +101,45 @@ beforeEach(() => {
   mockGoBack.mockClear();
 });
 
+describe('EarnAssetMark', () => {
+  it('is the token mark with the network badged on its corner, not a wide text pill', () => {
+    render(<EarnAssetMark asset="USDC" network="Ethereum" />);
+
+    const logo = screen.getByTestId('token-logo');
+    expect(logo).toHaveAttribute('data-symbol', 'USDC');
+    expect(logo).toHaveAttribute('data-size', 'md');
+    // The badge is the network's own mark, inside the avatar rather than beside it.
+    expect(within(logo).getByTestId('network-logo')).toHaveAttribute('data-kind', 'ethereum');
+  });
+
+  it('keeps the "{asset} on {network}" name the pill used to carry, for assistive tech', () => {
+    render(<EarnAssetMark asset="USDC" network="Ethereum" />);
+
+    const label = screen.getByText('earnAssetOnNetwork');
+    expect(label).toHaveClass('sr-only');
+  });
+
+  it('takes the Miden mark only for Miden itself; every earn vault is EVM-side', () => {
+    const { rerender } = render(<EarnAssetMark asset="MIDEN" network="Miden" />);
+    expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
+
+    rerender(<EarnAssetMark asset="USDC" network="Sepolia" />);
+    expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'ethereum');
+  });
+});
+
 describe('EarnFlowHeader', () => {
-  it('names only the route without a vault: the back button stays, no vault title and no pill', () => {
+  it('names only the route without a subject: the back button stays, no vault title and no mark', () => {
     render(<EarnFlowHeader />);
 
     expect(screen.getByRole('banner')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
     expect(screen.queryByText('earnAssetOnNetwork')).toBeNull();
+    expect(screen.queryByTestId('token-logo')).toBeNull();
   });
 
-  it('renders the protocol • asset title and the "asset on network" pill', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+  it('renders the protocol • asset title and the asset mark', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Aave');
@@ -111,7 +151,7 @@ describe('EarnFlowHeader', () => {
   });
 
   it('wires the back button to goBack with the ArrowLeft icon and Back label', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+    render(<EarnFlowHeader subject={VAULT} />);
 
     const button = screen.getByTestId('icon-button');
     expect(button).toHaveAttribute('aria-label', 'back');
@@ -123,7 +163,7 @@ describe('EarnFlowHeader', () => {
   });
 
   it('is the shared PageHeader row, carrying the 16px page margin its unpadded pages lack', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+    render(<EarnFlowHeader subject={VAULT} />);
 
     const header = screen.getByRole('banner');
     expect(header).toHaveClass('min-h-15');
@@ -135,21 +175,64 @@ describe('EarnFlowHeader', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
   });
 
-  it('shows the "asset on network" label as a neutral Pill in the header actions', () => {
-    render(<EarnFlowHeader vault={VAULT} />);
+  it('puts the asset mark in the header actions, in place of the wide text pill', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
 
-    const pill = screen.getByText('earnAssetOnNetwork').closest<HTMLElement>('span.rounded-full');
-    expect(pill).toHaveClass('bg-fill', 'text-ink', 'h-8');
-    expect(screen.getByRole('banner')).toContainElement(pill);
+    // The pill was a 32px `bg-fill` capsule wide enough to spell "{asset} on {network}"; the mark
+    // is the token avatar, and the name it used to show is now screen-reader-only.
+    expect(screen.queryByText('earnAssetOnNetwork')).toHaveClass('sr-only');
+    expect(screen.getByRole('banner')).toContainElement(screen.getByTestId('token-logo'));
   });
 
   it('reflects a different vault protocol/asset/network', () => {
-    render(<EarnFlowHeader vault={{ ...VAULT, protocol: 'Compound', asset: 'ETH', network: 'Base' }} />);
+    render(<EarnFlowHeader subject={{ ...VAULT, protocol: 'Compound', asset: 'ETH', network: 'Base' }} />);
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Compound');
     expect(heading).toHaveTextContent('ETH');
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
+  });
+});
+
+describe('EarnHero', () => {
+  it('leads with the figure, then its caption, then the change line', () => {
+    const { container } = render(<EarnHero labelId="hero-label" value="5.24%" label="Current APY" meta="+0.02%" />);
+
+    const section = container.querySelector('section') as HTMLElement;
+    // Document order IS the design: the figure comes first, the label under it.
+    expect(section.textContent).toBe('5.24%Current APY+0.02%');
+
+    expect(screen.getByText('5.24%')).toHaveClass('text-display', 'text-ink');
+    expect(screen.getByText('Current APY')).toHaveClass('text-label', 'text-muted');
+    expect(screen.getByText('+0.02%')).toHaveClass('text-value', 'text-positive-tint-ink');
+  });
+
+  it('names the section by its caption, and the caption is not a heading', () => {
+    const { container } = render(<EarnHero labelId="hero-label" value="$1" label="Total" />);
+
+    expect(container.querySelector('section')).toHaveAttribute('aria-labelledby', 'hero-label');
+    expect(screen.getByText('Total')).toHaveAttribute('id', 'hero-label');
+    // The page's own title is its `h1`; a hero caption never competes with it.
+    expect(screen.queryByRole('heading')).toBeNull();
+  });
+
+  it('takes a value colour, a unit beside the figure and content under the hero', () => {
+    render(
+      <EarnHero
+        labelId="hero-label"
+        value="1,000"
+        valueClassName="text-positive-tint-ink"
+        unit={<span>USDC</span>}
+        label="Deposit amount"
+      >
+        <span>extra</span>
+      </EarnHero>
+    );
+
+    expect(screen.getByText('1,000')).toHaveClass('text-positive-tint-ink');
+    expect(screen.getByText('1,000')).not.toHaveClass('text-ink');
+    expect(screen.getByText('USDC')).toBeInTheDocument();
+    expect(screen.getByText('extra')).toBeInTheDocument();
   });
 });
 
@@ -193,23 +276,28 @@ describe('MetricCard', () => {
 });
 
 describe('EarnSummaryPanel', () => {
-  it('renders the heading, total rewards and blended APY line', () => {
-    render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
+  it('leads with the figure, then the caption and the blended APY line', () => {
+    const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" showMetrics={false} />);
 
-    expect(screen.getByText('earnTotalEarnedRewards')).toBeInTheDocument();
-    expect(screen.getByText('$218.32')).toBeInTheDocument();
-    expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
+    expect(screen.getByText('$218.32')).toHaveClass('text-display', 'text-ink');
+    expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-label', 'text-muted');
+    expect(screen.getByText('earnEarningBlendedApy')).toHaveClass('text-value', 'text-positive-tint-ink');
+    // The figure precedes its caption — the same order the vault page's APY hero takes.
+    expect((container.querySelector('section') as HTMLElement).textContent).toBe(
+      '$218.32earnTotalEarnedRewardsearnEarningBlendedApy'
+    );
   });
 
-  it('links the section to the heading via titleId and applies className', () => {
+  it('links the section to the caption via titleId, and leaves the h1 to the page', () => {
     const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="my-title-id" className="panel-class" />);
 
     const section = container.querySelector('section') as HTMLElement;
     expect(section).toHaveAttribute('aria-labelledby', 'my-title-id');
     expect(section).toHaveClass('panel-class');
 
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveAttribute('id', 'my-title-id');
+    expect(screen.getByText('earnTotalEarnedRewards')).toHaveAttribute('id', 'my-title-id');
+    // "Total Earned Rewards" was the page's `h1`, which is why it read as the page title.
+    expect(screen.queryByRole('heading')).toBeNull();
   });
 
   it('renders both metric cards by default (showMetrics defaults to true)', () => {
@@ -232,36 +320,11 @@ describe('EarnSummaryPanel', () => {
   });
 });
 
-describe('ProviderLogo', () => {
-  it('renders the Aave image branch with the stubbed logo url and empty alt', () => {
-    const { container } = render(<ProviderLogo protocol="Aave" className="logo-class" />);
+describe('EarnAmountUnit', () => {
+  it('renders the token mark and its symbol on the unit type style', () => {
+    render(<EarnAmountUnit symbol="USDC" />);
 
-    const img = container.querySelector('img') as HTMLImageElement;
-    expect(img).toBeInTheDocument();
-    expect(img).toHaveAttribute('src', 'aave-logo-url-stub');
-    expect(img).toHaveAttribute('alt', '');
-
-    const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper).toHaveClass('logo-class');
-    expect(wrapper).toHaveAttribute('aria-hidden', 'true');
-  });
-
-  it('renders the first character fallback for a non-Aave protocol', () => {
-    const { container } = render(<ProviderLogo protocol="Compound" />);
-
-    expect(container.querySelector('img')).toBeNull();
-    // protocol.charAt(0) → 'C'
-    expect(container.firstChild).toHaveTextContent('C');
-  });
-});
-
-describe('PositionLogo', () => {
-  it('renders a TokenLogo for the asset symbol at size sm and forwards className', () => {
-    render(<PositionLogo asset="USDC" className="pos-class" />);
-
-    const logo = screen.getByTestId('token-logo');
-    expect(logo).toHaveAttribute('data-symbol', 'USDC');
-    expect(logo).toHaveAttribute('data-size', 'sm');
-    expect(logo).toHaveClass('pos-class');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getByText('USDC')).toHaveClass('text-entry-unit', 'text-ink');
   });
 });

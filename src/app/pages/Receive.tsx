@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 
-import classNames from 'clsx';
-
+import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { useAccount } from 'lib/miden/front';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
@@ -73,12 +72,10 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
   }, []);
 
   return (
-    <div
-      className={classNames('h-full w-full mx-auto overflow-hidden flex flex-col bg-app-bg relative')}
-      data-testid="receive-flow"
-    >
+    // The shared home-group pane box, the same one Send, Earn and Swap are drawn in.
+    <HomeGroupPaneRoot testId="receive-flow">
       <AddressTab address={address} onBridgeDeposit={openBridgeDeposit} />
-    </div>
+    </HomeGroupPaneRoot>
   );
 };
 

@@ -187,17 +187,41 @@ jest.mock('components/Button', () => ({
 }));
 
 // --- Shared header: expose the vault it received so we can assert vault lookup.
-jest.mock('./components', () => ({
-  EarnFlowHeader: ({ vault }: { vault?: { id: string; asset: string; protocol: string; network: string } }) => (
-    <div
-      data-testid="earn-flow-header"
-      data-vault-id={vault?.id ?? 'none'}
-      data-asset={vault?.asset ?? 'none'}
-      data-protocol={vault?.protocol ?? 'none'}
-      data-network={vault?.network ?? 'none'}
-    />
-  )
-}));
+// Stub the shared earn widgets to probes that keep their wiring assertable.
+jest.mock('./components', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    earnSubjectTitle: ({ protocol, asset }: { protocol: string; asset: string }) => `${protocol} \u2022 ${asset}`,
+    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+      R.createElement('span', { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network }),
+    EarnAmountUnit: ({ symbol }: { symbol: string }) =>
+      R.createElement(
+        'span',
+        null,
+        R.createElement('span', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': 'md' }),
+        symbol
+      ),
+    EarnHero: ({
+      labelId,
+      value,
+      unit,
+      label
+    }: {
+      labelId: string;
+      value: string;
+      unit?: React.ReactNode;
+      label: string;
+    }) =>
+      R.createElement(
+        'section',
+        { 'data-testid': 'earn-hero', id: labelId },
+        R.createElement('span', null, value),
+        unit,
+        R.createElement('span', null, label)
+      )
+  };
+});
 
 const mockOpenEarnPosition = openEarnPosition as jest.Mock;
 
@@ -240,10 +264,11 @@ describe('EarnDepositReview', () => {
 
       expect(screen.getByTestId('earn-deposit-review-page')).toBeInTheDocument();
 
-      // Vault resolved by id (not the first vault).
-      const header = screen.getByTestId('earn-flow-header');
-      expect(header).toHaveAttribute('data-vault-id', 'aave-usdc-ethereum-2');
-      expect(header).toHaveAttribute('data-asset', 'USDC');
+      // Vault resolved by id (not the first vault): its title and its mark both come from it.
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave \u2022 USDC');
+      const mark = screen.getByTestId('earn-asset-mark');
+      expect(mark).toHaveAttribute('data-asset', 'USDC');
+      expect(screen.getByRole('banner')).toContainElement(mark);
 
       // Amount from the query string, formatted to 2 dp.
       expect(screen.getByText('1000.00')).toBeInTheDocument();
@@ -258,8 +283,9 @@ describe('EarnDepositReview', () => {
     it('names no vault in the header when the vaultId matches nothing', () => {
       renderReview('does-not-exist', '?amount=500');
 
-      // The header gets the vault it found, never the "—" placeholder.
-      expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
+      // The header gets the vault it found, never the placeholder vault: it names the route instead.
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
+      expect(screen.queryByTestId('earn-asset-mark')).toBeNull();
       expect(screen.getByText('500.00')).toBeInTheDocument();
       // No vault id => nothing to deposit into => CTA disabled.
       expect(screen.getByTestId('open-position-btn')).toBeDisabled();
@@ -303,7 +329,7 @@ describe('EarnDepositReview', () => {
       await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
     });
 
-    it('fires haptics and opens the Epoch position with the scaled amount + account owner', async () => {
+    it('adds no haptic of its own and opens the Epoch position with the scaled amount + account owner', async () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       const cta = screen.getByTestId('open-position-btn');
@@ -312,7 +338,9 @@ describe('EarnDepositReview', () => {
 
       fireEvent.click(cta);
 
-      expect(hapticLight).toHaveBeenCalledTimes(1);
+      // No haptic of its own: the shared `Button` fires the tap haptic, and a second call buzzed twice.
+      // `Button` is mocked here, so this pins only that the screen adds no call; Button's own tests pin its haptic.
+      expect(hapticLight).not.toHaveBeenCalled();
       await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
 
       const call = mockOpenEarnPosition.mock.calls[0]![0];
@@ -559,20 +587,16 @@ describe('EarnDepositReview', () => {
     });
   });
 
-  describe('footer padding responds to platform', () => {
-    it('uses mobile horizontal padding when isMobile() is true', () => {
+  describe('the pinned footer', () => {
+    it('sits on the page margin, the same on every platform', () => {
       (isMobile as jest.Mock).mockReturnValue(true);
       renderReview('aave-usdc-ethereum-1', '?amount=1000');
       const footer = screen.getByTestId('open-position-btn').parentElement!;
-      expect(footer).toHaveClass('px-8');
-      expect(footer).not.toHaveClass('px-6');
-    });
 
-    it('uses desktop horizontal padding when isMobile() is false', () => {
-      renderReview('aave-usdc-ethereum-1', '?amount=1000');
-      const footer = screen.getByTestId('open-position-btn').parentElement!;
-      expect(footer).toHaveClass('px-6');
-      expect(footer).not.toHaveClass('px-8');
+      expect(footer).toHaveAttribute('data-slot', 'footer');
+      // The 16px page margin the shared frame brings, not the 24/32px this page picked by platform.
+      expect(footer).toHaveClass('px-4', 'shrink-0');
+      expect(footer.className).not.toMatch(/px-6|px-8/);
     });
   });
 
@@ -653,7 +677,8 @@ describe('EarnDepositReview after a failed load', () => {
     renderReview('no-such-vault', '?amount=10');
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
+    expect(screen.queryByTestId('earn-asset-mark')).toBeNull();
   });
 
   it('draws nothing it has not loaded during a first load with no error', () => {

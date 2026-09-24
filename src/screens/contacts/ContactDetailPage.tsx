@@ -4,16 +4,16 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { FlowLayout } from 'components/flow/FlowLayout';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { hapticLight } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletContact } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
@@ -164,7 +164,6 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
   // hero here is the avatar alone.
   const avatar = (
     <Hero
-      className="pb-2"
       visual={
         <ContactAvatar
           address={contact.address}
@@ -178,13 +177,18 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
 
   if (editing) {
     return (
-      <FlowLayout
+      <SubPageLayout
+        data-testid="contact-detail"
         title={t('editContact')}
         // The error node below lives in THIS branch, so leaving edit mode mid-write destroys the
         // only thing that can report a failure - restoring the silent failure the delete fix
         // removed. Every other control here is gated on `busy`; this one has to be too.
         onBack={() => {
           if (!busy) leaveEdit();
+        }}
+        onSubmit={event => {
+          event.preventDefault();
+          void save();
         }}
         footer={
           <Button
@@ -194,51 +198,38 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
             disabled={!trimmedName || !changed || busy}
             isLoading={saving}
             data-testid="contact-save"
-            className="w-full max-w-none"
+            className="flex-1 max-w-none"
           />
         }
       >
-        <form
-          className="flex flex-col gap-5 pb-4"
-          onSubmit={event => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          {avatar}
-          <ContactNameInput value={name} onChange={setName} autoFocus />
-          <NetworkField
-            chain={kind === 'ethereum' ? 'ethereum' : 'miden'}
-            network={network}
-            onSelect={setNetwork}
-            testIdPrefix="contact"
-          />
-          {error && (
-            <p role="alert" className="-mt-2 text-sm text-status-negative">
-              {error}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              void remove();
-            }}
-            disabled={busy}
-            data-testid="contact-delete"
-            className="mt-2 h-12 w-full rounded-full bg-fill text-row-title text-status-negative disabled:opacity-50"
-          >
-            {t('deleteContact')}
-          </button>
-        </form>
-      </FlowLayout>
+        {avatar}
+        <ContactNameInput value={name} onChange={setName} autoFocus />
+        <NetworkField
+          chain={kind === 'ethereum' ? 'ethereum' : 'miden'}
+          network={network}
+          onSelect={setNetwork}
+          testIdPrefix="contact"
+        />
+        <ErrorLine className="-mt-2">{error}</ErrorLine>
+        {/* The shared destructive button: `fill` with the negative ink, the one shape a
+            destructive action takes anywhere in the wallet. */}
+        <Button
+          title={t('deleteContact')}
+          variant={ButtonVariant.Destructive}
+          onClick={() => void remove()}
+          disabled={busy}
+          data-testid="contact-delete"
+          className="w-full max-w-none"
+        />
+      </SubPageLayout>
     );
   }
 
   return (
-    <FlowLayout
+    <SubPageLayout
+      data-testid="contact-detail"
       title={contact.name}
-      titleAccessory={
+      headerActions={
         <Pill onClick={startEditing} data-testid="contact-edit">
           {t('edit')}
         </Pill>
@@ -250,12 +241,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
           variant={ButtonVariant.Primary}
           onClick={() => navigate(sendToContactPath(contact))}
           data-testid="contact-send"
-          className="w-full max-w-none"
+          className="flex-1 max-w-none"
         />
       }
     >
       {avatar}
-      <DetailCard className="mt-4">
+      <DetailCard>
         <DetailRow label={t('address')} stacked data-testid="contact-address">
           <span className="min-w-0 font-sans font-semibold">{contact.address}</span>
           {/* The row's `children` and its `action` slot render as siblings in the same flex box, so
@@ -267,7 +258,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
         </DetailRow>
         {contact.addedAt && <DetailRow label={t('contactAdded')}>{formatAddedDate(contact.addedAt)}</DetailRow>}
       </DetailCard>
-    </FlowLayout>
+    </SubPageLayout>
   );
 };
 
@@ -302,22 +293,20 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
   if (!contact) return <Redirect to={ADDRESS_BOOK_PATH} />;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="contact-detail">
-      <ContactView
-        contact={contact}
-        onBack={back}
-        onRetain={setRetain}
-        onDeleted={() => {
-          setDeleted(true);
-          // Pop OUR OWN entry, and only while this page is still the live one. Replacing with the
-          // address-book URL instead left it duplicated in two adjacent entries (the page is
-          // entered by a push FROM the address book), so the next Back popped onto an identical
-          // URL and appeared to do nothing. Liveness is the "has the user moved on" signal that
-          // a relative back needs: moving away unmounts this page, and then we must not navigate
-          // at all rather than traverse from wherever they now are.
-          if (isMounted()) back();
-        }}
-      />
-    </div>
+    <ContactView
+      contact={contact}
+      onBack={back}
+      onRetain={setRetain}
+      onDeleted={() => {
+        setDeleted(true);
+        // Pop OUR OWN entry, and only while this page is still the live one. Replacing with the
+        // address-book URL instead left it duplicated in two adjacent entries (the page is
+        // entered by a push FROM the address book), so the next Back popped onto an identical
+        // URL and appeared to do nothing. Liveness is the "has the user moved on" signal that
+        // a relative back needs: moving away unmounts this page, and then we must not navigate
+        // at all rather than traverse from wherever they now are.
+        if (isMounted()) back();
+      }}
+    />
   );
 };

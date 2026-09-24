@@ -19,17 +19,25 @@ const SubPageHeaderContext = createContext<SubPageHeaderConfig>({});
  * Hands a sub-page its header from the route that opened it. Settings owns each sub-page's title,
  * back fallback and focus policy (they are properties of the tab, not of the page), so it provides
  * them here and every page renders the same `SubPageLayout` without repeating them.
+ *
+ * A nested provider merges over the one above it, so a flow that sets only its own title and back
+ * keeps the host's focus policy.
  */
 export const SubPageHeaderProvider: React.FC<{ value: SubPageHeaderConfig; children: React.ReactNode }> = ({
   value,
   children
-}) => <SubPageHeaderContext.Provider value={value}>{children}</SubPageHeaderContext.Provider>;
+}) => {
+  const inherited = useContext(SubPageHeaderContext);
+  return <SubPageHeaderContext.Provider value={{ ...inherited, ...value }}>{children}</SubPageHeaderContext.Provider>;
+};
 
-export interface SubPageLayoutProps extends SubPageHeaderConfig {
+interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   /** A close button at the header's right, for a page that is dismissed rather than popped. */
   onClose?: () => void;
-  /** The page's sections, 20px apart. */
-  children: React.ReactNode;
+  /** The page's sections, 20px apart. Optional: a page can be its header alone. */
+  children?: React.ReactNode;
+  /** Right side of the header row, e.g. an orange text action. */
+  headerActions?: React.ReactNode;
   /**
    * The page's actions, pinned under the body, 10px apart. Buttons here take `flex-1 max-w-none`
    * so a pair splits the row evenly and a single one spans it.
@@ -37,15 +45,38 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
   footer?: React.ReactNode;
   /** `stack` puts the footer's buttons one above the other, for labels too long to share a row. */
   footerLayout?: 'row' | 'stack';
-  /**
-   * The body element, for a page whose content pages itself as the body scrolls (an infinite
-   * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
-   */
-  bodyRef?: React.RefObject<HTMLDivElement>;
+  /** The body form's id, for that footer button. Only meaningful with `onSubmit`. */
+  formId?: string;
+  /** The body form, for a page that focuses a field inside it on mount. Only with `onSubmit`. */
+  formRef?: React.RefObject<HTMLFormElement>;
   /** Passed to `FlowFooter`: `false` where no tab bar is ever drawn over the page (onboarding). */
   footerNavbarCushion?: boolean;
   'data-testid'?: string;
 }
+
+// bodyRef watches the body's own div as a scroll parent; onSubmit turns that body into a form
+// instead. A page cannot ask for both, so the two are mutually exclusive at the type level.
+type SubPageLayoutBodyProps =
+  | {
+      /**
+       * The body element, for a page whose content pages itself as the body scrolls (an infinite
+       * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
+       */
+      bodyRef?: React.RefObject<HTMLDivElement>;
+      onSubmit?: never;
+    }
+  | {
+      bodyRef?: never;
+      /**
+       * Makes the body itself the page's `<form>`, so Enter in any field submits it and a page
+       * needs no wrapper of its own inside the scroll area (a wrapper is another element with its
+       * own gap, which is how pages drifted apart). The pinned footer sits OUTSIDE it, so a button
+       * there submits with `type="submit" form={formId}`.
+       */
+      onSubmit?: React.FormEventHandler<HTMLFormElement>;
+    };
+
+export type SubPageLayoutProps = SubPageLayoutBaseProps & SubPageLayoutBodyProps;
 
 /**
  * The frame of every pushed Settings page: the shared `PageHeader`, a body that scrolls under it
@@ -61,10 +92,14 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
  */
 export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   children,
+  headerActions,
   footer,
   footerLayout = 'row',
   bodyRef,
   footerNavbarCushion,
+  onSubmit,
+  formId,
+  formRef,
   onClose,
   'data-testid': dataTestId,
   ...header
@@ -73,6 +108,9 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   const title = header.title ?? inherited.title;
   const onBack = header.onBack ?? inherited.onBack;
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
+  // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
+  // like a div one, so a page gains nothing and loses nothing by needing a form.
+  const bodyClassName = 'flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4';
 
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">
@@ -82,15 +120,22 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
           title={title}
           onBack={onBack}
           onClose={onClose}
+          actions={headerActions}
           focusTitleOnMount={focusTitleOnMount}
         />
       )}
 
       {/* No top padding: the 8px under the rule is `PageHeader`'s, the same gap a tab root's
           body starts at. */}
-      <div ref={bodyRef} data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
-        {children}
-      </div>
+      {onSubmit ? (
+        <form ref={formRef} id={formId} onSubmit={onSubmit} data-slot="body" className={bodyClassName}>
+          {children}
+        </form>
+      ) : (
+        <div ref={bodyRef} data-slot="body" className={bodyClassName}>
+          {children}
+        </div>
+      )}
 
       {footer && (
         // The flow's own pinned footer, so a sub-page's CTA rides the keyboard up and down on the

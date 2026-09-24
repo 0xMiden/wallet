@@ -1560,6 +1560,10 @@
     "message": "Enviar para",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Insira um endereço Miden ou Ethereum",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Selecione o valor",
     "englishSource": "Select Amount"
@@ -3137,6 +3141,10 @@
   "home": {
     "message": "Página inicial",
     "englishSource": "Home"
+  },
+  "earn": {
+    "message": "Ganhar",
+    "englishSource": "Earn"
   },
   "noteId": {
     "message": "Note ID",
@@ -5254,6 +5262,10 @@
   "receiveAt": {
     "message": "Receber em",
     "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Seus ganhos",
+    "englishSource": "Your Earnings"
   },
   "durationUnitSeconds": {
     "message": "Seg.",

@@ -10,17 +10,17 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 import Earn from './Earn';
 
-// Stub the two child widgets pulled in from `screens/earn-flow/components`.
-// The real `EarnSummaryPanel` / `ProviderLogo` drag in the Aave `?url` SVG
-// import plus `components/ui/IconButton` / `components/TokenLogo` chrome that is
-// irrelevant to `Earn.tsx`'s own wiring. Rendering them as probes keeps the
-// coverage scoped to this page while still letting us assert the props it
-// forwards (summary + titleId to the panel, protocol to the logo). This mirrors
-// how the sibling `components.test.tsx` stubs its own children.
+// Stub the two child widgets this page pulls in. The real `EarnSummaryPanel` / `ProviderLogo` drag
+// in `components/TokenLogo` chrome and the Aave `?url` SVG import, neither of which says anything
+// about `Earn.tsx`'s own wiring. Rendering them as probes keeps the coverage scoped to this page
+// while still letting us assert the props it forwards (summary + titleId to the panel, protocol to
+// the logo). This mirrors how the sibling `components.test.tsx` stubs its own children.
 jest.mock('screens/earn-flow/components', () => ({
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewards: string }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewards} />
-  ),
+  )
+}));
+jest.mock('screens/earn-flow/ProviderLogo', () => ({
   ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
     <span data-testid="provider-logo" data-protocol={protocol} className={className} />
   )
@@ -92,6 +92,19 @@ describe('Earn page', () => {
     const panel = screen.getByTestId('earn-summary-panel');
     expect(panel).toHaveAttribute('data-title-id', 'earn-summary-title');
     expect(panel).toHaveAttribute('data-total-rewards', summary.totalRewards);
+  });
+
+  it('opens with the tab-root title, the page\u2019s one h1, like Send and Receive', () => {
+    render(<Earn />);
+
+    const title = screen.getByTestId('earn-title');
+    expect(title.tagName).toBe('H1');
+    expect(title).toHaveTextContent('earnTitle');
+    // The same type style Send's "Send to" and Receive's "Receive at" take.
+    expect(title).toHaveClass('text-title-tab', 'text-ink');
+
+    // One `h1` on the page: the section titles under it are `h2`s.
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
 
   it('renders both section headings', () => {

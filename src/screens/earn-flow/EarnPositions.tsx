@@ -3,13 +3,14 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { PageHeader } from 'components/PageHeader';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnSummaryPanel, ProviderLogo } from './components';
+import { EarnSummaryPanel } from './components';
 import { EarnLoadError } from './EarnLoadError';
+import { ProviderLogo } from './ProviderLogo';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -27,36 +28,31 @@ const EarnPositions: FC = () => {
   const empty = !loadFailed && positions.length === 0 && !isLoading;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-positions-page">
-      <PageHeader className="shrink-0 px-4" title={t('earnPositionsTitle')} onBack={goBack} />
+    <SubPageLayout data-testid="earn-positions-page" title={t('earnPositionsTitle')} onBack={goBack}>
+      {showLoadError ? (
+        <EarnLoadError onRetry={refetch} className="mt-10" />
+      ) : pending ? null : empty ? (
+        <EmptyState
+          surface="dashed"
+          icon={IconName.Earn}
+          title={t('earnNoActivePositionsTitle')}
+          description={t('earnNoActivePositionsBody')}
+          data-testid="earn-positions-empty"
+        />
+      ) : (
+        <>
+          {loadFailed && <EarnLoadError onRetry={refetch} />}
+          <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col px-4 pb-8">
-          {showLoadError ? (
-            <EarnLoadError onRetry={refetch} className="mt-10" />
-          ) : pending ? null : empty ? (
-            <EmptyState
-              surface="dashed"
-              icon={IconName.Earn}
-              title={t('earnNoActivePositionsTitle')}
-              description={t('earnNoActivePositionsBody')}
-              data-testid="earn-positions-empty"
-            />
-          ) : (
-            <>
-              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
-              <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
-
-              <section className="mt-7 flex flex-col gap-5" aria-label={t('earnPositionsRegionLabel')}>
-                {positions.map(position => (
-                  <EarnPositionDetailCard key={position.id} position={position} />
-                ))}
-              </section>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+          {/* Cards in a list are separated by space, 12px, as on the tab root. */}
+          <section className="flex flex-col gap-3" aria-label={t('earnPositionsRegionLabel')}>
+            {positions.map(position => (
+              <EarnPositionDetailCard key={position.id} position={position} />
+            ))}
+          </section>
+        </>
+      )}
+    </SubPageLayout>
   );
 };
 
@@ -64,7 +60,10 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
   const { t } = useTranslation();
 
   return (
+    // Outlined, like the same position's card on the tab root: one card standing on the page, not a
+    // grey block. `5a0abd807` moved the tab root's cards here and left this page's behind.
     <CardButton
+      surface="outline"
       padding="tile"
       data-testid={`earn-position-card-${position.id}`}
       onClick={() => navigate(`/earn/positions/${position.id}`)}

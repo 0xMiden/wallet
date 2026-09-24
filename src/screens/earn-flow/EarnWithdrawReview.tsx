@@ -1,22 +1,19 @@
 import React, { FC, useMemo, useState } from 'react';
 
-import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
-import { PageHeader } from 'components/PageHeader';
-import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
-import { Pill } from 'components/ui/Pill';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
-import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
 import { goBack, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
+import { EarnAmountUnit, EarnAssetMark, EarnHero, earnSubjectTitle } from './components';
 import { placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -44,8 +41,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // `Button` fires the tap haptic itself; calling it here too would buzz twice.
   const handleWithdraw = async () => {
-    hapticLight();
     if (isSubmitting) return;
     if (!account.evmAddress || account.evmAddress.toLowerCase() !== position.owner.toLowerCase()) {
       setSubmitError(t('earnWithdrawNotOwned'));
@@ -77,59 +74,61 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-withdraw-review-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg">
       <NetworkModeBanner />
-      <PageHeader
-        className="shrink-0 px-4"
-        // Until the position is found the header names the route, never a placeholder position.
-        title={found ? `${found.protocol} • ${found.asset}` : t('withdraw')}
+      {/* The shared pushed-page frame, so this review and the deposit review are one page shape.
+          Until the position is found the header names the route, never a placeholder position,
+          and the CTA waits with the body. */}
+      <SubPageLayout
+        data-testid="earn-withdraw-review-page"
+        title={found ? earnSubjectTitle(found) : t('withdraw')}
         onBack={goBack}
-        actions={
-          found && (
-            <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: found.asset, network: found.network })}</Pill>
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        footerLayout="stack"
+        footer={
+          (loadFailed && !found) || pending ? undefined : (
+            <>
+              {submitError && (
+                <Notice tone="negative" role="alert" data-testid="earn-withdraw-review-error">
+                  {submitError}
+                </Notice>
+              )}
+              <Button
+                data-testid="earn-withdraw-review-confirm"
+                title={isSubmitting ? t('withdrawing') : t('withdraw')}
+                variant={ButtonVariant.Primary}
+                accent="earn"
+                onClick={handleWithdraw}
+                disabled={isSubmitting || amountValue <= 0 || !position.id}
+                className="w-full max-w-none"
+              />
+            </>
           )
         }
-      />
-
-      {loadFailed && !found ? (
-        <EarnLoadError onRetry={refetch} className="mt-10 px-6" />
-      ) : pending ? null : (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
-            <div className="flex flex-col px-6">
-              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
-              <span className="text-label text-muted">{t('earnWithdrawAmount')}</span>
-              <div className="mt-3 text-display text-ink">{toAdaptiveFixed(amountValue)}</div>
-              <div className="flex items-center gap-1">
-                <TokenLogo symbol={withdrawSymbol} size="md" />
-                <span className="text-entry-unit text-ink">{withdrawSymbol}</span>
-              </div>
-
-              {/* The shared detail card: one `fill` block of label/value rows, hairlines between
-                  them, as on every other review in the app. */}
-              <DetailCard className="mt-8 mb-4">
-                <DetailRow label={t('route')}>{`${position.protocol} (${position.network}) -> Miden`}</DetailRow>
-                <DetailRow label={t('positionOwnerLabel')}>{truncateAddress(position.owner, false, 8, 8)}</DetailRow>
-                <DetailRow label={t('earnWithdrawalLabel')}>{t('earnFullPositionGasless')}</DetailRow>
-                <DetailRow label={t('earnEstimatedTimeLabel')}>{t('earnEstimatedTimeOneMinute')}</DetailRow>
-              </DetailCard>
-            </div>
-          </div>
-
-          <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
-            {submitError && <div className="mb-2 text-center text-caption text-negative-ink">{submitError}</div>}
-            <Button
-              data-testid="earn-withdraw-review-confirm"
-              title={isSubmitting ? t('withdrawing') : t('withdraw')}
-              variant={ButtonVariant.Primary}
-              accent="earn"
-              onClick={handleWithdraw}
-              disabled={isSubmitting || amountValue <= 0 || !position.id}
-              className="w-full max-w-none"
+      >
+        {loadFailed && !found ? (
+          <EarnLoadError onRetry={refetch} className="mt-10" />
+        ) : pending ? null : (
+          <>
+            {loadFailed && <EarnLoadError onRetry={refetch} />}
+            <EarnHero
+              labelId="earn-withdraw-review-amount"
+              value={toAdaptiveFixed(amountValue)}
+              unit={<EarnAmountUnit symbol={withdrawSymbol} />}
+              label={t('earnWithdrawAmount')}
             />
-          </div>
-        </>
-      )}
+
+            {/* The shared detail card: one `fill` block of label/value rows, hairlines between
+                them, as on every other review in the app. */}
+            <DetailCard>
+              <DetailRow label={t('route')}>{`${position.protocol} (${position.network}) -> Miden`}</DetailRow>
+              <DetailRow label={t('positionOwnerLabel')}>{truncateAddress(position.owner, false, 8, 8)}</DetailRow>
+              <DetailRow label={t('earnWithdrawalLabel')}>{t('earnFullPositionGasless')}</DetailRow>
+              <DetailRow label={t('earnEstimatedTimeLabel')}>{t('earnEstimatedTimeOneMinute')}</DetailRow>
+            </DetailCard>
+          </>
+        )}
+      </SubPageLayout>
     </div>
   );
 };

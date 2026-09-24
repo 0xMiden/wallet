@@ -27,6 +27,7 @@ import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
+import { ErrorLine } from './ErrorLine';
 import { HeaderRule } from './HeaderRule';
 import { Hero } from './Hero';
 import { IconButton } from './IconButton';
@@ -41,6 +42,7 @@ import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
 import { SectionHeader } from './SectionHeader';
+import { SeedPhraseGrid } from './SeedPhraseGrid';
 import { SegmentedActionBar } from './SegmentedActionBar';
 import { SegmentedControl } from './SegmentedControl';
 import { SelectionCheck } from './SelectionCheck';
@@ -121,7 +123,9 @@ describe('components/ui barrel', () => {
     CheckboxRow,
     ChoiceCardGroup,
     TextAction,
-    SubPageLayout
+    SubPageLayout,
+    ErrorLine,
+    SeedPhraseGrid
   } as const;
 
   // Runtime values the barrel forwards that are NOT components. `ButtonVariant` is a real `enum`,

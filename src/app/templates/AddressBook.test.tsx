@@ -127,3 +127,16 @@ it('draws the rows and labels with the shared list components', () => {
   expect(contact.querySelector('[data-slot="chevron"]')).not.toBeNull();
   expect(screen.getByTestId('address-book-account-mtst1mine').querySelector('[data-slot="chevron"]')).toBeNull();
 });
+
+it('sits on the shared sub-page frame: the CTA is pinned outside the scrolling body', () => {
+  render(<AddressBook />);
+
+  const body = screen.getByTestId('address-book').querySelector('[data-slot="body"]');
+  expect(body).toHaveClass('gap-5', 'overflow-y-auto', 'px-4');
+  // The page adds no gap of its own — the 20px between its sections is the layout's.
+  expect(screen.getByTestId('address-book-search').closest('[data-slot="body"]')).toBe(body);
+
+  const cta = screen.getByTestId('address-book-new-contact');
+  expect(cta.closest('[data-slot="footer"]')).not.toBeNull();
+  expect(cta.closest('[data-slot="body"]')).toBeNull();
+});

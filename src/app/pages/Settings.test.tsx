@@ -216,7 +216,7 @@ jest.mock('app/templates/GeneralSettings', () => ({
   default: mockLayoutPage('general-settings')
 }));
 
-jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: () => <div data-testid="address-book" /> }));
+jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: mockLayoutPage('address-book') }));
 jest.mock('app/templates/DAppDrawerSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('dapp-drawer-settings')
@@ -243,7 +243,7 @@ jest.mock('app/templates/LanguageSettings', () => ({
 }));
 jest.mock('app/templates/SpendingLimits', () => ({
   __esModule: true,
-  default: () => <div data-testid="spending-limits-settings" />
+  default: mockLayoutPage('spending-limits-settings')
 }));
 jest.mock('app/templates/RevealSecret', () => ({
   __esModule: true,
@@ -273,7 +273,7 @@ jest.mock('./AdvancedSettings', () => ({
 }));
 jest.mock('./ExportAccountFile', () => ({
   __esModule: true,
-  default: () => <div data-testid="export-account-file" />
+  default: mockLayoutPage('export-account-file')
 }));
 jest.mock('./Networks', () => ({
   __esModule: true,
@@ -647,16 +647,18 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
-  // THREE tabs still render inside the host's padded body: address-book, spending-limits and
-  // export-account-file. Everything else either carries its own layout or is `actionOnly`, which
-  // Settings.tsx:451 filters out of `activeTab` so it can never resolve as a route. The guard for
-  // that wrapper used to be this file's only one, and it was re-pointed at a page that moved onto
-  // the shared layout, which left the wrapper assertable nowhere.
-  it('keeps the display face on a sub-page that still takes the host body', () => {
-    const { container } = render(<Settings tabSlug="address-book" />);
+  // The last three tabs that rendered inside the host's padded body (address-book, spending-limits
+  // and export-account-file) draw their own SubPageLayout now, so the host has one path and no
+  // wrapper: none of them may pick the blanket display face back up. `actionOnly` tabs are
+  // filtered out of `activeTab` and never resolve as a route.
+  it.each([['address-book'], ['spending-limits'], ['export-account-file']])(
+    'puts the former host-body page %s on its own layout, with no blanket display face',
+    tabSlug => {
+      const { container } = render(<Settings tabSlug={tabSlug} />);
 
-    expect(container.querySelector('.font-heading')).not.toBeNull();
-  });
+      expect(container.querySelector('.font-heading')).toBeNull();
+    }
+  );
 
   it('wraps a SubPageLayout page in no blanket display face', () => {
     // The host's old padded body set `font-heading` on everything under it, which
@@ -838,11 +840,12 @@ describe('Settings page — recovery phrase row', () => {
 });
 
 describe('Settings page — active tab routing', () => {
-  it('renders a hasOwnLayout tab without a navigation header', () => {
+  it('renders a page that sets its own header per step without one from the host', () => {
     render(<Settings tabSlug="reveal-seed-phrase" />);
 
     expect(screen.getByTestId('reveal-seed-flow')).toBeInTheDocument();
-    // Own-layout pages render neither the header nor the root menu.
+    // The host draws no header of its own: this page's layout sets a title and a back per step,
+    // and the mock stands in for the whole page. The root menu is gone either way.
     expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
@@ -1054,3 +1057,18 @@ describe('Settings page — mobile body attribute effects', () => {
 //     TERMS_OF_USE_URL currently equals PRIVACY_POLICY_URL, so the tab lookup
 //     always resolves the Privacy tab first.
 //   Covering these would require changing the source, which the task forbids.
+
+it('has one rendering path for every sub-page: the page draws its own frame, the host adds none', () => {
+  // Was three: a page on the layout, a page with its own layout inside the host's scroller, and
+  // a page in a padded `font-heading` box under a header the host drew.
+  for (const slug of ['address-book', 'export-account-file', 'spending-limits', 'networks']) {
+    const { unmount } = render(<Settings tabSlug={slug} />);
+
+    expect(screen.getAllByTestId('nav-header')).toHaveLength(1);
+    // The layout's body is the only scroller, and nothing wraps it.
+    expect(document.querySelectorAll('.overflow-y-auto')).toHaveLength(1);
+    expect(document.querySelector('.font-heading')).toBeNull();
+
+    unmount();
+  }
+});

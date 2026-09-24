@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -591,10 +591,8 @@ const SwapManager: React.FC = () => {
   );
 
   return (
-    <div
-      className={classNames('relative mx-auto flex h-full w-full flex-col overflow-hidden bg-app-bg')}
-      data-testid="swap-flow"
-    >
+    // The shared home-group pane box, the same one Send, Receive and Earn are drawn in.
+    <HomeGroupPaneRoot testId="swap-flow">
       <Navigator renderRoute={renderStep} />
 
       <SelectSwapTokenDrawer
@@ -611,7 +609,7 @@ const SwapManager: React.FC = () => {
           onResult={handleSpendingLimitResult}
         />
       )}
-    </div>
+    </HomeGroupPaneRoot>
   );
 };
 

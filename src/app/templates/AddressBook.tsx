@@ -9,7 +9,7 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SearchInput } from 'components/ui/SearchInput';
-import { SectionHeader } from 'components/ui/SectionHeader';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { WalletContact } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
@@ -53,7 +53,18 @@ const AddressBook: React.FC = () => {
   const nothingFound = Boolean(query) && contacts.length === 0 && accounts.length === 0;
 
   return (
-    <div className="flex w-full flex-1 flex-col" data-testid="address-book">
+    <SubPageLayout
+      data-testid="address-book"
+      footer={
+        <Button
+          title={t('newContact')}
+          variant={ButtonVariant.Secondary}
+          onClick={() => navigate(NEW_CONTACT_PATH)}
+          data-testid="address-book-new-contact"
+          className="flex-1 max-w-none"
+        />
+      }
+    >
       <SearchInput
         value={searchQuery}
         onChange={setSearchQuery}
@@ -62,79 +73,56 @@ const AddressBook: React.FC = () => {
         className="shrink-0"
       />
 
-      <div className="flex flex-col gap-6 pt-6 pb-4">
-        {nothingFound ? (
-          <p className="py-4 text-center text-sm text-muted">{t('noContactsFound')}</p>
-        ) : (
-          <>
-            {(contacts.length > 0 || !query) && (
-              <section>
-                <SectionHeader
-                  size="lg"
-                  icon={<Icon name={IconName.ContactsBook} fill="currentColor" />}
-                  className="px-0"
-                >
-                  {t('contacts')}
-                </SectionHeader>
-                {contacts.length > 0 ? (
-                  <ListGroup surface="plain">
-                    {contacts.map(contact => (
-                      <ListRow
-                        key={contact.address}
-                        title={contact.name}
-                        avatar={avatarFor(contact)}
-                        subtitle={`${contactNetworkName(contact.address, contact.network, t('miden'))} · ${truncateAddress(contact.address, true, 8)}`}
-                        onClick={() => navigate(contactPath(contact.address))}
-                        chevron
-                        data-testid={`address-book-contact-${contact.address}`}
-                      />
-                    ))}
-                  </ListGroup>
-                ) : (
-                  <EmptyState
-                    data-testid="address-book-empty"
-                    icon={IconName.Users}
-                    surface="dashed"
-                    title={t('noContactsYet')}
-                    description={t('noContactsYetHint')}
-                  />
-                )}
-              </section>
-            )}
-
-            {accounts.length > 0 && (
-              <section>
-                <SectionHeader size="lg" icon={<Icon name={IconName.Wallet} fill="currentColor" />} className="px-0">
-                  {t('myAccounts')}
-                </SectionHeader>
+      {nothingFound ? (
+        <EmptyState icon={IconName.ContactsBook} title={t('noContactsFound')} data-testid="address-book-no-results" />
+      ) : (
+        <>
+          {(contacts.length > 0 || !query) && (
+            <SubPageSection title={t('contacts')} icon={<Icon name={IconName.ContactsBook} fill="currentColor" />}>
+              {contacts.length > 0 ? (
                 <ListGroup surface="plain">
-                  {accounts.map(account => (
+                  {contacts.map(contact => (
                     <ListRow
-                      key={account.address}
-                      title={account.name}
-                      avatar={avatarFor(account)}
-                      subtitle={`${account.isPublic ? t('public') : t('private')} · ${truncateAddress(account.address, true, 8)}`}
-                      data-testid={`address-book-account-${account.address}`}
+                      key={contact.address}
+                      title={contact.name}
+                      avatar={avatarFor(contact)}
+                      subtitle={`${contactNetworkName(contact.address, contact.network, t('miden'))} · ${truncateAddress(contact.address, true, 8)}`}
+                      onClick={() => navigate(contactPath(contact.address))}
+                      chevron
+                      data-testid={`address-book-contact-${contact.address}`}
                     />
                   ))}
                 </ListGroup>
-              </section>
-            )}
-          </>
-        )}
-      </div>
+              ) : (
+                <EmptyState
+                  data-testid="address-book-empty"
+                  icon={IconName.Users}
+                  surface="dashed"
+                  title={t('noContactsYet')}
+                  description={t('noContactsYetHint')}
+                />
+              )}
+            </SubPageSection>
+          )}
 
-      {/* Pinned to the bottom of the scrolling page, so it stays in reach under a long list. */}
-      <div className="sticky bottom-0 mt-auto bg-app-bg pt-3 pb-4">
-        <Button
-          title={t('newContact')}
-          variant={ButtonVariant.Secondary}
-          onClick={() => navigate(NEW_CONTACT_PATH)}
-          data-testid="address-book-new-contact"
-          className="w-full max-w-none"
-        />
-      </div>
-    </div>
+          {accounts.length > 0 && (
+            <SubPageSection title={t('myAccounts')} icon={<Icon name={IconName.Wallet} fill="currentColor" />}>
+              <ListGroup surface="plain">
+                {accounts.map(account => (
+                  <ListRow
+                    key={account.address}
+                    title={account.name}
+                    avatar={avatarFor(account)}
+                    subtitle={`${account.isPublic ? t('public') : t('private')} · ${truncateAddress(account.address, true, 8)}`}
+                    data-testid={`address-book-account-${account.address}`}
+                  />
+                ))}
+              </ListGroup>
+            </SubPageSection>
+          )}
+        </>
+      )}
+    </SubPageLayout>
   );
 };
 

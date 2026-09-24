@@ -1560,6 +1560,10 @@
     "message": "发送至",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "输入 Miden 或 Ethereum 地址",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "选择金额",
     "englishSource": "Select Amount"
@@ -3137,6 +3141,10 @@
   "home": {
     "message": "首页",
     "englishSource": "Home"
+  },
+  "earn": {
+    "message": "赚取",
+    "englishSource": "Earn"
   },
   "noteId": {
     "message": "Note ID",
@@ -5254,6 +5262,10 @@
   "receiveAt": {
     "message": "接收地址",
     "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "您的收益",
+    "englishSource": "Your Earnings"
   },
   "durationUnitSeconds": {
     "message": "秒",

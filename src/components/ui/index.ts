@@ -130,3 +130,5 @@ export type { TextActionProps } from './TextAction';
 // every extra runtime symbol has to be declared in the barrel suite's expected set as well.
 export { SubPageLayout } from './SubPageLayout';
 export type { SubPageLayoutProps } from './SubPageLayout';
+export { ErrorLine } from './ErrorLine';
+export { SeedPhraseGrid } from './SeedPhraseGrid';

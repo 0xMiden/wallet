@@ -1560,6 +1560,10 @@
     "message": "Кому",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Введіть адресу Miden або Ethereum",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Виберіть суму",
     "englishSource": "Select Amount"
@@ -3137,6 +3141,10 @@
   "home": {
     "message": "Головна",
     "englishSource": "Home"
+  },
+  "earn": {
+    "message": "Заробіток",
+    "englishSource": "Earn"
   },
   "noteId": {
     "message": "Note Ідентифікатор",
@@ -5254,6 +5262,10 @@
   "receiveAt": {
     "message": "Отримати на",
     "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Ваш дохід",
+    "englishSource": "Your Earnings"
   },
   "durationUnitSeconds": {
     "message": "Сек.",

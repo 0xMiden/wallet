@@ -3,8 +3,10 @@ import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } f
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { Input } from 'components/Input';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { Notice } from 'components/ui/Notice';
+import { TextField } from 'components/ui/TextField';
 import {
   StrictActionAuthenticationChallenge,
   StrictAuthenticationMethod,
@@ -106,22 +108,14 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
 
   return (
     <section className={cn('flex w-full flex-col gap-4', className)} aria-busy={submitting}>
-      <p className="text-sm text-text-secondary-token">{reason}</p>
-      {error && (
-        <p role="alert" className="text-sm text-status-negative">
-          {error}
-        </p>
-      )}
+      <p className="px-1 text-body text-muted">{reason}</p>
+      <ErrorLine>{error}</ErrorLine>
       {method === null && (
-        <p role="status" className="text-sm text-text-secondary-token">
+        <Notice variant="inline" role="status">
           {t('loading')}
-        </p>
+        </Notice>
       )}
-      {method === 'unavailable' && (
-        <p role="alert" className="text-sm text-status-negative">
-          {t('guardianAuthenticationUnavailable')}
-        </p>
-      )}
+      {method === 'unavailable' && <ErrorLine>{t('guardianAuthenticationUnavailable')}</ErrorLine>}
       {method === 'passcode' && (
         <PasscodeEntry
           onSubmit={credential => void authenticate(credential)}
@@ -133,7 +127,7 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
       )}
       {method === 'password' && (
         <form className="flex flex-col gap-4" onSubmit={submitPassword}>
-          <Input
+          <TextField
             id="strict-action-password"
             type="password"
             label={t('password')}

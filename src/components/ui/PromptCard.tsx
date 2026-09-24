@@ -59,6 +59,60 @@ const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> =
   </button>
 );
 
+/**
+ * The tone of an icon bubble: the accent for anything neutral or in progress, the status green for
+ * a finished one, the status red for a failed one.
+ */
+type PromptIconTone = 'accent' | 'positive' | 'negative';
+
+const ICON_BUBBLE_TONE: Record<PromptIconTone, string> = {
+  accent: 'bg-accent-primary/15 text-accent-primary',
+  positive: 'bg-status-positive/15 text-status-positive',
+  negative: 'bg-status-negative/15 text-status-negative'
+};
+
+interface PromptIconBubbleProps {
+  tone: PromptIconTone;
+  /** 24px for a status mark in the corner, 36px for the icon beside a title. */
+  size: 24 | 36;
+  role?: 'status';
+  'aria-label'?: string;
+  className?: string;
+  children: React.ReactNode;
+}
+
+/**
+ * The card's icon circle, in one shape: a round bubble in the tone's own tint carrying the tone's
+ * own ink, like every other icon circle in the wallet. All four of the card's icons — its leading
+ * glyph, the success and failure status marks and the hero lockup — are drawn by this, so none of
+ * them can drift back into a squared tile on a solid fill with a white glyph.
+ *
+ * Deliberately not `Avatar`: that is a disc of one solid colour with WHITE initials or a white
+ * glyph (`text-pure-white` sits in its base class and its `color` prop takes a raw CSS colour, not
+ * a token), which is the opposite pairing to the tinted fill and tinted ink these bubbles use.
+ */
+const PromptIconBubble: FC<PromptIconBubbleProps> = ({
+  tone,
+  size,
+  role,
+  'aria-label': ariaLabel,
+  className,
+  children
+}) => (
+  <span
+    role={role}
+    aria-label={ariaLabel}
+    className={classNames(
+      'flex shrink-0 items-center justify-center overflow-hidden rounded-full',
+      size === 24 ? 'h-6 w-6' : 'h-9 w-9',
+      ICON_BUBBLE_TONE[tone],
+      className
+    )}
+  >
+    {children}
+  </span>
+);
+
 export const PromptCard: FC<PromptCardProps> = ({
   title,
   body,
@@ -162,21 +216,13 @@ export const PromptCard: FC<PromptCardProps> = ({
         <Icon name={IconName.Loader} size="sm" className="animate-spin" fill="currentColor" />
       </span>
     ) : status === 'success' ? (
-      <span
-        role="status"
-        aria-label={t('success')}
-        className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-status-positive/15 text-status-positive"
-      >
+      <PromptIconBubble tone="positive" size={24} role="status" aria-label={t('success')}>
         <Icon name={IconName.Checkmark} size="xs" className="scale-75" fill="currentColor" />
-      </span>
+      </PromptIconBubble>
     ) : status === 'failure' ? (
-      <span
-        role="status"
-        aria-label={t('failed')}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-status-negative/15 text-status-negative"
-      >
+      <PromptIconBubble tone="negative" size={24} role="status" aria-label={t('failed')}>
         <Icon name={IconName.Close} size="xs" fill="currentColor" />
-      </span>
+      </PromptIconBubble>
     ) : null;
 
   return (
@@ -207,14 +253,9 @@ export const PromptCard: FC<PromptCardProps> = ({
         )}
       >
         {!hero && icon && (
-          <span
-            className={classNames(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-primary/15 text-accent-primary',
-              status === 'loading' && 'animate-pulse'
-            )}
-          >
+          <PromptIconBubble tone="accent" size={36} className={status === 'loading' ? 'animate-pulse' : undefined}>
             <Icon name={icon} size="sm" fill="currentColor" />
-          </span>
+          </PromptIconBubble>
         )}
         {/* The hero replaces the title, body and CTA outright, so this is the only
           thing left to narrate the funding lifecycle. It is rendered on every
@@ -247,12 +288,9 @@ export const PromptCard: FC<PromptCardProps> = ({
             transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.23, 1, 0.32, 1] }}
           >
             <div className="flex items-center gap-2.5">
-              <span
-                className={classNames(
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-pure-white',
-                  hero.tone === 'positive' ? 'bg-status-positive' : 'bg-accent-primary'
-                )}
-              >
+              {/* The same bubble the card's other icons wear, sized to sit with its `text-title-page`
+                  label - not a squared tile on a solid fill with a white glyph. */}
+              <PromptIconBubble tone={hero.tone} size={36}>
                 <motion.span
                   className="flex items-center justify-center"
                   animate={flipping ? { rotate: [0, 0, 180, 180, 360] } : { rotate: 0 }}
@@ -262,9 +300,9 @@ export const PromptCard: FC<PromptCardProps> = ({
                       : { duration: 0 }
                   }
                 >
-                  <Icon name={hero.icon} size="xs" fill="currentColor" />
+                  <Icon name={hero.icon} size="sm" fill="currentColor" />
                 </motion.span>
-              </span>
+              </PromptIconBubble>
               <span className="text-title-page text-ink">{hero.label}</span>
             </div>
             {hero.subLabel && <span className="text-caption text-text-tertiary-token">{hero.subLabel}</span>}

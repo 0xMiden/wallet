@@ -1560,6 +1560,10 @@
     "message": "送金先",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Miden または Ethereum のアドレスを入力",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "金額を選択してください",
     "englishSource": "Select Amount"
@@ -3137,6 +3141,10 @@
   "home": {
     "message": "ホーム",
     "englishSource": "Home"
+  },
+  "earn": {
+    "message": "獲得",
+    "englishSource": "Earn"
   },
   "noteId": {
     "message": "Note ID",
@@ -5254,6 +5262,10 @@
   "receiveAt": {
     "message": "受取先",
     "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "あなたの収益",
+    "englishSource": "Your Earnings"
   },
   "durationUnitSeconds": {
     "message": "秒",

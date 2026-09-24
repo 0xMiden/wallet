@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -142,11 +142,16 @@ describe('EarnWithdrawReview', () => {
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     expect(screen.getByRole('heading')).toHaveTextContent('Aave • USDC');
-    // The network pill goes through the same translation key as EarnVaultDetail's,
-    // rather than a hard-coded "{asset} on {network}" English string.
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
-    expect(screen.getByText('42.25')).toBeInTheDocument();
-    expect(screen.getByTestId('token-logo')).toHaveTextContent('USDC');
+    // The asset and its network ride the header as the shared mark, the same one the vault and
+    // deposit pages carry, rather than a page-local pill.
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getByText('earnAssetOnNetwork')).toHaveClass('sr-only');
+    expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
+    // The hero's figure carries the withdrawn token as its unit.
+    const hero = screen.getByRole('region', { name: 'earnWithdrawAmount' });
+    expect(within(hero).getByText('42.25')).toBeInTheDocument();
+    expect(within(hero).getByText('USDC', { selector: '.text-entry-unit' })).toBeInTheDocument();
+    expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
     expect(screen.getByText('earnFullPositionGasless')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
@@ -177,7 +182,9 @@ describe('EarnWithdrawReview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
-    expect(hapticLight).toHaveBeenCalledTimes(1);
+    // No haptic of its own: the shared `Button` fires the tap haptic, and a second call buzzed twice.
+    // `Button` is mocked here, so this pins only that the screen adds no call; Button's own tests pin its haptic.
+    expect(hapticLight).not.toHaveBeenCalled();
     await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1));
     expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledWith({
       midenAccountPublicKey: 'miden-account',
@@ -246,13 +253,15 @@ describe('EarnWithdrawReview', () => {
     });
   });
 
-  it('uses mobile footer padding in the mobile app', () => {
+  it('pins the CTA in the shared frame footer, on the page margin rather than a per-platform one', () => {
     jest.mocked(isMobile).mockReturnValue(true);
     render(<EarnWithdrawReview positionId="position-1" />);
 
     const footer = screen.getByRole('button', { name: 'withdraw' }).parentElement;
-    expect(footer).toHaveClass('px-8');
-    expect(footer).not.toHaveClass('px-6');
+    expect(footer).toHaveAttribute('data-slot', 'footer');
+    // The 16px page margin every page takes, not the 24/32px this page used to pick by platform.
+    expect(footer).toHaveClass('px-4', 'shrink-0');
+    expect(footer?.className).not.toMatch(/px-6|px-8/);
   });
 
   // This screen commits value, so it names the network. The registry test proves the element is

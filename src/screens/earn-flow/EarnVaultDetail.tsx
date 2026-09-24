@@ -5,13 +5,14 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
-import { navigate } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 
-import { EarnFlowHeader, MetricCard } from './components';
+import { EarnAssetMark, EarnHero, MetricCard } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
-import { EarnVault } from './types';
+import { ChartDotProps, EarnVault } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnVaultDetailProps {
@@ -26,49 +27,53 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-vault-detail-page">
-      <EarnFlowHeader vault={found} />
+    // The shared pushed-page frame: the header, a body whose sections sit 20px apart, and the CTA
+    // pinned under it instead of scrolling away at the end of the page.
+    <SubPageLayout
+      data-testid="earn-vault-detail-page"
+      // Back and the protocol in the title; the asset and its network ride the header as one
+      // compact mark, since a pill wide enough to spell them out took the width a two-word
+      // protocol needed and wrapped the title onto a second line. Until the vault is found the
+      // header names the route, never a placeholder vault.
+      title={found ? found.protocol : t('earnDeposit')}
+      onBack={goBack}
+      headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+      footer={
+        (loadFailed && !found) || pending ? undefined : (
+          <Button
+            data-testid="earn-vault-deposit-btn"
+            title={t('earnDeposit')}
+            variant={ButtonVariant.Primary}
+            accent="earn"
+            disabled={!vault.id}
+            onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
+            className="max-w-none"
+          />
+        )
+      }
+    >
+      {/* A failed load never draws the placeholder vault as if it were real; with the vault in
+          hand from an earlier load, it is still shown, under a notice that it may be stale. */}
+      {loadFailed && !found ? (
+        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
+      ) : pending ? null : (
+        <>
+          {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
+          <EarnHero
+            labelId="earn-vault-apy-title"
+            value={vault.apy}
+            valueClassName="text-positive-tint-ink"
+            label={t('earnCurrentApy')}
+            meta={vault.apyChange24h}
+          />
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex min-h-full flex-col px-4 pb-8">
-          {/* A failed load never draws the placeholder vault as if it were real; with the vault in
-              hand from an earlier load, it is still shown, under a notice that it may be stale. */}
-          {loadFailed && !found ? (
-            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
-          ) : pending ? null : (
-            <>
-              {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mb-6" />}
-              <section aria-labelledby="earn-vault-apy-title">
-                {/* The figure the page is about, then its label and its 24h move - all on named type
-                    styles, and on `positive-tint-ink`, the only green that carries text. */}
-                <div id="earn-vault-apy-title" className="text-display text-positive-tint-ink">
-                  {vault.apy}
-                </div>
-                <div className="mt-2 text-label text-muted">{t('earnCurrentApy')}</div>
-                <div className="mt-0.5 text-value text-positive-tint-ink">{vault.apyChange24h}</div>
-              </section>
+          <VaultAreaChart vault={vault} />
 
-              <VaultAreaChart vault={vault} />
-
-              <VaultStats vault={vault} />
-              <VaultAbout vault={vault} />
-
-              <div className="mt-auto pt-16">
-                <Button
-                  data-testid="earn-vault-deposit-btn"
-                  title={t('earnDeposit')}
-                  variant={ButtonVariant.Primary}
-                  accent="earn"
-                  disabled={!vault.id}
-                  onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
-                  className="max-w-none"
-                />
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+          <VaultStats vault={vault} />
+          <VaultAbout vault={vault} />
+        </>
+      )}
+    </SubPageLayout>
   );
 };
 
@@ -80,7 +85,7 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
   const lastIndex = vault.chartData.length - 1;
 
   return (
-    <div className="mt-10 h-[140px]">
+    <div className="h-[140px]">
       <ChartContainer config={{ apy: { color: CHART_POSITIVE } }} className="h-full w-full aspect-auto">
         <AreaChart data={vault.chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
           <defs>
@@ -105,7 +110,7 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
             strokeWidth={2.5}
             fill="url(#earn-vault-area)"
             activeDot={{ r: 4, stroke: CHART_POSITIVE, fill: CHART_POSITIVE, strokeWidth: 1 }}
-            dot={(props: any) =>
+            dot={(props: ChartDotProps) =>
               props.index === lastIndex ? (
                 <circle
                   cx={props.cx}
@@ -128,18 +133,12 @@ const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
   return (
-    <div className="mt-6 grid grid-cols-3 gap-2">
-      <MetricCard label={t('earnTvlLabel')} value={vault.tvl} className="px-3" />
-      <MetricCard
-        label={t('earnRiskLabel')}
-        value={vault.risk}
-        valueClassName="text-positive-tint-ink"
-        className="px-3"
-      />
+    <div className="grid grid-cols-3 gap-2">
+      <MetricCard label={t('earnTvlLabel')} value={vault.tvl} />
+      <MetricCard label={t('earnRiskLabel')} value={vault.risk} valueClassName="text-positive-tint-ink" />
       <MetricCard
         label={t('earnAuditedLabel')}
         value={vault.audited ? `✓ ${t('yes')}` : t('no')}
-        className="px-3"
         valueClassName={vault.audited ? 'text-ink' : undefined}
       />
     </div>
@@ -150,11 +149,10 @@ const VaultAbout: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
   return (
-    <section className="mt-4">
-      <SectionHeader size="lg" className="px-0">
-        {t('about')}
-      </SectionHeader>
-      <p className="text-body text-muted">{vault.about}</p>
+    <section>
+      <SectionHeader size="lg">{t('about')}</SectionHeader>
+      {/* The 4px inset the section label takes, so the copy lines up under it. */}
+      <p className="px-1 text-body text-muted">{vault.about}</p>
     </section>
   );
 };

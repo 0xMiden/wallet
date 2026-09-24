@@ -63,8 +63,6 @@ jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
-jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
-
 jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: false, sidePanel: false })
 }));
@@ -382,18 +380,32 @@ describe('Receive - Address', () => {
     // The chip and the address stay in the same block as the code.
     expect(card.contains(container.querySelector('[data-testid="receive-network"]'))).toBe(true);
     expect(card.contains(container.querySelector('[data-testid="receive-copy-address"]'))).toBe(true);
-    // One column with the 16px gutter, clearing the floating tab bar off mobile.
+    // One column, the shared home-group pane body: the code block sits straight in it, at the
+    // 16px gutter every pane shares.
     const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
-    expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-9', 'pb-20');
+    expect(column).toBe(container.querySelector('[data-testid="receive-page"]'));
+    expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-9');
   });
 
-  it('clears the docked tab bar on mobile', async () => {
+  it('clears the docked tab bar from the same expression the flow CTAs use', async () => {
+    // Was a fixed pb-18/pb-20 of its own. The shell takes it from `stepFooterCushionClass`, so a
+    // pane with no CTA ends where a pane with one ends its button, and it collapses with the
+    // keyboard rather than a frame later.
     mockIsMobile.mockReturnValue(true);
     const container = await renderReceive();
 
-    const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
-    expect(column).toHaveClass('pb-18');
-    expect(column).not.toHaveClass('pb-20');
+    expect(container.querySelector('[data-testid="receive-page"]')).toHaveClass(
+      'pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]'
+    );
+  });
+
+  it('leaves the horizontal swipe to the home carousel', async () => {
+    // A pane that can pan sideways takes the carousel's drag before HomeSwipeContainer sees it.
+    const container = await renderReceive();
+
+    const page = container.querySelector<HTMLElement>('[data-testid="receive-page"]')!;
+    expect(page.style.touchAction).toBe('pan-y');
+    expect(page).toHaveClass('overflow-x-hidden');
   });
 
   describe('the receive green', () => {

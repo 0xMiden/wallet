@@ -61,15 +61,20 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
 }
 
 describe('SelectRecipient', () => {
-  it('titles the step as the tab, with the entry below it on pills that fit without scrolling sideways', () => {
-    renderRecipient();
+  it('titles the step as the tab, with the entry below it over pills that wrap rather than scroll', () => {
+    renderRecipient({ onScan: jest.fn() });
     const title = screen.getByRole('heading', { level: 1 });
     expect(title).toHaveClass('text-title-tab');
     expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-hero-name');
+
+    // The row used to be a sideways scroller bleeding past the page margin. A horizontally
+    // scrollable element is the handler for a sideways pan, so it — not HomeSwipeContainer — took
+    // the swipe, and the Send pane could no longer be swiped to the next tab; the bleed also let
+    // the column be dragged out from under its own title. Scan QR code goes to a second line
+    // instead.
     const pills = screen.getByTestId('send-address-book').parentElement;
-    // The row fits on a phone: it wraps if a translation runs long, it never scrolls sideways.
     expect(pills).toHaveClass('flex-wrap');
-    expect(pills?.className).not.toContain('overflow-x-auto');
+    expect(pills?.className).not.toMatch(/overflow-x-|-mx-/);
   });
 
   it('hides the network selector before an address is entered', () => {
@@ -81,23 +86,22 @@ describe('SelectRecipient', () => {
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
 
-    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute(
-      'placeholder',
-      'Enter Miden or Ethereum Address'
-    );
+    // Localised, like every other string on the page: the placeholder and the scan label used to
+    // be English literals held in a `const`, which `lint:i18n` cannot see (it only reads JSX).
+    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute('placeholder', 'sendRecipientPlaceholder');
     expect(screen.queryByTestId('send-recipient-avatar')).not.toBeInTheDocument();
-    expect(screen.queryByText('scan')).not.toBeInTheDocument();
+    expect(screen.queryByText('scanQrTitle')).not.toBeInTheDocument();
   });
 
-  it('shows Scan with extracted icons and compact action pills while the address field is empty', () => {
+  it('shows Scan QR code with extracted icons and compact action pills while the address field is empty', () => {
     renderRecipient({ onScan: jest.fn() });
 
-    expect(screen.getByText('scan')).toBeInTheDocument();
+    expect(screen.getByText('scanQrTitle')).toBeInTheDocument();
     expect(screen.getByTestId('send-address-book-icon')).toBeInTheDocument();
     expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
     // Both pills are the app's shared Pill, so they are the same height, padding and type
     // scale as every other chip (the network chip beside them included).
-    for (const label of ['addressBook', 'scan']) {
+    for (const label of ['addressBook', 'scanQrTitle']) {
       expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-pill');
     }
   });

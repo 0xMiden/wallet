@@ -19,19 +19,29 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 describe('FlowLayout', () => {
-  it('renders the title, accessory, content, footer, and a back button that calls onBack', () => {
+  it('renders the title, content, footer, and a back button that calls onBack', () => {
     const onBack = jest.fn();
     render(
-      <FlowLayout title="Title" titleAccessory={<span>chip</span>} onBack={onBack} footer={<button>cta</button>}>
+      <FlowLayout title="Title" onBack={onBack} footer={<button>cta</button>}>
         <p>content</p>
       </FlowLayout>
     );
 
     expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument();
-    expect(screen.getByText('chip')).toBeInTheDocument();
     expect(screen.getByText('content')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('flow-back'));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes no title accessory: the header is the title alone', () => {
+    render(
+      // @ts-expect-error titleAccessory is not a FlowLayout prop; no page passes one.
+      <FlowLayout tabRoot title="Title" titleAccessory={<span>chip</span>} footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+
+    expect(screen.queryByText('chip')).not.toBeInTheDocument();
   });
 
   it('styles back as an ink arrow on the fill circle, never the flow accent', () => {
@@ -130,6 +140,21 @@ describe('FlowLayout', () => {
     } finally {
       document.body.removeAttribute('data-hide-navbar');
     }
+  });
+
+  it.each([
+    ['a pushed step', false],
+    ['a tab root', true]
+  ])('insets %s CTA to the page margin', (_, tabRoot) => {
+    render(
+      <FlowLayout tabRoot={tabRoot} title="Title" footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+
+    const footer = screen.getByText('cta').parentElement!;
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+    expect(footer).toHaveClass('px-4');
   });
 
   it('puts a close button top right that calls onClose', () => {

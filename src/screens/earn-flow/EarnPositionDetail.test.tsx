@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_PLACEHOLDER } from './earn-mapping';
@@ -96,9 +97,8 @@ jest.mock('lib/woozie', () => ({
 }));
 
 // Stub the shared earn widgets to prop probes. This keeps the test focused on
-// `EarnPositionDetail`'s own JSX/branches and sidesteps `components.tsx`'s
-// `aave.svg?url` logo import + `TokenLogo` chrome (mirrors how the sibling
-// `EarnDepositAmount.test.tsx` stubs `./components`).
+// `EarnPositionDetail`'s own JSX/branches and sidesteps `TokenLogo` chrome
+// (mirrors how the sibling `EarnDepositAmount.test.tsx` stubs `./components`).
 jest.mock('./components', () => {
   const R = require('react');
   return {
@@ -123,8 +123,13 @@ jest.mock('./components', () => {
         { 'data-testid': 'metric-card', 'data-label': label, 'data-valueclass': valueClassName ?? '' },
         value
       ),
-    PositionLogo: ({ asset, className }: { asset: string; className?: string }) =>
-      R.createElement('div', { 'data-testid': 'position-logo', 'data-asset': asset, className })
+    // The token mark with its network badge, in place of the logo-plus-pill pair.
+    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+      R.createElement(
+        'div',
+        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
+        'earnAssetOnNetwork'
+      )
   };
 });
 
@@ -260,10 +265,12 @@ describe('EarnPositionDetail', () => {
     expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
     expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
 
-    // PositionHeading: logo + "{protocol} • {asset}" + "{asset} on {network}" pill.
-    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', 'FUSD');
+    // PositionHeading: the shared asset mark + "{protocol} • {asset}".
+    const mark = screen.getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', 'FUSD');
+    expect(mark).toHaveAttribute('data-network', 'Flatnet');
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('FlatProto');
-    // "{asset} on {network}" pill -> t('earnAssetOnNetwork', { asset, network }).
+    // The pair is still named in text, for assistive tech and in the details rows.
     expect(container.textContent).toContain('earnAssetOnNetwork');
     expect(container.textContent).toContain('Flatnet');
 
@@ -317,7 +324,7 @@ describe('EarnPositionDetail', () => {
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
-    expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', '—');
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', EARN_PLACEHOLDER);
 
     const cards = screen.getAllByTestId('metric-card');
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
@@ -333,9 +340,13 @@ describe('EarnPositionDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'earnDepositMore' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/vaults/vault-flat/deposit');
+    // `Button` fires the tap haptic itself (pinned in Button.test.tsx; this suite stubs Button for
+    // its accent), so the page adds none: a direct call here would buzz twice.
+    expect(hapticLight).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   // No timeframe row: the chart draws one fixed series, so the control changed nothing.

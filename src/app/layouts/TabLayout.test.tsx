@@ -352,6 +352,16 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-settings')).toHaveTextContent('settings');
   });
 
+  it('localizes every action segment label, overview as home', () => {
+    mockLocation.pathname = '/';
+    renderLayout();
+    expect(screen.getByTestId('action-overview')).toHaveTextContent('home');
+    expect(screen.getByTestId('action-send')).toHaveTextContent('send');
+    expect(screen.getByTestId('action-receive')).toHaveTextContent('receive');
+    expect(screen.getByTestId('action-earn')).toHaveTextContent('earn');
+    expect(screen.getByTestId('action-swap')).toHaveTextContent('swap');
+  });
+
   it('shows the unclaimed-notes dot on the Activity tab when notes are pending', () => {
     mockHasUnclaimed.value = true;
     renderLayout();

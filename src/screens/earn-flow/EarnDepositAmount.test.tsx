@@ -29,13 +29,13 @@ jest.mock('react-i18next', () => ({
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
 // found-vault vs. default-vault branch without rendering the real header.
 jest.mock('./components', () => ({
-  EarnFlowHeader: ({ vault }: { vault?: { id: string; protocol: string; asset: string; network: string } }) => (
+  EarnFlowHeader: ({ subject }: { subject?: { id: string; protocol: string; asset: string; network: string } }) => (
     <div
       data-testid="earn-flow-header"
-      data-vault-id={vault?.id ?? 'none'}
-      data-protocol={vault?.protocol ?? 'none'}
-      data-asset={vault?.asset ?? 'none'}
-      data-network={vault?.network ?? 'none'}
+      data-vault-id={subject?.id ?? 'none'}
+      data-protocol={subject?.protocol ?? 'none'}
+      data-asset={subject?.asset ?? 'none'}
+      data-network={subject?.network ?? 'none'}
     />
   )
 }));
