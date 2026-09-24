@@ -6140,7 +6140,6 @@ describe('initiateReplaceHotKeyTransaction', () => {
   });
 
   it('records the guardian when the provider spells the account id differently', async () => {
-    mockIsGuardianAccount.mockResolvedValue(true);
     const provider = {
       ...makeGuardianProvider(true),
       getAccounts: async () => [
@@ -6161,7 +6160,6 @@ describe('initiateReplaceHotKeyTransaction', () => {
   it('records the guardian a legacy account resolves to when it names none of its own', async () => {
     // An account from before per-account endpoints has no field; every guardian operation resolves it
     // through the legacy key and then the network default, so the rotation ran under that one.
-    mockIsGuardianAccount.mockResolvedValue(true);
     const provider = {
       ...makeGuardianProvider(true),
       getAccounts: async () => [
@@ -6175,7 +6173,6 @@ describe('initiateReplaceHotKeyTransaction', () => {
   });
 
   it("records a legacy account's global guardian key when it names none of its own", async () => {
-    mockIsGuardianAccount.mockResolvedValue(true);
     mockFetchFromStorage.mockImplementation(async key =>
       key === 'guardian_url_setting' ? 'https://custom.guardian' : undefined
     );
@@ -6196,7 +6193,6 @@ describe('initiateReplaceHotKeyTransaction', () => {
   });
 
   it('queues the rotation unstamped when the guardian read fails: the stamp is display only', async () => {
-    mockIsGuardianAccount.mockResolvedValue(true);
     mockFetchFromStorage.mockImplementation(async () => {
       throw new Error('storage unavailable');
     });
@@ -6227,7 +6223,6 @@ describe('initiateReplaceHotKeyTransaction', () => {
 
   // Eligibility and the stored id come from one account read, so a read that fails queues nothing.
   it('refuses the rotation when the account read fails', async () => {
-    mockIsGuardianAccount.mockResolvedValue(true);
     const provider = {
       ...makeGuardianProvider(true),
       getAccounts: async () => {
@@ -6239,7 +6234,6 @@ describe('initiateReplaceHotKeyTransaction', () => {
   });
 
   it('refuses the rotation when the provider has no such account', async () => {
-    mockIsGuardianAccount.mockResolvedValue(true);
     const provider = { ...makeGuardianProvider(true), getAccounts: async () => [] };
     await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).rejects.toThrow(
       'Replace hot key is only supported for Guardian accounts'
