@@ -7,6 +7,10 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { SwapAmounts, SwapAmountsProps } from './SwapAmounts';
 
 // --- i18n: echo the key back so we can assert against raw translation keys.
+// The navbar is hidden while the keyboard is up; drive it per test.
+let mockNavbarHidden = false;
+jest.mock('lib/mobile/useNavbarHidden', () => ({ useNavbarHidden: () => mockNavbarHidden }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -360,6 +364,24 @@ describe('SwapAmounts — CTA', () => {
     // The send step's cushion class, not the old fixed pb-24 with a navbar-cushion tag.
     expect(footer?.className).toContain('pb-[max(');
     expect(footer?.getAttribute('data-navbar-cushion')).toBeNull();
+  });
+
+  it('drops to a 16px cushion while the navbar is hidden (keyboard up), and keeps the step cushion otherwise', () => {
+    const footerOf = () => screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement!;
+    try {
+      mockNavbarHidden = true;
+      const { unmount } = renderComponent();
+      expect(footerOf()).toHaveClass('pb-4');
+      expect(footerOf().className).not.toContain('pb-[max(');
+      unmount();
+
+      mockNavbarHidden = false;
+      renderComponent();
+      expect(footerOf()).not.toHaveClass('pb-4');
+      expect(footerOf().className).toContain('pb-[max(');
+    } finally {
+      mockNavbarHidden = false;
+    }
   });
 
   it('asks for an amount first, waits on the quote, then offers the review', () => {
