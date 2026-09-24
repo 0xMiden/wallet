@@ -7,6 +7,7 @@ import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
+import { STRUCTURAL_GUARDIAN_TYPES } from 'lib/miden/db/types';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
@@ -19,11 +20,11 @@ import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_C
 const SLATE_ICON_BG = '#777487';
 
 /**
- * A structural Guardian operation: a guardian switch or a device-key rotation. Neither moves value;
- * both draw the Guardian glyph on the slate in Activity and the slate accent on their detail page.
+ * A structural Guardian operation: a guardian switch, a device-key rotation or a procedure-threshold
+ * update. None moves value; each draws the Guardian glyph on the slate in Activity and the slate
+ * accent on its detail page.
  */
-export const isGuardianOp = (txType: IHistoryEntry['txType']): boolean =>
-  txType === 'switch-guardian' || txType === 'replace-hot-key';
+export const isGuardianOp = (txType: IHistoryEntry['txType']): boolean => STRUCTURAL_GUARDIAN_TYPES.includes(txType);
 
 /**
  * An earn row renders as failed (red cross + red accent) when the tx hard-failed, a

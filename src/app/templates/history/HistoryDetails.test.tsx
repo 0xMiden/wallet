@@ -806,6 +806,24 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('to')).toBeUndefined();
     });
 
+    it('gives a threshold update the details section and no wallet From/To rows', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'update-procedure-threshold',
+        displayMessage: 'Account secured',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { procedure: 'update_guardian', threshold: 2 }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
     it('names no guardian for a rotation recorded without one, rather than guessing the current one', async () => {
       mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: OZ };
       setMockRow({

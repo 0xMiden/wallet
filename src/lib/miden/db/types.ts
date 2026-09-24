@@ -29,6 +29,16 @@ export type ITransactionType =
   | 'swap'
   | 'update-procedure-threshold';
 
+/**
+ * Structural Guardian operations: they rewrite the account's own authorization rather
+ * than move value. Activity draws them alike, and none of them is requeueable.
+ */
+export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
+];
+
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
 

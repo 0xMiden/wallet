@@ -961,13 +961,14 @@ describe('HistoryView Guardian ops', () => {
   it('paints a device-key rotation row like a guardian switch: the slate its detail page uses, the Guardian glyph', () => {
     const entries = [
       makeEntry({ key: 'switch', txType: 'switch-guardian', message: 'Guardian switched' }),
-      makeEntry({ key: 'rotation', txType: 'replace-hot-key', message: 'Device key rotated' })
+      makeEntry({ key: 'rotation', txType: 'replace-hot-key', message: 'Device key rotated' }),
+      makeEntry({ key: 'threshold', txType: 'update-procedure-threshold', message: 'Account secured' })
     ];
     render(<HistoryView {...baseProps} entries={entries} fullHistory />);
 
-    // TransactionIcon's slate (#777487) is the detail page's accent for both.
+    // TransactionIcon's slate (#777487) is the detail page's accent for all three.
     expect(getTransactionIconBackgroundColor(entries[1]!)).toBe('#777487');
-    for (const title of ['Guardian switched', 'Device key rotated']) {
+    for (const title of ['Guardian switched', 'Device key rotated', 'Account secured']) {
       const row = rowByTitle(title);
       expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
       expect(row.querySelector('svg')).not.toBeNull();

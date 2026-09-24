@@ -141,7 +141,8 @@ describe('TransactionIcon', () => {
     // The detail header draws what the Activity row draws (HistoryView): the swap glyph on the slate.
     it.each([
       ['replace-hot-key', 'replace-hot-key' as const],
-      ['switch-guardian', 'switch-guardian' as const]
+      ['switch-guardian', 'switch-guardian' as const],
+      ['update-procedure-threshold', 'update-procedure-threshold' as const]
     ])('renders the slate swap square for %s, not the receive arrow', (_label, txType) => {
       const { container } = render(
         <TransactionIcon entry={makeEntry({ txType, transactionIcon: 'DEFAULT' })} size="lg" />
@@ -212,7 +213,7 @@ describe('TransactionIcon', () => {
       expect(getTransactionIconBackgroundColor(makeEntry(overrides))).toBe('#777487');
     });
 
-    it.each([['switch-guardian' as const], ['replace-hot-key' as const]])(
+    it.each([['switch-guardian' as const], ['replace-hot-key' as const], ['update-procedure-threshold' as const]])(
       'gives %s the same slate the activity row paints, not the receive green',
       txType => {
         expect(getTransactionIconBackgroundColor(makeEntry({ txType }))).toBe('#777487');
