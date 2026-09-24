@@ -2159,7 +2159,7 @@
     "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "Deine Wiederherstellungsphrase stellt deine Schlüssel wieder her, nicht den Zustand deines Kontos. Wenn du das Gerät verlierst, ist dieser Zustand verloren.",
+    "message": "Ihre Wiederherstellungsphrase stellt Ihre Schlüssel wieder her, nicht den Zustand Ihres Kontos. Wenn Sie das Gerät verlieren, ist dieser Zustand verloren.",
     "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
   },
   "meetGuardianProtectsTitle": {
@@ -2192,7 +2192,7 @@
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Sie können „Guardians“ durch Ihre Wiederherstellungsphrase ersetzen.",
+    "message": "Mit Ihrer Wiederherstellungsphrase können Sie den Guardian jederzeit wechseln",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
@@ -2216,7 +2216,7 @@
     "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin ist ein Sicherheitsunternehmen aus der „blockchain“, das hinter weit verbreiteten Smart-Contract-Bibliotheken für Ethereum steht.",
+    "message": "OpenZeppelin ist ein blockchain-Sicherheitsunternehmen hinter weit verbreiteten Smart-Contract-Bibliotheken für Ethereum.",
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {

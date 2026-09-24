@@ -2192,7 +2192,7 @@
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Puedes cambiar Guardians por tu frase de recuperación",
+    "message": "Puedes cambiar de Guardian con tu frase de recuperación",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
@@ -2220,7 +2220,7 @@
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm crea y gestiona una infrazblockchaina para redes y rollups.",
+    "message": "Gateway.fm crea y gestiona infraestructura blockchain para redes y rollups.",
     "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
   },
   "guardianBioLambdaClass": {

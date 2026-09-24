@@ -2171,7 +2171,7 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "$operators$の中から、現時点で最速の演算子は",
+    "message": "$operators$社の中で現在最速のオペレーター",
     "englishSource": "Fastest operator right now, out of $operators$",
     "placeholders": {
       "operators": {
@@ -2192,7 +2192,7 @@
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Guardiansをリカバリーフレーズと置き換えても構いません",
+    "message": "リカバリーフレーズを使ってGuardianを切り替えられます",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {

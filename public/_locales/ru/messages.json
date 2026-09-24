@@ -2192,7 +2192,7 @@
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Вы можете заменить «Guardians» на свою фразу восстановления",
+    "message": "С помощью фразы восстановления вы можете сменить Guardian",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
@@ -2216,7 +2216,7 @@
     "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin — это компания из серии «blockchain», занимающаяся вопросами безопасности и стоящая за широко используемыми библиотеками смарт-контрактов для Ethereum.",
+    "message": "Компания OpenZeppelin, специализирующаяся на безопасности blockchain, создала широко используемые библиотеки смарт-контрактов для Ethereum.",
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {

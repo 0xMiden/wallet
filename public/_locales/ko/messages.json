@@ -2171,7 +2171,7 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "$operators$ 중에서 현재 가장 빠른 연산자는",
+    "message": "운영자 $operators$곳 중 현재 가장 빠른 운영자",
     "englishSource": "Fastest operator right now, out of $operators$",
     "placeholders": {
       "operators": {
@@ -2192,7 +2192,7 @@
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Guardians를 복구 문구로 대체할 수 있습니다.",
+    "message": "복구 문구로 Guardian을 전환할 수 있습니다",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
@@ -2216,7 +2216,7 @@
     "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin은 이더리움에서 널리 사용되는 스마트 계약 라이브러리를 개발한 보안 기업인 오픈제플린(blockchain)입니다.",
+    "message": "OpenZeppelin은 이더리움에서 널리 쓰이는 스마트 계약 라이브러리를 만든 blockchain 보안 기업입니다.",
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {

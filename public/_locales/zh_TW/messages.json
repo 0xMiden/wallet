@@ -2171,7 +2171,7 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "目前最快的運算子，選自 $operators$",
+    "message": "$operators$ 家營運商中目前最快的營運商",
     "englishSource": "Fastest operator right now, out of $operators$",
     "placeholders": {
       "operators": {
@@ -2216,7 +2216,7 @@
     "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin 是一家總部位於blockchain的安全公司，是乙太坊上廣泛使用的智慧合約函式庫的開發者。",
+    "message": "OpenZeppelin 是一家 blockchain 資安公司，開發了乙太坊上廣泛使用的智慧合約函式庫。",
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {

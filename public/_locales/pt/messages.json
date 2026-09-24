@@ -2184,7 +2184,7 @@
     "englishSource": "The operator on this network"
   },
   "meetGuardianCannotMoveFunds": {
-    "message": "A carteira “Guardian” não pode movimentar seus fundos por conta própria",
+    "message": "O Guardian não pode movimentar seus fundos por conta própria",
     "englishSource": "The Guardian can't move your funds on its own"
   },
   "meetGuardianBacksUpState": {
@@ -2192,7 +2192,7 @@
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Você pode trocar “Guardians” pela sua frase de recuperação",
+    "message": "Você pode trocar de Guardian com sua frase de recuperação",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
@@ -2216,11 +2216,11 @@
     "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "A OpenZeppelin é uma empresa de segurança deblockchains responsável por bibliotecas de contratos inteligentes amplamente utilizadas para a Ethereum.",
+    "message": "A OpenZeppelin é uma empresa de segurança blockchain responsável por bibliotecas de contratos inteligentes amplamente usadas no Ethereum.",
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {
-    "message": "A Gateway.fm desenvolve e opera uma infraestruturblockchaina para redes e rollups.",
+    "message": "A Gateway.fm desenvolve e opera infraestrutura blockchain para redes e rollups.",
     "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
   },
   "guardianBioLambdaClass": {

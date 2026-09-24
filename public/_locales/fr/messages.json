@@ -2184,15 +2184,15 @@
     "englishSource": "The operator on this network"
   },
   "meetGuardianCannotMoveFunds": {
-    "message": "L’Guardiane ne peut pas transférer vos fonds de son propre chef",
+    "message": "Le Guardian ne peut pas déplacer vos fonds de lui-même",
     "englishSource": "The Guardian can't move your funds on its own"
   },
   "meetGuardianBacksUpState": {
-    "message": "L’Guardiane sauvegarde l’état de votre compte",
+    "message": "Le Guardian sauvegarde l’état de votre compte",
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Vous pouvez échanger un «Guardians» contre votre phrase de récupération.",
+    "message": "Vous pouvez changer de Guardian avec votre phrase de récupération",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
@@ -2212,19 +2212,19 @@
     "englishSource": "Choose a different Guardian"
   },
   "guardianBioGeneric": {
-    "message": "Un opérateur indépendant d’Guardians sur Miden.",
+    "message": "Un opérateur Guardian indépendant sur Miden.",
     "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin est une société de sécurité spécialisée dans l’blockchain, à l’origine de bibliothèques de contrats intelligents largement utilisées pour Ethereum.",
+    "message": "OpenZeppelin est une société de sécurité blockchain à l’origine de bibliothèques de contrats intelligents largement utilisées sur Ethereum.",
     "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm développe et exploite une infrastructure d’blockchains pour les réseaux et les rollups.",
+    "message": "Gateway.fm développe et exploite une infrastructure blockchain pour les réseaux et les rollups.",
     "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass est une société d’ingénierie qui développe des infrastructures avancées de cryptographie et d’blockchain.",
+    "message": "LambdaClass est une société d’ingénierie qui développe une infrastructure avancée de cryptographie et de blockchain.",
     "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
   },
   "guardianBioKoda": {

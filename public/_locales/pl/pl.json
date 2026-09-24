@@ -479,7 +479,7 @@
   "meetGuardianOnlyOperator": "Operator tej sieci",
   "meetGuardianCannotMoveFunds": "Guardian nie może samodzielnie przenosić środków użytkownika",
   "meetGuardianBacksUpState": "Guardian tworzy kopię zapasową stanu Twojego konta",
-  "meetGuardianCanSwitch": "Możesz zamienić „Guardians” na swoją frazę odzyskiwania",
+  "meetGuardianCanSwitch": "Za pomocą frazy odzyskiwania możesz zmienić operatora Guardian",
   "meetGuardianChecking": "Sprawdzam, który operator odpowiada najszybciej…",
   "meetGuardianNoneReachable": "W tej sieci nie ma dostępnego operatora Guardian.",
   "meetGuardianFullyPrivateInstead": "Wolałbym raczej założyć konto całkowicie prywatne",

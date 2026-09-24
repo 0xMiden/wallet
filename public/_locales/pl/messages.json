@@ -2192,7 +2192,7 @@
     "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Możesz zamienić „Guardians” na swoją frazę odzyskiwania",
+    "message": "Za pomocą frazy odzyskiwania możesz zmienić operatora Guardian",
     "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
