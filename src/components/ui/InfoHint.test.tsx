@@ -68,6 +68,20 @@ describe('InfoHint', () => {
     expect(screen.queryByText(/exact fee/)).not.toBeInTheDocument();
   });
 
+  it('takes a 44px hit area around its 24px circle without growing the row', () => {
+    renderHint();
+
+    expect(trigger()).toHaveClass('size-6', 'relative', 'rounded-full', 'focus-visible:ring-2');
+    expect(trigger()).toHaveClass(
+      'before:absolute',
+      'before:size-11',
+      'before:left-1/2',
+      'before:top-1/2',
+      'before:-translate-x-1/2',
+      'before:-translate-y-1/2'
+    );
+  });
+
   it('opens the bubble on tap, with a haptic', () => {
     renderHint();
 

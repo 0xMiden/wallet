@@ -82,7 +82,9 @@ export const InfoHint: React.FC<InfoHintProps> = ({ children, label, className, 
         aria-label={label}
         data-testid={dataTestId}
         className={cn(
-          'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted',
+          'relative inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted',
+          // A 44px hit area centred on the 24px circle: the row keeps its height, the ring stays on the circle.
+          'before:absolute before:left-1/2 before:top-1/2 before:size-11 before:-translate-x-1/2 before:-translate-y-1/2',
           'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
           className
         )}
