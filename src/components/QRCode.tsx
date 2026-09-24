@@ -28,16 +28,15 @@ export interface QRCodeProps {
    * caller sizes the QR from its layout (e.g. the height left on screen).
    */
   fluid?: boolean;
-  /** How the modules are coloured. Defaults to `brand`, the flat accent orange. */
-  palette?: QRPalette;
+  /** How the modules are coloured: one of the five account-card treatments. */
+  palette: QRPalette;
 }
 
 /**
  * The QR's colour treatments: one per account-card colour, each blending that colour into another
  * of the five, so a treatment still reads as "the green one" while the modules carry a gradient.
- * `brand` is the flat accent the rest of the app draws in.
  */
-export const QR_PALETTES = ['brand', 'green', 'orange', 'slate', 'blue', 'purple'] as const;
+export const QR_PALETTES = ['green', 'orange', 'slate', 'blue', 'purple'] as const;
 
 export type QRPalette = (typeof QR_PALETTES)[number];
 
@@ -47,7 +46,6 @@ export type QRPalette = (typeof QR_PALETTES)[number];
  * modules are always drawn on a white tile (see src/main.css).
  */
 const PALETTE_STOPS: Record<QRPalette, { from: string; to: string; rotation: number }> = {
-  brand: { from: '--accent-primary', to: '--accent-primary', rotation: 0 },
   green: { from: '--qr-green', to: '--qr-blue', rotation: Math.PI / 4 },
   orange: { from: '--qr-orange', to: '--qr-purple', rotation: Math.PI / 2 },
   slate: { from: '--qr-slate', to: '--qr-green', rotation: (3 * Math.PI) / 4 },
@@ -81,15 +79,14 @@ const readToken = (name: string): string => {
 type DotsOptions = NonNullable<Options['dotsOptions']>;
 
 /**
- * The module colouring for a treatment: `color` alone when both stops resolve to the same value
- * (the flat brand), a linear gradient otherwise. Both stops are card colours, so a treatment never
- * lightens the modules past what the palette already ships — the QR stays scannable.
+ * The module colouring for a treatment: a linear gradient between its two stops. Both stops are card
+ * colours, so a treatment never lightens the modules past what the palette already ships - the QR
+ * stays scannable.
  */
-const paletteOptions = (palette: QRPalette): { color: string; gradient?: DotsOptions['gradient'] } => {
+const paletteOptions = (palette: QRPalette): { color: string; gradient: DotsOptions['gradient'] } => {
   const stops = PALETTE_STOPS[palette];
   const from = readToken(stops.from);
   const to = readToken(stops.to);
-  if (from === to) return { color: from };
   return {
     color: from,
     gradient: {
@@ -138,7 +135,7 @@ async function composeCaptionedPng(qrPng: Blob, size: number, caption: string, c
  * encoding the address in miden:<address> format via qr-code-styling.
  */
 export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
-  ({ address, size, caption, showCaption, fluid, palette = 'brand' }, ref) => {
+  ({ address, size, caption, showCaption, fluid, palette }, ref) => {
     const qrValue = encodeAddress(address);
     const containerRef = useRef<HTMLDivElement>(null);
 

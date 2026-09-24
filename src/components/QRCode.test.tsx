@@ -43,7 +43,6 @@ jest.mock('qr-code-styling', () => ({
 // distinct, assertable value.
 jest.mock('../../public/misc/brand/new-bread.svg?url', () => 'miden-logo-url-stub', { virtual: true });
 
-const ACCENT_FALLBACK = '#e77537';
 const ADDRESS = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
 
 /** Options object passed to the (single) QRCodeStyling constructor call. */
@@ -60,7 +59,7 @@ describe('QRCode', () => {
 
   describe('rendering', () => {
     it('renders the white padded wrapper with a sized inner container', () => {
-      const { container } = render(<QRCode address={ADDRESS} size={200} />);
+      const { container } = render(<QRCode palette="green" address={ADDRESS} size={200} />);
 
       const outer = container.firstChild as HTMLElement;
       expect(outer).toHaveClass('bg-pure-white', 'rounded-2xl', 'p-2');
@@ -72,7 +71,7 @@ describe('QRCode', () => {
     });
 
     it('fills its parent as a square when fluid, scaling the SVG instead of drawing at size', () => {
-      const { container } = render(<QRCode address={ADDRESS} size={288} fluid />);
+      const { container } = render(<QRCode palette="green" address={ADDRESS} size={288} fluid />);
 
       const outer = container.firstChild as HTMLElement;
       expect(outer).toHaveClass('w-full');
@@ -86,7 +85,7 @@ describe('QRCode', () => {
     });
 
     it('constructs the styling instance exactly once with the encoded payload', () => {
-      render(<QRCode address={ADDRESS} size={200} />);
+      render(<QRCode palette="green" address={ADDRESS} size={200} />);
 
       expect(mockConstructor).toHaveBeenCalledTimes(1);
       // encodeAddress (real, un-mocked) prefixes the miden: URI scheme.
@@ -94,7 +93,7 @@ describe('QRCode', () => {
     });
 
     it('builds the full styling options for scan-reliable rendering', () => {
-      render(<QRCode address={ADDRESS} size={256} />);
+      render(<QRCode palette="green" address={ADDRESS} size={256} />);
 
       const opts = ctorOptions();
       expect(opts).toMatchObject({
@@ -114,7 +113,7 @@ describe('QRCode', () => {
     });
 
     it('appends the styled QR into the inner container on mount', () => {
-      const { container } = render(<QRCode address={ADDRESS} size={200} />);
+      const { container } = render(<QRCode palette="green" address={ADDRESS} size={200} />);
 
       expect(mockAppend).toHaveBeenCalledTimes(1);
       const appended = mockAppend.mock.calls[0][0] as HTMLElement;
@@ -123,38 +122,10 @@ describe('QRCode', () => {
     });
 
     it('runs the initial update() effect on mount', () => {
-      render(<QRCode address={ADDRESS} size={200} />);
+      render(<QRCode palette="green" address={ADDRESS} size={200} />);
 
       expect(mockUpdate).toHaveBeenCalledTimes(1);
       expect(mockUpdate.mock.calls[0][0]).toMatchObject({ data: `miden:${ADDRESS}`, width: 200 });
-    });
-  });
-
-  describe('accent color resolution', () => {
-    it('falls back to the accent-primary hex when the CSS variable is unset', () => {
-      render(<QRCode address={ADDRESS} size={200} />);
-
-      const opts = ctorOptions();
-      expect(opts.dotsOptions.color).toBe(ACCENT_FALLBACK);
-      expect(opts.cornersSquareOptions.color).toBe(ACCENT_FALLBACK);
-      expect(opts.cornersDotOptions.color).toBe(ACCENT_FALLBACK);
-    });
-
-    it('uses (and trims) the resolved --accent-primary CSS variable when present', () => {
-      // Drive the truthy `value || ACCENT_FALLBACK` branch deterministically,
-      // independent of jsdom's custom-property computation, and exercise
-      // `.trim()` by padding the returned value with whitespace.
-      const gcsSpy = jest.spyOn(window, 'getComputedStyle').mockReturnValue({
-        getPropertyValue: () => '  #123abc  '
-      } as unknown as CSSStyleDeclaration);
-
-      try {
-        render(<QRCode address={ADDRESS} size={200} />);
-      } finally {
-        gcsSpy.mockRestore();
-      }
-
-      expect(ctorOptions().dotsOptions.color).toBe('#123abc');
     });
   });
 
@@ -165,13 +136,11 @@ describe('QRCode', () => {
         getPropertyValue: (name: string) => `resolved(${name})`
       } as unknown as CSSStyleDeclaration);
 
-    it('draws the flat accent by default, with no gradient', () => {
-      render(<QRCode address={ADDRESS} size={200} />);
-
-      const opts = ctorOptions();
-      expect(opts.dotsOptions.color).toBe(ACCENT_FALLBACK);
-      expect(opts.dotsOptions.gradient).toBeUndefined();
-      expect(opts.cornersSquareOptions.gradient).toBeUndefined();
+    it('requires a palette: the page always names one of the five treatments', () => {
+      // Built, not rendered: the point is the type, and a palette-less render has no treatment to draw.
+      // @ts-expect-error `palette` is required; there is no default treatment.
+      const element = <QRCode address={ADDRESS} size={200} />;
+      expect(element.props).not.toHaveProperty('palette');
     });
 
     it('blends two card colors across the dots and both corner marks', () => {
@@ -244,13 +213,13 @@ describe('QRCode', () => {
 
   describe('reactivity', () => {
     it('reuses the same instance and calls update() again when props change', () => {
-      const { rerender } = render(<QRCode address={ADDRESS} size={200} />);
+      const { rerender } = render(<QRCode palette="green" address={ADDRESS} size={200} />);
 
       expect(mockConstructor).toHaveBeenCalledTimes(1);
       expect(mockUpdate).toHaveBeenCalledTimes(1);
 
       const nextAddress = 'mtst1zzzqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
-      rerender(<QRCode address={nextAddress} size={320} />);
+      rerender(<QRCode palette="green" address={nextAddress} size={320} />);
 
       // useMemo([]) → the instance is created once and reused.
       expect(mockConstructor).toHaveBeenCalledTimes(1);
@@ -262,16 +231,16 @@ describe('QRCode', () => {
     });
 
     it('does not re-run the update effect when props are unchanged across a rerender', () => {
-      const { rerender } = render(<QRCode address={ADDRESS} size={200} />);
+      const { rerender } = render(<QRCode palette="green" address={ADDRESS} size={200} />);
       expect(mockUpdate).toHaveBeenCalledTimes(1);
 
       // Same primitive props → memoized options identity is stable → no update.
-      rerender(<QRCode address={ADDRESS} size={200} />);
+      rerender(<QRCode palette="green" address={ADDRESS} size={200} />);
       expect(mockUpdate).toHaveBeenCalledTimes(1);
     });
 
     it('clears the inner container when unmounted (append effect cleanup)', () => {
-      const { container, unmount } = render(<QRCode address={ADDRESS} size={200} />);
+      const { container, unmount } = render(<QRCode palette="green" address={ADDRESS} size={200} />);
       const inner = (container.firstChild as HTMLElement).firstChild as HTMLElement;
       // Simulate the library having injected markup so cleanup has something to clear.
       inner.innerHTML = '<svg></svg>';
@@ -284,11 +253,13 @@ describe('QRCode', () => {
 
   describe('caption (#875)', () => {
     it('renders the caption under the modules and omits it when absent', () => {
-      const { container, rerender } = render(<QRCode address={ADDRESS} size={200} caption="Miden Testnet" />);
+      const { container, rerender } = render(
+        <QRCode palette="green" address={ADDRESS} size={200} caption="Miden Testnet" />
+      );
       const caption = container.querySelector('[data-testid="qr-code-caption"]');
       expect(caption).toHaveTextContent('Miden Testnet');
 
-      rerender(<QRCode address={ADDRESS} size={200} />);
+      rerender(<QRCode palette="green" address={ADDRESS} size={200} />);
       expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
     });
 
@@ -298,7 +269,7 @@ describe('QRCode', () => {
       try {
         const ref = React.createRef<QRCodeHandle>();
         const { container } = render(
-          <QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" showCaption={false} />
+          <QRCode palette="green" ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" showCaption={false} />
         );
 
         expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
@@ -319,7 +290,7 @@ describe('QRCode', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       try {
         const ref = React.createRef<QRCodeHandle>();
-        render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" />);
+        render(<QRCode palette="green" ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" />);
 
         expect(await ref.current!.getImageBlob()).toBe(blob);
         expect(getContext).not.toHaveBeenCalled();
@@ -362,7 +333,7 @@ describe('QRCode', () => {
 
       const imageBlob = async () => {
         const ref = React.createRef<QRCodeHandle>();
-        render(<QRCode ref={ref} address={ADDRESS} size={SIZE} caption="Miden Devnet" />);
+        render(<QRCode palette="green" ref={ref} address={ADDRESS} size={SIZE} caption="Miden Devnet" />);
         return ref.current!.getImageBlob();
       };
 
@@ -420,7 +391,7 @@ describe('QRCode', () => {
       mockGetRawData.mockResolvedValue(blob);
 
       const ref = React.createRef<QRCodeHandle>();
-      render(<QRCode ref={ref} address={ADDRESS} size={200} />);
+      render(<QRCode palette="green" ref={ref} address={ADDRESS} size={200} />);
 
       const result = await ref.current!.getImageBlob();
 
@@ -433,7 +404,7 @@ describe('QRCode', () => {
       mockGetRawData.mockResolvedValue(new Uint8Array([1, 2, 3]));
 
       const ref = React.createRef<QRCodeHandle>();
-      render(<QRCode ref={ref} address={ADDRESS} size={200} />);
+      render(<QRCode palette="green" ref={ref} address={ADDRESS} size={200} />);
 
       const result = await ref.current!.getImageBlob();
 
