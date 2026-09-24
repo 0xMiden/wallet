@@ -86,8 +86,9 @@ it('covers a pasted private key once the field is left', () => {
   render(<ImportAccount />);
   const field = screen.getByLabelText('privateKey');
 
-  expect(document.querySelector('[data-slot="secret-cover"]')).toBeNull();
+  fireEvent.focus(field);
   fireEvent.change(field, { target: { value: 'aabbcc' } });
+  expect(document.querySelector('[data-slot="secret-cover"]')).toBeNull();
   fireEvent.blur(field);
   expect(document.querySelector('[data-slot="secret-cover"]')).toBeInTheDocument();
 });

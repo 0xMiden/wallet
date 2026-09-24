@@ -58,6 +58,7 @@ jest.mock('./ActivityGroupList', () => ({
       data-search={props.searchQuery ?? ''}
       data-alice={props.nameOf('MTST1ALICE') ?? ''}
       data-stranger={props.nameOf('mtst1stranger') ?? ''}
+      data-blank={String(props.nameOf('mtst1blank'))}
     />
   )
 }));
@@ -267,5 +268,6 @@ describe('ActivityGroupedHistory', () => {
     const list = screen.getByTestId('group-list');
     expect(list).toHaveAttribute('data-alice', 'Alice');
     expect(list).toHaveAttribute('data-stranger', '');
+    expect(list).toHaveAttribute('data-blank', 'undefined');
   });
 });

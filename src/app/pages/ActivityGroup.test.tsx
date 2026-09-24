@@ -58,7 +58,12 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-const contacts = { value: [{ address: 'mtst1aliceaddress0000', name: 'Alice' }] };
+const contacts = {
+  value: [
+    { address: 'mtst1aliceaddress0000', name: 'Alice' },
+    { address: 'mtst1blankaddress0000', name: '   ' }
+  ]
+};
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => ({ allContacts: contacts.value, contacts: contacts.value })
 }));
@@ -122,6 +127,12 @@ describe('ActivityGroupPage', () => {
 
     expect(screen.getByRole('heading', { name: 'mtst1s…ess0' })).toBeTruthy();
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
+  });
+
+  it('falls back to the ellipsised address for a contact saved with a blank name', () => {
+    render(<ActivityGroupPage kind="address" id="mtst1blankaddress0000" />);
+
+    expect(screen.getByRole('heading', { name: 'mtst1b…0000' })).toBeTruthy();
   });
 
   it('names every category page from the shared label map', () => {
