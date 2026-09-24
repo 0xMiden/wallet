@@ -30,8 +30,9 @@ import { navigate, useLocation } from 'lib/woozie';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
+import { EarnLoadError } from './EarnLoadError';
 import { EarnVault } from './types';
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const CHART_GREEN = '#90BA89';
 
@@ -52,8 +53,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const { vaults } = useEarnPositions();
-  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
+  const { vaults, isLoading, loadError, refetch } = useEarnPositions();
+  const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
+  const vault = useMemo(() => found ?? placeholderVault(), [found]);
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
 
   const { t } = useTranslation();
   const account = useAccount();
@@ -219,36 +222,45 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-review-page">
       <NetworkModeBanner />
-      <EarnFlowHeader vault={vault} />
+      <EarnFlowHeader vault={found} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
-        <div className={clsx('flex flex-col px-6 pt-6')}>
-          <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnDepositAmountTitle')}</span>
-          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
-            {toAdaptiveFixed(amountValue)}
+      {loadFailed && !found ? (
+        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10 px-6" />
+      ) : pending ? null : (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
+            <div className={clsx('flex flex-col px-6 pt-6')}>
+              {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mb-6" />}
+              <span className="font-heading text-2xl font-bold leading-none text-gray">
+                {t('earnDepositAmountTitle')}
+              </span>
+              <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
+                {toAdaptiveFixed(amountValue)}
+              </div>
+              <div className="flex items-center gap-1">
+                <TokenLogo symbol={depositSymbol} size="md" />
+                <span className="font-heading text-2xl font-bold text-ink">{depositSymbol}</span>
+              </div>
+
+              <DepositProjection vault={vault} amount={amountValue} />
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <TokenLogo symbol={depositSymbol} size="md" />
-            <span className="font-heading text-2xl font-bold text-ink">{depositSymbol}</span>
+
+          <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
+            {submitError && (
+              <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
+            )}
+            <Button
+              data-testid="earn-deposit-review-confirm"
+              title={t('earnOpenPosition')}
+              variant={ButtonVariant.Primary}
+              onClick={handleOpenPosition}
+              disabled={isSubmitting || amountValue <= 0 || !vault.id}
+              className="w-full max-w-none"
+            />
           </div>
-
-          <DepositProjection vault={vault} amount={amountValue} />
-        </div>
-      </div>
-
-      <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
-        {submitError && (
-          <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
-        )}
-        <Button
-          data-testid="earn-deposit-review-confirm"
-          title={t('earnOpenPosition')}
-          variant={ButtonVariant.Primary}
-          onClick={handleOpenPosition}
-          disabled={isSubmitting || amountValue <= 0 || !vault.id}
-          className="w-full max-w-none"
-        />
-      </div>
+        </>
+      )}
       {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge
           assessment={spendingLimitChallenge.assessment}

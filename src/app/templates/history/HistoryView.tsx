@@ -12,6 +12,7 @@ import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
+import { TextAction } from 'components/ui/TextAction';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
@@ -39,6 +40,10 @@ type HistoryViewProps = {
   centerEmptyState?: boolean;
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+  /** A read behind the list failed: with no rows to show, say so instead of "no activity". */
+  loadError?: boolean;
+  /** Re-runs the failed reads; backs the load-error card's Retry. */
+  onRetry?: () => void;
   className?: string;
 };
 
@@ -351,6 +356,8 @@ const HistoryView = memo<HistoryViewProps>(
     centerEmptyState,
     pendingItems,
     renderPendingItem,
+    loadError,
+    onRetry,
     className
   }) => {
     const { t } = useTranslation();
@@ -378,36 +385,83 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (initialLoading)
+      // One read failing while the other still loads is already a failure worth a Retry.
+      if (initialLoading && !loadError)
         return (
           <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
         );
+      // A failed read with nothing to show must not read as "no activity": in every empty mode the
+      // card says the load failed and offers Retry instead.
+      const loadErrorCard = loadError ? (
+        <EmptyState
+          role="alert"
+          icon={IconName.ArrowUpDown}
+          surface={tokenId ? 'dashed' : 'fill'}
+          title={t('tokenActivityLoadError')}
+          secondaryAction={
+            onRetry ? { label: t('retry'), onClick: onRetry, 'data-testid': 'history-load-retry' } : undefined
+          }
+          className="w-full"
+          data-testid="history-load-error"
+        />
+      ) : null;
       if (centerEmptyState) {
         // Sits right under the filters, at the same top offset the first date
         // group gets once the list has entries (`pt-4` on the first `dateGroups`
         // row below) — not vertically centered in the remaining tab height.
         return (
           <div className="flex flex-col pt-4">
-            <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            {loadErrorCard ?? (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            )}
           </div>
         );
       }
       return (
         // Full history outside the Activity tab (the token page) sits under its own section
-        // header, which already spaces it; the summary view keeps its own margin.
+        // header, which already spaces it; the summary view keeps its own margin. One token's history
+        // is a slot waiting to be filled, so it gets the dashed card and its own copy.
         <div className={classNames('flex flex-col justify-left', !fullHistory && 'm-4')}>
-          <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+          {loadErrorCard ??
+            (tokenId ? (
+              <EmptyState
+                icon={IconName.ArrowUpDown}
+                surface="dashed"
+                title={t('tokenActivityEmptyTitle')}
+                description={t('tokenActivityEmptyBody')}
+                className="w-full"
+              />
+            ) : (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            ))}
         </div>
       );
     }
+
+    // Rows on screen with a failed read behind them are not the whole history: say so above them.
+    const loadErrorNotice = loadError ? (
+      <div
+        role="alert"
+        data-testid="history-load-error-notice"
+        className="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-fill px-4 py-3"
+      >
+        <span className="text-body-sm text-ink">{t('tokenActivityLoadError')}</span>
+        {onRetry && (
+          <TextAction onClick={onRetry} data-testid="history-load-retry">
+            {t('retry')}
+          </TextAction>
+        )}
+      </div>
+    ) : null;
 
     // Summary view (used outside the full Activity page) keeps the legacy
     // HistoryItem look — small list of recent entries, no grouping or chrome.
     if (!fullHistory) {
       return (
         <div className={classNames('w-full', 'flex flex-col', className)}>
+          {loadErrorNotice}
           {entries.map((entry, index) => (
             <HistoryItem
               entry={entry}
@@ -477,6 +531,7 @@ const HistoryView = memo<HistoryViewProps>(
 
     return (
       <div className={classNames('w-full pb-6 flex flex-col', className)}>
+        {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
             loadMore={loadMore}

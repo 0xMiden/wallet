@@ -335,7 +335,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         />
       </SubPageSection>
 
-      <ListGroup>
+      <ListGroup surface="outline">
         <ListRow
           title={t('devAllowNoGuardian')}
           disabled={readOnly}

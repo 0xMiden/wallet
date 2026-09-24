@@ -858,7 +858,7 @@ describe('HistoryDetails', () => {
 
   describe('header close control', () => {
     // The header used to carry a close X for swap rows (a shortcut straight
-    // home) alongside the back chevron. It is gone: the back button is the
+    // home) alongside the back button. It is gone: the back button is the
     // only way off this page now, for every transaction type.
     it('renders no close X for an ordinary transaction', async () => {
       setMockRow({ ...baseSendTx });
@@ -1253,7 +1253,7 @@ describe('HistoryDetails', () => {
 
     it('keeps a way off the screen once the order is filled, via the header back button only', async () => {
       // The receipt no longer owns its own dismiss control; the only way off
-      // this screen in any order state is the page's own back chevron.
+      // this screen in any order state is the page's own back button.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '42',

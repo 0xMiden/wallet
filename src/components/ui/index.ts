@@ -70,6 +70,7 @@ export type { SegmentedControlProps, SegmentedControlItem, SegmentedControlAppea
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
 
+export { HeaderRule } from './HeaderRule';
 export { TabHeader, TabHeaderAction } from './TabHeader';
 export type { TabHeaderProps } from './TabHeader';
 

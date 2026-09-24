@@ -212,10 +212,18 @@ describe('GeneralSettings', () => {
     // A settings choice is a fill row: it never scrolls, so it can never scroll the page under it.
     expect(screen.getByRole('radiogroup', { name: 'theme' })).toHaveClass('w-full');
     expect(screen.getByRole('radiogroup', { name: 'theme' }).className).not.toMatch(/overflow-x-auto/);
-    expect(themeRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(themeRow.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
     expect(themeRow.parentElement).toContainElement(
       screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
     );
+    // Every group on the page is outlined, the telemetry consent's included.
+    for (const id of [
+      GeneralSettingsSelectors.DelegateToggle,
+      GeneralSettingsSelectors.AutoConsumeToggle,
+      GeneralSettingsSelectors.TelemetryToggle
+    ]) {
+      expect(screen.getByTestId(`${id}-row`).parentElement).toHaveClass('bg-page', 'border', 'border-hairline');
+    }
 
     // Descriptions are the muted 14px section footnote.
     expect(screen.getByText('delegateProofSettingsDescription')).toHaveClass('text-body-sm', 'text-muted');

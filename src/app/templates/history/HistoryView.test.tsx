@@ -119,10 +119,28 @@ jest.mock('components/ui', () => ({
 // Imported from its own module path in the source (not the `components/ui`
 // barrel mocked above), so it needs its own mock.
 jest.mock('components/ui/EmptyState', () => ({
-  EmptyState: ({ icon, title, className }: { icon: string; title: string; className?: string }) => (
-    <div data-testid="empty-state" data-classname={className}>
+  EmptyState: ({
+    icon,
+    title,
+    description,
+    surface,
+    className,
+    role,
+    secondaryAction
+  }: {
+    icon: string;
+    title: string;
+    description?: string;
+    surface?: string;
+    className?: string;
+    role?: string;
+    secondaryAction?: { label: string; onClick: () => void };
+  }) => (
+    <div data-testid="empty-state" data-classname={className} data-surface={surface} role={role}>
       <span data-testid="icon" data-name={icon} />
       <h3>{title}</h3>
+      {description && <p>{description}</p>}
+      {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
     </div>
   )
 }));
@@ -268,6 +286,74 @@ describe('HistoryView empty state', () => {
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
     expect(container.querySelector('.mt-8')).toBeNull();
     expect(container.querySelector('.m-4')).toBeNull();
+  });
+
+  it("draws a token's own empty card, dashed, when the history is one token's", () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory tokenId="token-1" />);
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    expect(screen.getByText('tokenActivityEmptyTitle')).toBeInTheDocument();
+    expect(screen.getByText('tokenActivityEmptyBody')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state')).toHaveAttribute('data-surface', 'dashed');
+  });
+
+  it('keeps the plain no-operations card for a history that is not one token', () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+    expect(screen.getByTestId('empty-state')).not.toHaveAttribute('data-surface', 'dashed');
+  });
+
+  describe('after a failed load', () => {
+    const emptyModes: Array<[string, Partial<React.ComponentProps<typeof HistoryView>>]> = [
+      ['the default list', {}],
+      ['the centred Activity list', { centerEmptyState: true }],
+      ["one token's full history", { tokenId: 'token-1', fullHistory: true }]
+    ];
+
+    it.each(emptyModes)(
+      'says the load failed, with Retry, while the other read still loads, in %s',
+      (_mode, modeProps) => {
+        const onRetry = jest.fn();
+        render(<HistoryView {...baseProps} {...modeProps} entries={[]} initialLoading loadError onRetry={onRetry} />);
+
+        expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+        fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+        expect(onRetry).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(emptyModes)('says the load failed, with Retry, instead of the empty card, in %s', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(<HistoryView {...baseProps} {...modeProps} entries={[]} loadError onRetry={onRetry} />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryByText('noOperationsFound')).toBeNull();
+      expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['the summary list', {}],
+      ['the Activity list', { fullHistory: true }],
+      ["one token's list", { fullHistory: true, tokenId: 'token-1' }]
+    ])('keeps the rows it has in %s, under an alert with Retry', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(
+        <HistoryView {...baseProps} {...modeProps} entries={[makeEntry({ key: 'kept' })]} loadError onRetry={onRetry} />
+      );
+
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryAllByTestId(/^(history-item|activity-row)$/)).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('keeps the centred Activity card as it is, even with a token id', () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState tokenId="token-1" />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
   });
 });
 

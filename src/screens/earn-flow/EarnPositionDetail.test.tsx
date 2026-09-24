@@ -4,6 +4,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { goBack, navigate } from 'lib/woozie';
 
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnPositionDetail from './EarnPositionDetail';
 
 // `EarnPositionDetail` renders a recharts `<AreaChart>` inside `ChartContainer`.
@@ -19,6 +20,10 @@ import EarnPositionDetail from './EarnPositionDetail';
 //     every branch of `if (!active || !payload?.[0]) return null` runs.
 // The factory references no out-of-scope bindings (only `require('react')`) so
 // swc's jest-hoist is happy (mirrors the sibling `lib/ui/charts.test.tsx`).
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('recharts', () => {
@@ -125,6 +130,7 @@ jest.mock('lib/mobile/haptics', () => ({
 // all-equal series, so this is the only way to reach the `|| 1` arm without
 // touching the source). Unknown ids fall through to `placeholderPosition()`.
 jest.mock('./useEarnPositions', () => ({
+  ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
     summary: {
       totalRewards: '$218.32',
@@ -195,8 +201,8 @@ jest.mock('./useEarnPositions', () => ({
       }
     ],
     vaults: [],
-    isLoading: false,
-    error: undefined
+    ...mockLoadState,
+    refetch: mockRefetch
   })
 }));
 
@@ -237,7 +243,8 @@ describe('EarnPositionDetail', () => {
     expect(byLabel('earnMetricDeposited')).toHaveTextContent('$2,000.00');
     expect(byLabel('earnMetricTotalEarned')).toHaveTextContent('+$99.00');
     expect(byLabel('earnMetricTotalEarned')).toHaveAttribute('data-valueclass', 'text-status-positive');
-    expect(byLabel('APY')).toHaveTextContent('9.99%');
+    // The APY label goes through t() like its neighbours, so it is translated with them.
+    expect(byLabel('earnApyLabel')).toHaveTextContent('9.99%');
     expect(byLabel('earnMetricDailyAvg')).toHaveTextContent('+$1.11');
     expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
     expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
@@ -292,13 +299,13 @@ describe('EarnPositionDetail', () => {
 
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('earnPositionHeaderTitle');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
     expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', '—');
 
     const cards = screen.getAllByTestId('metric-card');
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
     expect(byLabel('earnMetricDeposited')).toHaveTextContent('—');
-    expect(byLabel('APY')).toHaveTextContent('—');
+    expect(byLabel('earnApyLabel')).toHaveTextContent('—');
 
     expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
@@ -358,5 +365,76 @@ describe('EarnPositionDetail', () => {
     const normal = renderDetail('pos-normal');
     expect(normal.getByTestId('area-chart')).toBeInTheDocument();
     expect(normal.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
+  });
+});
+
+describe('EarnPositionDetail after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says a per-owner positions failure too, which is not a request failure', () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+  });
+
+  it('says the load failed, with Retry, instead of drawing a placeholder position', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
+  });
+
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    renderDetail('no-such-position');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+
+  it('keeps a position it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderDetail('pos-normal');
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+  });
+});
+
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom' }],
+  ['a load in flight', { isLoading: true }],
+  ['a settled load without it', { isLoading: false }]
+];
+
+describe('EarnPositionDetail with no position to name', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each(MISSING_LOAD_STATES)('keeps a route heading and no placeholder name after %s', (_state, loadState) => {
+    mockLoadState = loadState;
+    renderDetail('no-such-position');
+
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/^earnPositionsTitle$/);
   });
 });

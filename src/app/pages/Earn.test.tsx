@@ -5,6 +5,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 import { EARN_DATA } from 'screens/earn-flow/data';
+import { buildEarnSummary } from 'screens/earn-flow/earn-mapping';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 import Earn from './Earn';
@@ -38,8 +39,7 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-// The trailing chevron on each vault row is the only icon on the page. Render a
-// probe that surfaces the requested icon name so we can prove the wiring.
+// Render every icon as a probe with its name, so a test can see which icons a surface draws.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, fill }: { name: string; fill?: string }) => (
     <span data-testid="chevron-icon" data-name={name} data-fill={fill} />
@@ -53,10 +53,12 @@ jest.mock('screens/earn-flow/useEarnPositions', () => ({
 
 // i18n: the page renders every user-facing string through `t()`. Stub the hook
 // so `t(key)` returns the key verbatim, letting us assert on the stable key
-// instead of the English copy. Interpolated calls (`{asset} on {network}`) also
-// collapse to the bare key under this stub.
+// instead of the English copy. An interpolated call appends its values
+// (`key:a,b`), so a test can see the value it interpolates, not just the key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key}:${Object.values(opts).join(',')}` : key)
+  })
 }));
 
 const mockHaptic = hapticLight as jest.Mock;
@@ -109,6 +111,103 @@ describe('Earn page', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/earn/positions');
   });
 
+  it('says nothing about positions while the first load is in flight', () => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, refetch: jest.fn() });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows a retryable load error, not "no positions", when a load failed with nothing to show', () => {
+    const refetch = jest.fn();
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a per-owner positions failure too, which is not a request failure', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults,
+      isLoading: false,
+      error: 'owner unavailable',
+      loadError: undefined,
+      refetch: jest.fn()
+    });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+  });
+
+  it('keeps the failure said, and the summary gone, while a retry is loading', () => {
+    // SWR keeps the error until a load succeeds and reports the retry as isLoading: the failed state
+    // must not lift and flash "$0" back.
+    const refetch = jest.fn();
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
+  });
+
+  it('keeps last-good positions on screen through a failed refresh, under a retryable notice', () => {
+    const refetch = jest.fn();
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, isLoading: false, error: 'boom', refetch });
+    render(<Earn />);
+    // The cards stay, but they are not presented as complete: the failure is said beside them.
+    expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
+    expect(positionsSection().querySelector('.overflow-x-auto')).not.toBeNull();
+    expect(within(positionsSection()).getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    fireEvent.click(within(positionsSection()).getByRole('button', { name: 'retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws no summary over a failed first load, so it never reads as $0', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults,
+      isLoading: false,
+      error: 'boom',
+      refetch: jest.fn()
+    });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
+  });
+
+  it('draws no summary while a first load (no error yet) is in flight, so it never reads as $0', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults,
+      isLoading: true,
+      refetch: jest.fn()
+    });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
+  });
+
+  it('keeps the summary once positions have loaded', () => {
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, isLoading: false, error: 'boom', refetch: jest.fn() });
+    render(<Earn />);
+    expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
+  });
+
+  it('shows the dashed empty state, not the scroll row, when there are no positions', () => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, refetch: jest.fn() });
+    render(<Earn />);
+
+    const empty = screen.getByTestId('earn-positions-empty');
+    expect(empty).toHaveClass('border-dashed');
+    expect(empty).toHaveTextContent('earnNoActivePositionsTitle');
+    expect(empty).toHaveTextContent('earnNoActivePositionsBody');
+    expect(positionsSection().querySelector('.overflow-x-auto')).toBeNull();
+  });
+
   it('renders one PositionCard per position with its details', () => {
     render(<Earn />);
 
@@ -119,12 +218,16 @@ describe('Earn page', () => {
       .getAllByRole('button')
       .filter(button => button.textContent !== 'earnSeeAll');
     expect(cards).toHaveLength(positions.length);
+    cards.forEach(card => {
+      expect(card).toHaveClass('bg-page', 'border', 'border-hairline');
+      expect(card).not.toHaveClass('bg-fill');
+    });
 
     const first = positions[0]!;
     const firstCard = cards[0]!;
     // Protocol + asset are joined by a bullet in a single node.
     expect(firstCard).toHaveTextContent(`${first.protocol} • ${first.asset}`);
-    expect(firstCard).toHaveTextContent(`${first.apy} earnApyLabel`);
+    expect(firstCard).toHaveTextContent(`earnPositionsApy:${first.apy}`);
     expect(firstCard).toHaveTextContent(first.amount);
     expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
 
@@ -172,24 +275,26 @@ describe('Earn page', () => {
     expect(stopSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('renders one VaultRow per vault with its details and a chevron', () => {
+  it('renders one VaultRow per vault with its details and no TVL line', () => {
     render(<Earn />);
 
     const section = vaultsSection();
     const rows = within(section).getAllByRole('button');
     expect(rows).toHaveLength(vaults.length);
+    rows.forEach(row => {
+      expect(row).toHaveClass('bg-page', 'border', 'border-hairline');
+      expect(row).not.toHaveClass('bg-fill');
+      expect(within(row).queryByTestId('chevron-icon')).toBeNull();
+    });
 
     const first = vaults[0]!;
     const firstRow = rows[0]!;
     expect(firstRow).toHaveTextContent(first.protocol);
     expect(firstRow).toHaveTextContent('earnVaultAssetOnNetwork');
     expect(firstRow).toHaveTextContent(first.apy);
-
-    // The trailing chevron probe uses the ChevronRightLucide icon rendered with
-    // fill="none".
-    const chevron = within(firstRow).getByTestId('chevron-icon');
-    expect(chevron).toHaveAttribute('data-name', 'ChevronRightLucide');
-    expect(chevron).toHaveAttribute('data-fill', 'none');
+    // The earn API has no TVL, so the row promises none.
+    expect(within(firstRow).queryByText('earnVaultTvl')).toBeNull();
+    expect(firstRow).not.toHaveTextContent('earnVaultTvl');
 
     // Each row also renders a ProviderLogo probe with the vault's protocol.
     expect(within(firstRow).getByTestId('provider-logo')).toHaveAttribute('data-protocol', first.protocol);
@@ -203,5 +308,30 @@ describe('Earn page', () => {
 
     expect(mockHaptic).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith(`/earn/vaults/${vaults[0]!.id}`);
+  });
+
+  // The vaults come from the same read as the positions, so with none to list the section says nothing:
+  // not while it loads, not after a failure (the positions section already says so), not once settled.
+  it.each([
+    ['loading', { isLoading: true }],
+    ['failed', { isLoading: false, error: 'boom' }],
+    ['settled', { isLoading: false }]
+  ])('draws no vaults section with no vaults, %s', (_state, load) => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults: [], refetch: jest.fn(), ...load });
+    render(<Earn />);
+
+    expect(screen.queryByRole('region', { name: 'earnVaultsTitle' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'earnVaultsTitle' })).toBeNull();
+  });
+
+  it.each([
+    ['settled', { isLoading: false }],
+    ['retrying', { isLoading: true }],
+    ['failed', { isLoading: false, error: 'boom' }]
+  ])('keeps the vaults it has, %s', (_state, load) => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions, vaults, refetch: jest.fn(), ...load });
+    render(<Earn />);
+
+    expect(within(vaultsSection()).getAllByRole('button')).toHaveLength(vaults.length);
   });
 });

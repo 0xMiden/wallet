@@ -415,6 +415,10 @@
     "message": "포지션을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Couldn't load this vault. Check your connection and try again.",
+    "englishSource": "(untranslated)"
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -431,6 +435,14 @@
   "earnDepositAmountLabel": {
     "message": "입금액",
     "englishSource": "Deposit Amount"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "No active positions",
+    "englishSource": "(untranslated)"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Deposit into a vault below to start earning rewards.",
+    "englishSource": "(untranslated)"
   },
   "earnSeeAll": {
     "message": "모두 보기",
@@ -4025,6 +4037,18 @@
   "network": {
     "message": "네트워크",
     "englishSource": "Network"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "No activity yet",
+    "englishSource": "(untranslated)"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Transactions with this token will appear here.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenActivityLoadError": {
+    "message": "Couldn't load this activity.",
+    "englishSource": "(untranslated)"
   },
   "recentActivity": {
     "message": "최근 활동",

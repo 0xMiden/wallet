@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { HeaderRule } from 'components/ui/HeaderRule';
 import { IconButton } from 'components/ui/IconButton';
 
 export interface PageHeaderProps {
@@ -26,9 +27,13 @@ export interface PageHeaderProps {
 }
 
 /**
- * The header of every pushed page: back, title, actions and close in one 52px row, like a native
- * navigation bar. Tab roots use TabHeader and sheets DrawerHeader; everything else uses this, so a
- * page's content starts at the same height everywhere. No horizontal padding: it takes the page's.
+ * The header of every pushed page: back, title, actions and close in one row of at least 60px, like
+ * a native navigation bar, then the 4px rule under it. The row grows for a title that takes its
+ * second line, so the rule is never drawn across it. Tab roots use TabHeader and sheets
+ * DrawerHeader; everything else uses this, so a page's content starts at the same height wherever
+ * its title fits one line. No
+ * horizontal padding of its own: `className` lands on the block holding both the row and the rule,
+ * so the page margin a caller passes insets them together.
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
@@ -48,25 +53,34 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   }, [focusTitleOnMount]);
 
   return (
-    <header className={clsx('flex h-13 shrink-0 items-center gap-3', className)}>
-      {onBack && (
-        // `bare` is always `ink`, in a flow too: the flow accents are under 3:1 on white.
-        <IconButton icon={IconName.ChevronLeft} label={t('back')} onClick={onBack} data-testid={backTestId} />
-      )}
-      {title ? (
-        <h1
-          ref={titleRef}
-          tabIndex={focusTitleOnMount ? -1 : undefined}
-          // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
-          className="line-clamp-2 min-w-0 flex-1 text-title-page break-words text-ink outline-none"
-        >
-          {title}
-        </h1>
-      ) : (
-        <span className="flex-1" />
-      )}
-      {actions}
-      {onClose && <IconButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
-    </header>
+    <div className={clsx('flex shrink-0 flex-col', className)}>
+      <header className="flex min-h-15 shrink-0 items-center gap-3">
+        {onBack && (
+          // A 44px `fill` circle with an `ink` glyph, in a flow too: the flow accents are under 3:1 on white.
+          <IconButton
+            icon={IconName.ArrowLeft}
+            appearance="filled"
+            label={t('back')}
+            onClick={onBack}
+            data-testid={backTestId}
+          />
+        )}
+        {title ? (
+          <h1
+            ref={titleRef}
+            tabIndex={focusTitleOnMount ? -1 : undefined}
+            // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
+            className="line-clamp-2 min-w-0 flex-1 text-title-tab break-words text-ink outline-none"
+          >
+            {title}
+          </h1>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {actions}
+        {onClose && <IconButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
+      </header>
+      <HeaderRule />
+    </div>
   );
 };

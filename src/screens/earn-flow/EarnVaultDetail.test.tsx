@@ -5,27 +5,34 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { goBack, navigate } from 'lib/woozie';
 
 // Imported after the mocks above are registered (jest hoists jest.mock).
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnVaultDetail from './EarnVaultDetail';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-// `./components` re-exports `MetricCard` alongside a module-level
-// `import aaveLogoUrl from '...aave.svg?url'` (a webpack `?url` query that
-// jest's `\.svg$` mapper does not match). Stub the module so we only pull in a
-// light `MetricCard` and never touch that asset import. The stub echoes its
-// props via data-* attributes so we can assert what `EarnVaultDetail` passed
-// (label / value / valueClassName), which is where the audited-branch styling
-// lives.
+// `./components` imports `...aave.svg?url` (a webpack `?url` query that jest's
+// `\.svg$` mapper does not match), so a virtual mock stands in for it. The
+// real `EarnFlowHeader` draws the page header; `MetricCard` is a stub that
+// echoes its props via data-* attributes so we can assert what
+// `EarnVaultDetail` passed (label / value / valueClassName), which is where the
+// audited-branch styling lives.
 // i18n: the component and the shared Button/IconButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
+
 jest.mock('./components', () => ({
+  EarnFlowHeader: jest.requireActual<typeof import('./components')>('./components').EarnFlowHeader,
   MetricCard: ({
     label,
     value,
@@ -109,6 +116,7 @@ jest.mock('recharts', () => {
 //   - the unaudited vault — audited=false, all-equal chart values →
 //     `(max-min)*0.18` is 0, so the `|| 1` fallback branch runs.
 jest.mock('./useEarnPositions', () => ({
+  ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
     summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
     positions: [],
@@ -149,8 +157,8 @@ jest.mock('./useEarnPositions', () => ({
         ]
       }
     ],
-    isLoading: false,
-    error: undefined
+    ...mockLoadState,
+    refetch: mockRefetch
   })
 }));
 
@@ -241,9 +249,9 @@ describe('EarnVaultDetail', () => {
   it('falls back to the placeholder vault when the id is unknown', () => {
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    // `?? placeholderVault()` — every display field is the "—" placeholder and
-    // the empty id disables the Deposit CTA.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('— • —');
+    // `?? placeholderVault()`: every body field is the EARN_PLACEHOLDER value, the header names only the
+    // route, and the empty id disables the Deposit CTA.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
     expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
   });
@@ -268,5 +276,85 @@ describe('EarnVaultDetail', () => {
 
     expect(screen.queryByRole('radiogroup')).toBeNull();
     expect(screen.getByTestId('area-chart')).toBeInTheDocument();
+  });
+});
+
+describe('EarnVaultDetail after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says the load failed, with Retry, instead of drawing a placeholder vault', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
+    expect(screen.queryByText('earnCurrentApy')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no notice over a found vault when only one owner's positions failed", () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
+  });
+
+  it('keeps a vault it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
+  });
+
+  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('— • —')).toBeNull();
+    expect(screen.queryByText('earnAssetOnNetwork')).toBeNull();
+    expect(screen.getByLabelText('back')).toBeInTheDocument();
+  });
+
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
+    expect(screen.queryByText('earnCurrentApy')).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+});
+
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string; loadError?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom', loadError: 'boom' }],
+  ['a load in flight', { isLoading: true }],
+  ['a settled load without it', { isLoading: false }]
+];
+
+describe('EarnVaultDetail with no vault to name', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each(MISSING_LOAD_STATES)('keeps a route heading and no placeholder name after %s', (_state, loadState) => {
+    mockLoadState = loadState;
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/^earnDeposit$/);
+    expect(screen.queryByText(`${EARN_PLACEHOLDER} • ${EARN_PLACEHOLDER}`)).toBeNull();
+    expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

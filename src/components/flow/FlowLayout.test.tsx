@@ -10,7 +10,7 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('app/icons/v2', () => ({
-  IconName: { ChevronLeft: 'chevron-left', Close: 'close' },
+  IconName: { ArrowLeft: 'arrow-left', ChevronLeft: 'chevron-left', Close: 'close' },
   // Keep name and className: the glyph and its colour are what the back assertions check, and a
   // mock that drops them makes those assertions unfalsifiable.
   Icon: ({ name, className }: { name: string; className?: string }) => <svg data-name={name} className={className} />
@@ -32,9 +32,9 @@ describe('FlowLayout', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('styles back as a bare ink chevron, never the flow accent', () => {
-    // Flow accents are under 3:1 on white, so the spec keeps them off text and the back chevron.
-    // The color lives on the IconButton itself (a `bare` IconButton is always `ink`) and the
+  it('styles back as an ink arrow on the fill circle, never the flow accent', () => {
+    // Flow accents are under 3:1 on white, so the spec keeps them off text and the back button.
+    // The color lives on the IconButton itself (a `filled` IconButton is always `ink`) and the
     // glyph inherits it through `fill="currentColor"` — same pattern PageHeader.test.tsx checks.
     render(
       <SendStepLayout title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
@@ -43,15 +43,26 @@ describe('FlowLayout', () => {
     );
 
     const back = screen.getByTestId('flow-back');
-    expect(back).not.toHaveClass('bg-fill');
-    expect(back).not.toHaveClass('bg-fill');
-    expect(back).toHaveClass('text-ink');
+    // The shared pushed-page back button: an ink arrow on the 44px fill circle.
+    expect(back).toHaveClass('bg-fill', 'text-ink');
     expect(back).not.toHaveClass('text-accent-send');
     const glyph = back.querySelector('svg');
-    expect(glyph).toHaveAttribute('data-name', 'chevron-left');
+    expect(glyph).toHaveAttribute('data-name', 'arrow-left');
   });
 
-  it('keeps the 52px header row without a back button so content lines up across steps', () => {
+  it("starts a tab-root step's content where a pushed step's starts: 36px above a 36px title", () => {
+    // A pushed step's content starts under the 60px PageHeader row, its 4px rule and pt-2: 72px.
+    render(
+      <FlowLayout title="Send" tabRoot footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+    const body = screen.getByRole('heading', { level: 1 }).closest('header')!.parentElement!;
+    expect(body).toHaveClass('pt-9');
+    expect(body).not.toHaveClass('pt-6');
+  });
+
+  it('keeps the 60px header row without a back button so content lines up across steps', () => {
     render(
       <FlowLayout title="Title" footer={<button>cta</button>}>
         <p>content</p>
@@ -59,7 +70,7 @@ describe('FlowLayout', () => {
     );
 
     expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
-    expect(screen.getByRole('banner')).toHaveClass('h-13');
+    expect(screen.getByRole('banner')).toHaveClass('min-h-15');
     expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 

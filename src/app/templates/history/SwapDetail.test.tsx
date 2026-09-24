@@ -346,7 +346,7 @@ describe('SwapDetail explorer links', () => {
 describe('SwapDetail actions', () => {
   it('renders no dismiss control of its own - leaving the screen is the page back button', () => {
     // An order that reached the DEX has no cancel path, but there is also no
-    // in-card way off the screen any more: the routed page's own back chevron
+    // in-card way off the screen any more: the routed page's own back button
     // is the only exit, in every order state.
     renderDetail({ showActions: true, orderState: 'filled' });
 

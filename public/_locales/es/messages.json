@@ -415,6 +415,10 @@
     "message": "No se han podido cargar tus posiciones. Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Couldn't load this vault. Check your connection and try again.",
+    "englishSource": "(untranslated)"
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -431,6 +435,14 @@
   "earnDepositAmountLabel": {
     "message": "Importe del depósito",
     "englishSource": "Deposit Amount"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "No active positions",
+    "englishSource": "(untranslated)"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Deposit into a vault below to start earning rewards.",
+    "englishSource": "(untranslated)"
   },
   "earnSeeAll": {
     "message": "Ver todo",
@@ -4025,6 +4037,18 @@
   "network": {
     "message": "Red",
     "englishSource": "Network"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "No activity yet",
+    "englishSource": "(untranslated)"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Transactions with this token will appear here.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenActivityLoadError": {
+    "message": "Couldn't load this activity.",
+    "englishSource": "(untranslated)"
   },
   "recentActivity": {
     "message": "Actividad reciente",

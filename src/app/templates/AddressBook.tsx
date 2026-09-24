@@ -71,7 +71,7 @@ const AddressBook: React.FC = () => {
               <section>
                 <SectionHeader>{t('contacts')}</SectionHeader>
                 {contacts.length > 0 ? (
-                  <ListGroup>
+                  <ListGroup surface="outline">
                     {contacts.map(contact => (
                       <ListRow
                         key={contact.address}
@@ -88,6 +88,7 @@ const AddressBook: React.FC = () => {
                   <EmptyState
                     data-testid="address-book-empty"
                     icon={IconName.Users}
+                    surface="dashed"
                     title={t('noContactsYet')}
                     description={t('noContactsYetHint')}
                   />
@@ -98,7 +99,7 @@ const AddressBook: React.FC = () => {
             {accounts.length > 0 && (
               <section>
                 <SectionHeader>{t('myAccounts')}</SectionHeader>
-                <ListGroup>
+                <ListGroup surface="outline">
                   {accounts.map(account => (
                     <ListRow
                       key={account.address}

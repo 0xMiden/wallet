@@ -415,6 +415,10 @@
     "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Couldn't load this vault. Check your connection and try again.",
+    "englishSource": "(untranslated)"
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -431,6 +435,14 @@
   "earnDepositAmountLabel": {
     "message": "Para Yatırma Tutarı",
     "englishSource": "Deposit Amount"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "No active positions",
+    "englishSource": "(untranslated)"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Deposit into a vault below to start earning rewards.",
+    "englishSource": "(untranslated)"
   },
   "earnSeeAll": {
     "message": "Tümünü Göster",
@@ -4025,6 +4037,18 @@
   "network": {
     "message": "Ağ",
     "englishSource": "Network"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "No activity yet",
+    "englishSource": "(untranslated)"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Transactions with this token will appear here.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenActivityLoadError": {
+    "message": "Couldn't load this activity.",
+    "englishSource": "(untranslated)"
   },
   "recentActivity": {
     "message": "Son etkinlikler",

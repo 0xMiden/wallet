@@ -94,7 +94,7 @@ jest.mock('lib/woozie', () => ({
   goBack: jest.fn(),
   HistoryAction: { Push: 'push', Replace: 'replace' },
   // Read by useBackWithFallback at call time, which decides whether the sub-page
-  // header's back chevron pops history or falls back to the settings root.
+  // header's back button pops history or falls back to the settings root.
   createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/settings/sub' }),
   listen: () => () => undefined
 }));
@@ -710,7 +710,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-title')).toHaveTextContent('language');
   });
 
-  // The root's back-to-home chevron is gone: Settings is a bottom-nav
+  // The root's back-to-home button is gone: Settings is a bottom-nav
   // destination, and tab roots don't carry one (see the tab-destination test
   // in the root-menu block above). Sub-page back behaviour is unchanged and
   // still covered below.
@@ -858,7 +858,7 @@ describe('Settings page — active tab routing', () => {
 
   it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
     // A deep link or a reload lands on the sub-page at the first history entry,
-    // where goBack() is a no-op — the chevron has to route instead, and replace so
+    // where goBack() is a no-op - the back button has to route instead, and replace so
     // forward does not walk back into the page just left.
     mockHistoryPosition = 0;
     render(<Settings tabSlug="networks" />);

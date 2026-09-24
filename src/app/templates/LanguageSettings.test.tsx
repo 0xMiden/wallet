@@ -152,7 +152,8 @@ describe('LanguageSettings', () => {
     expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'overflow-y-auto');
     const rows = screen.getAllByRole('radio');
     expect(new Set(rows.map(row => row.parentElement)).size).toBe(1);
-    expect(rows[0]!.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(rows[0]!.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(rows[0]!.parentElement).not.toHaveClass('bg-fill');
     expect(rows[0]!.querySelector('[data-slot="title"]')).toHaveTextContent('English');
   });
 

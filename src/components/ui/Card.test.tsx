@@ -223,15 +223,18 @@ describe('Card surfaces', () => {
     expect(container.firstChild).not.toHaveClass('bg-fill');
   });
 
-  it('offers the outline on Card only: a CardButton is always the fill', () => {
+  it('offers the outline on CardButton too, keeping its press and focus classes', () => {
     const surface: InternalSurface = 'outline';
-    render(
-      // @ts-expect-error CardButton takes no surface.
+    const { rerender } = render(<CardButton onClick={() => undefined}>x</CardButton>);
+    expect(screen.getByRole('button')).toHaveClass('bg-fill');
+
+    rerender(
       <CardButton surface={surface} onClick={() => undefined}>
         x
       </CardButton>
     );
-    expect(screen.getByRole('button')).toHaveClass('bg-fill');
-    expect(screen.getByRole('button')).not.toHaveClass('bg-page');
+    expect(screen.getByRole('button')).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(screen.getByRole('button')).not.toHaveClass('bg-fill');
+    expect(screen.getByRole('button')).toHaveClass('active:bg-fill-pressed', 'focus-visible:ring-2');
   });
 });

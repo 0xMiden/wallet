@@ -304,7 +304,7 @@ describe('export chrome / renderStep', () => {
     expect(screen.getByTestId('nav-header')).toBeInTheDocument();
     expect(screen.getByTestId('nh-title')).toHaveTextContent('encryptedWalletFile');
     // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
     expect(screen.getByTestId('navigator')).toBeInTheDocument();
     expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');

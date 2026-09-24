@@ -209,3 +209,76 @@ describe('es locale parity with en (#469)', () => {
     }
   });
 });
+
+// Chrome parses `public/_locales/<loc>/messages.json` itself, before a line of the
+// extension runs, and REJECTS THE WHOLE EXTENSION when a `$name$` in `message` has
+// no matching `placeholders` entry:
+//
+//   Failed to load extension from: <dist>. Variable $tvl$ used but not defined.
+//
+// The unpacked extension then never loads, so Playwright's `--load-extension`
+// persistent context never comes up and every blockchain spec dies at
+// `browserType.launchPersistentContext: Timeout 180000ms exceeded` before any
+// assertion runs — on every PR stacked above the one that added the key, reading
+// like CI infrastructure flake rather than a one-line locale defect. `tsc`, jest and
+// `yarn lint:i18n` (which lints `src`, not `public/_locales`) are all blind to it;
+// this is the only gate that sees it.
+describe('Chrome i18n placeholder declarations', () => {
+  const ALL_LOCALES = fs
+    .readdirSync(LOCALES_DIR)
+    .filter(dir => fs.existsSync(path.join(LOCALES_DIR, dir, 'messages.json')));
+
+  it.each(ALL_LOCALES)('%s declares every $placeholder$ its messages use', locale => {
+    const undeclared: string[] = [];
+    for (const [key, entry] of Object.entries(loadMessages(locale))) {
+      // Chrome matches placeholder names case-insensitively.
+      const declared = new Set(Object.keys(entry.placeholders ?? {}).map(name => name.toLowerCase()));
+      for (const [, name] of entry.message.matchAll(/\$([A-Za-z0-9_]+)\$/g)) {
+        if (!declared.has(name!.toLowerCase())) undeclared.push(`${key}: $${name}$`);
+      }
+    }
+    expect(undeclared).toEqual([]);
+  });
+});
+
+describe('hand-copied English is queued for translation', () => {
+  // A non-English entry whose message is the English text is only acceptable while it is marked for
+  // the next DeepL run; `translateWithDiff` re-translates an entry whose englishSource is stale, so
+  // the explicit sentinel is what puts it in that queue. Every derived bundle, en_GB included: it is
+  // outside the runtime parity check, so a key could otherwise vanish from it unnoticed.
+  const COPIED_KEYS = [
+    'earnNoActivePositionsTitle',
+    'earnNoActivePositionsBody',
+    'tokenActivityEmptyTitle',
+    'tokenActivityEmptyBody',
+    'tokenActivityLoadError',
+    'earnVaultLoadError'
+  ];
+
+  it('covers en_GB, which the runtime list leaves out', () => {
+    expect(DERIVED_LOCALES).toContain('en_GB');
+  });
+
+  it.each(DERIVED_LOCALES)('%s carries each copied key, translated or explicitly queued', locale => {
+    const messages = loadMessages(locale);
+    const missing = COPIED_KEYS.filter(key => messages[key] === undefined);
+    expect(missing).toEqual([]);
+    const neither = COPIED_KEYS.filter(
+      key => messages[key]!.message === en[key]?.message && messages[key]!.englishSource !== '(untranslated)'
+    );
+    expect(neither).toEqual([]);
+  });
+});
+
+describe('retired keys', () => {
+  // The vault row's TVL line was dropped because the earn API has no TVL; its string goes with it.
+  it('no locale bundle carries earnVaultTvl', () => {
+    const carriers = fs.readdirSync(LOCALES_DIR).flatMap(dir =>
+      ['messages.json', `${dir}.json`]
+        .map(file => path.join(LOCALES_DIR, dir, file))
+        .filter(file => fs.existsSync(file) && 'earnVaultTvl' in JSON.parse(fs.readFileSync(file, 'utf8')))
+        .map(file => path.relative(LOCALES_DIR, file))
+    );
+    expect(carriers).toEqual([]);
+  });
+});

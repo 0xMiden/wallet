@@ -12,8 +12,9 @@ import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, MetricCard, PositionLogo } from './components';
 import { placeholderPosition } from './earn-mapping';
+import { EarnLoadError } from './EarnLoadError';
 import { EarnPosition } from './types';
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const CHART_GREEN = '#90BA89';
 
@@ -23,34 +24,46 @@ interface EarnPositionDetailProps {
 
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { summary, positions } = useEarnPositions();
-  const position = useMemo(
-    () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
-    [positions, positionId]
-  );
+  const { summary, positions, isLoading, error, refetch } = useEarnPositions();
+  const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
+  const position = useMemo(() => found ?? placeholderPosition(), [found]);
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
       <PageHeader
         className="shrink-0 px-4"
-        title={t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
+        // Until the position is found the header names the route, never a placeholder position.
+        title={
+          found
+            ? t('earnPositionHeaderTitle', { protocol: found.protocol, asset: found.asset })
+            : t('earnPositionsTitle')
+        }
         onBack={goBack}
       />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-6">
-          <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
+          {/* A failed load never draws the placeholder position, or a $0 summary, as if it were real. */}
+          {loadFailed && !found ? (
+            <EarnLoadError onRetry={refetch} className="mt-10" />
+          ) : pending ? null : (
+            <>
+              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
+              <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
 
-          <PositionAreaChart position={position} />
+              <PositionAreaChart position={position} />
 
-          <PositionHeading position={position} />
-          <PositionStats position={position} />
-          <ProjectedEarnings position={position} />
-          <PositionDetails position={position} />
-          <PositionActions
-            position={position}
-            onWithdraw={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
-          />
+              <PositionHeading position={position} />
+              <PositionStats position={position} />
+              <ProjectedEarnings position={position} />
+              <PositionDetails position={position} />
+              <PositionActions
+                position={position}
+                onWithdraw={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -135,7 +148,12 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
         valueClassName="text-status-positive"
         className="px-2"
       />
-      <MetricCard label="APY" value={position.apy} valueClassName="text-status-positive" className="px-2" />
+      <MetricCard
+        label={t('earnApyLabel')}
+        value={position.apy}
+        valueClassName="text-status-positive"
+        className="px-2"
+      />
       <MetricCard
         label={t('earnMetricDailyAvg')}
         value={position.dailyAverage}

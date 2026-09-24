@@ -7,9 +7,10 @@ import { colorTransitionClass } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
-/** `bare`: a 24px glyph alone in a 44px hit area, `ink` — page headers, tab-root actions.
- *  `circle`: a 32px (or 36px) circle on `fill`, `muted` glyph — sheets and overlays. */
-export type IconButtonAppearance = 'bare' | 'circle';
+/** `bare`: a 24px glyph alone in a 44px hit area, `ink` - tab-root actions.
+ *  `circle`: a 32px (or 36px) circle on `fill`, `muted` small glyph - sheets and overlays.
+ *  `filled`: a 44px circle on `fill` with an `ink` 24px glyph - a pushed page's back button. */
+export type IconButtonAppearance = 'bare' | 'circle' | 'filled';
 
 const iconButtonVariants = cva(
   [
@@ -24,7 +25,8 @@ const iconButtonVariants = cva(
         // -mx-2.5 pulls the larger hit area back in so the 24px glyph stays flush with the
         // page's own edge, the way the row it sits in expects.
         bare: '-mx-2.5 h-11 w-11 text-ink',
-        circle: 'bg-fill text-muted hover:bg-fill-pressed'
+        circle: 'bg-fill text-muted hover:bg-fill-pressed',
+        filled: 'h-11 w-11 bg-fill text-ink hover:bg-fill-pressed'
       },
       circleSize: {
         '32': '',

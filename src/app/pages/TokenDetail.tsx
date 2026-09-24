@@ -3,18 +3,18 @@ import React, { FC, useRef, useState } from 'react';
 import classNames from 'clsx';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
-import { Line, LineChart, Tooltip, YAxis } from 'recharts';
+import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
-import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
-import HashChip from 'app/templates/HashChip';
 import History from 'app/templates/history/History';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { Button, ButtonVariant } from 'components/ui/Button';
+import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill, PillTone } from 'components/ui/Pill';
@@ -35,6 +35,7 @@ import { useRetryableSWR } from 'lib/swr';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
+import { truncateHash } from 'utils/string';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -136,7 +137,9 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <TokenInfo tokenId={tokenId} />
 
           <section data-testid="token-detail-activity">
-            <SectionHeader>{t('recentActivity')}</SectionHeader>
+            <SectionHeader size="lg" tone="muted">
+              {t('recentActivity')}
+            </SectionHeader>
             <History
               address={account.publicKey}
               tokenId={tokenId}
@@ -192,19 +195,28 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   // card, and a neutral `Pill` on a `fill` card would not show at all.
   return (
     <section data-testid="token-detail-price">
-      <SectionHeader>{t('tokenPrice')}</SectionHeader>
+      <SectionHeader size="lg" tone="muted">
+        {t('tokenPrice')}
+      </SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
-        <span className="min-w-0 truncate text-title-page text-ink">${toAdaptiveFixed(priceInfo.price, 3)}</span>
-        <Pill size="sm" tone={change.tone} data-testid="token-detail-price-change">
+        <span className="min-w-0 truncate text-hero-value text-ink">${toAdaptiveFixed(priceInfo.price, 3)}</span>
+        <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
           {t('tokenDetailChange24h', { change: change.label })}
         </Pill>
       </div>
-      <div className="mt-3 h-20">
+      <div className="mt-4 h-28">
         {loading ? (
           <Skeleton className="h-full w-full rounded-2xl" />
         ) : (
           <ChartContainer config={CHART_CONFIG} className="h-full w-full aspect-auto">
-            <LineChart data={chartData}>
+            <AreaChart data={chartData}>
+              <defs>
+                {/* The line's own colour fading to nothing: an area, not a second colour. */}
+                <linearGradient id="token-price-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={CHART_STROKE} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={CHART_STROKE} stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <YAxis domain={yDomain} hide />
               <Tooltip
                 content={({ active, payload }) => {
@@ -218,15 +230,16 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   );
                 }}
               />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="value"
                 stroke={CHART_STROKE}
                 strokeWidth={2}
+                fill="url(#token-price-fill)"
                 dot={false}
                 activeDot={{ r: 4, stroke: CHART_STROKE, fill: 'var(--ds-page)', strokeWidth: 2 }}
               />
-            </LineChart>
+            </AreaChart>
           </ChartContainer>
         )}
       </div>
@@ -234,7 +247,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         items={TIMEFRAME_ITEMS}
         value={timeframe}
         onChange={setTimeframe}
-        size="sm"
+        size="md"
         layout="fill"
         aria-label={t('chartTimeframe')}
         className="mt-2"
@@ -259,16 +272,22 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
 
   return (
     <section data-testid="token-detail-info">
-      <SectionHeader>{t('tokenInfo')}</SectionHeader>
+      <SectionHeader size="lg" tone="muted">
+        {t('tokenInfo')}
+      </SectionHeader>
       <DetailCard>
-        {/* The same compact middle-truncated hash chip as history and contacts (`HashChip`, a
-            `CopyChip` around `HashShortView`): trimmed to read, copied and stored in full — the
-            hidden sibling input `CopyChip` renders carries the untrimmed id for the E2E suite. */}
+        {/* A bare copy glyph beside the middle-truncated id, in the row's value style; the full id
+            is what gets copied. */}
         <DetailRow label={t('contract')} data-testid="token-detail-contract">
-          <HashChip
-            hash={tokenId}
+          <CopyButton
+            text={tokenId}
+            label={truncateHash(tokenId, 8)}
+            // The visible label is a value, so the control is named by what it does.
+            aria-label={copied => (copied ? t('copied') : t('copyToClipboard'))}
+            icon="leading"
+            className="min-w-0 text-ink"
+            contentClassName="text-value"
             data-testid="token-detail-copy-contract"
-            className="min-w-0 font-sans text-[15px] font-normal text-ink"
           />
         </DetailRow>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
@@ -285,10 +304,10 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
             type="button"
             onClick={handleViewExplorer}
             data-testid="token-detail-explorer"
-            className="flex w-full items-center justify-between px-4 py-3 text-left font-heading text-[15px] font-bold text-accent-tint-ink"
+            className="flex w-full items-center justify-between px-4 py-3 text-left text-action text-accent-tint-ink"
           >
             {t('viewOnMidenscan')}
-            <ExternalLinkSmallIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            <Icon name={IconName.ArrowRightUp} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
           </button>
         )}
       </DetailCard>

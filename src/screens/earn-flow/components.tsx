@@ -11,20 +11,24 @@ import { goBack } from 'lib/woozie';
 
 import { EarnSummary, EarnVault } from './types';
 
-/** Shared top bar for the vault deposit flow: the `PageHeader` with back, a "{protocol} • {asset}"
- *  title and the "{asset} on {network}" pill. Used by the deposit-amount and deposit-review pages
- *  so their headers stay identical, and shaped like the vault and withdraw-review headers. Both
- *  pages are unpadded, so the header brings the 16px page margin itself. */
-export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => {
+/** Shared top bar for the vault pages: the `PageHeader` with back, a "{protocol} • {asset}"
+ *  title (the route name until the vault is found) and the "{asset} on {network}" pill. Used by the vault,
+ *  deposit-amount and deposit-review pages so their headers stay identical, and shaped like the
+ *  withdraw-review header. The pages are unpadded, so the header brings the 16px page margin itself. */
+export const EarnFlowHeader: FC<{ vault?: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
+  // No vault (loading, failed or unknown): the header names the route rather than a placeholder vault,
+  // so the page keeps its h1.
   return (
     <PageHeader
       className="shrink-0 px-4"
-      title={`${vault.protocol} • ${vault.asset}`}
+      title={vault ? `${vault.protocol} • ${vault.asset}` : t('earnDeposit')}
       onBack={goBack}
       actions={
-        <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+        vault && (
+          <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+        )
       }
     />
   );

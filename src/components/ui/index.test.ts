@@ -27,6 +27,7 @@ import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
+import { HeaderRule } from './HeaderRule';
 import { Hero } from './Hero';
 import { IconButton } from './IconButton';
 import * as UI from './index';
@@ -83,6 +84,7 @@ describe('components/ui barrel', () => {
     SegmentedActionBar,
     SegmentedControl,
     BottomNav,
+    HeaderRule,
     TabHeader,
     TabHeaderAction,
     SearchInput,

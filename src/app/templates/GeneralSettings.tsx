@@ -96,7 +96,7 @@ const GeneralSettings: FC = () => {
   return (
     <SubPageLayout data-testid="general-settings">
       <SubPageSection>
-        <ListGroup>
+        <ListGroup surface="outline">
           <ListRow
             title={t('theme')}
             trailing={
@@ -127,7 +127,7 @@ const GeneralSettings: FC = () => {
       </SubPageSection>
 
       <SubPageSection footnote={t('delegateProofSettingsDescription')}>
-        <ListGroup>
+        <ListGroup surface="outline">
           <SettingToggle
             checked={delegateEnabled}
             onChange={handleDelegateChange}
@@ -139,7 +139,7 @@ const GeneralSettings: FC = () => {
       </SubPageSection>
 
       <SubPageSection footnote={t('autoConsumeSettingsDescription')}>
-        <ListGroup>
+        <ListGroup surface="outline">
           <SettingToggle
             checked={consumeEnabled}
             onChange={handleAutoConsumeChange}
@@ -151,7 +151,7 @@ const GeneralSettings: FC = () => {
       </SubPageSection>
 
       <SubPageSection footnote={t('helpImproveWalletDescription')}>
-        <ListGroup>
+        <ListGroup surface="outline">
           <SettingToggle
             checked={telemetryEnabled}
             onChange={handleTelemetryChange}

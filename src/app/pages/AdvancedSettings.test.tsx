@@ -109,7 +109,8 @@ describe('AdvancedSettings (page)', () => {
     expect(keyRow).toContainElement(queryCopyAction());
     const faucetRow = screen.getByTestId('advanced-edit-faucet-id');
     expect(faucetRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
-    expect(faucetRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(faucetRow.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(faucetRow.parentElement).not.toHaveClass('bg-fill');
   });
 
   it('triggers haptics and copies when the copy action is pressed', async () => {

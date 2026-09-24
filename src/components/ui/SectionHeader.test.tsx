@@ -58,3 +58,16 @@ it('has no icon circle when icon is omitted', () => {
   render(<SectionHeader>My accounts</SectionHeader>);
   expect(document.querySelector('.bg-fill')).not.toBeInTheDocument();
 });
+
+describe('SectionHeader tone', () => {
+  it('quiets a large title to the muted colour on request', () => {
+    render(
+      <SectionHeader size="lg" tone="muted">
+        Token price
+      </SectionHeader>
+    );
+    const heading = screen.getByRole('heading', { name: 'Token price' });
+    expect(heading).toHaveClass('text-title-section', 'text-muted');
+    expect(heading).not.toHaveClass('text-ink');
+  });
+});

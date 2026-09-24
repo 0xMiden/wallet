@@ -68,7 +68,7 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
 
       {/* A tab root's title is not a navigation bar: it is the first line of the page, above the
           field it names, exactly where the swap page puts "You Pay". */}
-      <div className={clsx('no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto', tabRoot ? 'pt-6' : 'pt-2')}>
+      <div className={clsx('no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto', tabRoot ? 'pt-9' : 'pt-2')}>
         {tabRoot && (
           <header className="flex shrink-0 items-start justify-between gap-3">
             <h1 className="min-w-0 text-title-tab text-ink">{title}</h1>

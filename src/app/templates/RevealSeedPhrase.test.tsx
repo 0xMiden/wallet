@@ -826,7 +826,7 @@ describe('RevealSeedPhrase', () => {
     // Revealed view: PageHeader + capitalized words + copy/hide buttons.
     expect(container.querySelector('[data-testid="nh-title"]')!.textContent).toBe('recoveryPhrase');
     // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
     expect(container.querySelector('[data-testid="nav-header"]')).toHaveClass('px-4');
     expect(container.textContent).toContain('Alpha');
     expect(container.textContent).toContain('Delta');

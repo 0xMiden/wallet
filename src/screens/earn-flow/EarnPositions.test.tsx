@@ -6,12 +6,15 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
+import { buildEarnSummary } from './earn-mapping';
 import EarnPositions from './EarnPositions';
 
-// i18n: assert on keys, not English copy. Interpolated values (e.g. APY) are
-// discarded by this key-only stub, so those assertions target the key.
+// i18n: assert on keys, not English copy. An interpolated call appends its values (`key:a,b`), so a
+// test can see the value it interpolates (the APY), not just the key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key}:${Object.values(opts).join(',')}` : key)
+  })
 }));
 
 // Pull the mocked router/haptics fns back out for assertions.
@@ -35,8 +38,10 @@ jest.mock('app/icons/v2', () => ({
     <span data-testid="icon" data-name={name} data-fill={fill} className={className} />
   ),
   IconName: {
+    ArrowLeft: 'ArrowLeft',
     ChevronLeft: 'ChevronLeft',
-    ChevronRightLucide: 'ChevronRightLucide'
+    ChevronRightLucide: 'ChevronRightLucide',
+    Earn: 'Earn'
   }
 }));
 
@@ -127,8 +132,12 @@ describe('EarnPositions', () => {
     expect(within(region).getAllByText(`${firstPosition.protocol} • ${firstPosition.asset}`)).toHaveLength(
       EARN_DATA.positions.length
     );
-    // APY renders via t('earnPositionsApy', { apy }); the key-only stub drops the value.
-    expect(within(region).getAllByText('earnPositionsApy')).toHaveLength(EARN_DATA.positions.length);
+    // Each card's APY is interpolated into t('earnPositionsApy', { apy }).
+    EARN_DATA.positions.forEach(position => {
+      expect(
+        within(screen.getByTestId(`earn-position-card-${position.id}`)).getByText(`earnPositionsApy:${position.apy}`)
+      ).toBeInTheDocument();
+    });
     expect(within(region).getAllByText(firstPosition.amount)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.rewards)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.depositedAmount)).toHaveLength(EARN_DATA.positions.length);
@@ -152,10 +161,10 @@ describe('EarnPositions', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('exposes the back button with the ChevronLeft icon', () => {
+  it('exposes the back button with the ArrowLeft icon', () => {
     render(<EarnPositions />);
 
-    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ChevronLeft"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'back' }).querySelector('[data-name="ArrowLeft"]')).not.toBeNull();
   });
 
   it('fires haptics and navigates to the position route when a card is tapped', () => {
@@ -186,6 +195,44 @@ describe('EarnPositions', () => {
     expect(mockNavigate).toHaveBeenCalledTimes(EARN_DATA.positions.length);
   });
 
+  it('draws no summary while a first load is in flight, so it never reads as $0', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults: [],
+      isLoading: true,
+      refetch: mockRefetch
+    });
+
+    render(<EarnPositions />);
+
+    expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('says there are no positions, as Earn does, when a load settles with none', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults: [],
+      isLoading: false,
+      error: undefined,
+      refetch: mockRefetch
+    });
+
+    render(<EarnPositions />);
+
+    const empty = screen.getByTestId('earn-positions-empty');
+    expect(within(empty).getByText('earnNoActivePositionsTitle')).toBeInTheDocument();
+    expect(within(empty).getByText('earnNoActivePositionsBody')).toBeInTheDocument();
+    expect(empty).toHaveClass('border-dashed', 'bg-page');
+    expect(empty).not.toHaveClass('bg-fill');
+    expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^earn-position-card-/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   describe('load failure (gap 4)', () => {
     beforeEach(() => {
       // A failed positions load with no fallback data: the misleading state this
@@ -210,6 +257,22 @@ describe('EarnPositions', () => {
       expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
     });
 
+    it('says a per-owner positions failure too, which is not a request failure', () => {
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: [],
+        vaults: EARN_DATA.vaults,
+        isLoading: false,
+        error: 'owner unavailable',
+        loadError: undefined,
+        refetch: mockRefetch
+      });
+
+      render(<EarnPositions />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    });
+
     it('refetches when Retry is pressed', () => {
       render(<EarnPositions />);
 
@@ -219,10 +282,10 @@ describe('EarnPositions', () => {
       expect(mockHapticLight).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps showing last-good positions on a transient error rather than hiding real balances', () => {
+    it('keeps last-good positions on a transient error, under a notice that they may be incomplete', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
-        positions: EARN_DATA.positions, // stale-but-real data survived via keepPreviousData
+        positions: EARN_DATA.positions, // stale-but-real data: SWR keeps a key's own data across a failed refresh
         vaults: EARN_DATA.vaults,
         isLoading: false,
         error: 'positions request failed (503)',
@@ -231,9 +294,28 @@ describe('EarnPositions', () => {
 
       render(<EarnPositions />);
 
-      // With real data to show, the error state is suppressed.
-      expect(screen.queryByTestId('earn-positions-load-error')).not.toBeInTheDocument();
+      // The real balances stay; the failure is said above them rather than hidden.
       expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
+      expect(screen.getAllByTestId(/^earn-position-card-/)).toHaveLength(EARN_DATA.positions.length);
+      expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+      fireEvent.click(screen.getByTestId('earn-positions-retry'));
+      expect(mockRefetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the failure said while a retry is loading (SWR keeps the error until a load succeeds)', () => {
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: [],
+        vaults: [],
+        isLoading: true,
+        error: 'positions request failed (503)',
+        refetch: mockRefetch
+      });
+
+      render(<EarnPositions />);
+
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
     });
   });
 });

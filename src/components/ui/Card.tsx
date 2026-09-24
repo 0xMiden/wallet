@@ -8,6 +8,8 @@ import { usePreset } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { outlineSurfaceClassName } from './surfaces';
+
 /**
  * What the card holds, which sets its inner padding:
  * - `row` — one row: a leading 40px visual, text, a trailing value (64px tall with a 40px icon).
@@ -21,7 +23,7 @@ const cardVariants = cva('rounded-2xl text-left', {
     surface: {
       fill: 'bg-fill',
       // On `page` with a hairline edge: Activity's rows and pending transfers.
-      outline: 'bg-page border border-hairline'
+      outline: outlineSurfaceClassName
     },
     padding: {
       none: '',
@@ -80,9 +82,9 @@ export interface CardProps {
 
 /**
  * The design system's card (skills/miden-wallet-frontend/references/design-system.md, "Card"): a
- * `fill` surface with 16px corners and no border, or with `surface="outline"` a hairline edge on
- * `page` (Activity's rows). Cards sit on `page` and are separated by space; otherwise hairlines only
- * divide the rows of a group inside one surface.
+ * `fill` surface with 16px corners and no border, or `surface="outline"`, a hairline edge on `page`,
+ * for a card that stands on its own on the page (Activity's rows). Cards sit on `page` and are
+ * separated by space; hairlines otherwise only divide the rows of a group inside one surface.
  */
 export const Card: React.FC<CardProps> = ({
   children,
@@ -114,6 +116,8 @@ export interface CardButtonProps extends Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
   FramerConflictingHandlers
 > {
+  /** `fill` (default), or `outline`: a hairline edge on `page` (Earn's position cards and vault rows). */
+  surface?: CardSurface;
   padding?: CardPadding;
   /** Layout only (margins, width, flex). */
   className?: string;
@@ -125,7 +129,7 @@ export interface CardButtonProps extends Omit<
  * `fill-pressed` state and a focus ring.
  */
 export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(function CardButton(
-  { padding, className, disabled, onClick, children, ...props },
+  { surface, padding, className, disabled, onClick, children, ...props },
   ref
 ) {
   const press = usePreset('press');
@@ -137,7 +141,7 @@ export const CardButton = React.forwardRef<HTMLButtonElement, CardButtonProps>(f
       disabled={disabled}
       whileTap={disabled ? undefined : press.whileTap}
       transition={press.transition}
-      className={cn(cardVariants({ padding, pressable: true }), FOCUSABLE_CLASSES, className)}
+      className={cn(cardVariants({ surface, padding, pressable: true }), FOCUSABLE_CLASSES, className)}
       {...props}
       onClick={e => {
         hapticLight();
