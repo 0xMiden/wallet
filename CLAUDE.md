@@ -95,7 +95,10 @@ Fix (already in place — keep it): every app vite config (`vite.{mobile,extensi
 
 ### Tailwind auto-flipping tokens
 Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
-- `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray`
+- the design-system tokens `bg-page`, `bg-fill`, `bg-fill-pressed`, `border-hairline`, `text-ink`, `text-muted`, `accent-tint(-ink)`, `*-ink` status text
+- legacy `bg-white`, `bg-gray-100`, `black` (overlays only; text is `text-ink`)
+
+`gray-25`, `gray-50`, `surface-input`, `surface-interactive`, `surface-nav-button`, `button-secondary(-hover)` and `heading-gray` are removed: use `fill` / `fill-pressed` / `ink`.
 
 Add `dark:` only on fixed-palette colors (`grey.*` custom palette, `pure-white`, `pure-black`) or SVG `fill={...}` props (check `document.documentElement.classList.contains('dark')` at render).
 
@@ -111,6 +114,10 @@ Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tab
 ## Frontend UI, CSS, and Motion
 
 Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.
+
+### Shared components and layouts, not page-local styling
+
+A page supplies content; the design system supplies everything else. Before styling anything, look for the component that already does it — a page-local copy of a frame, row, field, error line, empty state or icon circle is a defect, not a shortcut, and the fix is to extend the shared component (a prop, a variant) rather than fork it. The same goes for the frame itself: pushed pages take `SubPageLayout`, flow steps take `FlowLayout` + `FlowFooter`, and the home-group panes share one shell, so titles, gutters, section gaps and pinned actions land in the same place on every screen. Spacing, type and colour come from the named styles and tokens; a literal padding or hex in a page means the token is missing, so add it. When two pages disagree, one of them is wrong — decide which and move both, instead of leaving a third variant behind.
 
 ### Mobile file downloads
 `<a download>` does nothing in WebView. Use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
@@ -133,7 +140,7 @@ The in-progress transaction view (`src/screens/generating-transaction/Generating
 
 **Why this shape (history).** The page began as a modal that watched the *whole queue* (`getAllUncompletedTransactions()`) and had to *guess* which tx it was showing (`pickActiveTx`), infer completion from the queue going empty, and infer failure by counting failed rows. Those heuristics existed only because the row **drops out of the uncompleted list the instant it completes** — so the page needed shadow state (`receiptTransaction`) to re-find it. Watching by id fixes the root cause: the row never disappears (`Queued → GeneratingTransaction → Completed | Failed`), so status alone is authoritative and all that scaffolding is gone. The FIFO processing loop (`safeGenerateTransactionsLoop` in `src/lib/miden/transaction/index.ts`) and the page's own `setInterval` driver are **unchanged** — the page still kicks the loop on mobile/desktop and is a pure observer on extension (SW owns the loop). Observing one row and draining the FIFO queue are orthogonal: the driver is not scoped to `txId`. Hiding the page mid-tx is safe because the in-flight `generateTransaction` promise isn't cancelled by unmount.
 
-**`send`, `swap`, `consume` and `earn-deposit` variants exist**: send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {symbol} → (logo) {amount} {symbol}`; consume renders `{amount} {symbol} → Consumed` (nothing when the consume has no amount); earn-deposit renders `{amount} {symbol} ↑ {market}` (up-arrow separator; market name = the `marketUid` lender key, hyphenated — e.g. "DUMMY-LENDING" — via the exported `earnMarketLabel`). The badge returns `null` for every other transaction type. Future agents should extend it per type. On the success receipt (`success/receipt.ts`), consume rows relabel: address row = "From" (note sender), amount row = "Total Consumed", plus a "Notes Consumed" row listing `noteIds`; the hash row is labeled "Transaction ID" for all types. Completed `earn-deposit` rows route to `EarnSuccess` ("You're Earning!": pill + Market / Total Deposited / Transaction ID rows, "View Details" → `/earn/positions`) via the type check in `TransactionSuccess.tsx`.
+**`send`, `swap`, `consume` and `earn-deposit` variants exist**: send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {symbol} → (logo) {amount} {symbol}`; consume renders `{amount} {symbol} → Accepted` (nothing when the consume has no amount); earn-deposit renders `{amount} {symbol} ↑ {market}` (up-arrow separator; market name = the `marketUid` lender key, hyphenated - e.g. "DUMMY-LENDING" - via the exported `earnMarketLabel`). The badge returns `null` for every other transaction type. Future agents should extend it per type. On the success receipt (`success/receipt.ts`), consume rows relabel: address row = "From" (note sender), amount row = "Total Accepted", plus a "Transfer IDs" row listing `noteIds`; the hash row is labeled "Transaction ID" for all types. Completed `earn-deposit` rows route to `EarnSuccess` ("You're Earning!": pill + Market / Total Deposited / Transaction ID rows, "View Details" → `/earn/positions`) via the type check in `TransactionSuccess.tsx`.
 
 **Data source**: the tracked `ITransaction`, passed in as the `activeTransaction` prop (= the row from `useTransactionRow`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
 - `send` → `amount`, `faucetId` (token), `secondaryAccountId` = **recipient address**.
@@ -171,7 +178,7 @@ The in-progress transaction view is a routed full-screen page at `/generating-tr
 
 Send flow: only recipient → amount remain Navigator steps inside `/send`; the token and contact pickers are fixed-height bottom-sheet drawers (`SelectTokenDrawer`, `AccountsListDrawer`) closed first by SendManager's mobile back handler; the review step is a routed full-screen page (`/send/review?amount=…&to=…&tokenId=…`, `ReviewTransaction.tsx`) that owns the transaction pipeline. Backing out restores the form via `send-flow/send-draft.ts` (SendManager reopens on the Amount step). Hardware back on review is covered by `MobileBackBridge` (history pop).
 
-Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. `PageLayout` registers a default that calls `goBack()` if `historyPosition > 0` else navigates home. Mobile hardware/swipe back requires `@capacitor/app` + explicit handlers — must be registered for global nav (`MobileBackBridge`), Navigator flows, state-based flows, and modals. A handler for UI rendered outside the routed page's React tree (app-level dialogs and gates, provider modals, the router's banner sheet) passes `{ overlay: true }` to `useMobileBackHandler`: overlays run before every page handler, whenever the page last registered. A sheet a page renders stays in the page tier, closed by that page's own handler.
+Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. `PageLayout` registers a default that calls `goBack()` if `historyPosition > 0` else navigates home. Mobile hardware/swipe back requires `@capacitor/app` + explicit handlers — must be registered for global nav (`MobileBackBridge`), Navigator flows, state-based flows, and modals. A handler for UI rendered outside the routed page's React tree (app-level dialogs and gates, provider modals, the network sheet the tab bar's corner ribbon opens) passes `{ overlay: true }` to `useMobileBackHandler`: overlays run before every page handler, whenever the page last registered. A sheet a page renders stays in the page tier, closed by that page's own handler.
 
 When adding screens/routes, keep this section accurate so mobile back stays correct.
 
@@ -207,8 +214,8 @@ The App target in `ios/App/App.xcodeproj/project.pbxproj` does NOT auto-discover
 ### Adding a custom Capacitor plugin (iOS)
 Capacitor on this app uses **manual** registration — not the `CAPBridgedPlugin` auto-discovery you'd get on a stock Capacitor app. After creating `MyPlugin.swift` and wiring it into the four pbxproj sections above, you also have to call `bridge?.registerPluginInstance(MyPlugin())` inside `capacitorDidLoad()` in `ios/App/App/AppViewController.swift`. Skip this step and JS calls land as `{"code":"UNIMPLEMENTED"}` even though the class compiled fine.
 
-### Native navbar overlay
-Mobile hides React footer and renders bottom nav as native pill (iOS: `MidenNavbarOverlayWindow` `UIWindow`; Android: two-instance `NavbarOverlayManager` with Activity-scoped + Dialog-scoped `NavbarView`). Plugin methods: `showNativeNavbar`, `setNavbarSecondaryRow`, `setNavbarAction`, `morphNavbar{Out,In}`. Events: `nativeNavbarTap`, `nativeNavbarSecondaryTap`, `nativeNavbarActionTap`. Wiring: `src/app/providers/DappBrowserProvider.tsx`. Android gotchas: don't use `MATCH_PARENT` children in `WRAP_CONTENT` parents (1878px buttons); `Dialog.setLayout` must follow `setContentView`; shadow must be on the view owning the background drawable.
+### Persistent wallet navigation
+Extension, Capacitor, and Tauri render the same React `BottomNav` from `TabLayout`. `TabLayout` owns destinations, active route state, route changes, haptics, and the `[data-tabbar-footer]` shell; `BottomNav` owns button semantics and presentation. Drawers hide it through `useHideNavbarWhileOpen`, which drives the body data attribute consumed by `src/main.css`. On Capacitor, `public/mobile.html` owns body safe-area padding and `src/main.css` paints the footer strip. `DappBrowserProvider` owns embedded dApp WebViews, not wallet navigation; the native navbar API under `packages/dapp-browser` has no wallet frontend caller.
 
 ### Adding Capacitor plugins
 `yarn add @capacitor/<name> && yarn mobile:sync`. Add ProGuard rules to `android/app/proguard-rules.pro`:
@@ -235,7 +242,7 @@ Two Chrome instances + `miden-client` CLI against live network. `E2E_NETWORK` co
 Mirror suite in `playwright/e2e/ios/` against iPhone 17 + iPhone 17 Pro. CDP via `appium-remote-debugger` (simulator-compatible, unlike `remotedebug-ios-webkit-adapter`) over `RWI_LISTEN_SOCKET`. Per-test: terminate/uninstall/install/launch (~5s vs 30s for `simctl erase`). 7/7 specs pass on devnet in ~9 min.
 
 iOS-specific product notes:
-- Native navbar CTAs ("Claim All", "Continue") live in `UIWindow` outside WebView — CDP can't see them. `src/lib/dapp-browser/use-native-navbar-action.ts` exposes `globalThis.__TEST_TRIGGER_NAVBAR_ACTION__()` gated on `MIDEN_E2E_TEST=true && isMobile()`. Only wallet source change the iOS harness needed.
+- Wallet tabs and page CTAs such as "Claim All" and "Continue" render in the React WebView. Drive them through normal CDP/DOM interactions and verify the rendered state; there is no native-navbar action hook.
 - No `SYNC_REQUEST` on mobile (SW-only); `useSyncTrigger` auto-syncs every 3s, so sleep suffices.
 - No mobile reload trick — mobile `claimAllNotes` skips the `location.reload()` Chrome does (mobile has no SW holding the unlock, so reload drops decryption key).
 - Don't read WASM client from CDP — deadlocks against `useSyncTrigger`'s 30–60s lock hold.

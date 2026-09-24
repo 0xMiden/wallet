@@ -4,7 +4,7 @@ name: E2E Bridge
 # every push to main. UI-only, real Miden testnet. Two routes, and only one of
 # them runs here:
 #   - Slow/AggLayer (bridge-out-agglayer) is THIS job's signal: the wallet's real
-#     work is the Miden leg — build + prove + submit the B2AGG note → the
+#     work is the Miden leg - build + prove + submit the B2AGG note → the
 #     bridged-send row reaches Completed ("Bridged to EVM"). The EVM claim is
 #     external AggLayer L1 infra with no hermetic double, so it is deliberately
 #     not asserted.

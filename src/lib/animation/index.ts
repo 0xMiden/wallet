@@ -1,5 +1,34 @@
 export { springs, type SpringName } from './springs';
 export { durations, type DurationName } from './durations';
 export { easings, type EasingName } from './easings';
-export { useMotion, useSprings, resolveTransition } from './use-motion';
-export { springToLinearEasing, type CompositorSpring } from './spring-easing';
+export { useMotion, useSprings, resolveTransition, reducedMotionTransition } from './use-motion';
+export { springToLinearEasing, supportsLinearEasing, type CompositorSpring } from './spring-easing';
+export { presets, presetNames, usePreset, resolvePreset, type MotionPreset, type PresetName } from './presets';
+export {
+  pageSlideEntrance,
+  pageSlideParallax,
+  pageSlideDim,
+  pageStepTransition,
+  pageStepOffset,
+  pageStepPresentOffset,
+  resolvePageStepTransition
+} from './page-appearance';
+export { colorTransitionClass } from './interaction-classes';
+export {
+  tabBarMotion,
+  resolveTabBarMotion,
+  useTabBarMotion,
+  useTabIconPop,
+  type TabBarMotion,
+  type TabIconPop,
+  type TabIconPopPhase
+} from './tab-bar';
+export {
+  exploreMotion,
+  exploreSectionVariant,
+  resolveExploreMotion,
+  useExploreMotion,
+  type ExploreMotion
+} from './explore';
+export { copyMotion, COPY_FEEDBACK_MS, type CopyMotion, type CopySwapMotion } from './copy';
+export { sheetMotion, sheetMotionVars, type SheetCurve } from './sheet';

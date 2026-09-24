@@ -3,12 +3,12 @@ import React, { FC, ReactNode, useCallback, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
-import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { Button } from 'components/Button';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { useMidenContext } from 'lib/miden/front';
 import { clearClipboard } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
@@ -17,6 +17,9 @@ interface ImportAccountForm {
   privateKey: string;
   name?: string;
 }
+
+// The submit button is pinned under the body, outside the form, so it names the form it submits.
+const FORM_ID = 'import-account-form';
 
 const ImportAccount: FC = () => {
   const { t } = useTranslation();
@@ -49,35 +52,52 @@ const ImportAccount: FC = () => {
   );
 
   return (
-    <div className="flex flex-1 min-h-0 flex-col bg-app-bg">
-      <NavigationHeader
-        title={t('importAccount')}
-        onBack={goBack}
-        variant="prominent"
-        titleAlign="left"
-        focusTitleOnMount
-      />
+    <SubPageLayout
+      title={t('importAccount')}
+      onBack={goBack}
+      focusTitleOnMount
+      footer={
+        <Button
+          type="submit"
+          form={FORM_ID}
+          data-testid="import-account-submit"
+          className="flex-1 max-w-none"
+          isLoading={isSubmitting}
+          disabled={isSubmitting}
+        >
+          {t('importAccount')}
+        </Button>
+      }
+    >
+      {error && (
+        <Notice tone="negative" role="alert" title={t('error')} data-testid="import-account-error">
+          {error}
+        </Notice>
+      )}
+
       <form
+        id={FORM_ID}
         data-testid="import-account-form"
-        className="flex flex-1 min-h-0 flex-col overflow-y-auto px-4 pb-6"
+        className="flex flex-col gap-5"
         onSubmit={handleSubmit(onSubmit)}
       >
-        {error && <Alert type="error" title={t('error')} autoFocus description={error} className="mb-4" />}
-        <FormField
+        {/* `secret`: a pasted private key is covered again as soon as the field is left. */}
+        <TextField
           {...register('privateKey', { required: t('required') })}
+          multiline
+          secret
+          rows={2}
           id="importacc-privatekey"
           aria-label={t('privateKey')}
           label={t('privateKey')}
-          labelDescription={t('privateKeyInputDescription')}
+          hint={t('privateKeyInputDescription')}
           placeholder={t('privateKeyInputPlaceholder')}
-          errorCaption={errors.privateKey?.message}
-          secret
-          textarea
-          rows={2}
-          className="resize-none font-sans"
+          error={errors.privateKey?.message}
+          className="font-sans"
           onPaste={clearClipboard}
         />
-        <FormField
+
+        <TextField
           {...register('name', {
             pattern: { value: ACCOUNT_NAME_PATTERN, message: t('accountNameInputInvalid') },
             setValueAs: (value: string) => value.trim()
@@ -86,19 +106,10 @@ const ImportAccount: FC = () => {
           aria-label={t('accountName')}
           label={t('accountName')}
           placeholder={t('accountNameInputPlaceholder')}
-          errorCaption={errors.name?.message}
-          containerClassName="mt-4"
+          error={errors.name?.message}
         />
-        <FormSubmitButton
-          data-testid="import-account-submit"
-          className="mt-auto w-full justify-center"
-          loading={isSubmitting}
-          disabled={isSubmitting}
-        >
-          {t('importAccount')}
-        </FormSubmitButton>
       </form>
-    </div>
+    </SubPageLayout>
   );
 };
 

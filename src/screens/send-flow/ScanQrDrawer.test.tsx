@@ -146,6 +146,23 @@ describe('ScanQrDrawer', () => {
     expect(props.onError).toHaveBeenCalledWith('cameraPermissionDenied');
   });
 
+  it('renders the permission-denied state as an EmptyState whose Close shuts the drawer', async () => {
+    getUserMediaMock.mockRejectedValue(domError('NotAllowedError'));
+    const props = noopProps();
+
+    render(<ScanQrDrawer open {...props} />);
+    await flushAsync();
+
+    const state = screen.getByTestId('scan-qr-permission-denied');
+    expect(state.firstElementChild).toHaveClass('rounded-2xl', 'bg-fill');
+    expect(screen.getByRole('heading', { name: 'cameraPermissionDenied' })).toBeInTheDocument();
+
+    act(() => {
+      screen.getByRole('button', { name: 'close' }).click();
+    });
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it('shows the no-camera state on NotFoundError', async () => {
     getUserMediaMock.mockRejectedValue(domError('NotFoundError'));
     const props = noopProps();

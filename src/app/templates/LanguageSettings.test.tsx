@@ -1,21 +1,11 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import LanguageSettings, { LANGUAGES } from './LanguageSettings';
-
-// `lib/analytics` boots gRPC / storage plumbing via `useAnalytics`. Mock the
-// three symbols LanguageSettings imports so `trackEvent` is an observable spy
-// and the enum members it references resolve to stable, assertable strings.
-jest.mock('lib/analytics', () => ({
-  AnalyticsEventCategory: { ButtonPress: 'ButtonPress' },
-  AnalyticsEventEnum: { LanguageChanged: 'LanguageChanged' },
-  useAnalytics: jest.fn()
-}));
 
 // `lib/i18n/react` reads the persisted locale and re-inits i18next on write.
 // Mock both so the initial `getCurrentLocale()` steers `currentCode`, and
@@ -35,11 +25,20 @@ jest.mock('lib/mobile/haptics', () => ({
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 let mockHistoryPosition = 1;
+let mockHref = 'http://localhost/#/settings/language';
+const mockHistoryListeners = new Set<() => void>();
 
 jest.mock('lib/woozie', () => ({
   goBack: (...args: unknown[]) => mockGoBack(...args),
   navigate: (...args: unknown[]) => mockNavigate(...args),
-  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: mockHref }),
+  listen: (listener: () => void) => {
+    mockHistoryListeners.add(listener);
+    return () => {
+      mockHistoryListeners.delete(listener);
+    };
+  },
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
@@ -60,20 +59,25 @@ jest.mock('utils/brand-colors', () => ({
   PRIMARY_HEX: '#E77537'
 }));
 
-const mockUseAnalytics = useAnalytics as jest.Mock;
 const mockGetCurrentLocale = getCurrentLocale as jest.Mock;
 const mockUpdateLocale = updateLocale as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
 
 describe('LanguageSettings', () => {
-  const trackEvent = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseAnalytics.mockReturnValue({ trackEvent });
     mockGetCurrentLocale.mockReturnValue('en');
     mockHistoryPosition = 1;
+    mockHref = 'http://localhost/#/settings/language';
   });
+
+  /** A history event that puts the live location at `href`, `position` entries deep. */
+  const moveTo = (href: string, position: number) =>
+    act(() => {
+      mockHref = href;
+      mockHistoryPosition = position;
+      mockHistoryListeners.forEach(listener => listener());
+    });
 
   it('renders one radio per supported language, in order, with the right labels', () => {
     render(<LanguageSettings />);
@@ -99,27 +103,20 @@ describe('LanguageSettings', () => {
     });
   });
 
-  it('marks the exact-match locale as selected: bold styling + a single checkmark', () => {
+  // The row that carries the shared check, and the number of checks on the page.
+  const checkedRowText = () => document.querySelector('[data-slot="check"]')!.closest('button')!.textContent;
+  const checkCount = () => document.querySelectorAll('[data-slot="check"]').length;
+
+  it('marks the exact-match locale as selected: the shared check on that row alone', () => {
     mockGetCurrentLocale.mockReturnValue('es');
     render(<LanguageSettings />);
 
-    // Exactly one checkmark, on the selected row only.
-    const icons = screen.getAllByTestId('icon');
-    expect(icons).toHaveLength(1);
-    expect(icons[0]).toHaveAttribute('data-name', 'Checkmark');
-    // The literal, not the imported binding: the module is mocked just below, so
-    // asserting against `PRIMARY_HEX` compared the mock to itself and held for any
-    // colour the component might have used instead.
-    expect(icons[0]).toHaveAttribute('data-fill', '#E77537');
-    expect(icons[0]).toHaveAttribute('data-size', 'xs');
-
-    // The Español label carries the selected styling…
-    const selectedLabel = screen.getByText('Español');
-    expect(selectedLabel).toHaveClass('text-primary-500', 'font-semibold');
-
-    // …while an unselected row carries the default styling.
-    const unselectedLabel = screen.getByText('English');
-    expect(unselectedLabel).toHaveClass('text-heading-gray', 'font-medium');
+    // Exactly one check, on the selected row only: ListRow's 22px accent circle.
+    expect(checkCount()).toBe(1);
+    expect(checkedRowText()).toBe('Español');
+    expect(document.querySelector('[data-slot="check"]')).toHaveClass('bg-accent-primary', 'rounded-full');
+    expect(screen.getByRole('radio', { name: 'Español' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'English' })).toHaveAttribute('aria-checked', 'false');
   });
 
   it('falls back to the base language when the locale is region-tagged (en-US → en)', () => {
@@ -127,17 +124,16 @@ describe('LanguageSettings', () => {
     render(<LanguageSettings />);
 
     // `en-US` has no exact row, but its base `en` does — English is selected.
-    expect(screen.getByText('English')).toHaveClass('text-primary-500', 'font-semibold');
-    const icons = screen.getAllByTestId('icon');
-    expect(icons).toHaveLength(1);
+    expect(checkedRowText()).toBe('English');
+    expect(checkCount()).toBe(1);
   });
 
   it('supports underscore region tags too (fr_CA → fr)', () => {
     mockGetCurrentLocale.mockReturnValue('fr_CA');
     render(<LanguageSettings />);
 
-    expect(screen.getByText('Français')).toHaveClass('text-primary-500', 'font-semibold');
-    expect(screen.getAllByTestId('icon')).toHaveLength(1);
+    expect(checkedRowText()).toBe('Français');
+    expect(checkCount()).toBe(1);
   });
 
   it('defaults to English when the locale matches no language at all', () => {
@@ -145,27 +141,33 @@ describe('LanguageSettings', () => {
     render(<LanguageSettings />);
 
     // Neither `xx-YY` nor base `xx` exists → the 'en' fallback selects English.
-    expect(screen.getByText('English')).toHaveClass('text-primary-500', 'font-semibold');
-    expect(screen.getAllByTestId('icon')).toHaveLength(1);
+    expect(checkedRowText()).toBe('English');
+    expect(checkCount()).toBe(1);
   });
 
-  it('selecting a language fires haptics + analytics, persists the locale, and leaves', () => {
+  it('renders through SubPageLayout as one ListGroup of ListRows', () => {
+    render(<LanguageSettings />);
+
+    const page = screen.getByTestId('language-settings');
+    expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'overflow-y-auto');
+    const rows = screen.getAllByRole('radio');
+    expect(new Set(rows.map(row => row.parentElement)).size).toBe(1);
+    // `plain`: the page IS the list, so the group has no surface and its rows sit on the margin.
+    expect(rows[0]!.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(rows[0]!.parentElement).not.toHaveClass('bg-fill');
+    expect(rows[0]!.querySelector('[data-slot="title"]')).toHaveTextContent('English');
+  });
+
+  it('selecting a language fires haptics, persists the locale, and leaves', () => {
     render(<LanguageSettings />);
 
     fireEvent.click(screen.getByText('Deutsch'));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, {
-      code: 'de'
-    });
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
     // Picking a language finishes the task, so the screen has to leave — without
     // this the selection silently stranded the user on the list.
     expect(mockGoBack).toHaveBeenCalledTimes(1);
-
-    // Ordering: analytics before the locale write.
-    expect(trackEvent.mock.invocationCallOrder[0]!).toBeLessThan(mockUpdateLocale.mock.invocationCallOrder[0]!);
   });
 
   it('exposes the active language to assistive technology, not just in colour', () => {
@@ -274,6 +276,22 @@ describe('LanguageSettings', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockUpdateLocale).toHaveBeenCalledTimes(1);
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
+  });
+
+  it('takes a pick again once the user leaves and reopens the screen', () => {
+    // Reopening within the slide-out brings back the same instance, so a latch that never
+    // resets left every row dead on the second visit.
+    render(<LanguageSettings />);
+    fireEvent.click(screen.getByText('Deutsch'));
+
+    moveTo('http://localhost/#/settings', 0);
+    moveTo('http://localhost/#/settings/language', 1);
+    fireEvent.click(screen.getByText('Français'));
+
+    expect(mockUpdateLocale).toHaveBeenCalledTimes(2);
+    expect(mockUpdateLocale).toHaveBeenLastCalledWith('fr');
+    expect(mockHapticLight).toHaveBeenCalledTimes(2);
+    expect(mockGoBack).toHaveBeenCalledTimes(2);
   });
 
   it('routes to the settings root, replacing, when opened cold with no history to pop', () => {

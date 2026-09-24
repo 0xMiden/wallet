@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 
 import { toBaseUnits, waitForPendingNoteTotal, waitForVaultBalance, waitForVaultDebit } from './balance-truth';
+import { expectPendingPromptOnScreen } from './home-prompts';
 import type { MidenCli } from './miden-cli';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type { TestStepRunner } from '../harness/test-step';
@@ -346,6 +347,19 @@ export async function runMultiNoteClaimJourney(ctx: JourneyContext, mintsBaseUni
       await waitForPendingNoteTotal(walletA.page, TOKEN, total, { timeoutMs: 180_000, decimals: TOKEN_DECIMALS });
     },
     { captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }] }
+  );
+
+  // The faucet is a fresh non-native one, so nothing accepts these on its own and the Home prompt
+  // is the only notice the user gets. Checked before the claim, while the transfers still wait.
+  await steps.step(
+    'home_pending_prompt_on_screen',
+    async () => {
+      await expectPendingPromptOnScreen(walletA);
+    },
+    {
+      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
+      screenshotWallets: [{ target: walletA.page, label: 'A' }]
+    }
   );
 
   await steps.step(

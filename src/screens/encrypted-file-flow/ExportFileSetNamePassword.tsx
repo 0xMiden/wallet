@@ -5,18 +5,20 @@ import { useTranslation } from 'react-i18next';
 
 import { MIN_PASSWORD_LENGTH, STRONG_PASSWORD_LENGTH } from 'app/constants';
 import { lettersNumbersMixtureRegx, specialCharacterRegx, uppercaseLowercaseMixtureRegx } from 'app/defaults';
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { Input } from 'components/Input';
+import { IconButton } from 'components/ui/IconButton';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { PasswordStrengthIndicator, PasswordValidation } from 'screens/onboarding/common/CreatePassword';
 
 export interface ExportFilePasswordProps {
   onGoNext: () => void;
   onGoBack: () => void;
   passwordValue: string;
-  handlePasswordChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  handlePasswordChange: (event: React.ChangeEvent<TextFieldElement>) => void;
   fileName: string;
-  onFileNameChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onFileNameChange: (event: React.ChangeEvent<TextFieldElement>) => void;
 }
 
 const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
@@ -38,16 +40,16 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
     setIsVerifyPasswordVisible(prev => !prev);
   }, []);
 
-  const passwordRef = useRef<HTMLInputElement>(null);
-  const handleNameInputTab = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  const passwordRef = useRef<TextFieldElement>(null);
+  const handleNameInputTab = useCallback((e: React.KeyboardEvent<TextFieldElement>) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       passwordRef.current?.focus();
     }
   }, []);
 
-  const verifyPasswordRef = useRef<HTMLInputElement>(null);
-  const handlePasswordInputTab = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  const verifyPasswordRef = useRef<TextFieldElement>(null);
+  const handlePasswordInputTab = useCallback((e: React.KeyboardEvent<TextFieldElement>) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       verifyPasswordRef.current?.focus();
@@ -77,110 +79,106 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
     [passwordValidation, passwordValue, verifyPassword]
   );
 
+  const canContinue = !!passwordValue && !!verifyPassword && !!fileName && isValidPassword;
+
   const handleEnterKey = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<TextFieldElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        if (isValidPassword) {
+        if (canContinue) {
           onGoNext();
         }
       }
     },
-    [isValidPassword, onGoNext]
+    [canContinue, onGoNext]
   );
 
   const DEFAULT_FILE_NAME = 'Encrypted Wallet File';
   const EXTENSION = '.json';
 
+  const visibilityToggle = (visible: boolean, onToggle: () => void) => (
+    <IconButton
+      icon={visible ? IconName.EyeOff : IconName.Eye}
+      label={t(visible ? 'hide' : 'show')}
+      onClick={onToggle}
+    />
+  );
+
   return (
-    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-app-bg">
-      <div className="flex flex-col justify-stretch px-4 pt-6 overflow-y-auto">
-        <Input
-          placeholder={DEFAULT_FILE_NAME}
-          value={fileName}
-          label={t('name')}
-          onChange={onFileNameChange}
-          suffix={EXTENSION}
-          onKeyDown={handleNameInputTab}
-          tabIndex={0}
-          autoFocus
-          labelClassName="text-base font-medium leading-[20px]"
-          inputClassName="placeholder:text-text-muted placeholder:text-sm placeholder:font-medium h-14"
-          containerClassName="gap-2"
-        />
-
-        <div className="w-full items-center flex flex-col gap-y-4 flex-1 pt-4">
-          <p className="text-sm leading-[130%] text-center bg-gray-25 rounded-10 px-8 py-2">
-            {t('enterPasswordToEncrypt')}
-          </p>
-          <div className="w-full flex flex-col gap-y-4">
-            <Input
-              ref={passwordRef}
-              type={isPasswordVisible ? 'text' : 'password'}
-              label={t('password')}
-              value={passwordValue}
-              placeholder={t('enterPassword')}
-              icon={
-                <button className="flex-1" onClick={onPasswordVisibilityToggle}>
-                  <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
-                </button>
-              }
-              onChange={handlePasswordChange}
-              onKeyDown={handlePasswordInputTab}
-              tabIndex={1}
-              labelClassName="text-base font-medium leading-[20px]"
-              containerClassName="gap-2"
-              inputClassName="placeholder:text-text-muted placeholder:text-sm placeholder:font-medium h-14"
-            />
-            <PasswordStrengthIndicator password={passwordValue} validation={passwordValidation} />
-          </div>
-          <div className="w-full flex flex-col gap-y-2">
-            <Input
-              ref={verifyPasswordRef}
-              type={isVerifyPasswordVisible ? 'text' : 'password'}
-              label={t('verifyPassword')}
-              value={verifyPassword}
-              placeholder={t('enterPasswordAgain')}
-              icon={
-                <button className="flex-1" onClick={onVerifyPasswordVisibilityToggle}>
-                  <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
-                </button>
-              }
-              onChange={e => setVerifyPassword(e.target.value)}
-              onKeyDown={handleEnterKey}
-              tabIndex={2}
-              labelClassName="text-base font-medium leading-[20px]"
-              containerClassName="gap-2"
-              inputClassName="placeholder:text-text-muted placeholder:text-sm placeholder:font-medium h-14"
-            />
-            <p
-              className={classNames(
-                'h-4 text-green-500 text-xs',
-                isValidPassword && passwordValue === verifyPassword ? 'block' : 'hidden'
-              )}
-            >
-              {t('itsAMatch')}
-            </p>
-            <p
-              className={classNames(
-                'h-4 text-red-500 text-xs',
-                verifyPassword.length >= passwordValue.length && passwordValue !== verifyPassword ? 'block' : 'hidden'
-              )}
-            >
-              {t('passwordsDoNotMatch')}
-            </p>
-          </div>
-        </div>
-
+    <SubPageLayout
+      data-testid="export-file-password"
+      // The filename field autofocuses; the title taking focus after it would take it away.
+      focusTitleOnMount={false}
+      footer={
         <Button
           variant={ButtonVariant.Primary}
           onClick={onGoNext}
           title={t('continue')}
-          className="mt-8"
-          disabled={!passwordValue || !verifyPassword || !fileName || !isValidPassword}
+          className="flex-1 max-w-none"
+          data-testid="export-file-submit"
+          disabled={!canContinue}
         />
+      }
+    >
+      <TextField
+        data-testid="export-file-name-input"
+        placeholder={DEFAULT_FILE_NAME}
+        value={fileName}
+        label={t('name')}
+        onChange={onFileNameChange}
+        trailing={<span className="text-body text-muted">{EXTENSION}</span>}
+        onKeyDown={handleNameInputTab}
+        tabIndex={0}
+        autoFocus
+      />
+
+      <SubPageSection description={t('enterPasswordToEncrypt')} className="gap-4">
+        <TextField
+          ref={passwordRef}
+          data-testid="export-file-password-input"
+          type={isPasswordVisible ? 'text' : 'password'}
+          label={t('password')}
+          value={passwordValue}
+          placeholder={t('enterPassword')}
+          trailing={visibilityToggle(isPasswordVisible, onPasswordVisibilityToggle)}
+          onChange={handlePasswordChange}
+          onKeyDown={handlePasswordInputTab}
+          tabIndex={1}
+        />
+        <PasswordStrengthIndicator password={passwordValue} validation={passwordValidation} />
+      </SubPageSection>
+
+      <div className="flex flex-col gap-2">
+        <TextField
+          ref={verifyPasswordRef}
+          data-testid="export-file-password-verify-input"
+          type={isVerifyPasswordVisible ? 'text' : 'password'}
+          label={t('verifyPassword')}
+          value={verifyPassword}
+          placeholder={t('enterPasswordAgain')}
+          trailing={visibilityToggle(isVerifyPasswordVisible, onVerifyPasswordVisibilityToggle)}
+          onChange={e => setVerifyPassword(e.target.value)}
+          onKeyDown={handleEnterKey}
+          tabIndex={2}
+        />
+        <p
+          className={classNames(
+            'h-4 px-1 text-caption text-positive-ink',
+            isValidPassword && passwordValue === verifyPassword ? 'block' : 'hidden'
+          )}
+        >
+          {t('itsAMatch')}
+        </p>
+        <p
+          className={classNames(
+            'h-4 px-1 text-caption text-negative-ink',
+            verifyPassword.length >= passwordValue.length && passwordValue !== verifyPassword ? 'block' : 'hidden'
+          )}
+        >
+          {t('passwordsDoNotMatch')}
+        </p>
       </div>
-    </div>
+    </SubPageLayout>
   );
 };
 

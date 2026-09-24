@@ -1,43 +1,60 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { springs, tabBarMotion } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
 import SegmentedActionBarDefault, { SegmentedActionBar, SegmentedActionBarItem } from './SegmentedActionBar';
 
-// framer-motion: the segment `motion.button`s animate their width with
-// `layout`, the sliding active pill is a `motion.span` — surface its
-// `layoutId` — and the label is a fading `motion.span`. All render plain
-// elements; the framer-only props (layout/layoutId/initial/animate/
-// transition) are stripped so React does not warn about unknown DOM
-// attributes.
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: {
-    button: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
-      <button {...props}>{children}</button>
-    ),
-    span: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
-      <span data-layout-id={layoutId} {...props}>
-        {children}
-      </span>
-    )
-  }
-}));
+let mockReduce = false;
 
-// The bar takes its spring from the shared animation layer; the mock above
-// removes framer, so give the hook a plain pass-through.
-jest.mock('lib/animation', () => ({
-  __esModule: true,
-  springs: { pill: { type: 'spring' } },
-  useMotion: (transition: unknown) => transition
-}));
+// framer-motion: motion.* render as plain elements that surface what framer would receive — the
+// segments' `layout`, the pill's shared layoutId and transition, the press scale, the icon's pop
+// target and the label's fade — and route `onAnimationComplete` to transitionend so a test can
+// finish the pop's rise.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  const make = (tag: string) =>
+    ReactActual.forwardRef(
+      (
+        {
+          layout,
+          layoutId,
+          transition,
+          initial,
+          animate,
+          exit,
+          whileTap,
+          onAnimationComplete,
+          children,
+          ...props
+        }: any,
+        ref: React.Ref<HTMLElement>
+      ) =>
+        ReactActual.createElement(
+          tag,
+          {
+            ref,
+            'data-layout': layout === undefined ? undefined : String(layout),
+            'data-layout-id': layoutId,
+            'data-transition': JSON.stringify(transition),
+            'data-animate': JSON.stringify(animate),
+            'data-while-tap': JSON.stringify(whileTap),
+            onTransitionEnd: onAnimationComplete,
+            ...props
+          },
+          children
+        )
+    );
+  return {
+    ...jest.requireActual('framer-motion'),
+    motion: { div: make('div'), span: make('span'), button: make('button') },
+    useReducedMotion: () => mockReduce
+  };
+});
 
-// Native selection buzz — spy so we can assert it fires only on a real change.
-jest.mock('lib/mobile/haptics', () => ({
-  hapticSelection: jest.fn()
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn() }));
 
 const mockHapticSelection = hapticSelection as jest.MockedFunction<typeof hapticSelection>;
 
@@ -51,9 +68,13 @@ const renderBar = (props: Partial<React.ComponentProps<typeof SegmentedActionBar
   render(<SegmentedActionBar items={items} activeId="send" onChange={jest.fn()} {...props} />);
 
 const getTab = (label: string) => screen.getByRole('tab', { name: label });
+const pillIn = (tab: HTMLElement) => tab.querySelector<HTMLElement>('[data-slot="motion-highlight"]');
+const contentOf = (tab: HTMLElement) => tab.querySelector<HTMLElement>('[data-slot="motion-highlight-item"]')!;
+const iconOf = (tab: HTMLElement) => tab.querySelector<HTMLElement>('[data-pop]')!;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockReduce = false;
 });
 
 describe('SegmentedActionBar — exports & structure', () => {
@@ -61,39 +82,36 @@ describe('SegmentedActionBar — exports & structure', () => {
     expect(SegmentedActionBarDefault).toBe(SegmentedActionBar);
   });
 
+  it("carries a caller's band on the bar itself, over its own rule", () => {
+    renderBar({ className: 'bg-action-bar' });
+    expect(screen.getByRole('tablist')).toHaveClass('bg-action-bar', 'border-b', 'border-hairline');
+  });
+
   it('renders a tablist with one tab per item, each carrying its icon and aria-label', () => {
     renderBar();
 
     const tablist = screen.getByRole('tablist');
-    expect(tablist).toBeTruthy();
-    // Base layout classes always present on the container.
-    expect(tablist.className).toContain('h-16');
-    expect(tablist.className).toContain('bg-gray-25');
+    // No band of its own (a caller passes one in `className`): snug under the status bar (4px above
+    // the 48px segments, 8px below), with a hairline rule on its bottom edge like the bottom nav's top rule.
+    expect(tablist).toHaveClass('px-3', 'gap-1', 'pt-1', 'pb-2', 'border-b', 'border-hairline');
+    expect(tablist.className).not.toMatch(/(^|\s)bg-/);
+    expect(tablist.className).not.toMatch(/(^|\s)(h-\d+|pt-[2-9]|py-)/);
 
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(3);
-
-    // Every item's icon renders regardless of active state.
+    tabs.forEach(tab => expect(tab).toHaveAttribute('type', 'button'));
     expect(screen.getByTestId('icon-send')).toBeTruthy();
     expect(screen.getByTestId('icon-receive')).toBeTruthy();
     expect(screen.getByTestId('icon-swap')).toBeTruthy();
-
-    // aria-label mirrors the item label on each button.
     expect(getTab('Send')).toBeTruthy();
     expect(getTab('Receive')).toBeTruthy();
     expect(getTab('Swap')).toBeTruthy();
-
-    // Each button is a real submit-safe type="button".
-    tabs.forEach(tab => expect(tab.getAttribute('type')).toBe('button'));
   });
 
   it('appends a caller-supplied className to the container', () => {
     renderBar({ className: 'my-extra-class' });
 
-    const tablist = screen.getByRole('tablist');
-    expect(tablist.className).toContain('my-extra-class');
-    // Base classes still present alongside the override.
-    expect(tablist.className).toContain('flex');
+    expect(screen.getByRole('tablist')).toHaveClass('my-extra-class', 'flex');
   });
 
   it('renders nothing but an empty tablist when there are no items', () => {
@@ -108,70 +126,142 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
   it('marks the active tab selected and the others unselected', () => {
     renderBar({ activeId: 'receive' });
 
-    expect(getTab('Receive').getAttribute('aria-selected')).toBe('true');
-    expect(getTab('Send').getAttribute('aria-selected')).toBe('false');
-    expect(getTab('Swap').getAttribute('aria-selected')).toBe('false');
+    expect(getTab('Receive')).toHaveAttribute('aria-selected', 'true');
+    expect(getTab('Send')).toHaveAttribute('aria-selected', 'false');
+    expect(getTab('Swap')).toHaveAttribute('aria-selected', 'false');
   });
 
   it('applies the active layout classes to the selected tab and the fill classes to the rest', () => {
     renderBar({ activeId: 'send' });
 
-    // Active: uses a fixed width so long labels cannot collide with adjacent icons.
-    expect(getTab('Send').className).toContain('w-28');
-    expect(getTab('Send').className).toContain('max-[359px]:w-24');
-    expect(getTab('Send').className).toContain('flex-none');
-    expect(getTab('Send').className).toContain('gap-1.5');
-    expect(getTab('Send').className).toContain('px-2.5');
+    // Active: a fixed width so long labels cannot collide with adjacent icons.
+    expect(getTab('Send')).toHaveClass('w-28', 'max-[359px]:w-24', 'flex-none', 'px-2.5', 'h-12');
+    expect(contentOf(getTab('Send'))).toHaveClass('gap-1.5', 'max-[359px]:gap-1');
 
     // Inactive: stretches to fill the row with no horizontal padding.
-    expect(getTab('Receive').className).toContain('flex-1');
-    expect(getTab('Receive').className).toContain('px-0');
-    expect(getTab('Receive').className).not.toContain('w-28');
+    expect(getTab('Receive')).toHaveClass('flex-1', 'px-0');
+    expect(getTab('Receive')).not.toHaveClass('w-28');
+  });
+
+  it('keeps the 20px icon: a 24px one would clip "Overview" in a 96px segment at 320px', () => {
+    renderBar();
+
+    expect(iconOf(getTab('Send'))).toHaveClass('h-5', 'w-5');
   });
 
   it('renders the pill and the label only inside the active tab', () => {
     renderBar({ activeId: 'send' });
 
-    // The label text appears exactly once — on the active tab.
     expect(screen.getByText('Send')).toBeTruthy();
-    // Inactive tabs render their icon but not their label text.
     expect(screen.queryByText('Receive')).toBeNull();
     expect(screen.queryByText('Swap')).toBeNull();
 
-    // The sliding pill (bg-white) lives inside the active tab only.
-    const activePill = getTab('Send').querySelector('.bg-white');
-    expect(activePill).not.toBeNull();
-    expect(getTab('Receive').querySelector('.bg-white')).toBeNull();
+    expect(pillIn(getTab('Send'))).not.toBeNull();
+    expect(pillIn(getTab('Receive'))).toBeNull();
   });
 
-  it('moves the pill and label when a different tab is active', () => {
-    renderBar({ activeId: 'swap' });
+  it('sets the active tab label in bold and gives an inactive tab no label', () => {
+    renderBar({ activeId: 'send' });
+
+    expect(screen.getByText('Send')).toHaveClass('font-bold');
+    expect(getTab('Receive')).not.toHaveTextContent('Receive');
+  });
+
+  it('draws the active pill as a raised, fully round bubble that sinks while pressed', () => {
+    renderBar({ activeId: 'send' });
+
+    const activeTab = getTab('Send');
+    expect(activeTab).toHaveClass('rounded-full', 'group');
+    expect(activeTab.style.borderRadius).toBe('9999px');
+    // No clip on the segment, or it would cut the pill's shadow off.
+    expect(activeTab).not.toHaveClass('overflow-hidden');
+
+    const pill = pillIn(activeTab)!;
+    expect(pill).toHaveClass('inset-0', 'rounded-full', 'bg-raised', 'shadow-raised');
+    expect(pill).toHaveClass('group-active:shadow-raised-pressed');
+    expect(pill.style.borderRadius).toBe('9999px');
+  });
+
+  it('moves the pill and label when a different tab is active, on one shared layoutId', () => {
+    const { rerender } = renderBar({ activeId: 'send' });
+    const layoutId = pillIn(getTab('Send'))!.getAttribute('data-layout-id');
+
+    rerender(<SegmentedActionBar items={items} activeId="swap" onChange={jest.fn()} />);
 
     expect(screen.getByText('Swap')).toBeTruthy();
     expect(screen.queryByText('Send')).toBeNull();
-    expect(getTab('Swap').querySelector('.bg-white')).not.toBeNull();
-    expect(getTab('Send').querySelector('.bg-white')).toBeNull();
+    expect(pillIn(getTab('Send'))).toBeNull();
+    expect(pillIn(getTab('Swap'))!.getAttribute('data-layout-id')).toBe(layoutId);
+  });
+
+  it('scopes the pill to each bar, so two mounted bars never trade pills', () => {
+    render(
+      <>
+        <SegmentedActionBar items={items} activeId="send" onChange={jest.fn()} />
+        <SegmentedActionBar items={items} activeId="send" onChange={jest.fn()} />
+      </>
+    );
+
+    const [first, second] = screen.getAllByRole('tab', { name: 'Send' });
+    expect(pillIn(first!)!.getAttribute('data-layout-id')).not.toBe(pillIn(second!)!.getAttribute('data-layout-id'));
   });
 });
 
-describe('SegmentedActionBar — layoutId plumbing', () => {
-  it('defaults the pill layoutId to the shared namespace', () => {
-    renderBar({ activeId: 'send' });
+describe('SegmentedActionBar — motion', () => {
+  it('slides the pill and resizes the segments on the one bouncy tab-switch spring', () => {
+    renderBar();
 
-    const pill = getTab('Send').querySelector('.bg-white');
-    expect(pill?.getAttribute('data-layout-id')).toBe('segmented-action-pill');
+    expect(JSON.parse(pillIn(getTab('Send'))!.getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
+    expect(getTab('Receive')).toHaveAttribute('data-layout', 'true');
+    expect(JSON.parse(getTab('Receive').getAttribute('data-transition')!)).toEqual(springs.tabSwitch);
   });
 
-  it('forwards a caller-provided layoutId override to the pill', () => {
-    renderBar({ activeId: 'send', layoutId: 'custom-pill' });
+  it('fades the label in on the named label transition', () => {
+    renderBar();
 
-    const pill = getTab('Send').querySelector('.bg-white');
-    expect(pill?.getAttribute('data-layout-id')).toBe('custom-pill');
+    const label = screen.getByText('Send');
+    expect(JSON.parse(label.getAttribute('data-transition')!)).toEqual(tabBarMotion.label);
+  });
+
+  it('dips a pressed segment to 0.92', () => {
+    renderBar();
+
+    expect(JSON.parse(getTab('Swap').getAttribute('data-while-tap')!)).toEqual({
+      scale: 0.92,
+      transition: springs.snappy
+    });
+  });
+
+  it('pops the icon of the segment that becomes active, then brings it back to rest', () => {
+    const { rerender } = renderBar({ activeId: 'send' });
+    expect(iconOf(getTab('Send'))).toHaveAttribute('data-pop', 'rest');
+
+    rerender(<SegmentedActionBar items={items} activeId="receive" onChange={jest.fn()} />);
+    const icon = iconOf(getTab('Receive'));
+    expect(icon).toHaveAttribute('data-pop', 'pop');
+    expect(JSON.parse(icon.getAttribute('data-animate')!)).toEqual({ scale: 1.12 });
+
+    act(() => {
+      fireEvent.transitionEnd(icon);
+    });
+    expect(iconOf(getTab('Receive'))).toHaveAttribute('data-pop', 'rest');
+  });
+
+  it('under reduced motion: the pill and segments move instantly, nothing pops, a press does not scale', () => {
+    mockReduce = true;
+    const { rerender } = renderBar({ activeId: 'send' });
+
+    expect(JSON.parse(pillIn(getTab('Send'))!.getAttribute('data-transition')!)).toEqual({ duration: 0.001 });
+    expect(JSON.parse(getTab('Receive').getAttribute('data-transition')!)).toEqual({ duration: 0.001 });
+    expect(getTab('Receive')).not.toHaveAttribute('data-while-tap');
+
+    rerender(<SegmentedActionBar items={items} activeId="receive" onChange={jest.fn()} />);
+    expect(iconOf(getTab('Receive'))).toHaveAttribute('data-pop', 'rest');
   });
 });
 
-describe('SegmentedActionBar — selection behaviour', () => {
-  it('buzzes and calls onChange with the id when an inactive tab is clicked', () => {
+describe('SegmentedActionBar — selection behaviour and haptics', () => {
+  it('buzzes once and calls onChange with the id when an inactive tab is clicked', () => {
     const onChange = jest.fn();
     renderBar({ activeId: 'send', onChange });
 
@@ -182,7 +272,7 @@ describe('SegmentedActionBar — selection behaviour', () => {
     expect(onChange).toHaveBeenCalledWith('receive');
   });
 
-  it('is a no-op when the already-active tab is clicked (early return, no buzz)', () => {
+  it('is a no-op when the already-active tab is clicked (no buzz, no change)', () => {
     const onChange = jest.fn();
     renderBar({ activeId: 'send', onChange });
 
@@ -192,13 +282,32 @@ describe('SegmentedActionBar — selection behaviour', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('reports the correct id for each distinct inactive tab', () => {
+  it('buzzes exactly once per switch: the tap, and not again when the owner moves it there', () => {
     const onChange = jest.fn();
-    renderBar({ activeId: 'send', onChange });
+    const { rerender } = renderBar({ activeId: 'send', onChange });
 
     fireEvent.click(getTab('Swap'));
+    rerender(<SegmentedActionBar items={items} activeId="swap" onChange={onChange} />);
 
     expect(onChange).toHaveBeenCalledWith('swap');
     expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays silent when a swipe moves the active segment (HomeSwipeContainer buzzes for that)', () => {
+    const { rerender } = renderBar({ activeId: 'send' });
+
+    rerender(<SegmentedActionBar items={items} activeId="receive" onChange={jest.fn()} />);
+
+    expect(getTab('Receive')).toHaveAttribute('aria-selected', 'true');
+    expect(mockHapticSelection).not.toHaveBeenCalled();
+  });
+
+  it('leaves the pill where the owner puts it: a tap alone does not move it', () => {
+    renderBar({ activeId: 'send' });
+
+    fireEvent.click(getTab('Swap'));
+
+    expect(pillIn(getTab('Send'))).not.toBeNull();
+    expect(pillIn(getTab('Swap'))).toBeNull();
   });
 });

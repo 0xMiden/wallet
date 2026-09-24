@@ -1,10 +1,10 @@
 import React, { useRef, useState } from 'react';
 
-import { wordlists } from 'bip39';
 import { useTranslation } from 'react-i18next';
 
+import { englishWordlist } from '@miden/hd-key';
 import { Button, ButtonVariant } from 'components/Button';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { getRecoveryAction } from 'lib/miden/back/recovery-authorization';
 import type { ITransaction } from 'lib/miden/db/types';
@@ -50,7 +50,7 @@ export const RecoverySeedPrompt: React.FC<Props> = ({ transaction, onClose }) =>
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-app-bg text-text-primary-token pb-6">
-      <NavigationHeader onBack={onClose} />
+      <PageHeader className="px-4" onBack={onClose} />
       {transaction.type === 'switch-guardian' && (
         <p className="px-4 break-all">{transaction.extraInputs?.newGuardianEndpoint}</p>
       )}
@@ -61,7 +61,7 @@ export const RecoverySeedPrompt: React.FC<Props> = ({ transaction, onClose }) =>
       )}
       <ImportSeedPhraseScreen
         key={inputVersion}
-        wordslist={wordlists.english ?? []}
+        wordslist={englishWordlist}
         titleKey="recoverySeedRequiredTitle"
         descriptionKey="recoverySeedTemporaryDescription"
         submitting={submitting}

@@ -1,4 +1,5 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { swapOrderExpired } from 'lib/miden/swap/expiry';
 import type { SwapOrderState, SwapOrderTracking, SwapSettlementNotes } from 'lib/miden/transaction/get';
 
 type SwapSettlementTransaction = SwapSettlementNotes['settledTransactions'][number];
@@ -105,6 +106,8 @@ export interface SwapReceiptInputs {
   autoConsume: boolean;
   /** Absent on orders placed before expiry stamping; those never auto-settle. */
   expiresAt: number | null;
+  /** Injectable so the expiry boundary can be tested without a clock. */
+  nowSeconds?: number;
 }
 
 export interface SwapReceiptView {
@@ -118,6 +121,21 @@ export interface SwapReceiptView {
   settlementFound: boolean;
   /** Whether to route the user to the notes only they can claim. */
   offerClaimRoute: boolean;
+  /**
+   * Whether "Cancel swap" can succeed: the order is still open, the wallet is
+   * the one that will reclaim it, and its expiry has not already lapsed. See
+   * `cancelSwapOrder` for why those three are exactly the conditions under which
+   * bringing the expiry forward reclaims anything.
+   */
+  offerCancel: boolean;
+  /**
+   * The expiry has passed and the tip has not come back yet - so a reclaim is
+   * owed, whether the user asked for it or the order simply timed out. This is
+   * the state a successful Cancel lands in, which is why the two are derived
+   * together: the button's disappearance and the notice replacing it are one
+   * fact about the row, not two.
+   */
+  reclaimPending: boolean;
 }
 
 /**
@@ -141,7 +159,8 @@ export const deriveSwapReceipt = ({
   tracking,
   settlement,
   autoConsume,
-  expiresAt
+  expiresAt,
+  nowSeconds = Math.floor(Date.now() / 1000)
 }: SwapReceiptInputs): SwapReceiptView => {
   const settledTransactions = settlement?.settledTransactions ?? [];
   const reclaimedTransactions = settlement?.reclaimedTransactions ?? [];
@@ -204,11 +223,27 @@ export const deriveSwapReceipt = ({
   // leaves nothing to collect.
   const nothingWasMatched = orderState === 'reclaimed' && filledAmount === 0n;
 
+  // Only a lineage that still says 'active' has a tip left to take back, and only
+  // an auto-consuming order has anything that will act on the stamp - the manual
+  // one is skipped by `reconcileSwapOrderNotes` before expiry is even read, and
+  // already gets the claim route above. `null` is deliberately not offered: an
+  // unresolvable lineage cannot tell an open order from one that settled while
+  // the wallet was away, and a Cancel on the latter reclaims nothing while
+  // reading as though it undid something.
+  //
+  // An order carrying NO expiry (persisted before the stamp existed) is the one
+  // most in need of this, not the least: nothing will ever deem it expired, so it
+  // waits forever, and the stamp this writes is the only thing that can end it.
+  const cancellableState = orderState === 'active' && autoConsume;
+  const expiryLapsed = swapOrderExpired(expiresAt, nowSeconds);
+
   return {
     orderState,
     filledAmount,
     isPartialFill,
     settlementFound,
-    offerClaimRoute: !walletWillClaim && !settlementFound && !nothingWasMatched
+    offerClaimRoute: !walletWillClaim && !settlementFound && !nothingWasMatched,
+    offerCancel: cancellableState && !expiryLapsed,
+    reclaimPending: cancellableState && expiryLapsed
   };
 };

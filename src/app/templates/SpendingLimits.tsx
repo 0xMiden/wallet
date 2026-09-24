@@ -1,83 +1,45 @@
-import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
-import { Input } from 'components/Input';
 import { StrictActionAuthentication } from 'components/StrictActionAuthentication';
-import type { TokenBalanceData } from 'lib/miden/front/balance';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { classifySpendingLimitChange } from 'lib/miden/spending-limits/change';
-import { canonicalSpendingLimitIdentity } from 'lib/miden/spending-limits/identity';
-import type {
-  SpendingLimitConfiguration,
-  SpendingLimitDraft,
-  SpendingLimitAssetSnapshot
-} from 'lib/miden/spending-limits/types';
+import type { SpendingLimitConfiguration, SpendingLimitDraft } from 'lib/miden/spending-limits/types';
 import { useWalletStore } from 'lib/store';
 
 // Mirrors the SDK's documented fungible-asset maximum used by transaction construction.
 export const MAX_SPENDING_LIMIT = (1n << 63n) - (1n << 31n);
 
-/** Parse user-entered native units without passing the amount through Number. */
-export function parseSpendingLimitInput(value: string, decimals: number): bigint | undefined {
+/** Dollars carry two decimal places on screen and six in storage. */
+const USD_INPUT_DECIMALS = 2;
+const USD_STORAGE_DECIMALS = 6;
+
+/** Parse a user-entered dollar amount into micro-dollars without passing it through Number. */
+export function parseUsdLimitInput(value: string): bigint | undefined {
   const trimmed = value.trim();
   if (trimmed === '') return undefined;
-  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new RangeError('Invalid asset decimals');
   const match = /^(\d+)(?:\.(\d*))?$/.exec(trimmed);
   if (!match) throw new RangeError('Invalid spending limit');
   // The mandatory `(\d+)` group: a successful match always carries it, so this is an assertion
   // rather than a fallback - a `??` here would read as a case that can happen.
   const integer = match[1]!;
   const fraction = match[2] ?? '';
-  if (fraction.length > decimals) throw new RangeError('Spending limit exceeds asset precision');
-  const amount = BigInt(integer) * 10n ** BigInt(decimals) + BigInt(fraction.padEnd(decimals, '0') || '0');
+  if (fraction.length > USD_INPUT_DECIMALS) throw new RangeError('Spending limit exceeds cent precision');
+  const scale = 10n ** BigInt(USD_STORAGE_DECIMALS);
+  const amount = BigInt(integer) * scale + BigInt(fraction.padEnd(USD_STORAGE_DECIMALS, '0') || '0');
   if (amount <= 0n || amount > MAX_SPENDING_LIMIT) throw new RangeError('Spending limit is out of range');
   return amount;
 }
 
-interface SpendingLimitAsset {
-  faucetId: string;
-  asset: SpendingLimitAssetSnapshot;
-  scaleKnown: boolean;
-  configuration?: SpendingLimitConfiguration;
-}
-
-const mergeAssets = (
-  balances: TokenBalanceData[],
-  configurations: SpendingLimitConfiguration[]
-): SpendingLimitAsset[] => {
-  const rows = new Map<string, SpendingLimitAsset>();
-  for (const balance of balances) {
-    rows.set(canonicalSpendingLimitIdentity(balance.tokenId), {
-      faucetId: balance.tokenId,
-      asset: {
-        symbol: balance.metadata.symbol,
-        name: balance.metadata.name,
-        decimals: balance.metadata.decimals
-      },
-      scaleKnown: hasKnownScale(balance.metadata)
-    });
-  }
-  for (const configuration of configurations) {
-    // The saved snapshot keeps a zero-balance or temporarily unresolved asset editable.
-    rows.set(canonicalSpendingLimitIdentity(configuration.faucetId), {
-      faucetId: configuration.faucetId,
-      asset: configuration.asset,
-      scaleKnown: true,
-      configuration
-    });
-  }
-  return [...rows.values()].sort(
-    (left, right) => left.asset.symbol.localeCompare(right.asset.symbol) || left.faucetId.localeCompare(right.faucetId)
-  );
-};
-
-const initialValue = (value: bigint | undefined, decimals: number): string =>
-  value === undefined ? '' : formatSpendingLimitInput(value, decimals);
+const initialValue = (value: bigint | undefined): string => (value === undefined ? '' : formatUsdLimitInput(value));
 
 /**
- * Format a base-unit limit as a canonical decimal input value without precision loss.
+ * Format a micro-dollar limit as a canonical two-decimal input value without precision loss.
  *
  * Deliberately NOT delegated to `lib/i18n/numbers`, although that module formats the same shape.
  * The repo ships an automatic manual mock for it (`__mocks__/lib/i18n/numbers.ts`) whose
@@ -86,68 +48,102 @@ const initialValue = (value: bigint | undefined, decimals: number): string =>
  * The display formatter and the limit codec have different contracts; keeping them apart is the
  * point, not an oversight.
  */
-export function formatSpendingLimitInput(value: bigint, decimals: number): string {
-  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255 || value < 0n) {
-    throw new RangeError('Invalid spending limit');
-  }
-  if (decimals === 0) return value.toString();
-  const digits = value.toString().padStart(decimals + 1, '0');
-  const fraction = digits.slice(-decimals).replace(/0+$/, '');
-  return fraction === '' ? digits.slice(0, -decimals) : `${digits.slice(0, -decimals)}.${fraction}`;
+export function formatUsdLimitInput(value: bigint): string {
+  if (value < 0n) throw new RangeError('Invalid spending limit');
+  const digits = value.toString().padStart(USD_STORAGE_DECIMALS + 1, '0');
+  const integerPart = digits.slice(0, -USD_STORAGE_DECIMALS);
+  const fraction = digits.slice(-USD_STORAGE_DECIMALS, digits.length - USD_STORAGE_DECIMALS + USD_INPUT_DECIMALS);
+  const trimmedFraction = fraction.replace(/0+$/, '');
+  return trimmedFraction === '' ? integerPart : `${integerPart}.${trimmedFraction}`;
 }
 
-interface SpendingLimitRowProps {
-  accountId: string;
-  row: SpendingLimitAsset;
-  isCurrent: (accountId: string, faucetId: string, revision: string | undefined) => boolean;
-  onSave: (
-    draft: SpendingLimitDraft,
-    revision: string | undefined,
-    strictlyAuthenticated: boolean
-  ) => Promise<SpendingLimitConfiguration | undefined>;
-  onSaved: (accountId: string, faucetId: string, configuration: SpendingLimitConfiguration | undefined) => void;
+interface PendingSave {
+  draft: SpendingLimitDraft;
+  expectedAccount: string;
+  expectedRevision: string | undefined;
 }
 
-const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent, onSave, onSaved }) => {
+const SpendingLimits: FC = () => {
   const { t } = useTranslation();
-  const configuration = row.configuration;
-  const revision = configuration?.revision;
-  const [daily, setDaily] = useState(() => initialValue(configuration?.dailyLimit, row.asset.decimals));
-  const [weekly, setWeekly] = useState(() => initialValue(configuration?.weeklyLimit, row.asset.decimals));
+  const currentAccount = useWalletStore(state => state.currentAccount);
+  const accountId = currentAccount?.publicKey;
+  const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  const saveSpendingLimit = useWalletStore(state => state.saveSpendingLimit);
+
+  const [configuration, setConfiguration] = useState<SpendingLimitConfiguration | undefined>(undefined);
+  const [value, setValue] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
-  const pendingDraftRef = useRef<SpendingLimitDraft>();
+  const loadGenerationRef = useRef(0);
+  const accountRef = useRef(accountId);
+  accountRef.current = accountId;
+  const revisionRef = useRef<string | undefined>(undefined);
+  // Authentication may settle after a store update, so saving rechecks both identities.
+  revisionRef.current = configuration?.revision;
+  const pendingSaveRef = useRef<PendingSave>();
   const savingRef = useRef(false);
   const mountedRef = useRef(true);
 
-  const initialDaily = initialValue(configuration?.dailyLimit, row.asset.decimals);
-  const initialWeekly = initialValue(configuration?.weeklyLimit, row.asset.decimals);
-  const dirty = daily !== initialDaily || weekly !== initialWeekly;
-
   useEffect(() => {
     mountedRef.current = true;
-    setDaily(initialDaily);
-    setWeekly(initialWeekly);
-    setError(null);
-    setAuthenticating(false);
-    pendingDraftRef.current = undefined;
     return () => {
       mountedRef.current = false;
-      pendingDraftRef.current = undefined;
     };
-  }, [accountId, initialDaily, initialWeekly, revision, row.faucetId]);
+  }, []);
+
+  useEffect(() => {
+    const generation = ++loadGenerationRef.current;
+    setConfiguration(undefined);
+    setValue('');
+    setError(null);
+    setAuthenticating(false);
+    setLoadError(false);
+    pendingSaveRef.current = undefined;
+    if (accountId === undefined) {
+      setLoading(false);
+      setLoadError(true);
+      return;
+    }
+    setLoading(true);
+    void readSpendingLimit(accountId)
+      .then(next => {
+        if (loadGenerationRef.current !== generation || accountRef.current !== accountId) return;
+        setConfiguration(next);
+        setValue(initialValue(next?.limit));
+        setLoading(false);
+      })
+      .catch(() => {
+        if (loadGenerationRef.current !== generation || accountRef.current !== accountId) return;
+        setLoading(false);
+        setLoadError(true);
+      });
+  }, [accountId, readSpendingLimit]);
+
+  const isCurrent = useCallback(
+    (expectedAccount: string, expectedRevision: string | undefined) =>
+      accountRef.current === expectedAccount && revisionRef.current === expectedRevision,
+    []
+  );
 
   const persist = useCallback(
-    async (draft: SpendingLimitDraft, strictlyAuthenticated: boolean) => {
-      if (savingRef.current || !isCurrent(accountId, row.faucetId, revision)) return;
+    async (
+      draft: SpendingLimitDraft,
+      expectedAccount: string,
+      expectedRevision: string | undefined,
+      strictlyAuthenticated: boolean
+    ) => {
+      if (savingRef.current || !isCurrent(expectedAccount, expectedRevision)) return;
       savingRef.current = true;
       setSaving(true);
       setError(null);
       try {
-        const saved = await onSave(draft, revision, strictlyAuthenticated);
-        if (mountedRef.current && isCurrent(accountId, row.faucetId, revision)) {
-          onSaved(accountId, row.faucetId, saved);
+        const saved = await saveSpendingLimit(draft, expectedRevision, strictlyAuthenticated);
+        if (mountedRef.current && isCurrent(expectedAccount, expectedRevision)) {
+          setConfiguration(saved);
+          setValue(initialValue(saved?.limit));
         }
       } catch {
         if (mountedRef.current) setError(t('spendingLimitSaveFailed'));
@@ -156,186 +152,92 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
         if (mountedRef.current) setSaving(false);
       }
     },
-    [accountId, isCurrent, onSave, onSaved, revision, row.faucetId, t]
+    [isCurrent, saveSpendingLimit, t]
   );
 
+  const dirty = value !== initialValue(configuration?.limit);
+
   const prepareSave = useCallback(() => {
-    if (!dirty || savingRef.current || !row.scaleKnown) return;
-    let draft: SpendingLimitDraft;
+    if (!dirty || savingRef.current || accountId === undefined) return;
+    const expectedAccount = accountId;
+    const expectedRevision = configuration?.revision;
+    if (!isCurrent(expectedAccount, expectedRevision)) return;
+    let limit: bigint | undefined;
     try {
-      draft = {
-        accountId,
-        faucetId: row.faucetId,
-        asset: row.asset,
-        dailyLimit: parseSpendingLimitInput(daily, row.asset.decimals),
-        weeklyLimit: parseSpendingLimitInput(weekly, row.asset.decimals)
-      };
+      limit = parseUsdLimitInput(value);
     } catch {
       setError(t('spendingLimitInvalidAmount'));
       return;
     }
     setError(null);
+    const draft: SpendingLimitDraft = { accountId: expectedAccount, limit };
     if (classifySpendingLimitChange(configuration, draft) === 'strict-authentication') {
-      pendingDraftRef.current = draft;
+      pendingSaveRef.current = { draft, expectedAccount, expectedRevision };
       setAuthenticating(true);
       return;
     }
-    void persist(draft, false);
-  }, [accountId, configuration, daily, dirty, persist, row.asset, row.faucetId, row.scaleKnown, t, weekly]);
+    void persist(draft, expectedAccount, expectedRevision, false);
+  }, [accountId, configuration, dirty, isCurrent, persist, t, value]);
 
   const handleAuthentication = useCallback(
     (result: 'authenticated' | 'cancelled') => {
-      const draft = pendingDraftRef.current;
-      pendingDraftRef.current = undefined;
+      const pending = pendingSaveRef.current;
+      pendingSaveRef.current = undefined;
       setAuthenticating(false);
-      if (result === 'authenticated' && draft !== undefined) void persist(draft, true);
+      if (result === 'authenticated' && pending !== undefined) {
+        void persist(pending.draft, pending.expectedAccount, pending.expectedRevision, true);
+      }
     },
     [persist]
   );
 
   return (
-    <section className="rounded-xl border border-border-faint bg-white p-4 flex flex-col gap-4">
-      <div>
-        <h2 className="text-base font-bold text-heading-gray">{row.asset.symbol}</h2>
-        {row.asset.name && row.asset.name !== row.asset.symbol && (
-          <p className="text-sm text-text-secondary-token">{row.asset.name}</p>
-        )}
-      </div>
-      <Input
-        type="text"
-        inputMode="decimal"
-        label={t('spendingLimitDaily')}
-        aria-label={`${row.asset.symbol} ${t('spendingLimitDaily')}`}
-        suffix={row.asset.symbol}
-        value={daily}
-        disabled={!row.scaleKnown || saving}
-        onChange={event => {
-          setDaily(event.target.value);
-          setError(null);
-        }}
-      />
-      <Input
-        type="text"
-        inputMode="decimal"
-        label={t('spendingLimitWeekly')}
-        aria-label={`${row.asset.symbol} ${t('spendingLimitWeekly')}`}
-        suffix={row.asset.symbol}
-        value={weekly}
-        disabled={!row.scaleKnown || saving}
-        onChange={event => {
-          setWeekly(event.target.value);
-          setError(null);
-        }}
-      />
-      {!row.scaleKnown && <p className="text-sm text-status-negative">{t('spendingLimitUnknownDecimals')}</p>}
-      {error && (
-        <p role="alert" className="text-sm text-status-negative">
-          {error}
-        </p>
-      )}
-      {authenticating ? (
-        <StrictActionAuthentication reason={t('spendingLimitAuthenticationReason')} onResult={handleAuthentication} />
-      ) : (
-        <Button
-          title={t('spendingLimitSave')}
-          disabled={!dirty || !row.scaleKnown || saving}
-          isLoading={saving}
-          onClick={prepareSave}
-        />
-      )}
-    </section>
-  );
-};
-
-const SpendingLimits: FC = () => {
-  const { t } = useTranslation();
-  const currentAccount = useWalletStore(state => state.currentAccount);
-  const accountId = currentAccount?.publicKey;
-  const balances = useWalletStore(state => (accountId === undefined ? [] : (state.balances[accountId] ?? [])));
-  const balancesLoading = useWalletStore(state =>
-    accountId === undefined ? false : (state.balancesLoading[accountId] ?? false)
-  );
-  const listSpendingLimits = useWalletStore(state => state.listSpendingLimits);
-  const saveSpendingLimit = useWalletStore(state => state.saveSpendingLimit);
-  const [configurations, setConfigurations] = useState<SpendingLimitConfiguration[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const loadGenerationRef = useRef(0);
-  const accountRef = useRef(accountId);
-  accountRef.current = accountId;
-  const revisionsRef = useRef(new Map<string, string>());
-  // Authentication may settle after a store update, so saving rechecks both identities.
-  revisionsRef.current = new Map(configurations.map(configuration => [configuration.faucetId, configuration.revision]));
-
-  useEffect(() => {
-    const generation = ++loadGenerationRef.current;
-    setConfigurations([]);
-    setLoadError(false);
-    if (accountId === undefined) {
-      setLoading(false);
-      setLoadError(true);
-      return;
-    }
-    setLoading(true);
-    void listSpendingLimits(accountId)
-      .then(next => {
-        if (loadGenerationRef.current !== generation || accountRef.current !== accountId) return;
-        setConfigurations(next);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (loadGenerationRef.current !== generation || accountRef.current !== accountId) return;
-        setLoading(false);
-        setLoadError(true);
-      });
-  }, [accountId, listSpendingLimits]);
-
-  const rows = useMemo(() => mergeAssets(balances, configurations), [balances, configurations]);
-
-  const isCurrent = useCallback((expectedAccount: string, faucetId: string, revision: string | undefined) => {
-    return accountRef.current === expectedAccount && revisionsRef.current.get(faucetId) === revision;
-  }, []);
-
-  const handleSaved = useCallback(
-    (expectedAccount: string, faucetId: string, saved: SpendingLimitConfiguration | undefined) => {
-      if (accountRef.current !== expectedAccount) return;
-      setConfigurations(current => {
-        const remaining = current.filter(configuration => configuration.faucetId !== faucetId);
-        return saved === undefined ? remaining : [...remaining, saved];
-      });
-    },
-    []
-  );
-
-  return (
-    <div className="w-full flex flex-col gap-4 pb-6" data-testid="spending-limits-settings">
-      <div className="rounded-xl bg-gray-25 p-4 flex flex-col gap-2">
-        <p className="text-sm text-heading-gray">{t('spendingLimitLocalDisclosure')}</p>
-        <p className="text-sm text-heading-gray">{t('spendingLimitNotOnChain')}</p>
-      </div>
-      {loading || balancesLoading ? (
-        <p role="status" className="text-sm text-text-secondary-token">
+    <SubPageLayout data-testid="spending-limits-settings">
+      <Notice tone="neutral">
+        <span className="flex flex-col gap-2">
+          <span>{t('spendingLimitLocalDisclosure')}</span>
+          <span>{t('spendingLimitNotOnChain')}</span>
+          <span>{t('spendingLimitCoverage')}</span>
+        </span>
+      </Notice>
+      {loading ? (
+        <Notice variant="inline" role="status">
           {t('loading')}
-        </p>
+        </Notice>
       ) : loadError ? (
-        <p role="alert" className="text-sm text-status-negative">
-          {t('spendingLimitLoadFailed')}
-        </p>
-      ) : rows.length === 0 || accountId === undefined ? (
-        <p className="text-sm text-text-secondary-token">{t('spendingLimitNoAssets')}</p>
+        <ErrorLine>{t('spendingLimitLoadFailed')}</ErrorLine>
       ) : (
-        rows.map(row => (
-          <SpendingLimitRow
-            key={`${accountId}:${row.faucetId}`}
-            accountId={accountId}
-            row={row}
-            isCurrent={isCurrent}
-            onSave={saveSpendingLimit}
-            onSaved={handleSaved}
+        <SubPageSection className="gap-4">
+          <TextField
+            type="text"
+            inputMode="decimal"
+            label={t('spendingLimitUsdCap')}
+            aria-label={t('spendingLimitUsdCap')}
+            leading="$"
+            value={value}
+            disabled={saving}
+            onChange={event => {
+              setValue(event.target.value);
+              setError(null);
+            }}
           />
-        ))
+          <ErrorLine>{error}</ErrorLine>
+          {authenticating ? (
+            <StrictActionAuthentication
+              reason={t('spendingLimitAuthenticationReason')}
+              onResult={handleAuthentication}
+            />
+          ) : (
+            <Button
+              title={t('spendingLimitSave')}
+              disabled={!dirty || saving}
+              isLoading={saving}
+              onClick={prepareSave}
+            />
+          )}
+        </SubPageSection>
       )}
-    </div>
+    </SubPageLayout>
   );
 };
 

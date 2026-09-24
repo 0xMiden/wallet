@@ -56,6 +56,8 @@ export type Contact = {
   isOwned: boolean;
   contactType: 'public' | 'private' | 'external';
   isGuardian?: boolean;
+  /** A `0x` contact's saved destination network; preselected when the contact is picked. */
+  network?: BridgeNetworkId;
 };
 
 /**

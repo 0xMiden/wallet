@@ -20,8 +20,6 @@
 
 import React, { type FC, useCallback } from 'react';
 
-import { LayoutGroup } from 'framer-motion';
-
 import { usePageActive } from 'app/layouts/page-active';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { createDappSession, getDappDisplayName, recordRecentDapp } from 'lib/dapp-browser';
@@ -29,6 +27,7 @@ import { isDesktop } from 'lib/platform';
 
 import { DappActive } from './DappActive';
 import { DappLauncher } from './DappLauncher';
+import { isSearchUrl } from './DappLauncher/search-url';
 
 export const BrowserScreen: FC = () => {
   const { mode, open } = useDappBrowser();
@@ -61,6 +60,10 @@ export const BrowserScreen: FC = () => {
       // all derive the same name from the same source of truth.
       const displayName = getDappDisplayName(session);
 
+      // Recents is a list of dApps the user chose, so a web search this app produced is not one -
+      // the other writer, DappActionsSheet's My-dApps toggle, holds the same rule.
+      if (isSearchUrl(url)) return;
+
       recordRecentDapp({
         url,
         name: displayName,
@@ -71,17 +74,6 @@ export const BrowserScreen: FC = () => {
     [open]
   );
 
-  // The shared LayoutGroup id ties the launcher tile's child favicon +
-  // name `layoutId`s (`dapp-favicon-${url}`, `dapp-name-${url}`) to the
-  // matching ones on `<CapsuleBar>`, so opening a dApp from the launcher
-  // morphs those elements into the capsule. The outer tile button
-  // deliberately has NO `layoutId` — earlier it had `dapp-tile-${url}`
-  // but nothing else in the tree shared that id, so it was tracked by
-  // LayoutGroup for nothing useful AND caused framer-motion's layout
-  // tracker to suppress the tile's drop-in entry animation.
-  return (
-    <LayoutGroup id="dapp-browser">
-      {mode === 'active' ? onScreen && <DappActive /> : <DappLauncher onOpen={handleOpen} />}
-    </LayoutGroup>
-  );
+  if (mode === 'active') return onScreen ? <DappActive /> : null;
+  return <DappLauncher onOpen={handleOpen} />;
 };

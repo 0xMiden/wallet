@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -54,6 +55,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={t('swapOrderCreated')}
       footerDescription={
         <>
@@ -70,12 +72,14 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
       }}
       onClose={onDoneClick}
     >
-      {badgeContent && <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} />}
+      {badgeContent && (
+        <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} fillForArrow={badgeContent.fillForArrow} />
+      )}
 
       {feeText && <ReceiptRows rows={[{ label: t('networkFee'), value: feeText }]} className="mt-6" />}
 
       {returnAmountText && (
-        <div className="mt-6 flex w-full items-start gap-1.5 text-xs text-heading-gray">
+        <div className="mt-6 flex w-full items-start gap-1.5 text-xs text-ink">
           <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
           <span>{t('swapOrderReservedNote', { amount: returnAmountText })}</span>
         </div>

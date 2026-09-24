@@ -20,12 +20,18 @@
  *                                  startCreateFlow() → protectionStepRoute()
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
- *                                  '/#choose-guardian' (onAction 'create-password-submit')
+ *                                  '/#meet-guardian' (onAction 'create-password-submit')
+ *   Meet your Guardian           `onboarding-meet-guardian`
+ *     └ tick the three facts     → the fastest operator's card appears
+ *     └ "Choose a different      → '/#choose-guardian' (onAction 'choose-guardian')
+ *        Guardian"
  *   Choose guardian              `onboarding-choose-guardian`
  *     └ Continue                 → WalletType.Guardian + '/#confirmation'
  *                                  (onAction 'choose-guardian-submit')
  *   Confirmation                 `onboarding-confirmation`
- *     └ "Open wallet"            → register() → Explore (`explore-page`)
+ *     └ "Open wallet"            → register() → the telemetry consent prompt
+ *                                  `onboarding-help-improve-wallet`
+ *     └ "Not now"                → Explore (`explore-page`)
  *
  * Three things about that order are worth stating out loud, because they differ
  * from what the flow LOOKS like it should be:
@@ -64,6 +70,9 @@
  */
 import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
+import { openGuardianPickerFromMeetGuardian } from '../helpers/meet-guardian';
+import { acknowledgeNetworkNotice } from '../helpers/network-notice';
+import { dismissTelemetryConsent } from '../helpers/telemetry-consent';
 
 /** The faucet the harness deploys (helpers/miden-cli.ts `createFaucet` defaults). */
 const TOKEN = 'TST';
@@ -110,7 +119,7 @@ test.describe('Onboarding — create', () => {
       // The network notice (#875) sits between Welcome and the first create
       // step so a new user reads that this is a test network before funding.
       await expect(page.getByTestId('onboarding-network-notice')).toBeVisible({ timeout: 30_000 });
-      await page.getByTestId('onboarding-network-notice-acknowledge').click();
+      await acknowledgeNetworkNotice(page);
       await expect(page.getByTestId('create-password-input')).toBeVisible({ timeout: 30_000 });
       // Biometric can't work on the extension, so the create flow skips the
       // choose-protection screen entirely (protectionStepRoute). Pinned here
@@ -146,6 +155,9 @@ test.describe('Onboarding — create', () => {
     });
 
     await steps.step('guardian_choice_is_offered_and_accepted', async () => {
+      // Meet your Guardian picks the fastest operator on its own; the spec wants THE operator
+      // this run is configured for, so it ticks the three facts and opens the full picker.
+      await openGuardianPickerFromMeetGuardian(page);
       await expect(page.getByTestId('onboarding-choose-guardian')).toBeVisible({ timeout: 30_000 });
 
       // The picker renders one card per operator that runs a guardian on this
@@ -167,6 +179,13 @@ test.describe('Onboarding — create', () => {
       // registerWallet(Guardian, password, seed, isImport=false, guardianEndpoint).
       // Everything before this point was in-memory React state.
       await page.getByTestId('onboarding-confirmation-submit').click();
+
+      // A first-run wallet has never answered the telemetry prompt, so
+      // `postCreationRoute` puts it between creation and Explore. Declined here
+      // rather than accepted — see `dismissTelemetryConsent`. Raced against
+      // `explore-page` with the same 120s budget as the wait below, because this
+      // click only STARTS guardian creation and nothing yet proves it finished.
+      await dismissTelemetryConsent(page, { nextSurface: '[data-testid="explore-page"]', timeoutMs: 120_000 });
 
       // The E2E build sets MIDEN_E2E_DISABLE_SIDEPANEL, so `postOnboardingRoute()`
       // is '/' and onboarding finishes in-tab on Explore. 120s is the same budget

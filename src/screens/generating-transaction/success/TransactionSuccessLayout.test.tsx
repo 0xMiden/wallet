@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { ReceiptRows, TransactionSuccessLayout } from './TransactionSuccessLayout';
+import { ReceiptRows, SuccessSummaryPill, TransactionSuccessLayout } from './TransactionSuccessLayout';
 
 /**
  * Covers the two props the Guardian receipt introduced to the shared layout:
@@ -19,8 +19,8 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title: string; onClick: () => void }) => (
-    <button data-testid="footer-action" onClick={onClick}>
+  Button: ({ title, onClick, accent }: { title: string; onClick: () => void; accent?: string }) => (
+    <button data-testid="footer-action" data-accent={accent} onClick={onClick}>
       {title}
     </button>
   ),
@@ -57,16 +57,16 @@ it('keeps the body title one level below a titled header', () => {
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
-// The rows are what a receipt actually colours: the layout's frame reads an accent only for a back
-// button it never renders. Asserting the accent HERE, where it has an observable effect, is what
-// pins the plumbing the three receipts rely on - an absence assertion on the layout could not fail.
-it('colours the clickable row value with the flow accent, and brand by default', () => {
+// The flow's own accent (e.g. `accent-send`) sits at ~2:1 on `fill` — under AA
+// for text (Rule 6). `accent-tint-ink` is the accent pair that actually clears
+// 4.5:1 there, so every clickable row value uses it regardless of flow.
+it('colours the clickable row value with accent-tint-ink, never the flow accent', () => {
   const row = { label: 'Transaction ID', value: '0xabc', onClick: jest.fn(), actionLabel: 'View on Midenscan' };
-  const { rerender } = render(<ReceiptRows accent="send" rows={[row]} />);
-  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-accent-send');
+  render(<ReceiptRows rows={[row]} />);
 
-  rerender(<ReceiptRows rows={[row]} />);
-  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-primary-500');
+  const value = screen.getByRole('button', { name: 'View on Midenscan' });
+  expect(value).toHaveClass('text-accent-tint-ink');
+  expect(value.className).not.toMatch(/text-accent-(send|receive|earn|swap)\b/);
 });
 
 // One element owns the gap: the card takes its margin from its caller. While an empty spacer sat
@@ -127,6 +127,26 @@ it('inverts the stack when secondaryFirst is set', () => {
   expect(footerLabels()).toEqual(['View in Activities', 'Done']);
 });
 
+it("gives the footer actions the flow's own colour, so the receipt matches the pages before it", () => {
+  render(
+    <TransactionSuccessLayout
+      {...baseProps}
+      accent="swap"
+      secondaryAction={{ label: 'View in Activities', onClick: jest.fn() }}
+    />
+  );
+
+  for (const action of screen.getAllByTestId('footer-action')) {
+    expect(action).toHaveAttribute('data-accent', 'swap');
+  }
+});
+
+it('falls back to the brand orange when no flow is named', () => {
+  render(<TransactionSuccessLayout {...baseProps} />);
+
+  expect(screen.getByTestId('footer-action')).toHaveAttribute('data-accent', 'brand');
+});
+
 it('renders a lone primary action when there is no secondary one, ordering flag notwithstanding', () => {
   render(<TransactionSuccessLayout {...baseProps} secondaryFirst />);
 
@@ -155,4 +175,26 @@ it("invokes the caller's own handlers from both CTAs and the header close", () =
   expect(primary).toHaveBeenCalledTimes(1);
   expect(secondary).toHaveBeenCalledTimes(1);
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+// The receipt reuses the in-progress screen's badge, which falls back to the SEND hue when no
+// fill is given. Dropping the caller's `fillForArrow` therefore painted a swap's success receipt
+// in the send colour - the same "one transaction in two shades" the badge itself was fixed for,
+// one component further along.
+describe('SuccessSummaryPill', () => {
+  it("forwards the caller's arrow fill to the badge", () => {
+    const { container } = render(<SuccessSummaryPill lhs="1 ETH" rhs="2 USDC" fillForArrow="var(--tx-swap)" />);
+
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-swap)');
+  });
+
+  it('leaves the badge on its own default when the caller gives none', () => {
+    const { container } = render(<SuccessSummaryPill lhs="1 ETH" rhs="2 USDC" />);
+
+    // The rect has to EXIST for this to mean anything: an optional chain on a missing element
+    // yields undefined, which satisfies `.not.toBe` and passes on a badge that renders nothing.
+    const rect = container.querySelector('rect');
+    expect(rect).not.toBeNull();
+    expect(rect?.style.fill).not.toBe('var(--tx-swap)');
+  });
 });

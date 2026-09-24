@@ -14,8 +14,7 @@ export default defineConfig({
   // Guardian specs need a locally-spawned guardian backend that only the
   // dedicated guardian job stands up, so exclude them from the general
   // blockchain runs (they're run via playwright.guardian.config.ts). Swap
-  // specs are gated on swap-related path changes, so exclude them too
-  // (they're run via playwright.swap.config.ts by the dedicated swap job).
+  // specs run via playwright.swap.config.ts on main, not on pull_request.
   // Bridge specs drive real cross-chain bridging against the hosted Epoch
   // allocator (testnet-only), so they run via playwright.bridge.config.ts on a
   // dedicated job, not the general blockchain/localhost runs. Earn specs need
@@ -59,7 +58,9 @@ export default defineConfig({
   // now closes that gap.
   use: {
     headless: false, // Extensions require headed mode
-    trace: 'on', // Always record traces for debugging
+    // CI only uploads artifacts on failure, so recording traces on green specs
+    // is disk I/O the 2 vCPU local-e2e job never ships. Local runs keep `on`.
+    trace: process.env.CI ? 'retain-on-failure' : 'on',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     // Playwright defaults BOTH of these to 0 = unbounded. An action whose

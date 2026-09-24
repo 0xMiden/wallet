@@ -6,11 +6,16 @@
  */
 import { act, renderHook } from '@testing-library/react';
 
-import { GUARDIAN_AVAILABILITY_REPROBE_MS, useGuardianAvailability } from './useGuardianAvailability';
+import { GUARDIAN_AVAILABILITY_REPROBE_MS, useGuardianAvailability, useGuardianPings } from './useGuardianAvailability';
 
+// The hook reads the latency probe; most tests speak in the boolean the picker sees, so a `true`
+// becomes a 0 ms round trip and a `false` no round trip at all. A number passes through as the round trip.
 const mockPing = jest.fn();
 jest.mock('lib/miden/guardian/availability', () => ({
-  pingGuardianEndpoint: (...args: unknown[]) => mockPing(...args)
+  pingGuardianEndpointLatency: (...args: unknown[]) =>
+    Promise.resolve(mockPing(...args)).then((result: boolean | number) =>
+      typeof result === 'number' ? result : result ? 0 : null
+    )
 }));
 
 /** One controllable ping per endpoint, resolved manually by tests. */
@@ -41,6 +46,25 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+describe('useGuardianPings', () => {
+  it('carries each online round trip and reports a failed or rejected ping as offline', async () => {
+    mockPing.mockImplementation((endpoint: string) =>
+      endpoint === 'https://c.example.com'
+        ? Promise.reject(new Error('unreachable'))
+        : Promise.resolve(endpoint === 'https://a.example.com' ? 42 : false)
+    );
+    const endpoints = ['https://a.example.com', 'https://b.example.com', 'https://c.example.com'];
+    const { result } = renderHook(() => useGuardianPings(endpoints));
+
+    await act(async () => {});
+    expect(result.current).toEqual({
+      'https://a.example.com': { status: 'online', latencyMs: 42 },
+      'https://b.example.com': { status: 'offline' },
+      'https://c.example.com': { status: 'offline' }
+    });
+  });
+});
+
 describe('useGuardianAvailability', () => {
   it('pings every endpoint and reports verdicts independently as they settle', async () => {
     const resolvers = deferredPings();
@@ -61,7 +85,7 @@ describe('useGuardianAvailability', () => {
     });
   });
 
-  // `pingGuardianEndpoint` documents never-throws, but it calls
+  // `pingGuardianEndpointLatency` documents never-throws, but it calls
   // `registerGuardianOrigin` OUTSIDE its own try — the rejection arm is what
   // turns a hostile/malformed endpoint into 'offline' rather than an
   // unhandled rejection per endpoint per round. Deleting that arm used to
@@ -114,28 +138,24 @@ describe('useGuardianAvailability', () => {
   // guard. What it can observe is that the already-out promise chain itself
   // must not reject into the runtime — an unhandled rejection per closed
   // picker.
+  // Jest fails the running test on an unhandled rejection, which Node reports
+  // only after a macrotask, hence the wait. (A process.on('unhandledRejection')
+  // listener here would never fire: each test file gets its own copy of `process`.)
   it('absorbs a verdict that arrives after unmount', async () => {
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on('unhandledRejection', onUnhandled);
-    try {
-      // Rejecting, not resolving: a resolving fixture cannot produce an unhandled
-      // rejection no matter what the hook does, so the assertion below would hold
-      // even with the rejection handler deleted.
-      const rejecters = deferredRejectingPings();
-      const endpoint = 'https://gone.example.com';
-      const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
+    // Rejecting, not resolving: a resolving fixture cannot produce an unhandled
+    // rejection no matter what the hook does, so this would pass even with the
+    // rejection handler deleted.
+    const rejecters = deferredRejectingPings();
+    const endpoint = 'https://gone.example.com';
+    const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
+    // The probe is in flight, so the rejection below reaches the hook's own chain.
+    expect(mockPing).toHaveBeenCalledWith(endpoint);
 
-      unmount();
+    unmount();
 
-      await act(async () => rejecters.get(endpoint)!(new Error('probe failed after unmount')));
-      await Promise.resolve();
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off('unhandledRejection', onUnhandled);
-    }
+    await act(async () => rejecters.get(endpoint)!(new Error('probe failed after unmount')));
+    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   // Regression: the effect used to key on array IDENTITY, so a caller passing

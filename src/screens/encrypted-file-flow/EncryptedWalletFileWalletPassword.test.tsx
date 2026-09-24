@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
+import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+
 import EncryptedWalletFileWalletPassword, {
   EncryptedWalletFileWalletPasswordProps
 } from './EncryptedWalletFileWalletPassword';
@@ -54,44 +56,21 @@ jest.mock('lib/miden/front', () => {
   };
 });
 
-// A functional Input mock: forwards the props the component drives (type toggles
-// with visibility, onChange -> onPasswordChange, onKeyDown -> handleEnterKey,
-// disabled -> isDisabled) and renders `icon` so the eye toggle button is clickable.
-jest.mock('components/Input', () => ({
-  Input: ({
-    type,
-    value,
-    disabled,
-    placeholder,
-    icon,
-    onChange,
-    onKeyDown
+jest.mock('components/ui/Checkbox', () => ({
+  CheckboxConsent: ({
+    checked,
+    onCheckedChange,
+    children
   }: {
-    type?: string;
-    value?: string;
-    disabled?: boolean;
-    placeholder?: string;
-    icon?: React.ReactNode;
-    onChange?: React.ChangeEventHandler<HTMLInputElement>;
-    onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    children: React.ReactNode;
   }) => (
-    <div>
-      <input
-        data-testid="password-input"
-        type={type}
-        value={value ?? ''}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-      />
-      {icon}
-    </div>
+    <button type="button" role="checkbox" aria-checked={checked} onClick={() => onCheckedChange(!checked)}>
+      <span data-testid="checkbox" data-checked={String(!!checked)} />
+      {children}
+    </button>
   )
-}));
-
-jest.mock('components/Checkbox', () => ({
-  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(!!value)} />
 }));
 
 jest.mock('components/Button', () => ({
@@ -139,16 +118,6 @@ jest.mock('components/PasscodeEntry', () => ({
   )
 }));
 
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ title, description }: { title?: React.ReactNode; description?: React.ReactNode }) => (
-    <div data-testid="alert" role="alert">
-      <span data-testid="alert-title">{title}</span>
-      <span data-testid="alert-desc">{description}</span>
-    </div>
-  )
-}));
-
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
   IconName: { Eye: 'Eye', EyeOff: 'EyeOff' }
@@ -168,7 +137,12 @@ const makeProps = (
 });
 
 // Renders and flushes the async `Vault.hasHardwareProtector()` promise so the
-// body mounts (the component renders null until it resolves).
+// body mounts (until it resolves, the component renders its header over an empty body).
+// The shared negative `Notice` replaced the Alert atom: it labels its title and body by slot.
+const noticePart = (slot: 'title' | 'body') =>
+  document.querySelector<HTMLElement>(`[data-tone="negative"] [data-slot="${slot}"]`)!;
+const noticeBody = () => noticePart('body');
+
 const renderComp = async (props: EncryptedWalletFileWalletPasswordProps) => {
   const utils = render(<EncryptedWalletFileWalletPassword {...props} />);
   await act(async () => {
@@ -196,26 +170,63 @@ describe('EncryptedWalletFileWalletPassword', () => {
     jest.restoreAllMocks();
   });
 
-  it('renders nothing while the hardware-protector check is pending', () => {
+  it('lays the sheet out on the shared field and section copy', async () => {
+    await renderComp(makeProps());
+
+    const input = screen.getByTestId('encrypted-file-wallet-password-input');
+    // The shared TextField: labelled, on the fill pill, with a named eye toggle inside it.
+    expect(screen.getByLabelText('password')).toBe(input);
+    expect(input.parentElement).toHaveClass('bg-fill', 'rounded-full');
+    expect(screen.getByRole('button', { name: 'show' })).toHaveAttribute('type', 'button');
+    // The explanation is 14px muted section copy.
+    expect(screen.getByText('encryptedWalletFileDescription')).toHaveClass('text-body', 'text-muted');
+    // The confirmation row does not submit anything by itself.
+    expect(screen.getByTestId('checkbox').closest('button')).toHaveAttribute('type', 'button');
+    // It is a checkbox to assistive tech, reporting its state.
+    const confirmation = screen.getByRole('checkbox', { name: 'encryptedWalletFileConfirmation' });
+    expect(confirmation).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(confirmation);
+    expect(confirmation).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('keeps its header while the hardware-protector check is pending, with an empty body and no footer', async () => {
     // Never-resolving promise keeps hasHardwareProtector === null.
     mockHasHardwareProtector.mockReturnValue(new Promise(() => {}));
-    const { container } = render(<EncryptedWalletFileWalletPassword {...makeProps()} />);
-    expect(container.firstChild).toBeNull();
+    const onBack = jest.fn();
+    render(
+      <SubPageHeaderProvider value={{ title: 'importWallet', onBack }}>
+        <EncryptedWalletFileWalletPassword {...makeProps()} />
+      </SubPageHeaderProvider>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('heading', { name: 'importWallet' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    const page = screen.getByTestId('encrypted-file-wallet-password');
+    expect(page.querySelector('[data-slot="body"]')!.childElementCount).toBe(0);
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
   });
 
   it('renders the software-unlock UI (password field + continue) with no hardware protector', async () => {
     await renderComp(makeProps({ walletPassword: 'pw' }));
-    expect(screen.getByTestId('password-input')).toBeInTheDocument();
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
     expect(screen.getByTestId('action-button')).toHaveTextContent('continue');
     expect(screen.getByText('encryptedWalletFileDescription')).toBeInTheDocument();
     // Software field defaults to a masked password input.
-    expect(screen.getByTestId('password-input')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toHaveAttribute('type', 'password');
   });
 
   it('renders the hardware-unlock UI (unlock button, no password field)', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     await renderComp(makeProps());
-    expect(screen.queryByTestId('password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     const button = screen.getByTestId('action-button');
     expect(button).toHaveTextContent('unlock');
     // continueEnabled = confirmed && !isSubmitting -> disabled before confirming.
@@ -225,22 +236,22 @@ describe('EncryptedWalletFileWalletPassword', () => {
 
   it('toggles password visibility via the eye button', async () => {
     await renderComp(makeProps({ walletPassword: 'pw' }));
-    const input = screen.getByTestId('password-input');
+    const input = screen.getByTestId('encrypted-file-wallet-password-input');
     expect(input).toHaveAttribute('type', 'password');
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'Eye');
 
     fireEvent.click(screen.getByTestId('icon').closest('button')!);
-    expect(screen.getByTestId('password-input')).toHaveAttribute('type', 'text');
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toHaveAttribute('type', 'text');
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'EyeOff');
 
     fireEvent.click(screen.getByTestId('icon').closest('button')!);
-    expect(screen.getByTestId('password-input')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toHaveAttribute('type', 'password');
   });
 
   it('forwards password edits through onPasswordChange', async () => {
     const onPasswordChange = jest.fn();
     await renderComp(makeProps({ walletPassword: '', onPasswordChange }));
-    fireEvent.change(screen.getByTestId('password-input'), { target: { value: 'abc' } });
+    fireEvent.change(screen.getByTestId('encrypted-file-wallet-password-input'), { target: { value: 'abc' } });
     expect(onPasswordChange).toHaveBeenCalledWith('abc');
   });
 
@@ -296,7 +307,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(mockStore[ATTEMPT_KEY]).toBe(4);
     // The lock renders the delay alert and disables the input.
     await waitFor(() => expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument());
-    expect(screen.getByTestId('password-input')).toBeDisabled();
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeDisabled();
   });
 
   it('applies the extra human delay once past the last attempt on success', async () => {
@@ -330,7 +341,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     clickConfirm();
     fireEvent.click(screen.getByTestId('action-button'));
 
-    await waitFor(() => expect(screen.getByTestId('alert-desc')).toHaveTextContent('hw-fail'));
+    await waitFor(() => expect(noticeBody()).toHaveTextContent('hw-fail'));
     // Hardware failures skip the attempt/time-lock accounting.
     expect(mockStore[ATTEMPT_KEY]).toBeUndefined();
     expect(mockStore[TIMELOCK_KEY]).toBeUndefined();
@@ -343,8 +354,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
     clickConfirm();
     fireEvent.click(screen.getByTestId('action-button'));
 
-    await waitFor(() => expect(screen.getByTestId('alert-title')).toHaveTextContent('error'));
-    expect(screen.getByTestId('alert-desc')).toHaveTextContent('');
+    await waitFor(() => expect(noticePart('title')).toHaveTextContent('error'));
+    expect(noticeBody()).toHaveTextContent('');
   });
 
   it('forwards a failed passcode unlock error into the numpad', async () => {
@@ -364,7 +375,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     const onPasswordChange = jest.fn();
     await renderComp(makeProps({ onGoNext, onPasswordChange }));
 
-    expect(screen.queryByTestId('password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
     expect(screen.getByTestId('passcode-entry')).toBeInTheDocument();
 
@@ -389,7 +400,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
   it('submits on Enter only when confirmed and ignores other keys', async () => {
     const onGoNext = jest.fn();
     await renderComp(makeProps({ walletPassword: 'pw', onGoNext }));
-    const input = screen.getByTestId('password-input');
+    const input = screen.getByTestId('encrypted-file-wallet-password-input');
 
     // Not confirmed -> Enter is a no-op.
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -415,7 +426,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     await waitFor(() => expect(screen.getByTestId('action-button')).toHaveAttribute('data-loading', 'true'));
 
     // Second submit via Enter is swallowed by the isSubmitting guard.
-    fireEvent.keyDown(screen.getByTestId('password-input'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByTestId('encrypted-file-wallet-password-input'), { key: 'Enter' });
     expect(mockUnlock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -432,12 +443,12 @@ describe('EncryptedWalletFileWalletPassword', () => {
     mockStore[TIMELOCK_KEY] = Date.now();
     await renderComp(makeProps({ walletPassword: 'pw' }));
 
-    const desc = screen.getByTestId('alert-desc');
+    const desc = noticeBody();
     expect(desc).toHaveTextContent('unlockPasswordErrorDelay');
     // ~11 minutes exercises checkTime's >= 10 branch (two-digit minutes),
     // regardless of the few ms of jitter between seeding and rendering.
     expect(desc.textContent).toMatch(/1[01]:\d{2}/);
-    expect(screen.getByTestId('password-input')).toBeDisabled();
+    expect(screen.getByTestId('encrypted-file-wallet-password-input')).toBeDisabled();
     expect(screen.getByTestId('action-button')).toBeDisabled();
   });
 });

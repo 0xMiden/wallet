@@ -34,7 +34,13 @@
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
-import { setConnectivityReporter, type ConnectivityCategory } from 'lib/miden/activity/connectivity-state';
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import {
+  clearConnectivityIssue,
+  markConnectivityIssue,
+  setConnectivityReporter,
+  type ConnectivityCategory
+} from 'lib/miden/activity/connectivity-state';
 import {
   OFFSCREEN_CALL,
   OFFSCREEN_CONNECTIVITY_EVENT,
@@ -42,6 +48,7 @@ import {
   OFFSCREEN_RELOAD_ENDPOINTS,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
+  OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
   b64ToBytes,
   type GuardianPipelineArgs,
@@ -79,6 +86,7 @@ import {
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
+import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 const TAG = '[offscreen-prover]';
 
@@ -215,6 +223,21 @@ function ensureEndpointOverrides(): Promise<void> {
   if (!endpointOverridesPromise) endpointOverridesPromise = loadEndpointOverrides().catch(() => {});
   return endpointOverridesPromise;
 }
+
+// Telemetry reported from THIS realm has to be forwarded, and nothing else would
+// do it. `report-operation.ts` sends directly when it is the worker and uses an
+// installed transport when it is a page; this document is neither. It has a
+// `window`, so it takes the page branch, and it never loads the React app, so
+// nothing installs a transport — every event would be dropped on the floor.
+//
+// That matters here specifically because proving happens in this realm whenever
+// the offscreen client is on, which is the default for the extension. Without
+// this, `prove_delegate`, `prove_local`, `prove_fallback` and the prover-outage
+// events never leave the device: exactly the signals that answer "was the remote
+// prover down when this failed".
+setOperationTransport(async event => {
+  await chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_TELEMETRY_EVENT, event });
+});
 
 let initPromise: Promise<void> | null = null;
 
@@ -964,15 +987,27 @@ const DISPATCH: Record<string, DispatchFn> = {
     assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
     postStageEvent(context, 'proving');
     let provenTx;
+    // Reported from here as well as from the two inline copies, because on the
+    // extension THIS is the copy that runs: every guardian leaf type is offscreen
+    // routable and the flag defaults on, so instrumenting only the inline path
+    // left guardian operations contributing nothing to prover health on the build
+    // almost everyone uses.
+    const proveStartedAt = performance.now();
     if (!delegateTransaction) {
       recordProveTiming('guardianPipeline proving with local prover');
       // Local proving is deliberately unbounded — pause this realm's lock
       // watchdog for its duration, like proveWithFallback's local attempts
       // (#775). The delegated attempt stays on the clock.
-      provenTx = await withWasmLockWatchdogPaused(
-        () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
-        hold
-      );
+      try {
+        provenTx = await withWasmLockWatchdogPaused(
+          () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
+          hold
+        );
+        reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
+      } catch (proveError) {
+        reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
+        throw proveError;
+      }
     } else {
       try {
         // Explicit remote prover rather than `prove({})`, and BOUNDED — the same fix
@@ -999,6 +1034,8 @@ const DISPATCH: Record<string, DispatchFn> = {
           executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
           'Delegated guardian prove'
         );
+        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
+        clearConnectivityIssue('prover');
       } catch (proveError) {
         // Same rule as the inline pipeline: the delegated prove was this hold's
         // longest parking await, and the fallback is a WASM call on `executedTx`,
@@ -1008,11 +1045,28 @@ const DISPATCH: Record<string, DispatchFn> = {
         // pre-submit — nothing has been broadcast.
         assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+        // Marked HERE, in the realm that watched the prove fail, and not left to
+        // the worker's catch. That catch gates its own `markConnectivityIssue`
+        // on the row's stage being `proving`, which only the inline leaf ever
+        // stamps: this one reports no stages back at all, so the row is still
+        // frozen at `sending` and the gate cannot fire. On the default build
+        // that gate covers nothing, and a prover that failed only on guardian
+        // operations would produce no `service_prover` event from anywhere.
+        //
+        // Same realm marks and clears, so the outage gets a duration rather
+        // than a start with no end.
+        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
-        provenTx = await withWasmLockWatchdogPaused(
-          () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
-          hold
-        );
+        try {
+          provenTx = await withWasmLockWatchdogPaused(
+            () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
+            hold
+          );
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+        } catch (fallbackError) {
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          throw fallbackError;
+        }
       }
     }
     recordProveTiming('guardianPipeline prove returned; submitting');

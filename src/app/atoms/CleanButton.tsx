@@ -46,7 +46,7 @@ const CleanButton: FC<CleanButtonProps> = ({
         'border rounded-full shadow-sm hover:shadow',
         'bg-surface-solid',
         'flex items-center',
-        'text-xs text-black',
+        'text-xs text-ink',
         'transition ease-in-out duration-200',
         className
       )}

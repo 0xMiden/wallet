@@ -6,13 +6,23 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
+import { Avatar } from 'components/ui/Avatar';
+import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
-import { approxFiatAmount, formatBalance } from './amount-format';
+import { balanceFormatterFor } from './amount-format';
 import { BridgeNetwork } from './bridge-networks';
 import { UIToken } from './types';
+
+// Placeholder-circle background before a token/network is chosen. Not a design-system token —
+// carried over from the pre-Avatar literal as-is; a later token-cleanup pass maps it to one.
+const PLACEHOLDER_BLUE = '#2F6BED';
 
 export interface SelectAmountProps {
   token?: UIToken;
@@ -44,6 +54,12 @@ export interface SelectAmountProps {
    * (#461). Defaults to the standalone page layout used by the send flow.
    */
   embedded?: boolean;
+  /**
+   * The flow this field belongs to. Its action colour draws every affordance the field owns — the
+   * token chevron, the network pill and the page variant's Confirm button — so a flow's screen
+   * carries one colour throughout (design-system.md, "Action colours").
+   */
+  accent?: FlowAccent;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
   logoSymbol?: string;
   /** Cross-chain deposit — swaps the Miden chip for a destination-network selector. */
@@ -69,13 +85,6 @@ export interface SelectAmountProps {
  * user who reads that back into the field is over the cap and rejected, with no
  * Max button to fall back on.
  */
-/** Blue circle used as a placeholder before a token/network is chosen. */
-const PlaceholderCircle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white">
-    {children}
-  </span>
-);
-
 export const SelectAmount: React.FC<SelectAmountProps> = ({
   token,
   amount,
@@ -91,6 +100,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onSelectToken,
   onConfirm,
   embedded = false,
+  accent = 'brand',
   logoSymbol,
   isBridge = false,
   network,
@@ -100,8 +110,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   onSelectNetwork
 }) => {
   const { t } = useTranslation();
+  const accentClasses = ACCENT_CLASSES[accent];
 
   const availableFiat = token ? token.balance * token.fiatPrice : 0;
+  const formatAvailableFiat = adaptiveFormatterFor(availableFiat);
   // An amount typed here is converted to base units with `token.decimals`. When
   // those decimals are the unknown-token placeholder's guess, that conversion
   // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
@@ -125,14 +137,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       {token ? (
         <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
       ) : embedded ? (
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2F6BED] text-lg font-bold text-pure-white">
-          $
-        </span>
+        <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-2xl font-bold text-heading-gray">
-        {token ? token.name : t('selectAToken')}
-      </span>
-      <Icon name={IconName.ChevronDown} size="sm" className="text-primary-500" fill="currentColor" />
+      <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+      <Icon name={IconName.ChevronDown} size="sm" className={accentClasses.text} fill="currentColor" />
     </button>
   );
 
@@ -149,11 +157,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         }}
         className="flex items-center gap-3 text-left"
       >
-        {token ? <TokenLogo symbol={logoSymbol ?? token.name} size="md" /> : <PlaceholderCircle>$</PlaceholderCircle>}
-        <span className="font-heading text-2xl font-bold text-heading-gray">
-          {token ? token.name : t('selectAToken')}
-        </span>
-        <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
+        {token ? (
+          <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+        ) : (
+          <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
+        )}
+        <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+        <Icon name={IconName.ChevronRightLucide} size="sm" className={accentClasses.text} />
       </button>
 
       {/* Connector aligning the two circle icons */}
@@ -167,9 +177,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         }}
         className="flex items-start gap-3 text-left"
       >
-        <PlaceholderCircle>
-          <Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />
-        </PlaceholderCircle>
+        <Avatar
+          size={36}
+          icon={<Icon name={IconName.Globe} size="sm" className={ACCENT_CLASSES.brand.on} fill="currentColor" />}
+          color={PRIMARY_HEX}
+        />
         <div className="flex flex-col">
           <span className="font-heading text-2xl font-bold text-gray flex items-center gap-1">
             {network ? (
@@ -180,7 +192,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             ) : (
               t('selectNetwork')
             )}
-            <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
+            <Icon name={IconName.ChevronRightLucide} size="sm" className={accentClasses.text} />
           </span>
           {network && (
             <span className="text-xs text-text-muted">
@@ -192,24 +204,41 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     </div>
   );
 
-  const helper =
-    token && showBalanceHelper ? (
+  let helper: React.ReactNode = null;
+  if (token && showBalanceHelper) {
+    // Built once per render, not per frame: `token` is only known here, inside the branch.
+    const formatAvailableBalance = balanceFormatterFor(token.balance);
+    helper = (
       <>
         <span className="font-heading text-gray text-base font-bold">
           {/* Same guessed scale as the amount above — quoting a spendable
               balance from it would be inviting the user to act on a number the
               wallet cannot stand behind. */}
-          {scaleIsKnown ? `${t('available')} ${formatBalance(token.balance)} ${token.name}` : t('unknownTokenScale')}
+          {/* Keyed by token, so a different token lands its own balance instead of counting from the
+              last token's; a new balance for the same token still counts. */}
+          {scaleIsKnown ? (
+            <AnimatedNumber
+              key={token.id}
+              value={token.balance}
+              format={value => `${t('available')} ${formatAvailableBalance(value)} ${token.name}`}
+            />
+          ) : (
+            t('unknownTokenScale')
+          )}
         </span>
         {/* Only show the fiat approximation when we actually have a price — swap
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
         {scaleIsKnown && token.fiatPrice > 0 && (
-          <span className="font-heading text-gray text-base font-bold">
-            {t('approxFiatValue', { value: approxFiatAmount(availableFiat) })}
-          </span>
+          <AnimatedNumber
+            key={token.id}
+            className="font-heading text-gray text-base font-bold"
+            value={availableFiat}
+            format={value => t('approxFiatValue', { value: `$${formatAvailableFiat(value)}` })}
+          />
         )}
       </>
-    ) : null;
+    );
+  }
 
   const amountField = (
     <AmountInput
@@ -223,6 +252,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       // the swap "You Receive" field) pass showBalanceHelper={false}.
       helper={helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
+      accent={accent}
       showDivider={!!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
@@ -239,7 +269,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
         {title}
         {showNetworkPill && !isBridge && (
-          <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">
+          <span
+            className={clsx(
+              'self-start text-xs font-semibold px-3 py-1 rounded-full mb-3',
+              accentClasses.tint,
+              accentClasses.ink
+            )}
+          >
             {t('miden')}
           </span>
         )}
@@ -247,22 +283,20 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div
-        className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}
-        data-navbar-cushion="true"
-      >
+      <FlowFooter className={footerClassName}>
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
+          accent={accent}
           onClick={onConfirm}
           // `onConfirm` is optional (the embedded variant omits it and returns
           // early above), so in this page variant a missing handler disables
           // the CTA rather than rendering a live-but-dead button.
           disabled={!canProceed || !onConfirm}
           data-testid="send-amount-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
-      </div>
+      </FlowFooter>
     </div>
   );
 };

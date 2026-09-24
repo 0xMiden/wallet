@@ -92,7 +92,7 @@ export const UpdateNotificationCard: FC<UpdateNotificationCardProps> = ({ notice
           data-testid="update-notification-dismiss"
           aria-label={t('updateNotificationDismiss')}
           onClick={onDismiss}
-          className="flex size-8 shrink-0 items-center justify-center rounded-full text-text-tertiary-token hover:bg-surface-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+          className="flex size-8 shrink-0 items-center justify-center rounded-full text-text-tertiary-token hover:bg-fill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
         >
           <Icon name={IconName.Close} size="xs" fill="currentColor" />
         </button>

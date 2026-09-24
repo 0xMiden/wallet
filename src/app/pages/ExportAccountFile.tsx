@@ -5,11 +5,15 @@ import { Share } from '@capacitor/share';
 import { Buffer } from 'buffer';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
-import FormField from 'app/atoms/FormField';
-import AccountBanner from 'app/templates/AccountBanner';
 import { Button, ButtonVariant } from 'components/Button';
+import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { CheckboxConsent } from 'components/ui/Checkbox';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { hapticMedium } from 'lib/mobile/haptics';
@@ -17,6 +21,7 @@ import { isShareCancellation } from 'lib/mobile/share-cancellation';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
+import { truncateAddress } from 'utils/string';
 
 const ACCOUNT_FILE_EXTENSION = '.mac';
 
@@ -133,18 +138,18 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
   }, []);
 
   useEffect(() => {
-    // This screen renders null until the probe resolves, so a rejection with no handler is a
-    // permanently blank page. Fall back to the password step-up, as VerifySeedPhraseFlow and
+    // The body waits for the probe, so a rejection with no handler leaves a header over an empty
+    // page for good. Fall back to the password step-up, as VerifySeedPhraseFlow and
     // RotateGuardianReview already do, so the export stays reachable.
     Vault.hasHardwareProtector()
       .then(setHasHardwareProtector)
       .catch(() => setHasHardwareProtector(false));
   }, []);
 
-  // Same shape as RevealSecret's: `hasHardwareProtector` is a dependency because this screen
-  // renders null until it resolves, so an effect without it runs once against a commit where
-  // formRef is still null and the field never gets focus. Passive, not layout, so it lands
-  // after the host page's title focus rather than being clobbered by it.
+  // Same shape as RevealSecret's: `hasHardwareProtector` is a dependency because the body (and its
+  // form) waits for it, so an effect without it runs once against a commit where formRef is still
+  // null and the field never gets focus. Passive, not layout, so it lands after the title focus of
+  // this page's own PageHeader rather than being clobbered by it.
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (!isMobile()) {
@@ -197,71 +202,90 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
   // Decided before anything is asked of the user. The vault refuses a Guardian export outright, so
   // rendering the warning, the acknowledgement and a credential step-up would spend a password or a
   // device-security prompt to reach a refusal that was certain from the account's type alone.
+  // The account the file would hold, drawn as the same row Address Book gives an account.
+  const accountRow = (
+    <ListGroup surface="plain">
+      <ListRow
+        data-testid="account-banner"
+        avatar={<ContactAvatar address={account.publicKey} name={account.name} />}
+        title={account.name}
+        subtitle={truncateAddress(account.publicKey, true, 8)}
+      />
+    </ListGroup>
+  );
+
   if (account.type === WalletType.Guardian) {
     return (
-      <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
-        <AccountBanner account={account} className="mb-6 text-heading-gray" />
-        <Alert
-          type="warn"
-          title={t('exportAccountFile')}
-          description={<p>{t('exportAccountFileGuardianUnavailable')}</p>}
-          className="mb-4 rounded-lg"
-        />
-      </div>
+      <SubPageLayout data-testid="export-account-file">
+        {accountRow}
+        <Notice tone="warning" title={t('exportAccountFile')}>
+          {t('exportAccountFileGuardianUnavailable')}
+        </Notice>
+      </SubPageLayout>
     );
   }
 
-  if (hasHardwareProtector === null) return null;
+  // The frame renders while the protector check runs, so the header (and the title focus that
+  // announces the page) is there from the first frame; the body waits.
+  if (hasHardwareProtector === null) {
+    return <SubPageLayout data-testid="export-account-file">{null}</SubPageLayout>;
+  }
 
   const canSubmit = acknowledged && !isExporting && (hasHardwareProtector || password.length > 0);
 
   return (
-    <form
-      ref={formRef}
-      className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0"
+    <SubPageLayout
+      data-testid="export-account-file"
+      formRef={formRef}
       onSubmit={event => {
         event.preventDefault();
         if (usePasscodeEntry || !canSubmit) return;
         runExport(hasHardwareProtector ? undefined : password);
       }}
+      footer={
+        usePasscodeEntry ? undefined : (
+          <Button
+            className="flex-1 max-w-none"
+            variant={ButtonVariant.Primary}
+            title={t('saveAccountFile')}
+            disabled={!canSubmit}
+            isLoading={isExporting}
+            onClick={() => runExport(hasHardwareProtector ? undefined : password)}
+          />
+        )
+      }
     >
-      <AccountBanner account={account} className="mb-6 text-heading-gray" />
+      {accountRow}
 
-      <Alert
-        type="warn"
-        title={t('exportAccountFileWarningTitle')}
-        description={<p>{t('exportAccountFileWarningBody')}</p>}
-        className="mb-4 rounded-lg"
-      />
+      <Notice tone="warning" title={t('exportAccountFileWarningTitle')}>
+        {t('exportAccountFileWarningBody')}
+      </Notice>
 
-      <label className="mb-6 flex items-start gap-2 text-sm text-black cursor-pointer select-none">
-        <input
-          type="checkbox"
-          className="mt-0.5"
-          checked={acknowledged}
-          onChange={event => {
-            hapticMedium();
-            setAcknowledged(event.target.checked);
-          }}
-        />
-        <span>{t('exportAccountFileAcknowledge')}</span>
-      </label>
+      <CheckboxConsent
+        checked={acknowledged}
+        onCheckedChange={next => {
+          hapticMedium();
+          setAcknowledged(next);
+        }}
+      >
+        {t('exportAccountFileAcknowledge')}
+      </CheckboxConsent>
 
       {/* Suppressed on the passcode branch: PasscodeEntry paints the same string as its own hint,
           so rendering both duplicates the failure and displaces the passcode description. */}
       {error && !usePasscodeEntry && (
-        <Alert type="error" title={t('error')} description={error} className="mb-4 rounded-lg text-black" />
+        <Notice tone="negative" role="alert" title={t('error')}>
+          {error}
+        </Notice>
       )}
       {saveResult && (
-        <Alert
-          type="success"
-          description={t(saveResult === 'shared' ? 'accountFileShareSuccess' : 'accountFileDownloadStarted')}
-          className="mb-4 rounded-lg"
-        />
+        <Notice tone="positive" role="status">
+          {t(saveResult === 'shared' ? 'accountFileShareSuccess' : 'accountFileDownloadStarted')}
+        </Notice>
       )}
 
       {hasHardwareProtector ? (
-        <p className="text-sm text-heading-gray">{t('exportAccountFileHardwareDescription')}</p>
+        <SubPageSection description={t('exportAccountFileHardwareDescription')} />
       ) : usePasscodeEntry ? (
         <PasscodeEntry
           key={passcodeAttempt}
@@ -273,9 +297,9 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
           isSubmitting={isExporting}
         />
       ) : (
-        <FormField
+        <TextField
           label={t('password')}
-          labelDescription={t('exportAccountFilePasswordDescription')}
+          hint={t('exportAccountFilePasswordDescription')}
           id="export-account-file-password"
           name="password"
           type="password"
@@ -284,23 +308,9 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
             setPassword(event.target.value);
             setError(null);
           }}
-          containerClassName="mb-4"
         />
       )}
-
-      {!usePasscodeEntry && (
-        <div className="mt-auto pb-8 pt-6">
-          <Button
-            className="w-full justify-center"
-            variant={ButtonVariant.Primary}
-            title={t('saveAccountFile')}
-            disabled={!canSubmit}
-            isLoading={isExporting}
-            onClick={() => runExport(hasHardwareProtector ? undefined : password)}
-          />
-        </div>
-      )}
-    </form>
+    </SubPageLayout>
   );
 };
 

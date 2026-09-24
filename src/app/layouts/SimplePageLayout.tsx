@@ -59,7 +59,7 @@ const SimplePageLayout: FC<SimplePageLayoutProps> = ({ title, icon, children }) 
           )}
 
           {title && (
-            <div className={classNames('mt-4 w-full', 'text-left', 'text-lg text-medium  leading-tight', 'text-black')}>
+            <div className={classNames('mt-4 w-full', 'text-left', 'text-lg text-medium  leading-tight', 'text-ink')}>
               {title}
             </div>
           )}
