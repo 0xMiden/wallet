@@ -542,7 +542,6 @@ const Welcome: FC = () => {
     const generation = transitionGenerationRef.current;
 
     const startCreateFlow = () => {
-      clearFlowCredentials();
       setImportType(null);
       setWalletFilePayload(null);
       setOnboardingType(OnboardingType.Create);

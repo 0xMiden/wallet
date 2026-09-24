@@ -498,6 +498,21 @@ describe('Welcome — hash → step routing', () => {
     }
   );
 
+  it.each(['#select-wallet-type', '#choose-protection'])(
+    '%s starts a create with no credentials left over from an import',
+    async hash => {
+      mockIsMobileFn.mockReturnValue(true);
+      await renderWelcome();
+      await dispatch({ id: 'select-import-type' });
+      await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      expect(mockFlowProps.current.seedPhrase).not.toBeNull();
+      await setHash(hash);
+      expect(mockFlowProps.current.seedPhrase).toBeNull();
+      expect(mockFlowProps.current.password).toBeNull();
+    }
+  );
+
   it.each(['#meet-guardian', '#choose-guardian'])(
     'redirects %s back to Welcome when the only seed is left over from an import',
     async hash => {
