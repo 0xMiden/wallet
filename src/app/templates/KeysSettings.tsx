@@ -7,7 +7,6 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 const KeysSettings: FC = () => {
@@ -41,14 +40,7 @@ const KeysSettings: FC = () => {
         <SubPageSection>
           <ListGroup>
             {rows.map(row => (
-              <ListRow
-                key={row.titleI18nKey}
-                title={t(row.titleI18nKey)}
-                // No haptic here: ListRow fires one on every tap.
-                onClick={() => navigate(row.path)}
-                chevron
-                data-testid={row.testId}
-              />
+              <ListRow key={row.titleI18nKey} title={t(row.titleI18nKey)} to={row.path} data-testid={row.testId} />
             ))}
           </ListGroup>
         </SubPageSection>

@@ -1,10 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
-import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
-import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 import KeysSettings from './KeysSettings';
@@ -39,15 +37,14 @@ jest.mock('app/templates/GuardianReplaceHotKey', () => ({
   default: () => <div data-testid="guardian-replace-hot-key" />
 }));
 
-// `navigate` (woozie) and `hapticLight` (native haptics) are the two side
-// effects of `openPage`; stub both as spies.
+// A routed ListRow renders the wallet Link; stand it in with a plain anchor
+// that carries the route, so a row is observable as a link to its page.
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn(),
-  Link: () => null
-}));
-
-jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
+  Link: ({ to, testID: _testID, children, ...rest }: { to: string; testID?: string } & React.ComponentProps<'a'>) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  )
 }));
 
 // Store: KeysSettings calls `useWalletStore(selector)` once per derived value,
@@ -61,9 +58,6 @@ const mockState: {
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (s: unknown) => unknown) => selector(mockState)
 }));
-
-const mockNavigate = navigate as jest.Mock;
-const mockHapticLight = hapticLight as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -103,7 +97,7 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.queryByTestId('guardian-replace-hot-key')).not.toBeInTheDocument();
 
     // Exactly one row → one button → one chevron.
-    const buttons = screen.getAllByRole('button');
+    const buttons = screen.getAllByRole('link');
     expect(buttons).toHaveLength(1);
     expect(buttons[0]!.querySelector('[data-slot="chevron"]')).not.toBeNull();
   });
@@ -124,7 +118,7 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
 
     // The paired reveal is the only row.
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.getAllByRole('link')).toHaveLength(1);
   });
 
   it('hides the reveal-hot-key row for a guardian without an activated hot key but keeps the guardian section', () => {
@@ -138,7 +132,7 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
 
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
   });
 
   // Hot-key-only import: a Guardian account with no coldPublicKey and no seed.
@@ -168,7 +162,7 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
     expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
     expect(screen.queryByTestId('guardian-replace-hot-key')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.getAllByRole('link')).toHaveLength(1);
   });
 
   it('handles a missing current account (optional chaining) by showing only the reveal-private-key row', () => {
@@ -181,7 +175,7 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
     expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
     expect(screen.queryByTestId('guardian-replace-hot-key')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.getAllByRole('link')).toHaveLength(1);
   });
 });
 
@@ -217,7 +211,7 @@ describe('KeysSettings — layout', () => {
 
     render(<KeysSettings />);
 
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
     expect(document.querySelector('.bg-fill')).toBeNull();
   });
 });
@@ -225,27 +219,22 @@ describe('KeysSettings — layout', () => {
 // ---------------------------------------------------------------------------
 // openPage side effects.
 // ---------------------------------------------------------------------------
-describe('KeysSettings — openPage', () => {
-  it('fires haptics and navigates to the row path when a row is clicked', () => {
+describe('KeysSettings — row links', () => {
+  it('links the reveal row to the private key page', () => {
     mockState.currentAccount = { type: WalletType.OffChain };
 
     render(<KeysSettings />);
 
-    fireEvent.click(screen.getByText('revealPrivateKey'));
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings/reveal-private-key');
+    const row = screen.getByTestId('keys-reveal-private-key');
+    expect(row.tagName).toBe('A');
+    expect(row).toHaveAttribute('href', '/settings/reveal-private-key');
   });
 
-  it('navigates a guardian reveal row to the hot key page', () => {
+  it('links a guardian reveal row to the hot key page', () => {
     mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
 
-    fireEvent.click(screen.getByText('revealPrivateKey'));
-    expect(mockNavigate).toHaveBeenLastCalledWith('/settings/reveal-hot-key');
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('keys-reveal-private-key')).toHaveAttribute('href', '/settings/reveal-hot-key');
   });
 });

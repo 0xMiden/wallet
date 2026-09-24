@@ -1,9 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
-
-import { hapticLight } from 'lib/mobile/haptics';
-import { navigate } from 'lib/woozie';
+import { render, screen } from '@testing-library/react';
 
 import RecoveryPhraseSettings from './RecoveryPhraseSettings';
 
@@ -21,21 +18,15 @@ jest.mock('app/icons/v2', () => ({
   IconName: { ChevronLeft: 'chevron-left', Close: 'close' }
 }));
 
+// A routed ListRow renders the wallet Link; stand it in with a plain anchor
+// that carries the route, so a row is observable as a link to its page.
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn(),
-  Link: () => null
+  Link: ({ to, testID: _testID, children, ...rest }: { to: string; testID?: string } & React.ComponentProps<'a'>) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  )
 }));
-
-jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
-}));
-
-const mockNavigate = navigate as jest.Mock;
-const mockHapticLight = hapticLight as jest.Mock;
-
-beforeEach(() => {
-  jest.clearAllMocks();
-});
 
 describe('RecoveryPhraseSettings', () => {
   it('renders the reveal and remove rows in one ListGroup on SubPageLayout', () => {
@@ -51,20 +42,17 @@ describe('RecoveryPhraseSettings', () => {
     expect(reveal.querySelector('[data-slot="title"]')).toHaveTextContent('revealRecoveryPhrase');
     expect(remove.querySelector('[data-slot="title"]')).toHaveTextContent('removeSeedPhrase');
     expect(remove.querySelector('[data-slot="chevron"]')).not.toBeNull();
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.getAllByRole('link')).toHaveLength(2);
     // No page footer: both actions are rows.
     expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });
 
-  it('navigates each row to its own page with a single haptic per tap', () => {
+  it('renders each row as a link to its own page', () => {
     render(<RecoveryPhraseSettings />);
 
-    fireEvent.click(screen.getByText('revealRecoveryPhrase'));
-    expect(mockNavigate).toHaveBeenLastCalledWith('/settings/reveal-seed-phrase');
-
-    fireEvent.click(screen.getByText('removeSeedPhrase'));
-    expect(mockNavigate).toHaveBeenLastCalledWith('/settings/remove-seed-phrase');
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(2);
+    const reveal = screen.getByTestId('recovery-phrase-reveal');
+    expect(reveal.tagName).toBe('A');
+    expect(reveal).toHaveAttribute('href', '/settings/reveal-seed-phrase');
+    expect(screen.getByTestId('recovery-phrase-remove')).toHaveAttribute('href', '/settings/remove-seed-phrase');
   });
 });
