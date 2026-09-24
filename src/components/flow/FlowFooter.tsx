@@ -32,10 +32,10 @@ export interface FlowFooterProps {
  * from main.css's padding transition) and `useSlideOnReflow` animates the move from where the CTA
  * was drawn.
  *
- * The cushion is unconditional, and `data-navbar-cushion` is what drops it. The docked bar draws
- * OVER the page (`z-60`, screen edge), so the only safe rule is that the CTA clears the bar
- * whenever the bar is actually up, and `body[data-hide-navbar]` is the one fact that says it is
- * not. A page-shape guess in its place ("a pushed step has no bar under it") is really a guess
+ * The cushion is on whenever a tab bar is mounted, and `data-navbar-cushion` is what drops it. The
+ * docked bar draws OVER the page (`z-60`, screen edge), so the only safe rule is that the CTA clears
+ * the bar whenever the bar is actually up: `body[data-hide-navbar]` says it is down, and a missing
+ * `body[data-navbar-mounted]` (TabLayout sets it) says there is none. A page-shape guess in its place ("a pushed step has no bar under it") is really a guess
  * about a flag some OTHER component raises: a send sub-step is pushed but still lives inside
  * TabLayout, so on the frames where that flag failed to land, the bar sat on top of the CTA and
  * swallowed every click on it — a visible, enabled, stable button that could not be clicked.

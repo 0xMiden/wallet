@@ -178,6 +178,9 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
   );
 });
 
+// A pushed page can mount its own TabLayout over a covered one, so the body mark is counted, not toggled.
+let mountedTabBars = 0;
+
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
@@ -281,6 +284,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     document.body.toggleAttribute('data-home-band', showActionBar && onScreen);
     return () => document.body.removeAttribute('data-home-band');
   }, [showActionBar, onScreen]);
+
+  // Flow footers reserve the bar's room only while one is mounted (main.css). A layout effect, so a
+  // footer's first painted frame already has the right cushion.
+  useLayoutEffect(() => {
+    mountedTabBars += 1;
+    document.body.setAttribute('data-navbar-mounted', '');
+    return () => {
+      mountedTabBars -= 1;
+      if (mountedTabBars === 0) document.body.removeAttribute('data-navbar-mounted');
+    };
+  }, []);
 
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the

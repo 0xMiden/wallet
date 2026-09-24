@@ -737,6 +737,53 @@ describe('TabLayout — Home band through the status bar', () => {
   });
 });
 
+describe('TabLayout - the tab bar marks body while it is mounted', () => {
+  const marked = () => document.body.hasAttribute('data-navbar-mounted');
+
+  it('marks body on mount and clears it on unmount', () => {
+    mockLocation.pathname = '/history';
+    const { unmount } = renderLayout();
+    expect(marked()).toBe(true);
+    unmount();
+    expect(marked()).toBe(false);
+  });
+
+  it('keeps the mark while another layout is still mounted', () => {
+    mockLocation.pathname = '/history';
+    const base = renderLayout();
+    const pushed = renderLayout();
+    pushed.unmount();
+    expect(marked()).toBe(true);
+    base.unmount();
+    expect(marked()).toBe(false);
+  });
+
+  it('marks body before paint, in the commit that mounts the bar', () => {
+    mockLocation.pathname = '/history';
+    let seenAtLayout: boolean | undefined;
+    function LayoutProbe() {
+      React.useLayoutEffect(() => {
+        seenAtLayout = marked();
+      }, []);
+      return null;
+    }
+    render(
+      <>
+        <TabLayout>{<div />}</TabLayout>
+        <LayoutProbe />
+      </>
+    );
+    expect(seenAtLayout).toBe(true);
+  });
+
+  it('collapses a flow footer cushion to 1rem when no tab bar is mounted', () => {
+    const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
+    expect(css).toMatch(
+      /body:not\(\[data-navbar-mounted\]\) \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*1rem;\s*\}/
+    );
+  });
+});
+
 describe('TabLayout — mount fade and tab panes', () => {
   const initialOf = () => screen.getByTestId('motion-div').getAttribute('data-initial');
   const paneOf = (id: string) => document.querySelector(`[data-tab-pane="${id}"]`);

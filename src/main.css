@@ -653,6 +653,10 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
 body[data-hide-navbar] [data-navbar-cushion='true'] {
   padding-bottom: 1rem;
 }
+/* A route with no TabLayout has no bar to clear, so its cushion takes the same flat margin. */
+body:not([data-navbar-mounted]) [data-navbar-cushion='true'] {
+  padding-bottom: 1rem;
+}
 /* A flow footer's cushion snaps: it slides with useSlideOnReflow, and a padding transition under
  * that slide would reflow every frame and leave the slide's start position stale. */
 [data-navbar-cushion='true'][data-flow-footer] {
