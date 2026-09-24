@@ -5,6 +5,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 import { EARN_DATA } from 'screens/earn-flow/data';
+import { buildEarnSummary } from 'screens/earn-flow/earn-mapping';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 import Earn from './Earn';
@@ -164,11 +165,19 @@ describe('Earn page', () => {
     expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
   });
 
-  it('keeps the summary while a first load (no error yet) is in flight and once it has settled', () => {
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, refetch: jest.fn() });
-    const { unmount } = render(<Earn />);
-    expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
-    unmount();
+  it('draws no summary while a first load (no error yet) is in flight, so it never reads as $0', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults,
+      isLoading: true,
+      refetch: jest.fn()
+    });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
+  });
+
+  it('keeps the summary once positions have loaded', () => {
     mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, isLoading: false, error: 'boom', refetch: jest.fn() });
     render(<Earn />);
     expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();

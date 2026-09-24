@@ -23,8 +23,8 @@ const Earn: FC = () => {
     <div className="h-full overflow-hidden bg-page" data-testid="earn-page">
       <div className="h-full overflow-y-auto">
         <div className="flex flex-col gap-5 px-4 pt-3 pb-32">
-          {/* A failed first load draws no summary: with no positions behind it, it would read as "$0". */}
-          {!(loadFailed && positions.length === 0) && (
+          {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
+          {!(positions.length === 0 && (isLoading || loadFailed)) && (
             <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
           )}
 

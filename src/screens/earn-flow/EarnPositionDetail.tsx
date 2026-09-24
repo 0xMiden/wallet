@@ -34,10 +34,12 @@ interface EarnPositionDetailProps {
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
   const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
-  const { summary, positions, error, refetch } = useEarnPositions();
+  const { summary, positions, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
   const loadFailed = Boolean(error);
+  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
+  const pending = isLoading && !found && !loadFailed;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
@@ -56,7 +58,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
           {/* A failed load never draws the placeholder position, or a $0 summary, as if it were real. */}
           {loadFailed && !found ? (
             <EarnLoadError onRetry={refetch} className="mt-10" />
-          ) : (
+          ) : pending ? null : (
             <>
               {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
               <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />

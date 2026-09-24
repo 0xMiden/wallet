@@ -33,10 +33,12 @@ interface EarnVaultDetailProps {
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
   const { t } = useTranslation();
-  const { vaults, error, refetch } = useEarnPositions();
+  const { vaults, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   const loadFailed = Boolean(error);
+  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
+  const pending = isLoading && !found && !loadFailed;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
@@ -58,7 +60,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
               hand from an earlier load, it is still shown, under a notice that it may be stale. */}
           {loadFailed && !found ? (
             <EarnLoadError onRetry={refetch} className="mt-10" />
-          ) : (
+          ) : pending ? null : (
             <>
               {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
               <section aria-labelledby="earn-vault-apy-title">

@@ -325,10 +325,13 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.getByLabelText('back')).toBeInTheDocument();
   });
 
-  it('says nothing during a first load with no error', () => {
+  it('draws nothing it has not loaded during a first load with no error', () => {
     mockLoadState = { isLoading: true };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
     expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
+    expect(screen.queryByText('earnCurrentApy')).toBeNull();
+    expect(screen.queryByText('—')).toBeNull();
   });
 });

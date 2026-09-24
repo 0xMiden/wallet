@@ -14,13 +14,15 @@ import { useEarnPositions } from './useEarnPositions';
 
 const EarnPositions: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, error, refetch } = useEarnPositions();
+  const { summary, positions, isLoading, error, refetch } = useEarnPositions();
 
   // A failed load must NOT read as "you have no positions / $0": with nothing to fall back on it
   // replaces the list; with last-good positions on screen (a failed refresh keeps them) they stay,
   // under a notice that they may be incomplete.
   const loadFailed = Boolean(error);
   const showLoadError = loadFailed && positions.length === 0;
+  // A first load in flight has nothing to show yet: its empty summary would read as "$0".
+  const pending = !loadFailed && positions.length === 0 && isLoading;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
@@ -30,7 +32,7 @@ const EarnPositions: FC = () => {
         <div className="flex flex-col px-4 pb-8 pt-4">
           {showLoadError ? (
             <EarnLoadError onRetry={refetch} className="mt-10" />
-          ) : (
+          ) : pending ? null : (
             <>
               {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
               <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />

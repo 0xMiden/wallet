@@ -26,10 +26,12 @@ const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) |
 const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { t } = useTranslation();
   const [amount, setAmount] = useState('');
-  const { vaults, error, refetch } = useEarnPositions();
+  const { vaults, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   const loadFailed = Boolean(error);
+  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
+  const pending = isLoading && !found && !loadFailed;
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -69,7 +71,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
 
       {loadFailed && !found ? (
         <EarnLoadError onRetry={refetch} className="mt-10 px-4" />
-      ) : (
+      ) : pending ? null : (
         <>
           {loadFailed && <EarnLoadError onRetry={refetch} className="shrink-0 px-4 pt-4" />}
           <div className="min-h-0 flex-1">

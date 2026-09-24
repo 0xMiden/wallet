@@ -32,10 +32,12 @@ interface EarnWithdrawReviewProps {
  */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { positions, error, refetch } = useEarnPositions();
+  const { positions, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
   const loadFailed = Boolean(error);
+  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
+  const pending = isLoading && !found && !loadFailed;
   const account = useAccount();
   const withdrawSymbol = 'USDC';
   const amountValue = Number(position.withdrawable) || 0;
@@ -91,7 +93,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
       {loadFailed && !found ? (
         <EarnLoadError onRetry={refetch} className="mt-10 px-6" />
-      ) : (
+      ) : pending ? null : (
         <>
           <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
             <div className={clsx('flex flex-col px-6 pt-6')}>

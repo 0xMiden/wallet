@@ -404,6 +404,16 @@ describe('EarnPositionDetail after a failed load', () => {
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
   });
 
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    renderDetail('no-such-position');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
+    expect(screen.queryByText('—')).toBeNull();
+  });
+
   it('keeps a position it already has, under the notice', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     renderDetail('pos-normal');

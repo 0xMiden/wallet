@@ -50,10 +50,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const { vaults, error, refetch } = useEarnPositions();
+  const { vaults, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   const loadFailed = Boolean(error);
+  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
+  const pending = isLoading && !found && !loadFailed;
 
   const { t } = useTranslation();
   const account = useAccount();
@@ -154,7 +156,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
       {loadFailed && !found ? (
         <EarnLoadError onRetry={refetch} className="mt-10 px-6" />
-      ) : (
+      ) : pending ? null : (
         <>
           <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
             <div className={clsx('flex flex-col px-6 pt-6')}>

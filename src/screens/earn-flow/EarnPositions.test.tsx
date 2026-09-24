@@ -6,6 +6,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
+import { buildEarnSummary } from './earn-mapping';
 import EarnPositions from './EarnPositions';
 
 // i18n: assert on keys, not English copy. An interpolated call appends its values (`key:a,b`), so a
@@ -191,6 +192,21 @@ describe('EarnPositions', () => {
 
     expect(mockHapticLight).toHaveBeenCalledTimes(EARN_DATA.positions.length);
     expect(mockNavigate).toHaveBeenCalledTimes(EARN_DATA.positions.length);
+  });
+
+  it('draws no summary while a first load is in flight, so it never reads as $0', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults: [],
+      isLoading: true,
+      refetch: mockRefetch
+    });
+
+    render(<EarnPositions />);
+
+    expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   describe('load failure (gap 4)', () => {

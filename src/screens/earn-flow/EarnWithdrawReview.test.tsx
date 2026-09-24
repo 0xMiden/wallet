@@ -264,6 +264,15 @@ describe('EarnWithdrawReview after a failed load', () => {
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByText('earnWithdrawAmount')).toBeNull();
+  });
+
   it('keeps a position it already has, under the notice', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnWithdrawReview positionId="position-1" />);

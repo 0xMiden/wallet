@@ -519,6 +519,15 @@ describe('EarnDepositReview after a failed load', () => {
     expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
   });
 
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    renderReview('no-such-vault', '?amount=10');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
+    expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();
+  });
+
   it('keeps a vault it already has, under the notice', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     renderReview(EARN_DATA.vaults[1]!.id, '?amount=10');
