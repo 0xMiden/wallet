@@ -5,7 +5,7 @@ import { act } from 'react-dom/test-utils';
 
 import { ITransaction } from 'lib/miden/db/types';
 
-import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
+import { TransactionSummaryBadge, arrowInkFor, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key })
@@ -434,5 +434,17 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('8 MIDEN');
     act(() => root.unmount());
+  });
+});
+
+// C-24: the two spellings F-054 named as unrecognised - the faucet rose's var() form and the
+// accent alias a swap badge can be given - must map to a real ink, not the white fallback.
+describe('arrowInkFor', () => {
+  it('reads the faucet rose var() as the same ink as its hex spelling', () => {
+    expect(arrowInkFor('var(--tx-faucet)')).toBe('#191919');
+  });
+
+  it("reads the swap accent alias as the swap flow's on-colour", () => {
+    expect(arrowInkFor('var(--accent-swap)')).toBe('var(--accent-swap-on)');
   });
 });

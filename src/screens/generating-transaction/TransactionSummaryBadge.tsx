@@ -43,19 +43,32 @@ export interface TransactionSummaryBadgeContent {
   fillForArrow?: string;
 }
 
-const ARROW_INK: Record<string, string> = {
+export const ARROW_INK: Record<string, string> = {
   'var(--action-send)': 'var(--accent-send-on)',
   'var(--tx-sent)': 'var(--accent-send-on)',
+  'var(--accent-send)': 'var(--accent-send-on)',
   'var(--action-receive)': 'var(--accent-receive-on)',
   'var(--tx-received)': 'var(--accent-receive-on)',
+  'var(--accent-receive)': 'var(--accent-receive-on)',
   'var(--action-swap)': 'var(--accent-swap-on)',
   'var(--tx-swap)': 'var(--accent-swap-on)',
-  '#cca4b8': '#191919'
+  'var(--accent-swap)': 'var(--accent-swap-on)',
+  'var(--tx-faucet)': '#191919',
+  '#cca4b8': '#191919',
+  // Explicit, not merely the fallback: the bridge/guardian slate and the earn action colour all
+  // hold white at 4.5:1 or better, but a spelling this table has not seen must not read as "safe"
+  // by accident.
+  '#777487': '#ffffff',
+  'var(--tx-earn)': '#ffffff',
+  'var(--action-earn)': '#ffffff',
+  'var(--accent-earn)': '#ffffff'
 };
 
 /**
  * The arrow's ink for a badge fill. Derived here rather than passed beside the fill so every caller,
- * present and future, gets a readable arrow; white stays only on the slate fills, where it reads 4.5:1.
+ * present and future, gets a readable arrow: every alias of send, receive and swap maps to that
+ * flow's on-colour, the faucet rose and the slate fills map to their fixed ink, and any fill this
+ * table has not seen falls back to white - which is not guaranteed to be readable on it.
  */
 export const arrowInkFor = (fill: string = 'var(--action-send)'): string => ARROW_INK[fill.toLowerCase()] ?? '#ffffff';
 

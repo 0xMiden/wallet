@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { CARD_COLORS } from 'lib/settings/constants';
-import { arrowInkFor } from 'screens/generating-transaction/TransactionSummaryBadge';
+import { ARROW_INK, arrowInkFor } from 'screens/generating-transaction/TransactionSummaryBadge';
 
 const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
 const config = fs.readFileSync(path.join(__dirname, '../../../tailwind.config.ts'), 'utf8');
@@ -417,21 +418,41 @@ describe('QR palette', () => {
   });
 });
 
-// The summary badge draws its arrow in an ink it derives from the fill, so every fill a caller
-// passes must read at 3:1 under that ink in both themes. The list is every fill the app passes.
-const BADGE_ARROW_FILLS = [
-  undefined,
+// The summary badge draws its arrow in an ink it derives from the fill, so every spelling a caller
+// can pass must be an explicit ARROW_INK entry - not merely fall through to the white default by
+// accident - and must read at 3:1 under that ink in both themes. This inventory is independent of
+// ARROW_INK's own keys: the action, tx and accent aliases of send, receive, swap and earn, the
+// faucet rose's var() and hex spellings, and the bridge/guardian slate. A spelling the table drops
+// fails this test instead of silently vanishing from it.
+const BADGE_FILL_ALIASES = [
+  'var(--action-send)',
+  'var(--tx-sent)',
+  'var(--accent-send)',
+  'var(--action-receive)',
   'var(--tx-received)',
+  'var(--accent-receive)',
   'var(--action-swap)',
-  '#CCA4B8',
+  'var(--tx-swap)',
+  'var(--accent-swap)',
+  'var(--action-earn)',
   'var(--tx-earn)',
+  'var(--accent-earn)',
+  'var(--tx-faucet)',
+  '#cca4b8',
   '#777487'
 ] as const;
+
+it.each(BADGE_FILL_ALIASES)('%s is an explicit ARROW_INK entry', fill => {
+  expect(Object.prototype.hasOwnProperty.call(ARROW_INK, fill)).toBe(true);
+});
 
 describe.each([':root', '.dark'] as const)('summary badge arrow in %s', selector => {
   const color = (value: string) => (value.startsWith('var(--') ? resolved(selector, value.slice(6, -1)) : value);
 
-  it.each(BADGE_ARROW_FILLS)('draws its arrow at 3:1 on the %s fill', fill => {
-    expect(contrast(color(arrowInkFor(fill)), color(fill ?? 'var(--action-send)'))).toBeGreaterThanOrEqual(3);
-  });
+  it.each([...BADGE_FILL_ALIASES, ...Object.values(TRANSACTION_COLORS)])(
+    'draws its arrow at 3:1 on the %s fill',
+    fill => {
+      expect(contrast(color(arrowInkFor(fill)), color(fill))).toBeGreaterThanOrEqual(3);
+    }
+  );
 });
