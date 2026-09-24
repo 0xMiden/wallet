@@ -122,12 +122,14 @@ const SwapManager: React.FC = () => {
   // it over. `requestEdited` is cleared whenever they change the pay amount or
   // a token, so the quote resumes driving the field. A press in flight has
   // already captured the amount it sends, so the review holds still until the
-  // press settles; a press that stays on Review then catches up.
+  // press settles; a press that stays on Review then catches up. An open
+  // spending-limit challenge is that same press waiting on approval, which
+  // sends the amount it reviewed, so it holds the review too.
   useEffect(() => {
-    if (!requestEdited && !submitting) {
+    if (!requestEdited && !submitting && spendingLimitAssessment === undefined) {
       setRequestAmount(quote);
     }
-  }, [quote, requestEdited, submitting]);
+  }, [quote, requestEdited, submitting, spendingLimitAssessment]);
 
   // Balances are keyed by `getBech32AddressFromAccountId(faucet)` (BasicWallet
   // interface + active-network HRP), while the swap registry stores

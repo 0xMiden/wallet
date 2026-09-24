@@ -950,6 +950,123 @@ describe('SwapFlow / SwapManager', () => {
     });
   });
 
+  describe('an open spending-limit challenge holds the review still', () => {
+    const breach = {
+      accountId: 'pk-1',
+      faucetId: 'faucet-A',
+      amount: 10n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '24h', spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: 200 }]
+    };
+
+    const openChallengeThenMoveMarket = async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const view = renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      view.rerender(<SwapFlow />);
+      return view;
+    };
+
+    it('sends the amount the press reviewed when the challenge is approved after the market moves', async () => {
+      await openChallengeThenMoveMarket();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(mockInitiateSwap).toHaveBeenCalledWith(
+        'pk-1',
+        'faucet-A',
+        10n,
+        'faucet-B',
+        5n,
+        false,
+        120,
+        true,
+        expect.objectContaining({ revision: 'revision-1' })
+      );
+    });
+
+    it('keeps the reviewed amount under a revised challenge and sends it on approval', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
+      mockInitiateSwap.mockRejectedValueOnce({
+        code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+        assessment: { ...breach, revision: 'revision-2', assessedAt: 121 }
+      });
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const { rerender } = renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+
+      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+      expect(mockInitiateSwap).toHaveBeenLastCalledWith(
+        'pk-1',
+        'faucet-A',
+        10n,
+        'faucet-B',
+        5n,
+        false,
+        120,
+        true,
+        expect.objectContaining({ revision: 'revision-2' })
+      );
+    });
+
+    it('catches the review up to the new quote once the challenge is dismissed', async () => {
+      await openChallengeThenMoveMarket();
+
+      fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+    });
+
+    it('catches the review up once mobile back abandons the challenge', async () => {
+      await openChallengeThenMoveMarket();
+
+      act(() => {
+        mockBackHandler!();
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+    });
+
+    it('catches the review up once the stale-context reset abandons the challenge', async () => {
+      const { rerender } = await openChallengeThenMoveMarket();
+
+      mockAccountReturn = { publicKey: 'pk-2' };
+      rerender(<SwapFlow />);
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+    });
+  });
+
   describe('mobile back handler', () => {
     it('closes the token drawer first when it is open', () => {
       renderFlow();
