@@ -2993,9 +2993,23 @@
     "message": "Публікація в реєстрі",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "Скоро",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "Публікація робить загальновідомим, що цей акаунт володіє ім’ям $name$, тож будь-хто може надсилати на нього кошти. До моменту публікації лише ви знаєте, що володієте цим ім’ям.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Це публічно вказує, що ваш рахунок є власником $name$, тому будь-хто може надсилати на нього кошти. До цього моменту лише ви знали, що володієте цим іменем.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Цю назву першим придумав хтось інший.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "У вас ще немає імені Miden",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "Оприлюднення імен у реєстрі відбудеться найближчим часом",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Виберіть іншу назву",

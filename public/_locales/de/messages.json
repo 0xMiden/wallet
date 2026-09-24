@@ -2993,9 +2993,23 @@
     "message": "Veröffentlichung im Register",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "In Kürze verfügbar",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "Durch die Veröffentlichung wird öffentlich bekannt gegeben, dass dieses Konto „$name$“ besitzt, sodass jeder Zahlungen an dieses Konto senden kann. Bis zur Veröffentlichung wissen nur Sie, dass Sie Eigentümer dieses Namens sind.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Dadurch wird öffentlich bekannt, dass Ihr Konto $name$ besitzt, sodass jeder Zahlungen dorthin senden kann. Bislang wussten nur Sie, dass Sie Eigentümer dieses Namens sind.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Jemand anderes hat diesen Namen bereits zuerst verwendet.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "Sie haben noch keinen zweiten Vornamen",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "Die Veröffentlichung von Namen im Register erfolgt in Kürze",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "„Claim“ – ein anderer Name",

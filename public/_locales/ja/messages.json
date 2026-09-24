@@ -2993,9 +2993,23 @@
     "message": "レジストリへの公開",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "近日公開予定",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "パブリッシュを行うと、このアカウントが「$name$」を所有していることが公開されるため、誰でもそのアドレスに送金できるようになります。パブリッシュを行うまでは、その名前を所有しているのはあなた自身のみです。",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "これにより、あなたのアカウントが「$name$」を所有していることが公開されるため、誰でもそのアドレスへ送金できるようになります。これまでは、その名前を所有しているのはあなた自身だけでした。",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "この名称はすでに他者が先に使用していました。",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "まだミドルネームがありません",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "レジストリへの名称の公開はまもなく開始されます",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "別の名称を請求する",

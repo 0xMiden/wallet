@@ -2993,9 +2993,23 @@
     "message": "Publishing to the registry",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "Coming soon",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Someone else got this name first.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "You have no Miden Name yet",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "Publishing names to the registry is coming soon",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Claim another name",

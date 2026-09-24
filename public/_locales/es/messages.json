@@ -2993,9 +2993,23 @@
     "message": "Publicación en el registro",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "Próximamente",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "Al publicarla, se hace público que esta cuenta es propietaria de $name$, por lo que cualquiera puede enviar fondos a ella. Hasta que la publiques, solo tú sabes que eres el propietario del nombre.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Esto hace público que tu cuenta es propietaria de $name$, por lo que cualquiera puede enviar fondos a ella. Hasta ahora, solo tú sabías que eras el propietario de ese nombre.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Alguien más se adelantó y ya había registrado este nombre.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "Aún no tienes un segundo nombre",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "Próximamente se publicarán los nombres en el registro.",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Reclamar otro nombre",

@@ -2993,9 +2993,23 @@
     "message": "Publicação no registro",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "Em breve",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "A publicação torna público que esta conta é dona de $name$, para que qualquer pessoa possa enviar fundos para ela. Até você publicar, somente você sabe que é o dono desse nome.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Isso torna público que sua conta possui o endereço $name$, de modo que qualquer pessoa pode enviar fundos para ele. Até agora, apenas você sabia que era o proprietário desse endereço.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Outra pessoa já havia escolhido esse nome primeiro.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "Você ainda não tem um nome do meio",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "A publicação de nomes no registro estará disponível em breve",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Reivindicar outro nome",

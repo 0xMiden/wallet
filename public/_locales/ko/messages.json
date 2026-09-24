@@ -2993,9 +2993,23 @@
     "message": "레지스트리에 게시하기",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "곧 출시 예정",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "'게시(Publish)'를 하면 이 계정이 $name$를 소유하고 있다는 사실이 공개되므로, 누구나 해당 주소로 자금을 보낼 수 있습니다. 게시하기 전까지는 본인만이 해당 이름을 소유하고 있음을 알고 있습니다.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "이를 통해 귀하의 계정이 $name$를 소유하고 있다는 사실이 공개되므로, 누구나 해당 주소로 자금을 보낼 수 있습니다. 지금까지는 귀하만이 해당 이름을 소유하고 있다는 사실을 알고 있었습니다.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "이 이름은 이미 다른 사람이 먼저 사용했습니다.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "아직 중간 이름이 없습니다",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "레지스트리에 이름 공개 기능은 곧 제공될 예정입니다",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Claim의 다른 이름",

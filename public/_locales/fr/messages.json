@@ -2993,9 +2993,23 @@
     "message": "Publication dans le registre",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "À venir",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "La publication rend public le fait que ce compte détient l’$name$ ; ainsi, n’importe qui peut y envoyer des fonds. Tant que vous ne publiez pas cette information, vous êtes le seul à savoir que vous possédez ce nom.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Cela rend public le fait que votre compte est associé à l’$name$, de sorte que n’importe qui peut y effectuer un virement. Jusqu’à présent, vous étiez le seul à savoir que vous étiez propriétaire de ce nom.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Quelqu’un d’autre a utilisé ce nom en premier.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "Vous n'avez pas encore de nom de milieu",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "La publication des noms dans le registre est prévue prochainement",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Choisissez un autre nom",

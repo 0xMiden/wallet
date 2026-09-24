@@ -2993,9 +2993,23 @@
     "message": "Kayıt defterine yayınlama",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "Yakında",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "Yayınlama işlemi, bu hesabın $name$ adresine sahip olduğunu herkese duyurur, böylece herkes bu hesaba para gönderebilir. Yayınlayana kadar, bu ismin sahibi olduğunuzu sadece siz bilirsiniz.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Bu, hesabınızun $name$ adresine sahip olduğunu herkese açık hale getirir, böylece herkes bu adrese para gönderebilir. Şimdiye kadar, bu adrese sahip olduğunuzu sadece siz biliyordunuz.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Bu adı ilk olarak başka biri almıştı.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "Henüz bir Miden Adınız yok",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "Kayıt defterine isimlerin yayınlanması yakında başlayacak",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Başka bir isim talep et",

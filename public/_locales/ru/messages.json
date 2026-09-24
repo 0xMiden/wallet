@@ -2993,9 +2993,23 @@
     "message": "Публикация в реестре",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "Скоро",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "Публикация делает общедоступным факт того, что данный аккаунт владеет именем $name$, поэтому любой может отправлять на него средства. До публикации только вы знаете, что владеете этим именем.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Это делает общедоступной информацию о том, что ваш аккаунт владеет именем $name$, поэтому любой может отправить на него средства. До сих пор только вы знали, что владеете этим именем.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "Кто-то другой первым придумал это название.",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "У вас пока нет отчества",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "Опубликование имен в реестре состоится в ближайшее время",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "Выберите другое название",

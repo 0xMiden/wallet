@@ -2993,9 +2993,23 @@
     "message": "发布至注册表",
     "englishSource": "Publishing to the registry"
   },
-  "midenNameComingSoon": {
-    "message": "即将推出",
-    "englishSource": "Coming soon"
+  "midenNamePublishExplainer": {
+    "message": "发布操作会公开表明该账户拥有 $name$，因此任何人都可以向其转账。在发布之前，只有你知道自己拥有该名称。",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "这会公开显示您的账户持有 $name$，因此任何人都可以向该地址发送资金。此前，只有您自己知道您拥有该名称。",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "midenNameFailedTaken": {
     "message": "这个名字已被他人先用。",
@@ -3057,10 +3071,6 @@
   "midenNameEmpty": {
     "message": "您尚未拥有中间名",
     "englishSource": "You have no Miden Name yet"
-  },
-  "midenNamePublishComingSoon": {
-    "message": "相关名称即将发布至注册表",
-    "englishSource": "Publishing names to the registry is coming soon"
   },
   "midenNameClaimAnother": {
     "message": "“Claim”的另一个名称",
