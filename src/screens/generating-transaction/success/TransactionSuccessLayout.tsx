@@ -128,16 +128,20 @@ export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }
 };
 
 /**
- * Hero summary pill under the title — "{amount} {symbol} → {recipient}" in a
- * rounded pill whose arrow carries the flow's colour (or a caller-provided
- * `separator` glyph, e.g. the earn up-arrow). Reuses the in-progress screen's
- * `TransactionSummaryBadge`, so it renders `null` when either side is missing.
+ * Hero summary pill under the title: "{amount} {symbol} → {recipient}" in a
+ * rounded pill whose arrow wears the transaction's own Activity colour, which can differ from
+ * the page's flow accent (or a caller-provided `separator` glyph, e.g. the earn up-arrow).
+ * Reuses the in-progress screen's `TransactionSummaryBadge`, so it renders `null` when either
+ * side is missing.
  */
 export const SuccessSummaryPill: FC<{
   lhs?: ReactNode;
   rhs?: ReactNode;
   separator?: ReactNode;
-  /** The arrow's fill, as the badge content reports it — swap purple, receive green, send blue. */
+  /**
+   * The arrow's fill, as the badge content reports it: the transaction's own Activity colour (send by default,
+   * received green or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent.
+   */
   fillForArrow?: string;
 }> = ({ lhs, rhs, separator, fillForArrow }) => (
   <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} fillForArrow={fillForArrow} className="mt-1" />

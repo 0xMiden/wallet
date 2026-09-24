@@ -114,8 +114,9 @@ currency at 3:1 and the change pill at 4.5:1.
 Home's five actions each take one colour of the account card palette (`card-*`, the AccountsDrawer
 "Card color" picker), and that one brand colour is both the tab's icon in the top action bar and the
 accent of the tab's flow, on EVERY page of it: back arrows, chevrons, the address caret, route card
-borders, the processing spinner, the summary arrow, selected states, the swap direction glyph, a
-row's toggle — and the primary CTA, from the first step through review, processing and the receipt.
+borders, the processing spinner, selected states, the swap direction glyph, a row's toggle, and the
+primary CTA, from the first step through review, processing and the receipt. The one exception is the
+summary arrow: it wears the transaction's own Activity colour, which can differ from the flow's.
 The activity icon squares follow it too (`tx-sent`, `tx-received`, `tx-swap`, `tx-earn`); the faucet
 has no tab and keeps its rose #CCA4B8.
 
@@ -257,7 +258,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 
 | Element | Canonical (`components/ui`) | Anatomy | Replaces |
 | --- | --- | --- | --- |
-| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 48px pill. `primary`: `accent`, white `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
+| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 48px pill. `primary`: fill from `ACCENT_CLASSES[accent].cta` (`brand` by default), its `accent-{flow}-on` `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen, except TokenDetail's Send/Receive pair; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
 | Icon button | `IconButton` | Header: a bare 24px glyph in a 44px hit area, `ink`. Sheet and overlay: a 32px circle on `fill`, `muted` glyph. | `NavButton`, `CircleButton`, ad-hoc round buttons |
 | Pushed page header | `PageHeader` (`components/PageHeader`) | 52px row: bare chevron, 20px title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. No horizontal padding of its own: it takes the page's, so a caller in an unpadded parent passes `className="px-4"`. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the round back buttons and grey title bars |
 | Tab root header | `TabHeader` | `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px. No grey bar under it. | the 4px grey rule |

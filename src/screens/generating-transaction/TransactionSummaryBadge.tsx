@@ -28,7 +28,11 @@ export interface TransactionSummaryBadgeProps {
    * when opening an earn position.
    */
   separator?: ReactNode;
-  /** Tints the default horizontal arrow. Ignored when `separator` is provided. */
+  /**
+   * Tints the default horizontal arrow with the transaction's own Activity colour (send by default, received green
+   * or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent. Ignored when
+   * `separator` is provided.
+   */
   fillForArrow?: string;
 }
 
