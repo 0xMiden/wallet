@@ -1191,18 +1191,5 @@
   "accepted": "已接受",
   "activityAcceptingTransfer": "正在接受…",
   "transfersSection": "转账",
-  "pendingNotesCount": "notes 待定",
-  "whatArePendingNotes": "什么是待处理的notes？",
-  "consumeYourNotes": "请使用您的 notes",
-  "consumeYourNotesDescription": "将这些待处理资金添加到您的余额中，即可开始消费。",
-  "pendingNotesDrawerP1a": "当有人向您转账时，资金将以私有形式到达",
-  "pendingNotesDrawerP1Bold": "notes",
-  "pendingNotesDrawerP1b": "——只有您才能开启的密封包。",
-  "pendingNotesDrawerP2Bold": "使用",
-  "pendingNotesDrawerP2": "note会将其解锁至您的可用余额中。在此之前，资金虽归您所有，但尚无法使用。",
-  "pendingNotesDrawerP3a": "您需要",
-  "pendingNotesDrawerP3Bold": "$count$ notes",
-  "pendingNotesDrawerP3b": "暂未启用。您可随时使用这些功能——无需着急，且资金绝无风险。",
-  "activityTransferClaimed": "已接受",
   "activityUnread": "未读"
 }

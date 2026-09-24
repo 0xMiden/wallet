@@ -5262,63 +5262,6 @@
     "message": "转账",
     "englishSource": "Transfers"
   },
-  "pendingNotesCount": {
-    "message": "notes 待定",
-    "englishSource": "notes pending"
-  },
-  "whatArePendingNotes": {
-    "message": "什么是待处理的notes？",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "请使用您的 notes",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "将这些待处理资金添加到您的余额中，即可开始消费。",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "当有人向您转账时，资金将以私有形式到达",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "——只有您才能开启的密封包。",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "使用",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "note会将其解锁至您的可用余额中。在此之前，资金虽归您所有，但尚无法使用。",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "您需要",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "暂未启用。您可随时使用这些功能——无需着急，且资金绝无风险。",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
-  },
-  "activityTransferClaimed": {
-    "message": "已接受",
-    "englishSource": "Accepted"
-  },
   "activityUnread": {
     "message": "未读",
     "englishSource": "Unread"

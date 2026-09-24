@@ -1191,18 +1191,5 @@
   "accepted": "Принято",
   "activityAcceptingTransfer": "Принятие…",
   "transfersSection": "Переводы",
-  "pendingNotesCount": "notes в процессе рассмотрения",
-  "whatArePendingNotes": "Что такое ожидающие платежные уведомления (notes)?",
-  "consumeYourNotes": "Используйте свои «notes»",
-  "consumeYourNotesDescription": "Добавьте эти средства в ожидании зачисления на свой баланс, чтобы начать расходовать их.",
-  "pendingNotesDrawerP1a": "Когда кто-то отправляет вам средства, они поступают в виде конфиденциальных",
-  "pendingNotesDrawerP1Bold": "notes",
-  "pendingNotesDrawerP1b": "— запечатанные пакеты, которые можете открыть только вы.",
-  "pendingNotesDrawerP2Bold": "Использование",
-  "pendingNotesDrawerP2": "note» переводит их в ваш доступный для расходования баланс. До тех пор, пока вы этого не сделаете, средства принадлежат вам, но их пока нельзя потратить.",
-  "pendingNotesDrawerP3a": "У вас есть",
-  "pendingNotesDrawerP3Bold": "$count$ notes",
-  "pendingNotesDrawerP3b": "В ожидании. Используйте их в любое время — спешить не нужно, и ваши средства никогда не подвергаются риску.",
-  "activityTransferClaimed": "Принято",
   "activityUnread": "Непрочитанное"
 }

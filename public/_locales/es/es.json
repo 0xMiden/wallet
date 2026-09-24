@@ -1191,18 +1191,5 @@
   "accepted": "Aceptada",
   "activityAcceptingTransfer": "Aceptando…",
   "transfersSection": "Transferencias",
-  "pendingNotesCount": "notes pendiente",
-  "whatArePendingNotes": "¿Qué son las «notes» pendientes?",
-  "consumeYourNotes": "Consulta tu «notes»",
-  "consumeYourNotesDescription": "Añade estos fondos pendientes a tu saldo para empezar a gastarlos.",
-  "pendingNotesDrawerP1a": "Cuando alguien te envía fondos, estos llegan como privados",
-  "pendingNotesDrawerP1Bold": "notes",
-  "pendingNotesDrawerP1b": "— Paquetes sellados que solo tú puedes abrir.",
-  "pendingNotesDrawerP2Bold": "Consumo",
-  "pendingNotesDrawerP2": "Un «note» lo transfiere a tu saldo disponible. Hasta que lo hagas, los fondos son tuyos, pero aún no puedes gastarlos.",
-  "pendingNotesDrawerP3a": "Tienes",
-  "pendingNotesDrawerP3Bold": "$count$ notes",
-  "pendingNotesDrawerP3b": "A la espera. Úsalas cuando quieras: no hay prisa y tus fondos nunca corren ningún riesgo.",
-  "activityTransferClaimed": "Aceptada",
   "activityUnread": "No leído"
 }

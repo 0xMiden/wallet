@@ -1191,18 +1191,5 @@
   "accepted": "수락됨",
   "activityAcceptingTransfer": "수락 중…",
   "transfersSection": "이체",
-  "pendingNotesCount": "notes 보류 중",
-  "whatArePendingNotes": "보류 중인 지급 통지서(notes)란 무엇인가요?",
-  "consumeYourNotes": "notes를 참고하세요.",
-  "consumeYourNotesDescription": "이 보류 중인 자금을 잔액에 추가하면 사용을 시작할 수 있습니다.",
-  "pendingNotesDrawerP1a": "누군가 자금을 보내면, 해당 자금은 비공개 상태로 도착합니다.",
-  "pendingNotesDrawerP1Bold": "notes",
-  "pendingNotesDrawerP1b": "— 오직 본인만이 열 수 있는 봉인된 패키지입니다.",
-  "pendingNotesDrawerP2Bold": "사용",
-  "pendingNotesDrawerP2": "note를 통해 자금이 사용 가능한 잔액으로 이체됩니다. 이체되기 전까지는 자금이 귀하의 소유이지만 아직 사용할 수는 없습니다.",
-  "pendingNotesDrawerP3a": "다음과 같이 작성해 주세요:",
-  "pendingNotesDrawerP3Bold": "$count$ notes",
-  "pendingNotesDrawerP3b": "기다려 주세요. 서두를 필요는 없으며, 자금이 위험에 노출될 일도 없으니 언제든지 이용하시면 됩니다.",
-  "activityTransferClaimed": "수락됨",
   "activityUnread": "읽지 않음"
 }

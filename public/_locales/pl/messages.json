@@ -5262,63 +5262,6 @@
     "message": "Transfery",
     "englishSource": "Transfers"
   },
-  "pendingNotesCount": {
-    "message": "notes w toku",
-    "englishSource": "notes pending"
-  },
-  "whatArePendingNotes": {
-    "message": "Czym są oczekujące „notes”?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Skorzystaj z przewodnika „notes”",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Dodaj te środki oczekujące do swojego salda, aby rozpocząć wydawanie.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Gdy ktoś wysyła Ci środki, trafiają one jako prywatne",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— zapieczętowane pakiety, które tylko Ty możesz otworzyć.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Korzystanie",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "note” (przelew) rozpakowuje je do salda, którym można dysponować. Dopóki tego nie zrobisz, środki należą do Ciebie, ale nie można ich jeszcze wydać.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "Masz",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "Czekaj. Skorzystaj z nich w dowolnym momencie — nie ma pośpiechu, a Twoje środki nigdy nie są narażone na ryzyko.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
-  },
-  "activityTransferClaimed": {
-    "message": "Zaakceptowano",
-    "englishSource": "Accepted"
-  },
   "activityUnread": {
     "message": "Nieprzeczytane",
     "englishSource": "Unread"

@@ -5262,63 +5262,6 @@
     "message": "Transferências",
     "englishSource": "Transfers"
   },
-  "pendingNotesCount": {
-    "message": "notes pendente",
-    "englishSource": "notes pending"
-  },
-  "whatArePendingNotes": {
-    "message": "O que são “notes pendentes”?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Consulte o seu guia de terminologia do Miden em notes",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Adicione esses fundos pendentes ao seu saldo para começar a gastar.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Quando alguém lhe envia fundos, eles chegam como privados",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— pacotes lacrados que só você pode abrir.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Consumo",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "Um “note” libera os recursos para o seu saldo disponível. Até que você faça isso, os fundos são seus, mas ainda não podem ser gastos.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "Você tem",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "Aguardando. Use-os quando quiser — não há pressa, e seus fundos nunca correm risco.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
-  },
-  "activityTransferClaimed": {
-    "message": "Aceita",
-    "englishSource": "Accepted"
-  },
   "activityUnread": {
     "message": "Não lida",
     "englishSource": "Unread"

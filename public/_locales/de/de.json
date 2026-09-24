@@ -1191,18 +1191,5 @@
   "accepted": "Akzeptiert",
   "activityAcceptingTransfer": "Wird akzeptiert…",
   "transfersSection": "Überweisungen",
-  "pendingNotesCount": "notes noch ausstehend",
-  "whatArePendingNotes": "Was sind ausstehende „notes“?",
-  "consumeYourNotes": "Nutzen Sie Ihre „notes“",
-  "consumeYourNotesDescription": "Fügen Sie diese ausstehenden Beträge Ihrem Guthaben hinzu, um mit dem Ausgeben zu beginnen.",
-  "pendingNotesDrawerP1a": "Wenn dir jemand Geld sendet, geht es als privat ein",
-  "pendingNotesDrawerP1Bold": "notes",
-  "pendingNotesDrawerP1b": "— Versiegelte Pakete, die nur Sie öffnen können.",
-  "pendingNotesDrawerP2Bold": "Verbrauch",
-  "pendingNotesDrawerP2": "Ein „note“ entsperrt das Guthaben und macht es zu Ihrem verfügbaren Guthaben. Solange Sie dies nicht tun, gehören die Mittel Ihnen, können aber noch nicht ausgegeben werden.",
-  "pendingNotesDrawerP3a": "Sie haben",
-  "pendingNotesDrawerP3Bold": "$count$ notes",
-  "pendingNotesDrawerP3b": "Warten. Nutzen Sie sie jederzeit – es besteht keine Eile, und es sind zu keinem Zeitpunkt Gelder einem Risiko ausgesetzt.",
-  "activityTransferClaimed": "Angenommen",
   "activityUnread": "Ungelesen"
 }

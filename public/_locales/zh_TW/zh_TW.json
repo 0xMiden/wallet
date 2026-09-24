@@ -1191,18 +1191,5 @@
   "accepted": "已接受",
   "activityAcceptingTransfer": "正在接受…",
   "transfersSection": "轉帳",
-  "pendingNotesCount": "notes 待定",
-  "whatArePendingNotes": "什麼是待處理的「notes」？",
-  "consumeYourNotes": "請參閱您的 notes",
-  "consumeYourNotesDescription": "將這些待處理資金加入您的餘額中，即可開始消費。",
-  "pendingNotesDrawerP1a": "當有人向您轉帳時，資金會以私有形式到達",
-  "pendingNotesDrawerP1Bold": "notes",
-  "pendingNotesDrawerP1b": "— 僅您本人能開啟的密封包。",
-  "pendingNotesDrawerP2Bold": "使用說明",
-  "pendingNotesDrawerP2": "note會將其解鎖至您的可用餘額中。在此之前，資金雖屬於您，但尚無法動用。",
-  "pendingNotesDrawerP3a": "您有",
-  "pendingNotesDrawerP3Bold": "$count$ notes",
-  "pendingNotesDrawerP3b": "請稍候。您可隨時使用這些功能——無需急於行事，且資金絕不會面臨任何風險。",
-  "activityTransferClaimed": "已接受",
   "activityUnread": "未讀"
 }

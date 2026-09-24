@@ -1191,18 +1191,5 @@
   "accepted": "Kabul Edildi",
   "activityAcceptingTransfer": "Kabul ediliyor…",
   "transfersSection": "Transferler",
-  "pendingNotesCount": "notes beklemede",
-  "whatArePendingNotes": "Bekleyen \"notes\" nedir?",
-  "consumeYourNotes": "notes'ınızı kullanın",
-  "consumeYourNotesDescription": "Harcamaya başlamak için bu bekleyen fonları bakiyenize ekleyin.",
-  "pendingNotesDrawerP1a": "Birisi size para gönderdiğinde, bu para \"private\" olarak gelir",
-  "pendingNotesDrawerP1Bold": "notes",
-  "pendingNotesDrawerP1b": "— Yalnızca sizin açabileceğiniz mühürlü paketler.",
-  "pendingNotesDrawerP2Bold": "Tüketim",
-  "pendingNotesDrawerP2": "Bir \"note\" işlemi, bu tutarı harcayabileceğiniz bakiyenize aktarır. Bu işlemi gerçekleştirene kadar fonlar size aittir ancak henüz harcanamaz.",
-  "pendingNotesDrawerP3a": "Elinizde",
-  "pendingNotesDrawerP3Bold": "$count$ notes",
-  "pendingNotesDrawerP3b": "Bekliyor. Bunları istediğiniz zaman kullanabilirsiniz — aceleye gerek yok ve hiçbir zaman fonlarınız risk altında olmaz.",
-  "activityTransferClaimed": "Kabul edildi",
   "activityUnread": "Okunmadı"
 }

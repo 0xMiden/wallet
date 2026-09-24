@@ -5262,63 +5262,6 @@
     "message": "Transferts",
     "englishSource": "Transfers"
   },
-  "pendingNotesCount": {
-    "message": "notes en attente",
-    "englishSource": "notes pending"
-  },
-  "whatArePendingNotes": {
-    "message": "Que sont les «notes en attente» ?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Consultez l’notes",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Ajoutez ces fonds en attente à votre solde pour commencer à dépenser.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Lorsqu’une personne vous envoie des fonds, ceux-ci arrivent sous forme de",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— des paquets scellés que vous seul pouvez ouvrir.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Consommation",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "Un «note» (transfert) débloque les fonds sur votre solde disponible. Tant que vous n’effectuez pas cette opération, les fonds vous appartiennent mais ne peuvent pas encore être dépensés.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "Vous avez",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "En attente. Utilisez-les quand vous le souhaitez : rien ne presse, et vos fonds ne courent aucun risque.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
-  },
-  "activityTransferClaimed": {
-    "message": "Acceptée",
-    "englishSource": "Accepted"
-  },
   "activityUnread": {
     "message": "Non lu",
     "englishSource": "Unread"
