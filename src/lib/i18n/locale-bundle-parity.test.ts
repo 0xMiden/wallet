@@ -241,7 +241,8 @@ describe('hand-copied English is queued for translation', () => {
     'earnNoActivePositionsBody',
     'tokenActivityEmptyTitle',
     'tokenActivityEmptyBody',
-    'tokenActivityLoadError'
+    'tokenActivityLoadError',
+    'earnVaultLoadError'
   ];
 
   it('covers en_GB, which the runtime list leaves out', () => {

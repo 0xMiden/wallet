@@ -70,10 +70,12 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       <EarnFlowHeader vault={found} />
 
       {loadFailed && !found ? (
-        <EarnLoadError onRetry={refetch} className="mt-10 px-4" />
+        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10 px-4" />
       ) : pending ? null : (
         <>
-          {loadFailed && <EarnLoadError onRetry={refetch} className="shrink-0 px-4 pt-4" />}
+          {loadFailed && (
+            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="shrink-0 px-4 pt-4" />
+          )}
           <div className="min-h-0 flex-1">
             <SelectAmount
               token={token}

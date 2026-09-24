@@ -415,6 +415,10 @@
     "message": "Não foi possível carregar suas posições. Verifique sua conexão e tente novamente.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Couldn't load this vault. Check your connection and try again.",
+    "englishSource": "(untranslated)"
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",

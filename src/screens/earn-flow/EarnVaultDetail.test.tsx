@@ -300,7 +300,8 @@ describe('EarnVaultDetail after a failed load', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'retry' }));
@@ -311,7 +312,8 @@ describe('EarnVaultDetail after a failed load', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnVaultDetail vaultId="v-audited" />);
 
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
   });

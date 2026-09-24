@@ -155,12 +155,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       <EarnFlowHeader vault={found} />
 
       {loadFailed && !found ? (
-        <EarnLoadError onRetry={refetch} className="mt-10 px-6" />
+        <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10 px-6" />
       ) : pending ? null : (
         <>
           <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
             <div className={clsx('flex flex-col px-6 pt-6')}>
-              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
+              {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mb-6" />}
               <span className="font-heading text-2xl font-bold leading-none text-gray">
                 {t('earnDepositAmountTitle')}
               </span>

@@ -248,7 +248,8 @@ describe('EarnDepositAmount after a failed load', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
-    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
     expect(screen.queryByTestId('select-amount')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'retry' }));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
@@ -274,7 +275,8 @@ describe('EarnDepositAmount after a failed load', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
   });
 });

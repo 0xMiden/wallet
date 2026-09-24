@@ -59,10 +59,10 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           {/* A failed load never draws the placeholder vault as if it were real; with the vault in
               hand from an earlier load, it is still shown, under a notice that it may be stale. */}
           {loadFailed && !found ? (
-            <EarnLoadError onRetry={refetch} className="mt-10" />
+            <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mt-10" />
           ) : pending ? null : (
             <>
-              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
+              {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="mb-6" />}
               <section aria-labelledby="earn-vault-apy-title">
                 <div
                   id="earn-vault-apy-title"
