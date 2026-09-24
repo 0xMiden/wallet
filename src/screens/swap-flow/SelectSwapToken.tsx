@@ -43,8 +43,8 @@ function normalizedFaucetId(faucetId: string): string {
  * Balances come from the same path home and the send picker use, `useAllBalances`, keyed by the
  * SDK's bech32 form of the faucet id, so a registry id is normalized before the match (with the raw
  * id as a fallback), as SwapManager does. A token is priced as the asset it stands for (its
- * logoSymbol: IETH at ETH), and only where the feed lists it (`listedFiat`, shared with the send
- * picker): IMIDEN shows no fiat.
+ * priceSymbol: IETH at ETH), and only where the feed lists it (`listedFiat`, shared with the send
+ * picker): IMIDEN and IUSDT show no fiat.
  *
  * The chosen side carries the design system's round check in the swap flow's purple, and
  * `AssetListItem` fires the tap haptic itself.
@@ -82,8 +82,10 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 // is only a quantity if its own metadata carries real decimals.
                 const scaleIsKnown = held ? hasKnownScale(held.metadata) : true;
                 const balance = held?.balance ?? 0;
-                // A swap token is priced as the asset it stands for (IETH at ETH): its logoSymbol.
-                const fiat = listedFiat(tokenPrices, token.logoSymbol, balance, scaleIsKnown);
+                // Never by logoSymbol: IUSDT borrows the USDC logo, not its price.
+                const fiat = token.priceSymbol
+                  ? listedFiat(tokenPrices, token.priceSymbol, balance, scaleIsKnown)
+                  : undefined;
 
                 return (
                   <AssetListItem

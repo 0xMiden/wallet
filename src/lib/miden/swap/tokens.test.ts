@@ -6,7 +6,10 @@ import {
   getSwapTokenByFaucetId,
   getSwapTokens,
   getSwapTokenBySymbol,
+  TOKEN_IBTC,
+  TOKEN_IETH,
   TOKEN_IMIDEN,
+  TOKEN_IUSDT,
   _setSwapTokensForTest,
   SWAP_TOKEN_DECIMALS,
   SWAP_TOKENS
@@ -69,6 +72,18 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokens()).toEqual([t]);
     expect(getSwapTokenBySymbol('SWPA')).toEqual(t);
     expect(getSwapTokenBySymbol('IMIDEN')).toBeUndefined();
+  });
+});
+
+describe('swap token price symbols', () => {
+  it('prices IETH and IBTC as the ETH and BTC the feed lists', () => {
+    expect(TOKEN_IETH.priceSymbol).toBe('ETH');
+    expect(TOKEN_IBTC.priceSymbol).toBe('BTC');
+  });
+
+  it('leaves IUSDT and IMIDEN unpriced, whatever logo they borrow', () => {
+    expect(TOKEN_IUSDT.priceSymbol).toBeUndefined();
+    expect(TOKEN_IMIDEN.priceSymbol).toBeUndefined();
   });
 });
 

@@ -24,6 +24,7 @@ type SwapToken = {
   faucetId: string;
   decimals: number;
   logoSymbol: string;
+  priceSymbol?: string;
 };
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
@@ -87,8 +88,10 @@ jest.mock('lib/ui/drawer', () => ({
 }));
 
 const IMIDEN: SwapToken = { symbol: 'IMIDEN', faucetId: 'fid-miden', decimals: 8, logoSymbol: 'MIDEN' };
-const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, logoSymbol: 'ETH' };
-const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, logoSymbol: 'BTC' };
+const IETH: SwapToken = { symbol: 'IETH', faucetId: 'fid-eth', decimals: 8, logoSymbol: 'ETH', priceSymbol: 'ETH' };
+const IBTC: SwapToken = { symbol: 'IBTC', faucetId: 'fid-btc', decimals: 8, logoSymbol: 'BTC', priceSymbol: 'BTC' };
+// Drawn with the USDC logo, but the feed has no USDT price: its logo is no price.
+const IUSDT: SwapToken = { symbol: 'IUSDT', faucetId: 'fid-usdt', decimals: 8, logoSymbol: 'USDC' };
 
 type Balance = {
   tokenId: string;
@@ -223,6 +226,20 @@ describe('SelectSwapTokenDrawer', () => {
       renderDrawer();
 
       expect(within(tokenButton('IETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+    });
+
+    it('prices by the asset a token stands for, never by its logo: IUSDT shows no USDC value', () => {
+      mockStoreState = { tokenPrices: { USDC: { price: 1 }, ETH: { price: 3000 } } };
+      setTokens([IMIDEN, IETH, IUSDT, IBTC]);
+      setBalances([
+        { tokenId: 'fid-usdt', metadata: { symbol: 'IUSDT', decimals: 8 }, balance: 5 },
+        { tokenId: 'fid-eth', metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IUSDT')).getByText('5.00 IUSDT')).toBeInTheDocument();
+      expect(within(tokenButton('IUSDT')).queryByText(/^\$/)).not.toBeInTheDocument();
+      expect(within(tokenButton('IETH')).getByText('$6000.00')).toBeInTheDocument();
     });
 
     it('renders no fiat for IMIDEN, whose asset the feed does not list', () => {

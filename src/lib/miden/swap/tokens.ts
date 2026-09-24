@@ -25,6 +25,11 @@ export interface SwapToken {
   decimals: number;
   /** Symbol understood by `TokenLogo` (MIDEN/ETH/USDC/BTC) for the round logo. */
   logoSymbol: string;
+  /**
+   * The asset this token stands for, as the price feed names it. Set only where the feed prices
+   * that asset; absent means unpriced. Never inferred from `logoSymbol`, which is only a logo.
+   */
+  priceSymbol?: string;
 }
 
 export const SWAP_TOKEN_DECIMALS = 8;
@@ -39,13 +44,15 @@ export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
   faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
   decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'ETH'
+  logoSymbol: 'ETH',
+  priceSymbol: 'ETH'
 };
 export const TOKEN_IBTC: SwapToken = {
   symbol: 'IBTC',
   faucetId: 'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x',
   decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'BTC'
+  logoSymbol: 'BTC',
+  priceSymbol: 'BTC'
 };
 export const TOKEN_IUSDT: SwapToken = {
   symbol: 'IUSDT',
