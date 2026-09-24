@@ -257,8 +257,8 @@ const Welcome: FC = () => {
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
   // A flow's state belongs to one attempt: a create or an import starts, and leaving for Welcome ends, with
   // nothing an abandoned attempt left behind. A seed, key, password or staged wallet file would pass for this
-  // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one.
-  // Setters only, so the identity is stable.
+  // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
+  // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
   const resetFlowState = useCallback(() => {
     setSeedPhrase(null);
     setKeyPairPayload(null);
@@ -269,7 +269,8 @@ const Welcome: FC = () => {
     setBiometricError(null);
     setConfirmPhase('idle');
     setGuardianLookupError(false);
-  }, []);
+    resetGuardianProbe();
+  }, [resetGuardianProbe]);
 
   // Telemetry for the onboarding flow the user is currently walking through.
   // Held in a ref rather than state because settling it must never re-render.
@@ -1050,8 +1051,12 @@ const Welcome: FC = () => {
       // Arriving at Welcome from inside the flow (history, an edited URL, a guard's redirect) ends the attempt.
       // The first render is not an arrival: a fresh load, or the E2E bypass seeding the flow on mount.
       if (previous !== null) cancelOnLeavingOnboarding('/');
-    } else if (hash === '#select-wallet-type' || hash === '#choose-protection' || hash === '#select-import-type') {
-      // Every create or import submits its credential after these screens.
+    } else if (hash === '#select-wallet-type' || hash === '#choose-protection') {
+      // Every create submits its credential after these screens.
+      resetFlowState();
+    } else if (hash === '#select-import-type' && onboardingType !== OnboardingType.Import) {
+      // An import resumed here by history keeps what it has (the import steps have no credential guard, so a
+      // reset would dead-end its Forward); a new import starts from the select-import-type action, which resets.
       resetFlowState();
     } else if (hash === '#setup-biometric' && onboardingType !== OnboardingType.Create) {
       // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.

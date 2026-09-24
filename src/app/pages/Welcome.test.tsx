@@ -737,20 +737,56 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.guardianLookupError).toBe(false);
   });
 
-  it.each([
-    ['the select-import-type action', () => dispatch({ id: 'select-import-type' })],
-    ['#select-import-type', () => setHash('#select-import-type')]
-  ])('%s starts an import with no credentials from the last one', async (_name, enter) => {
+  it.each([['the select-import-type action', () => dispatch({ id: 'select-import-type' })]])(
+    '%s starts an import with no credentials from the last one',
+    async (_name, enter) => {
+      mockIsMobileFn.mockReturnValue(false);
+      await renderWelcome();
+      await dispatch({ id: 'select-import-type' });
+      await setHash('#import-from-seed');
+      await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#import-select-recovery-method');
+      await enter();
+      expect(mockFlowProps.current.seedPhrase).toBeNull();
+      expect(mockFlowProps.current.password).toBeNull();
+    }
+  );
+
+  it('an import resumed through #select-import-type by history keeps its credentials', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     await setHash('#import-from-seed');
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-    await setHash('#import-select-recovery-method');
-    await enter();
+    // Browser back to the import-type chooser, then forward again.
+    await setHash('#select-import-type');
+    await setHash('#import-from-seed');
+    expect(mockFlowProps.current.seedPhrase).toEqual(['aa', 'bb', 'cc', 'dd']);
+    expect(mockFlowProps.current.password).toBe('pw');
+  });
+
+  it('a create that lands on #select-import-type does not carry its seed into the import', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    expect(mockFlowProps.current.seedPhrase).not.toBeNull();
+    await setHash('#select-import-type');
     expect(mockFlowProps.current.seedPhrase).toBeNull();
     expect(mockFlowProps.current.password).toBeNull();
+  });
+
+  it("retires an abandoned import's Guardian discovery on the way back to Welcome", async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    mockProbeReset.mockClear();
+    await setHash('');
+    expect(mockProbeReset).toHaveBeenCalled();
   });
 
   it('does not carry a failed biometric attempt into the next one', async () => {
