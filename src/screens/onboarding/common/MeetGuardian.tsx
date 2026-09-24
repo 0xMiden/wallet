@@ -40,7 +40,6 @@ export const MEET_GUARDIAN_POINTS: readonly MeetGuardianPoint[] = [
 /** What every operator guarantees, in the order the card lists them. */
 const GUARDIAN_GUARANTEES: readonly { key: string; tone: 'cannot' | 'can' }[] = [
   { key: 'meetGuardianCannotMoveFunds', tone: 'cannot' },
-  { key: 'meetGuardianCannotSeeState', tone: 'cannot' },
   { key: 'meetGuardianCanSwitch', tone: 'can' }
 ];
 
