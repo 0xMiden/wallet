@@ -16,7 +16,6 @@ name: Compile surfaces
 
 on:
   pull_request:
-    branches: [main, next]
   workflow_dispatch:
 
 permissions:
