@@ -494,6 +494,14 @@ describe('History', () => {
     expect(entryKeys().length).toBe(9);
   });
 
+  it('finds a swap by the asset it asks for, which only its requestedToken names', async () => {
+    const { rerender } = await renderHistory();
+    await act(async () => {
+      rerender(<History address="0xme" searchQuery="S-REQTOK" />);
+    });
+    expect(entryKeys().sort()).toEqual(['completed-S', 'pending-PP'].sort());
+  });
+
   it('filters by sent / received / faucet / all and tolerates an unknown filter value', async () => {
     const { rerender } = await renderHistory();
     const doRerender = async (props: Record<string, unknown>) => {

@@ -81,6 +81,8 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
   return Boolean(
     entry.message?.toLowerCase().includes(query) ||
     entry.token?.toLowerCase().includes(query) ||
+    // A swap row shows the asset it asks for as well as the one it gives.
+    entry.requestedToken?.toLowerCase().includes(query) ||
     // A batch claim displays its secondary assets on the row, so searching
     // for one has to find it, or typing a symbol the user can see hides
     // the very row showing it.

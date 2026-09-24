@@ -266,6 +266,14 @@ describe('ActivityGroupList', () => {
       expect(shownIds()).toEqual([BOB]);
     });
 
+    it('keeps a swap found only by the asset it asks for', () => {
+      renderList([...searchable(), entry({ timestamp: 600, txType: 'swap', token: 'MIDEN', requestedToken: 'ETH' })], {
+        nameOf,
+        searchQuery: 'eth'
+      });
+      expect(shownIds()).toEqual(['swap']);
+    });
+
     it('shows the empty state when no group matches', () => {
       renderList(searchable(), { nameOf, searchQuery: 'zzzz-nothing' });
       expect(screen.queryByTestId('activity-group-row')).toBeNull();
