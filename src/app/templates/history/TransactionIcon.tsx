@@ -60,10 +60,9 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
     return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : SLATE_ICON_BG;
   }
 
-  // A Guardian op carries no icon of its own, so it used to fall through to the
-  // RECEIVE default and paint its detail page's section rule green - the colour
-  // of money arriving, on a page where nothing moved. It takes the slate its
-  // activity row is painted with.
+  // A Guardian op's persisted icon is DEFAULT, which the switch below would paint
+  // the green of money arriving, on a page where nothing moved. It takes the slate
+  // its activity row is painted with.
   if (isGuardianOp(entry.txType)) return SLATE_ICON_BG;
 
   // Earn rows keep the Earn accent across states; any failed earn leg goes red.
@@ -141,6 +140,26 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
 
   if (isPending) {
     return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
+  }
+
+  // Mirrors the Activity row (HistoryView): without this a Guardian op's DEFAULT icon
+  // falls through to the receive arrow.
+  if (isGuardianOp(entry.txType)) {
+    if (entry.transactionIcon === 'FAILED') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-[#CC5D5D]`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
+    }
+    return (
+      <div
+        className={`${config.container} rounded-10 flex items-center justify-center`}
+        style={{ backgroundColor: SLATE_ICON_BG }}
+      >
+        <SwapIcon className={config.icon} />
+      </div>
+    );
   }
 
   if (isFaucetRequest(entry)) {
