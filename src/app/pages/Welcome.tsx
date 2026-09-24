@@ -158,6 +158,8 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
   [OnboardingStep.SetupBiometric]: 'setup_biometric',
   [OnboardingStep.CreatePassword]: 'set_password',
   [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
+  // One decision on two screens: the picker is a detail of the guardian step, so both report it.
+  [OnboardingStep.MeetGuardian]: 'choose_guardian',
   [OnboardingStep.ChooseGuardian]: 'choose_guardian',
   [OnboardingStep.ImportFromSeed]: 'enter_phrase',
   // Account creation is running; a failure here is ours, not a change of mind.
@@ -179,6 +181,8 @@ const Welcome: FC = () => {
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
+  const seedPhraseRef = useRef(seedPhrase);
+  seedPhraseRef.current = seedPhrase;
   // Seed-less Guardian import: the normalized hot:EVM pair. Mutually
   // exclusive with `seedPhrase` — each submit clears the other, so register()
   // and back-navigation can branch on which credential is live.
@@ -228,9 +232,8 @@ const Welcome: FC = () => {
   // unmounts. An action that awaits the hardware-security check acts on its answer only while nothing newer happened:
   // otherwise the user has moved on, and may have confirmed inputs the stale answer would overwrite.
   const transitionGenerationRef = useRef(0);
-  // Tracks which protection screen the user came through; needed so ChooseGuardian
-  // back navigation and the create-password→confirmation routing pick the right
-  // origin without colliding with the legacy create flow.
+  // Tracks which protection screen the user came through, so back from the Meet your
+  // Guardian step returns to it.
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
   const { importWalletFromClient, registerWallet, registerWalletFromHotKey } = useMidenContext();
   // Guardian auto-detection (issue #418): kicked off in the background the
@@ -252,6 +255,25 @@ const Welcome: FC = () => {
   // under E2E and on non-Chrome — those keep the classic click-to-create flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
+  // A flow's state belongs to one attempt: a create or an import starts, and leaving for Welcome ends, with
+  // nothing an abandoned attempt left behind. A seed, key, password or staged wallet file would pass for this
+  // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
+  // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
+  const resetFlowState = useCallback(() => {
+    setSeedPhrase(null);
+    setKeyPairPayload(null);
+    setPassword(null);
+    setWalletFilePayload(null);
+    setImportType(null);
+    setBiometricAttempts(0);
+    setBiometricError(null);
+    setConfirmPhase('idle');
+    setGuardianLookupError(false);
+    setUseBiometric(true);
+    setWalletType(WalletType.Guardian);
+    setGuardianEndpoint(undefined);
+    resetGuardianProbe();
+  }, [resetGuardianProbe]);
 
   // Telemetry for the onboarding flow the user is currently walking through.
   // Held in a ref rather than state because settling it must never re-render.
@@ -288,8 +310,9 @@ const Welcome: FC = () => {
     (target: string) => {
       if (target !== '/') return;
       settleOnboardingFlow(handle => handle.cancel());
+      resetFlowState();
     },
-    [settleOnboardingFlow]
+    [settleOnboardingFlow, resetFlowState]
   );
 
   // An unmount with the flow still open is an abandonment we can actually see,
@@ -555,6 +578,7 @@ const Welcome: FC = () => {
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
+        resetFlowState();
         // On a test network the chosen flow waits behind the network notice
         // (#875); acknowledging the notice starts it.
         if (getTestNetworkNameKey()) {
@@ -579,7 +603,7 @@ const Welcome: FC = () => {
         setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        navigate('/#choose-guardian');
+        navigate('/#meet-guardian');
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -597,6 +621,10 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
+        navigate('/#meet-guardian');
+        break;
+      case 'choose-guardian':
+        // "Choose a different Guardian" on the Meet your Guardian step: the full picker.
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
@@ -627,8 +655,7 @@ const Welcome: FC = () => {
         break;
       case 'select-import-type':
         beginOnboardingFlow('import');
-        setImportType(null);
-        setWalletFilePayload(null);
+        resetFlowState();
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
           navigate('/#network-notice');
@@ -645,6 +672,8 @@ const Welcome: FC = () => {
         navigate('/#import-from-key');
         break;
       case 'import-hot-key-submit':
+        // A new key retires a Guardian lookup failure raised for the previous credential.
+        setGuardianLookupError(false);
         setKeyPairPayload(action.payload);
         // Mutually exclusive with the seed credential (see the state comment).
         setSeedPhrase(null);
@@ -652,6 +681,7 @@ const Welcome: FC = () => {
         // Same hardware/password branch as import-seed-phrase-submit.
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (transitionGenerationRef.current !== generation) break;
           if (hardwareAvailable) {
             setPassword('__HARDWARE_ONLY__');
             navigate('/#import-select-recovery-method');
@@ -715,7 +745,7 @@ const Welcome: FC = () => {
           // mnemonic here, exactly like setup-passcode-submit does.
           setSeedPhrase(generateMnemonic().split(' '));
           setProtectionMethod('password');
-          navigate('/#choose-guardian');
+          navigate('/#meet-guardian');
         } else if (onboardingType === OnboardingType.Import) {
           navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
         } else {
@@ -825,6 +855,9 @@ const Welcome: FC = () => {
             navigate(target);
           }
         } else if (step === OnboardingStep.ChooseGuardian) {
+          // The picker was pushed from the Meet your Guardian step; back returns there.
+          navigate('/#meet-guardian');
+        } else if (step === OnboardingStep.MeetGuardian) {
           if (protectionMethod === 'biometric') {
             navigate('/#setup-biometric');
           } else if (protectionMethod === 'password') {
@@ -836,8 +869,8 @@ const Welcome: FC = () => {
           if (onboardingType === OnboardingType.Create) {
             // Extension/desktop: the password screen is the first protection
             // step, so back returns to Welcome. On mobile the
-            // biometric-without-hardware path lands here from choose-guardian.
-            const target = isMobile() ? '/#choose-guardian' : '/';
+            // biometric-without-hardware path lands here from the guardian step.
+            const target = isMobile() ? '/#meet-guardian' : '/';
             cancelOnLeavingOnboarding(target);
             navigate(target);
           } else {
@@ -940,9 +973,16 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setStep(OnboardingStep.SetupBiometric);
         break;
+      case '#meet-guardian':
       case '#choose-guardian':
-        setOnboardingType(OnboardingType.Create);
-        setStep(OnboardingStep.ChooseGuardian);
+        // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
+        // a create, and a history jump can land here before any protection step generated it (a create
+        // starts with no credentials, see resetFlowState). The seed is read through a ref: in the
+        // deps it would re-run the import cases, and #import-from-seed would reset the probe its submit
+        // just started.
+        if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
+        else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
+        else setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#select-import-type':
         setOnboardingType(OnboardingType.Import);
@@ -999,6 +1039,33 @@ const Welcome: FC = () => {
         break;
     }
   }, [hash, password, onboardingType, resetGuardianProbe]);
+
+  // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
+  // password or type change, and a reset there would wipe what the next action just set.
+  const previousHashRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousHashRef.current;
+    previousHashRef.current = hash;
+    if (previous === hash) return;
+    // A running confirmation attempt holds the flow (the routing effect sends the hash back), and a retry needs
+    // everything it had.
+    if (attemptInFlightRef.current) return;
+    if (hash === '') {
+      // Arriving at Welcome from inside the flow (history, an edited URL, a guard's redirect) ends the attempt.
+      // The first render is not an arrival: a fresh load, or the E2E bypass seeding the flow on mount.
+      if (previous !== null) cancelOnLeavingOnboarding('/');
+    } else if (hash === '#select-wallet-type' || hash === '#choose-protection') {
+      // Every create submits its credential after these screens.
+      resetFlowState();
+    } else if (hash === '#select-import-type' && onboardingType !== OnboardingType.Import) {
+      // An import resumed here by history keeps what it has (the import steps have no credential guard, so a
+      // reset would dead-end its Forward); a new import starts from the select-import-type action, which resets.
+      resetFlowState();
+    } else if (hash === '#setup-biometric' && onboardingType !== OnboardingType.Create) {
+      // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.
+      resetFlowState();
+    }
+  }, [hash, onboardingType, resetFlowState, cancelOnLeavingOnboarding]);
 
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.

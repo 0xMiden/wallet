@@ -51,6 +51,8 @@ interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   formRef?: React.RefObject<HTMLFormElement>;
   /** Passed to `FlowFooter`: `false` where no tab bar is ever drawn over the page (onboarding). */
   footerNavbarCushion?: boolean;
+  /** Layout only, on the scrolling body: an extra inset on top of the 16px page margin. */
+  bodyClassName?: string;
   'data-testid'?: string;
 }
 
@@ -101,6 +103,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   formId,
   formRef,
   onClose,
+  bodyClassName,
   'data-testid': dataTestId,
   ...header
 }) => {
@@ -110,7 +113,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
   // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
   // like a div one, so a page gains nothing and loses nothing by needing a form.
-  const bodyClassName = 'flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4';
+  const bodyClasses = cn('flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4', bodyClassName);
 
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">
@@ -128,11 +131,11 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
       {/* No top padding: the 8px under the rule is `PageHeader`'s, the same gap a tab root's
           body starts at. */}
       {onSubmit ? (
-        <form ref={formRef} id={formId} onSubmit={onSubmit} data-slot="body" className={bodyClassName}>
+        <form ref={formRef} id={formId} onSubmit={onSubmit} data-slot="body" className={bodyClasses}>
           {children}
         </form>
       ) : (
-        <div ref={bodyRef} data-slot="body" className={bodyClassName}>
+        <div ref={bodyRef} data-slot="body" className={bodyClasses}>
           {children}
         </div>
       )}

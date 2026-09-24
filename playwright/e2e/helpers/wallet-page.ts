@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
+import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
 import { acknowledgeNetworkNotice } from './network-notice';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 import { IS_LOCALNET } from '../config/environments';
@@ -1373,6 +1374,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('create-password-verify-input').fill(password);
     await this.page.getByTestId('create-password-submit').click();
 
+    // Meet your Guardian picks the fastest operator itself; the picker behind "Choose a
+    // different Guardian" is the only screen that lists them by endpoint.
+    await openGuardianPickerFromMeetGuardian(this.page, 60_000);
     const guardian = this.page.locator(`[data-guardian-endpoint="${guardianUrl}"]`);
     await guardian.waitFor({ timeout: 60_000 });
     await guardian.click();
