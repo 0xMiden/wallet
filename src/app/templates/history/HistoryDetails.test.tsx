@@ -774,8 +774,39 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('txIdLabel')?.textContent).toContain('tx-1');
     });
 
-    it('draws the guardian once for a device-key rotation and puts the new key in the details', async () => {
-      mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: LAMBDA };
+    it('draws the guardian the rotation ran under once, and puts the new key in the details', async () => {
+      // The account has since moved to another guardian; the row keeps the one it recorded.
+      mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: OZ };
+      setMockRow({
+        ...baseSendTx,
+        type: 'replace-hot-key',
+        displayMessage: 'Device key rotated',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newHotPublicKey: '0xnewhotkey', guardianEndpoint: LAMBDA }
+      });
+      await renderAndLoad();
+
+      const summary = screen.getByTestId('guardian-change-summary');
+      expect(summary).toHaveAttribute('data-kind', 'single');
+      // No provider changed, so one tile, one name and no arrow.
+      expect(screen.getAllByTestId('guardian-logo-tile')).toHaveLength(1);
+      expect(within(summary).getByText('LambdaClass')).toBeInTheDocument();
+      expect(within(summary).queryByText('OpenZeppelin')).toBeNull();
+      expect(within(summary).getByText('guardianBadge')).toBeInTheDocument();
+      expect(screen.queryByTestId('guardian-change-arrow')).toBeNull();
+
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('newDeviceKey')?.textContent).toContain('0xnewhotkey');
+      // A rotation moves no value: the wallet From/To rows stay off.
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('names no guardian for a rotation recorded without one, rather than guessing the current one', async () => {
+      mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: OZ };
       setMockRow({
         ...baseSendTx,
         type: 'replace-hot-key',
@@ -788,19 +819,9 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
-      const summary = screen.getByTestId('guardian-change-summary');
-      expect(summary).toHaveAttribute('data-kind', 'single');
-      // No provider changed, so one tile, one name and no arrow.
-      expect(screen.getAllByTestId('guardian-logo-tile')).toHaveLength(1);
-      expect(within(summary).getByText('LambdaClass')).toBeInTheDocument();
-      expect(within(summary).getByText('guardianBadge')).toBeInTheDocument();
-      expect(screen.queryByTestId('guardian-change-arrow')).toBeNull();
-
-      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
+      expect(screen.queryByTestId('guardian-change-summary')).toBeNull();
+      expect(screen.queryByText('OpenZeppelin')).toBeNull();
       expect(rowByLabel('newDeviceKey')?.textContent).toContain('0xnewhotkey');
-      // A rotation moves no value: the wallet From/To rows stay off.
-      expect(rowByLabel('from')).toBeUndefined();
-      expect(rowByLabel('to')).toBeUndefined();
     });
   });
 

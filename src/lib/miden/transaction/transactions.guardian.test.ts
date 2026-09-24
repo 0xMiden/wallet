@@ -5842,8 +5842,28 @@ describe('initiateReplaceHotKeyTransaction', () => {
     const row = txStore[0] as Record<string, unknown>;
     expect(row.accountId).toBe('acc-1');
     expect(row.type).toBe('replace-hot-key');
-    // extraInputs starts empty; populated during generateGuardianTransaction.
-    expect(row.extraInputs).toEqual({});
+    // The guardian the rotation runs under is recorded now, so its history row names it for good;
+    // newHotPublicKey joins it during generateGuardianTransaction.
+    expect(row.extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the guardian when the provider spells the account id differently', async () => {
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        {
+          publicKey: 'acc-1_suffix',
+          name: 'Guardian account',
+          isPublic: true,
+          type: WalletType.Guardian,
+          hdIndex: 0,
+          guardianEndpoint: 'https://old.guardian'
+        }
+      ]
+    };
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
   });
 
   it('throws when the target account is not a Guardian account', async () => {

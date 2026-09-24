@@ -397,6 +397,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
+          rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
@@ -550,15 +551,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // value, so neither gets the wallet From/To rows.
   const isHotKeyRotation = entry?.txType === 'replace-hot-key';
   const isGuardianOp = isGuardianSwitch || isHotKeyRotation;
-  // The co-signer this row's own account uses. A rotation row carries no
-  // endpoint of its own, and the account record is the same source the guardian
-  // settings hero reads. Matched the same way `AccountDisplay` does - the open
-  // account first, then the rest - since a row can belong to either.
-  const rotationGuardianEndpoint = isHotKeyRotation
-    ? account?.publicKey === entry?.address
-      ? account.guardianEndpoint
-      : allAccounts.find(acc => acc.publicKey === entry?.address)?.guardianEndpoint
-    : undefined;
+  // The guardian the rotation ran under, as its record stored it. A row recorded without one names
+  // no guardian: the account's current endpoint may belong to a later switch.
+  const rotationGuardianEndpoint = isHotKeyRotation ? entry?.rotationGuardianEndpoint : undefined;
   // Which way the money moved is a property of the transaction TYPE, not of its
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
@@ -695,7 +690,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   previousEndpoint={entry.previousGuardianEndpoint}
                   newEndpoint={entry.newGuardianEndpoint}
                 />
-              ) : isHotKeyRotation ? (
+              ) : rotationGuardianEndpoint ? (
                 <GuardianChangeSummary kind="single" endpoint={rotationGuardianEndpoint} />
               ) : (
                 <>

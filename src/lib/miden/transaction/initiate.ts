@@ -710,6 +710,12 @@ export const initiateReplaceHotKeyTransaction = async (
     throw new Error('Replace hot key is only supported for Guardian accounts');
   }
   const dbTransaction = new ReplaceHotKeyTransaction(accountId, delegateTransaction);
+  // Record the guardian now: the account's endpoint moves with any later switch, and the history row
+  // must keep naming the one this rotation ran under. No match leaves it unrecorded, never guessed.
+  const guardianEndpoint = (await guardianProvider.getAccounts()).find(account =>
+    sameWalletAccountId(account.publicKey, accountId)
+  )?.guardianEndpoint;
+  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
   return queueRecoveryChange(dbTransaction);
 };
 

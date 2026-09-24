@@ -1241,7 +1241,9 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // — it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
   // it exists so telemetry/E2E can tell a fully-clean rotation from one whose
   // allowlist push needs the self-heal to catch up.
-  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean };
+  // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
+  // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
+  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean; guardianEndpoint?: string };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
