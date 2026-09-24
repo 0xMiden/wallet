@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { resetActivityReadState } from 'lib/settings/activity-read';
+
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { PendingActivityItem } from './PendingActivityCard';
 
@@ -160,6 +162,40 @@ it('leaves a transfer in place when the decline is cancelled', async () => {
   await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
   await act(async () => {});
   expect(mockHide).not.toHaveBeenCalled();
+});
+
+describe('the unread mark on a declined transfer', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetActivityReadState();
+  });
+
+  const decline = async (noteId: string) => {
+    const card = expandCard(noteId);
+    expect(within(card).getByTestId('pending-activity-unread')).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+    await waitFor(() => expect(mockHide).toHaveBeenCalledWith(noteId));
+    await act(async () => {});
+    return card;
+  };
+
+  it('stays while the hide write failed, so the transfer is still marked as needing a decision', async () => {
+    mockHide.mockResolvedValue(false);
+    render(<ActivityPendingHistory search="" filter="all" />);
+
+    const card = await decline('first');
+
+    expect(within(card).getByTestId('pending-activity-unread')).toBeInTheDocument();
+  });
+
+  it('clears once the hide write succeeded', async () => {
+    mockHide.mockResolvedValue(true);
+    render(<ActivityPendingHistory search="" filter="all" />);
+
+    const card = await decline('first');
+
+    expect(within(card).queryByTestId('pending-activity-unread')).toBeNull();
+  });
 });
 
 it('does not hide a transfer claimed while the decline dialog was open', async () => {

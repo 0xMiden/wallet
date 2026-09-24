@@ -20,9 +20,12 @@ it('loads account-specific hidden notes, persists a rejection, and restores them
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
   await waitFor(() => expect(result.current.loaded).toBe(true));
   expect(read).toHaveBeenCalledWith('activity-hidden-notes:account');
+  let stored: boolean | undefined;
   await act(async () => {
-    await result.current.hide('new');
+    stored = await result.current.hide('new');
   });
+  // A caller that settles something on a stored decline reads this.
+  expect(stored).toBe(true);
   expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['old', 'new']);
   await act(async () => {
     await result.current.restore();
@@ -36,9 +39,11 @@ it('restores the previous notes if storage fails', async () => {
   write.mockRejectedValueOnce(new Error('Storage unavailable'));
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
   await waitFor(() => expect(result.current.loaded).toBe(true));
+  let stored: boolean | undefined;
   await act(async () => {
-    await result.current.hide('new');
+    stored = await result.current.hide('new');
   });
+  expect(stored).toBe(false);
   expect([...result.current.ids]).toEqual(['old']);
   expect(result.current.failed).toBe(true);
   log.mockRestore();
@@ -135,9 +140,11 @@ it('ignores saves before the list is read and runs saves made during a write aft
   );
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
 
+  let stored: boolean | undefined;
   await act(async () => {
-    await result.current.hide('too-early');
+    stored = await result.current.hide('too-early');
   });
+  expect(stored).toBe(false);
   expect(write).not.toHaveBeenCalled();
   await act(async () => releaseRead(['old']));
   await waitFor(() => expect(result.current.loaded).toBe(true));

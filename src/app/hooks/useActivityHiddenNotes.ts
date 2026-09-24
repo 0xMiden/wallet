@@ -35,7 +35,7 @@ const LOADING: HiddenNotesEntry = { ids: EMPTY_IDS, status: 'loading', saveFaile
 /** Keyed by STORAGE KEY, so each account's set is its own entry and cannot overwrite another's. */
 const entries = new Map<string, HiddenNotesEntry>();
 const loads = new Map<string, Promise<void>>();
-const saves = new Map<string, Promise<void>>();
+const saves = new Map<string, Promise<boolean>>();
 const { subscribe, notify } = createListenerSet();
 
 const storageKey = (address: string) => `activity-hidden-notes:${address}`;
@@ -75,18 +75,21 @@ function load(key: string): Promise<void> {
   return run;
 }
 
-function save(key: string, change: (hidden: ReadonlySet<string>) => ReadonlySet<string>): Promise<void> {
-  if (getEntry(key).status !== 'ready') return Promise.resolve();
-  const chain = (saves.get(key) ?? Promise.resolve()).then(async () => {
+/** Resolves `true` once the change is stored, `false` when it was refused or rolled back. */
+function save(key: string, change: (hidden: ReadonlySet<string>) => ReadonlySet<string>): Promise<boolean> {
+  if (getEntry(key).status !== 'ready') return Promise.resolve(false);
+  const chain = (saves.get(key) ?? Promise.resolve(true)).then(async () => {
     const previous = getEntry(key);
-    if (previous.status !== 'ready') return;
+    if (previous.status !== 'ready') return false;
     const ids = change(previous.ids);
     setEntry(key, { ids, status: 'ready', saveFailed: false });
     try {
       await putToStorage(key, [...ids]);
+      return true;
     } catch (error) {
       setEntry(key, { ...previous, saveFailed: true });
       console.warn('[activity] Could not save hidden notes', error);
+      return false;
     }
   });
   saves.set(key, chain);

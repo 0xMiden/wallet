@@ -125,9 +125,10 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
     if (!accepted) return;
     const latest = currentItems.current.find(item => item.note.id === note.id);
     if (!latest || (latest.status !== 'pending' && latest.status !== 'failed')) return;
-    await hidden.hide(note.id);
-    // Declining settles the transfer as surely as accepting it does. Only here, not at the tap:
-    // a decline the user backed out of is no decision at all.
+    // Declining settles the transfer as surely as accepting it does. Only once the hide is stored,
+    // not at the tap: a decline the user backed out of, or one whose write was rolled back, is no
+    // decision at all.
+    if (!(await hidden.hide(note.id))) return;
     markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
   };
   // Accepting everything listed: reading them all, then the one batch-claim path. The Accept All
