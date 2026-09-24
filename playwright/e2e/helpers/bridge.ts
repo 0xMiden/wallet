@@ -129,22 +129,20 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   // The fee the user sees must also render - the quote resolving in state while the
   // card still shows "—" is a real (and otherwise invisible) UI regression. An unpriced
   // token is the exception: its fee is not invented, so the card keeps the placeholder.
-  const fastCard = flow.getByTestId('bridge-route-fast');
-  if (fastFeeExpectation(quote.fiatPrice) === 'fee') {
-    await expect(
-      fastCard,
-      `priced token (fiatPrice ${quote.fiatPrice}): quote resolved (${quote.amount} ${quote.symbol}) but the Fast card shows no fee`
-    ).toContainText('$', { timeout: 15_000 });
-  } else {
-    await expect(
-      fastCard,
-      `unpriced token (fiatPrice ${quote.fiatPrice ?? 'null'}): the Fast card should show the "—" placeholder`
-    ).toContainText('—', { timeout: 15_000 });
-    await expect(
-      fastCard,
-      `unpriced token (fiatPrice ${quote.fiatPrice ?? 'null'}): the Fast card shows a "$" fee it cannot have priced`
-    ).not.toContainText('$');
-  }
+  const feeCase = fastFeeExpectation(quote.fiatPrice);
+  const fastCardText = {
+    fee: {
+      pattern: /\$/,
+      message: `priced token (fiatPrice ${quote.fiatPrice}): quote resolved (${quote.amount} ${quote.symbol}) but the Fast card shows no "$" fee`
+    },
+    placeholder: {
+      pattern: /^[^$]*—[^$]*$/,
+      message: `unpriced token (fiatPrice ${quote.fiatPrice ?? 'null'}): the Fast card must show the "—" placeholder and no "$" fee`
+    }
+  }[feeCase];
+  await expect(flow.getByTestId('bridge-route-fast'), fastCardText.message).toHaveText(fastCardText.pattern, {
+    timeout: 15_000
+  });
   await flow.getByTestId('bridge-route-confirm').click();
 
   // Review -> submit -> generating-transaction.
