@@ -27,7 +27,8 @@ it('draws twelve blank bars for the placeholder, hidden from assistive tech', ()
   expect(card).toHaveClass('rounded-2xl', 'bg-fill');
   expect(card.querySelectorAll('.bg-fill-pressed')).toHaveLength(12);
   // The placeholder shows no words at all.
-  expect(card).toHaveTextContent('');
+  expect(card.textContent).toBe('');
+  expect(card.querySelector('[data-testid^="seed-word-"]')).toBeNull();
 });
 
 it('names the privacy warning both screens open on', () => {
