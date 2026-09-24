@@ -9,6 +9,19 @@ import { InfoHint } from './InfoHint';
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
+// The real floating-ui, with `arrow` observed: the arrow's corner clearance is its `padding`.
+const mockArrow = jest.fn();
+jest.mock('@floating-ui/react', () => {
+  const actual = jest.requireActual('@floating-ui/react');
+  return {
+    ...actual,
+    arrow: (options: Parameters<typeof actual.arrow>[0]) => {
+      mockArrow(options);
+      return actual.arrow(options);
+    }
+  };
+});
+
 jest.mock('app/icons/v2', () => ({
   IconName: { Information: 'information' },
   Icon: ({ name }: { name: string }) => <svg data-testid="icon" data-name={name} />
@@ -119,5 +132,14 @@ describe('InfoHint', () => {
 
     const transition = JSON.parse(screen.getByText(/exact fee/).getAttribute('data-transition') as string);
     expect(transition).toEqual(reducedMotionTransition);
+  });
+
+  it("keeps the arrow off the bubble's rounded corners", () => {
+    render(<InfoHint label="About the rate">A sentence.</InfoHint>);
+    fireEvent.click(screen.getByRole('button', { name: 'About the rate' }));
+
+    // 16px: the bubble's rounded-2xl radius.
+    expect(mockArrow).toHaveBeenCalledWith(expect.objectContaining({ padding: 16 }));
+    expect(mockArrow.mock.calls.at(-1)![0].element).not.toBeUndefined();
   });
 });

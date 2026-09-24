@@ -31,9 +31,11 @@ export interface InfoHintProps {
   'data-testid'?: string;
 }
 
-/** Half the arrow's width, so the bubble's edge clears the corner radius. */
+/** The arrow's size. */
 const ARROW_WIDTH = 12;
 const ARROW_HEIGHT = 6;
+/** The bubble's rounded-2xl radius: the arrow never sits on the curved corner. */
+const ARROW_CORNER_CLEARANCE = 16;
 
 /**
  * A small (i) button that pops one sentence of explanation beside it.
@@ -57,14 +59,18 @@ export const InfoHint: React.FC<InfoHintProps> = ({ children, label, className, 
     onOpenChange: setOpen,
     placement: 'top',
     whileElementsMounted: autoUpdate,
-    middleware: [offset(ARROW_HEIGHT + 4), flip(), shift({ padding: 12 }), arrow({ element: arrowRef })]
+    middleware: [
+      offset(ARROW_HEIGHT + 4),
+      flip(),
+      shift({ padding: 12 }),
+      arrow({ element: arrowRef, padding: ARROW_CORNER_CLEARANCE })
+    ]
   });
 
   const { getReferenceProps, getFloatingProps } = useInteractions([
     useClick(context),
-    // Both halves of "dismiss on tap-outside/Escape". `outsidePress` covers the tap on the page
-    // behind the bubble, which on a phone is the only way most people will close it.
-    useDismiss(context, { outsidePress: true, escapeKey: true }),
+    // Tap outside (the only way most people close it on a phone) and Escape: the defaults.
+    useDismiss(context),
     useRole(context, { role: 'tooltip' })
   ]);
 
