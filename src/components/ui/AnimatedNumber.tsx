@@ -54,6 +54,10 @@ function realmCanAnimate(): boolean {
  *
  * Under reduced motion, in any realm that cannot report the motion preference, and when the sign
  * changes, the new value is set immediately.
+ *
+ * It cannot tell a new subject from a new value: a figure whose subject can change while it stays
+ * mounted (a picked token, pair, account or position) must be keyed by that subject's id, so a new
+ * subject lands and only a new value of the same subject counts.
  */
 export const AnimatedNumber: FC<AnimatedNumberProps> = ({
   value,
