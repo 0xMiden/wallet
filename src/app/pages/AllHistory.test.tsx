@@ -129,7 +129,8 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  useLocation: () => ({ pathname: '/history', hash: '' })
 }));
 
 const getHistory = () => screen.getByTestId('history');

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import {
   autoUpdate,
@@ -13,11 +13,13 @@ import {
 } from '@floating-ui/react';
 import { AnimatePresence, motion } from 'framer-motion';
 
+import { usePageActive } from 'app/layouts/page-active';
 import { useTabBarMotion } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import Portal from 'lib/ui/Portal';
 import { cn } from 'lib/ui/util';
+import { useLocation } from 'lib/woozie';
 
 /** Which edge of the anchor the panel lines up with. Only its end (right) edge has a caller. */
 export type PopoverAlign = 'end';
@@ -95,6 +97,23 @@ export const Popover: React.FC<PopoverProps> = ({
     useDismiss(context, { outsidePress: true, escapeKey: true }),
     useRole(context, { role: 'dialog' })
   ]);
+
+  // Portaled, so leaving the page does not unmount it: a tab switch keeps the page mounted but inactive and
+  // fires no outside press. Close on a route or hash change and when the page goes off screen, as
+  // NetworkModeSheet does. Only a change closes it, so a popover that mounts open stays open.
+  const { pathname, hash } = useLocation();
+  const pageActive = usePageActive();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const openRef = useRef(open);
+  openRef.current = open;
+  const lastWhere = useRef({ pathname, hash, pageActive });
+  useEffect(() => {
+    const last = lastWhere.current;
+    lastWhere.current = { pathname, hash, pageActive };
+    const moved = last.pathname !== pathname || last.hash !== hash || last.pageActive !== pageActive;
+    if (moved && openRef.current) onCloseRef.current();
+  }, [pathname, hash, pageActive]);
 
   useOverlayScreenKey(open, screenKey ? `popover:${screenKey}` : 'popover');
   useMobileBackHandler(

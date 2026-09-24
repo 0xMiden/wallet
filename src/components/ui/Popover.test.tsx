@@ -2,6 +2,8 @@ import React, { useRef, useState } from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
+
 import { Popover } from './Popover';
 
 const mockReducedMotion = { value: false };
@@ -12,12 +14,21 @@ jest.mock('framer-motion', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
+const mockLocation = { pathname: '/history', hash: '' };
+jest.mock('lib/woozie', () => ({
+  useLocation: () => ({ pathname: mockLocation.pathname, hash: mockLocation.hash })
+}));
+
 const ANCHOR_RECT = { top: 10, bottom: 54, left: 300, right: 344, width: 44, height: 44, x: 300, y: 10 };
 
 /** A header-like anchor with a real rect, and a panel holding two focusable rows. */
-const Harness: React.FC<{ empty?: boolean; onClose?: () => void }> = ({ empty, onClose }) => {
+const Harness: React.FC<{ empty?: boolean; initiallyOpen?: boolean; onClose?: () => void }> = ({
+  empty,
+  initiallyOpen = false,
+  onClose
+}) => {
   const anchorRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const close = () => {
     setOpen(false);
     onClose?.();
@@ -61,6 +72,8 @@ const focusGuard = (side: 'before' | 'after') => {
 describe('Popover', () => {
   beforeEach(() => {
     mockReducedMotion.value = false;
+    mockLocation.pathname = '/history';
+    mockLocation.hash = '';
     jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       return (
         this.textContent === 'options' ? ANCHOR_RECT : { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }
@@ -191,5 +204,60 @@ describe('Popover', () => {
     openMenu();
 
     expect(panel().style.opacity).not.toBe('1');
+  });
+
+  describe('when its page leaves the screen', () => {
+    const onPage = (active: boolean, onClose: () => void, initiallyOpen = false) => (
+      <PageActiveContext.Provider value={active}>
+        <Harness onClose={onClose} initiallyOpen={initiallyOpen} />
+      </PageActiveContext.Provider>
+    );
+
+    it('closes when its page goes inactive, with no tap anywhere', async () => {
+      const onClose = jest.fn();
+      const { rerender } = render(onPage(true, onClose));
+      openMenu();
+
+      rerender(onPage(false, onClose));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByTestId('menu')).toBeNull());
+    });
+
+    it.each([
+      ['pathname', () => (mockLocation.pathname = '/settings')],
+      ['hash', () => (mockLocation.hash = '#step-2')]
+    ])('closes once on a %s change', async (_part, navigate) => {
+      const onClose = jest.fn();
+      const { rerender } = render(onPage(true, onClose));
+      openMenu();
+
+      navigate();
+      rerender(onPage(true, onClose));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByTestId('menu')).toBeNull());
+    });
+
+    it('does not report a close for a popover that is already closed', () => {
+      const onClose = jest.fn();
+      const { rerender } = render(onPage(true, onClose));
+
+      mockLocation.pathname = '/settings';
+      rerender(onPage(false, onClose));
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('stays open while its page, pathname and hash stay the same, including when it mounts open', () => {
+      const onClose = jest.fn();
+      const { rerender } = render(onPage(true, onClose, true));
+      expect(panel()).toBeTruthy();
+
+      rerender(onPage(true, onClose, true));
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(panel()).toBeTruthy();
+    });
   });
 });
