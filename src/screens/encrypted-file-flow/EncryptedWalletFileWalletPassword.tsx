@@ -152,6 +152,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     <SubPageLayout
       data-testid="encrypted-file-wallet-password"
       // The title takes focus only where no field does: the desktop password field autofocuses.
+      // This is what focuses the title under a host that does not.
       focusTitleOnMount={isMobile() || hasHardwareProtector}
       footer={
         usePasscodeEntry ? undefined : (
