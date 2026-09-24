@@ -77,17 +77,20 @@ jest.mock('components/Button', () => ({
     onClick,
     disabled,
     size,
+    accent,
     ...props
   }: {
     title?: string;
     onClick?: () => void;
     disabled?: boolean;
     size?: string;
+    accent?: string;
   }) => (
     <button
       data-testid={(props as Record<string, string>)['data-testid']}
       data-disabled={disabled ? 'true' : undefined}
       data-size={size}
+      data-accent={accent}
       onClick={onClick}
     >
       {title}
@@ -268,6 +271,34 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
     const row = screen.getByTestId('detail-note-row');
     expect(within(row).queryByTestId('claim-button')).not.toBeInTheDocument();
     expect(within(row).getByTestId('sync-wave')).toHaveAttribute('data-syncing', 'true');
+  });
+});
+
+describe('PendingTab - claims take the receive colour', () => {
+  it('draws Claim All in the receive accent', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')] });
+
+    expect(screen.getByTestId('claim-all-button')).toHaveAttribute('data-accent', 'receive');
+  });
+
+  it('draws the per-note Claim and Retry in the receive accent', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a'), makeNote('b')], retriableNoteIds: new Set(['b']) });
+    openDetail();
+
+    const [claim, retry] = screen.getAllByTestId('claim-button');
+    expect(claim).toHaveTextContent('claim');
+    expect(claim).toHaveAttribute('data-accent', 'receive');
+    expect(retry).toHaveTextContent('retry');
+    expect(retry).toHaveAttribute('data-accent', 'receive');
+  });
+
+  it('draws the per-asset Claim All in the receive ink, not the brand', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a'), makeNote('b')] });
+    openDetail();
+
+    const button = screen.getByTestId('claim-group-button');
+    expect(button).toHaveClass('text-accent-receive-ink');
+    expect(button).not.toHaveClass('text-accent-primary');
   });
 });
 
