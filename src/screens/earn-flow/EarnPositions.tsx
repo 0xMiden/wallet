@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { PageHeader } from 'components/PageHeader';
 import { CardButton } from 'components/ui/Card';
+import { EmptyState } from 'components/ui/EmptyState';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, ProviderLogo } from './components';
@@ -23,6 +24,7 @@ const EarnPositions: FC = () => {
   const showLoadError = loadFailed && positions.length === 0;
   // A first load in flight has nothing to show yet: its empty summary would read as "$0".
   const pending = !loadFailed && positions.length === 0 && isLoading;
+  const empty = !loadFailed && positions.length === 0 && !isLoading;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
@@ -32,7 +34,15 @@ const EarnPositions: FC = () => {
         <div className="flex flex-col px-4 pb-8 pt-4">
           {showLoadError ? (
             <EarnLoadError onRetry={refetch} className="mt-10" />
-          ) : pending ? null : (
+          ) : pending ? null : empty ? (
+            <EmptyState
+              surface="dashed"
+              icon={IconName.Earn}
+              title={t('earnNoActivePositionsTitle')}
+              description={t('earnNoActivePositionsBody')}
+              data-testid="earn-positions-empty"
+            />
+          ) : (
             <>
               {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
               <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />

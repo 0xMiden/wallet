@@ -40,7 +40,8 @@ jest.mock('app/icons/v2', () => ({
   IconName: {
     ArrowLeft: 'ArrowLeft',
     ChevronLeft: 'ChevronLeft',
-    ChevronRightLucide: 'ChevronRightLucide'
+    ChevronRightLucide: 'ChevronRightLucide',
+    Earn: 'Earn'
   }
 }));
 
@@ -206,6 +207,29 @@ describe('EarnPositions', () => {
     render(<EarnPositions />);
 
     expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('says there are no positions, as Earn does, when a load settles with none', () => {
+    mockUseEarnPositions.mockReturnValue({
+      summary: buildEarnSummary([]),
+      positions: [],
+      vaults: [],
+      isLoading: false,
+      error: undefined,
+      refetch: mockRefetch
+    });
+
+    render(<EarnPositions />);
+
+    const empty = screen.getByTestId('earn-positions-empty');
+    expect(within(empty).getByText('earnNoActivePositionsTitle')).toBeInTheDocument();
+    expect(within(empty).getByText('earnNoActivePositionsBody')).toBeInTheDocument();
+    expect(empty).toHaveClass('border-dashed', 'bg-page');
+    expect(empty).not.toHaveClass('bg-fill');
+    expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^earn-position-card-/)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
