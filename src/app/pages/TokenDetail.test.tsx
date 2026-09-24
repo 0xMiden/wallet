@@ -446,6 +446,11 @@ describe('TokenDetail', () => {
       expect(hero).toHaveTextContent('\u2014');
       expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
 
+      // The subtitle (fiat) line waits with the same dash, never a fabricated $0.00.
+      const subtitle = hero.querySelector('p');
+      expect(subtitle).toHaveTextContent('\u2014');
+      expect(subtitle).not.toHaveTextContent('$0.00');
+
       mockUseAllBalances.mockReturnValue({
         data: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }]
       });

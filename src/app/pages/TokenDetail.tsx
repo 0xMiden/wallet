@@ -121,7 +121,14 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
             }
             subtitle={
-              scaleIsKnown ? <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} /> : undefined
+              scaleIsKnown ? (
+                <AnimatedNumber
+                  value={fiatValue}
+                  format={value => `$${formatFiat(value)}`}
+                  // Same dash as the value above: this line hasn't priced anything yet either.
+                  placeholder="—"
+                />
+              ) : undefined
             }
           />
 
