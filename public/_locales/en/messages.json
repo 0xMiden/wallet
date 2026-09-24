@@ -2444,8 +2444,8 @@
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase.",
-    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
+    "message": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase.",
+    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
     "message": "Reset Wallet",
@@ -2636,8 +2636,8 @@
     "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?",
-    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+    "message": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?",
+    "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
     "message": "Confirm rotation",
@@ -2700,8 +2700,8 @@
     "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate.",
-    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+    "message": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate.",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Before you reveal your private keys",
@@ -3037,8 +3037,8 @@
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "Import the public account derived from your seed phrase.",
-    "englishSource": "Import the public account derived from your seed phrase."
+    "message": "Import the public account derived from your recovery phrase.",
+    "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
     "message": "Guardian URL",
@@ -3907,8 +3907,8 @@
     "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
-    "message": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
-    "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+    "message": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
+    "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
     "message": "Faucet Request",
