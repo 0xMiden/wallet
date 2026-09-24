@@ -333,7 +333,7 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();
-    expect(screen.queryByText('—')).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
   });
 });
 

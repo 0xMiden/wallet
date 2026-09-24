@@ -5,6 +5,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnPositionDetail from './EarnPositionDetail';
 
 // `EarnPositionDetail` renders a recharts `<AreaChart>` inside `ChartContainer`.
@@ -411,7 +412,7 @@ describe('EarnPositionDetail after a failed load', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
-    expect(screen.queryByText('—')).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
   });
 
   it('keeps a position it already has, under the notice', () => {
