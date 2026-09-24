@@ -30,6 +30,7 @@ describe('SettingsSelectors', () => {
     FileSettingsButton: 'Settings/FileSettingsButton',
     AdvancedSettingsButton: 'Settings/AdvancedSettingsButton',
     EditMidenFaucetButton: 'Settings/EditMidenFaucetButton',
+    EncryptedWalletFile: 'Settings/EncryptedWalletFile',
     SendFeedbackButton: 'Settings/SendFeedbackButton',
     SupportButton: 'Settings/SupportButton'
   };
@@ -54,6 +55,7 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.FileSettingsButton).toBe('Settings/FileSettingsButton');
     expect(SettingsSelectors.AdvancedSettingsButton).toBe('Settings/AdvancedSettingsButton');
     expect(SettingsSelectors.EditMidenFaucetButton).toBe('Settings/EditMidenFaucetButton');
+    expect(SettingsSelectors.EncryptedWalletFile).toBe('Settings/EncryptedWalletFile');
     expect(SettingsSelectors.SendFeedbackButton).toBe('Settings/SendFeedbackButton');
     expect(SettingsSelectors.SupportButton).toBe('Settings/SupportButton');
   });

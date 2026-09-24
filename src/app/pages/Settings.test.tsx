@@ -16,8 +16,13 @@ import Settings from './Settings';
 // `mock`-prefixed so jest allows them inside the (hoisted) mock factories.
 // ---------------------------------------------------------------------------
 type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
-const mockWalletState: { currentAccount: MockAccount; seedPhraseStatus?: SeedPhraseStatus } = {
+const mockWalletState: {
+  currentAccount: MockAccount;
+  accounts: NonNullable<MockAccount>[];
+  seedPhraseStatus?: SeedPhraseStatus;
+} = {
   currentAccount: { type: 'on-chain' },
+  accounts: [{ type: 'on-chain' }],
   seedPhraseStatus: 'stored'
 };
 let mockIsMobile = false;
@@ -263,6 +268,9 @@ jest.mock('app/templates/VerifySeedPhraseFlow', () => ({
   __esModule: true,
   default: () => <div data-testid="verify-seed-flow" />
 }));
+jest.mock('screens/encrypted-file-flow/EncryptedFileManager', () => ({
+  EncryptedFileFlow: () => <div data-testid="encrypted-file-flow" />
+}));
 jest.mock('app/templates/RecoveryPhraseSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('recovery-phrase-settings')
@@ -285,8 +293,10 @@ const mockGoBack = goBack as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
 const mockGetCurrentLocale = getCurrentLocale as jest.Mock;
 
+// The wallet holds just this account unless a test adds more.
 function setAccount(account: MockAccount) {
   mockWalletState.currentAccount = account;
+  mockWalletState.accounts = account ? [account] : [];
 }
 
 beforeEach(() => {
@@ -392,8 +402,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('row-recoveryPhrase')).toBeInTheDocument();
     expect(screen.getByTestId('row-keys')).toBeInTheDocument();
     expect(screen.getByTestId('row-spendingLimits')).toBeInTheDocument();
-    // The wallet file backup is gone: a single Guardian account has nothing to back up.
-    expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
+    expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
     expect(screen.getByTestId('row-advancedSettings')).toBeInTheDocument();
     expect(screen.getByTestId('row-authorizedDApps')).toBeInTheDocument();
 
@@ -440,16 +449,19 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('row-language')).toHaveAttribute('data-slug', '/settings/language');
     expect(screen.getByTestId('row-keys')).toHaveAttribute('data-slug', '/settings/keys');
     expect(screen.getByTestId('row-spendingLimits')).toHaveAttribute('data-slug', '/settings/spending-limits');
+    expect(screen.getByTestId('row-encryptedWalletFile')).toHaveAttribute(
+      'data-slug',
+      '/settings/encrypted-wallet-file'
+    );
     expect(screen.getByTestId('row-advancedSettings')).toHaveAttribute('data-slug', '/settings/advanced-settings');
     // Distinct slug: '/settings/dapps' belongs to the connected-dApps list page.
     expect(screen.getByTestId('row-authorizedDApps')).toHaveAttribute('data-slug', '/settings/dapp-settings');
   });
 
-  it('no longer routes the encrypted wallet file slug', () => {
-    mockNavigate.mockClear();
+  it('renders the encrypted wallet export flow on its routed settings page', () => {
     render(<Settings tabSlug="encrypted-wallet-file" />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+    expect(screen.getByTestId('encrypted-file-flow')).toBeInTheDocument();
   });
 
   it('renders the about group as external links with the canonical URLs and no testID', () => {
@@ -1043,3 +1055,40 @@ describe('Settings page — mobile body attribute effects', () => {
 //     TERMS_OF_USE_URL currently equals PRIVACY_POLICY_URL, so the tab lookup
 //     always resolves the Privacy tab first.
 //   Covering these would require changing the source, which the task forbids.
+
+// The file is the only backup of an OffChain account's private state and of an
+// imported key; the recovery phrase restores neither. It exports every account,
+// so the gate reads the wallet's account list, not the current account.
+describe('Settings page — encrypted wallet file gate', () => {
+  it('offers the file for a Guardian account when the wallet also holds an imported account', () => {
+    setAccount({ type: 'guardian' });
+    mockWalletState.accounts = [{ type: 'guardian' }, { type: 'on-chain' }];
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.getByTestId('row-encryptedWalletFile')).toHaveAttribute(
+      'data-slug',
+      '/settings/encrypted-wallet-file'
+    );
+  });
+
+  it('offers neither the row nor the route when every account is a Guardian account', () => {
+    setAccount({ type: 'guardian' });
+    const view = render(<Settings tabSlug={null} />);
+    expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
+
+    mockNavigate.mockClear();
+    view.rerender(<Settings tabSlug="encrypted-wallet-file" />);
+    expect(screen.queryByTestId('encrypted-file-flow')).not.toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+  });
+
+  it('offers the row as soon as the wallet gains a non-Guardian account', () => {
+    setAccount({ type: 'guardian' });
+    const view = render(<Settings tabSlug={null} />);
+    expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
+
+    mockWalletState.accounts = [{ type: 'guardian' }, { type: 'on-chain' }];
+    view.rerender(<Settings tabSlug={null} />);
+    expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
+  });
+});

@@ -36,6 +36,7 @@ import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileO
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
+import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -98,6 +99,11 @@ type Tab = {
   guardianOnly?: boolean;
   /** The page has no meaning for a Guardian account: blocks the route as well as the row. */
   standardOnly?: boolean;
+  /**
+   * Offered only while the wallet holds a non-Guardian account, whichever account is
+   * current: blocks the route as well as the row. See the encrypted-wallet-file tab.
+   */
+  requiresFileBackup?: boolean;
   requiresSeedPhrase?: boolean;
   /**
    * This tab's panel renders its OWN notice when the seed phrase is not 'stored'
@@ -195,11 +201,17 @@ const TAB_GROUPS: TabGroup[] = [
         testID: SettingsSelectors.KeysButton,
         rendersSubPageLayout: true
       },
-      // No `encrypted-wallet-file` row. The wallet file backs up the accounts of a
-      // multi-account wallet, but a wallet now holds a single Guardian account, so a
-      // file backup adds nothing the recovery phrase does not already give. The
-      // export flow (`screens/encrypted-file-flow`) and the onboarding import stay
-      // in the code base for the day the wallet holds more than one account again.
+      {
+        // The file is the only backup of an OffChain account's private state and of an
+        // imported key; the recovery phrase restores neither. A wallet of Guardian
+        // accounts only has nothing the phrase does not already give, so it gets no row.
+        slug: 'encrypted-wallet-file',
+        titleI18nKey: 'encryptedWalletFile',
+        Component: EncryptedFileFlow,
+        testID: SettingsSelectors.EncryptedWalletFile,
+        requiresFileBackup: true,
+        hasOwnLayout: true
+      },
       {
         slug: 'spending-limits',
         titleI18nKey: 'spendingLimits',
@@ -380,6 +392,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
+  const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => a.type !== WalletType.Guardian));
 
   // Whether the account HAS this page at all. A non-Guardian account has no
   // Guardian page in any sense, so these gates block the route as well as the row.
@@ -387,10 +400,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     (tab: Tab) => {
       if (tab.guardianOnly && !isGuardianAccount) return false;
       if (tab.standardOnly && isGuardianAccount) return false;
+      if (tab.requiresFileBackup && !walletNeedsFileBackup) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
-    [isGuardianAccount, hasActivatedHotKey]
+    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey]
   );
 
   // Whether the MENU offers it. The seed gate is only about the row: see allTabs.
