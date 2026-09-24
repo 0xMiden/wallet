@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "Cannot move your funds on its own",
   "meetGuardianCanSwitch": "Switch any time with your seed phrase",
   "meetGuardianChecking": "Checking which operator answers fastest…",
-  "meetGuardianNoneReachable": "No Guardian operator is reachable right now. Check your connection, or choose one to try again.",
   "meetGuardianFullyPrivateInstead": "I'd rather make a fully private account instead",
   "chooseDifferentGuardian": "Choose a different Guardian",
   "guardianBioGeneric": "One of $operators$ independent Guardian operators on Miden.",

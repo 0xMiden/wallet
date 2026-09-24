@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "Nie można samodzielnie przenosić swoich środków",
   "meetGuardianCanSwitch": "Możesz dokonać zmiany w dowolnym momencie za pomocą seed phrase",
   "meetGuardianChecking": "Sprawdzam, który operator odpowiada najszybciej…",
-  "meetGuardianNoneReachable": "W tej chwili nie można skontaktować się z żadnym operatorem serwisu Guardian. Sprawdź połączenie lub wybierz innego operatora i spróbuj ponownie.",
   "meetGuardianFullyPrivateInstead": "Wolałbym raczej założyć konto całkowicie prywatne",
   "chooseDifferentGuardian": "Wybierz inny adres Guardian",
   "guardianBioGeneric": "Jeden z niezależnych operatorów Guardian w sieci Miden, działający pod nazwą „$operators$”.",

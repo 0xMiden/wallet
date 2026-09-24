@@ -2194,8 +2194,8 @@
     "englishSource": "Checking which operator answers fastest…"
   },
   "meetGuardianNoneReachable": {
-    "message": "No Guardian operator is reachable right now. Check your connection, or choose one to try again.",
-    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+    "message": "No Guardian operator is reachable on this network.",
+    "englishSource": "No Guardian operator is reachable on this network."
   },
   "meetGuardianFullyPrivateInstead": {
     "message": "I'd rather make a fully private account instead",

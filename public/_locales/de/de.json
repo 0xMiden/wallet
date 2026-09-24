@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "Kann Ihre Gelder nicht eigenständig bewegen",
   "meetGuardianCanSwitch": "Wechseln Sie jederzeit mit Ihrem „seed phrase“",
   "meetGuardianChecking": "Mal sehen, welcher Betreiber am schnellsten antwortet…",
-  "meetGuardianNoneReachable": "Derzeit ist kein Betreiber von Guardian erreichbar. Überprüfen Sie Ihre Verbindung oder wählen Sie einen anderen Betreiber aus, um es erneut zu versuchen.",
   "meetGuardianFullyPrivateInstead": "Ich würde lieber ein vollständig privates Konto einrichten",
   "chooseDifferentGuardian": "Wählen Sie eine andere „Guardian“",
   "guardianBioGeneric": "Einer der unabhängigen „Guardian“-Betreiber von „$operators$“ auf Miden.",

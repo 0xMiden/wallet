@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "無法自行移動您的資金",
   "meetGuardianCanSwitch": "您可隨時透過 seed phrase 進行切換",
   "meetGuardianChecking": "正在確認哪位客服人員回應最快……",
-  "meetGuardianNoneReachable": "目前無法聯繫到任何 Guardian 營運商。請檢查您的網路連線，或選擇其他營運商再次嘗試。",
   "meetGuardianFullyPrivateInstead": "我寧可建立一個完全私密的帳戶",
   "chooseDifferentGuardian": "請選擇其他Guardian",
   "guardianBioGeneric": "$operators$ 於 Miden 平台上的獨立 Guardian 營運商之一。",

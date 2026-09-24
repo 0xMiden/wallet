@@ -66,7 +66,9 @@ export interface MeetGuardianScreenProps {
  * reachable operator appears and Continue opens. The operator is chosen once, when every
  * operator has answered its first ping, so the card does not change under the user while later
  * rounds refresh the number on it. An operator that later goes offline closes Continue and says
- * so on the card; "Choose a different Guardian" is always there.
+ * so on the card. Once the facts are ticked, "Choose a different Guardian" is offered while the
+ * first round is out, beside the chosen operator and when none answers; a network with no
+ * operator at all says so and offers nothing to pick.
  */
 export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   onSubmit,
@@ -105,7 +107,9 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   const chosen = options.find(option => option.id === chosenId) ?? null;
   const chosenVerdict = chosen ? verdicts[chosen.endpoint] : undefined;
   const chosenOnline = chosenVerdict?.status === 'online';
-  const noneReachable = allSettled && fastest === null && chosen === null;
+  // No operator on this network at all is terminal, not a round still out: the picker would be empty too.
+  const noOperators = options.length === 0;
+  const noneReachable = noOperators || (allSettled && fastest === null && chosen === null);
 
   const handleContinue = () => {
     if (!chosen || !chosenOnline) return;
@@ -115,6 +119,12 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   const handleNoGuardian = () => onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
 
   const bioKey = chosen ? OPERATOR_BIO_KEYS[chosen.id] : undefined;
+
+  const chooseDifferent = noOperators ? null : (
+    <TextAction className="-mx-1 self-start" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
+      {t('chooseDifferentGuardian')}
+    </TextAction>
+  );
 
   return (
     <OnboardingStepLayout
@@ -208,18 +218,15 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                     : t('guardianBioGeneric', { operators: String(options.length) })}
                 </p>
 
-                <TextAction
-                  className="-mx-1 self-start"
-                  data-testid="meet-guardian-choose-different"
-                  onClick={onChooseDifferent}
-                >
-                  {t('chooseDifferentGuardian')}
-                </TextAction>
+                {chooseDifferent}
               </Card>
             ) : noneReachable ? (
-              <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
-                {t('meetGuardianNoneReachable')}
-              </Notice>
+              <div className="flex flex-col gap-3">
+                <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
+                  {t('meetGuardianNoneReachable')}
+                </Notice>
+                {chooseDifferent}
+              </div>
             ) : (
               <Card data-testid="meet-guardian-checking" className="flex flex-col gap-3" aria-busy="true">
                 <div className="flex items-center gap-3">
@@ -230,6 +237,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                   </div>
                 </div>
                 <span className="text-caption text-muted">{t('meetGuardianChecking')}</span>
+                {chooseDifferent}
               </Card>
             )}
           </motion.div>

@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "自身では資金を移動させることはできません",
   "meetGuardianCanSwitch": "seed phrase を使って、いつでも切り替えることができます。",
   "meetGuardianChecking": "どのオペレーターが最も早く応答するか確認中……",
-  "meetGuardianNoneReachable": "現在、Guardianのオペレーターには接続できません。接続状態を確認するか、別のオペレーターを選んで再試行してください。",
   "meetGuardianFullyPrivateInstead": "それなら、完全に非公開のアカウントを作成したほうがいいと思います",
   "chooseDifferentGuardian": "別のGuardianを選択してください",
   "guardianBioGeneric": "Miden上の$operators$の独立したGuardianオペレーターの一人。",

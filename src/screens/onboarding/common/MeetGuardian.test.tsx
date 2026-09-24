@@ -161,6 +161,38 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
   });
 
+  it('offers the picker while the first round is still out', () => {
+    const onChooseDifferent = jest.fn();
+    renderScreen({ onChooseDifferent });
+    tickAll();
+
+    expect(screen.getByTestId('meet-guardian-checking')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    expect(onChooseDifferent).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the picker when no operator is reachable', () => {
+    const onChooseDifferent = jest.fn();
+    const view = renderScreen({ onChooseDifferent });
+    tickAll();
+    view.setVerdicts({ [OZ.endpoint]: { status: 'offline' }, [GATEWAY.endpoint]: { status: 'offline' } });
+
+    expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    expect(onChooseDifferent).toHaveBeenCalledTimes(1);
+  });
+
+  it('says no operator is reachable, without a picker, on a network with none', () => {
+    mockGetGuardianOptions.mockReturnValue([]);
+    renderScreen();
+    tickAll();
+
+    expect(screen.queryByTestId('meet-guardian-checking')).toBeNull();
+    expect(screen.getByTestId('meet-guardian-none-reachable')).toHaveTextContent('meetGuardianNoneReachable');
+    expect(screen.queryByTestId('meet-guardian-choose-different')).toBeNull();
+    expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
+  });
+
   it('Choose a different Guardian hands off to the host', () => {
     const onChooseDifferent = jest.fn();
     const view = renderScreen({ onChooseDifferent });

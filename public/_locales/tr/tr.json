@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "Fonlarınızı kendi başına taşıyamaz",
   "meetGuardianCanSwitch": "seed phrase'ınızla istediğiniz zaman geçiş yapabilirsiniz",
   "meetGuardianChecking": "Hangi operatörün en hızlı yanıt verdiğini kontrol ediyorum…",
-  "meetGuardianNoneReachable": "Şu anda hiçbir Guardian operatörüne ulaşılamıyor. Bağlantınızı kontrol edin veya birini seçip tekrar deneyin.",
   "meetGuardianFullyPrivateInstead": "Bunun yerine tamamen özel bir hesap açmayı tercih ederim",
   "chooseDifferentGuardian": "Farklı bir Guardian seçin",
   "guardianBioGeneric": "$operators$'ın Miden'deki bağımsız Guardian operatörlerinden biri.",

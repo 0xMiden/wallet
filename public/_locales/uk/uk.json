@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "Неможливо самостійно переміщувати ваші кошти",
   "meetGuardianCanSwitch": "Переключайтеся в будь-який час за допомогою вашого seed phrase",
   "meetGuardianChecking": "Перевіряємо, який оператор відповідає найшвидше…",
-  "meetGuardianNoneReachable": "Наразі жоден оператор Guardian недоступний. Перевірте з’єднання або виберіть іншого оператора, щоб спробувати ще раз.",
   "meetGuardianFullyPrivateInstead": "Я б краще створив повністю приватний обліковий запис",
   "chooseDifferentGuardian": "Оберіть інший Guardian",
   "guardianBioGeneric": "Один із незалежних операторів Guardian на платформі Miden, що працює за принципом «$operators$».",

@@ -477,7 +477,6 @@
   "meetGuardianCannotMoveFunds": "Não é possível transferir seus fundos por conta própria",
   "meetGuardianCanSwitch": "Mude a qualquer momento com seu seed phrase",
   "meetGuardianChecking": "Verificando qual operador responde mais rápido…",
-  "meetGuardianNoneReachable": "Nenhum operador do Guardian está disponível no momento. Verifique sua conexão ou escolha outro para tentar novamente.",
   "meetGuardianFullyPrivateInstead": "Prefiro criar uma conta totalmente privada",
   "chooseDifferentGuardian": "Escolha um Guardian diferente",
   "guardianBioGeneric": "Um dos operadores independentes de Guardian, o “$operators$”, no Miden.",
