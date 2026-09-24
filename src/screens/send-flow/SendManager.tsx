@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
@@ -227,6 +227,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     setError,
     clearErrors,
     setValue,
+    getValues,
     trigger,
     formState: { errors }
   } = useForm<SendFlowForm>({
@@ -353,20 +354,34 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
+  // Balances and prices refresh on timers, so the preselection is applied once per id and a
+  // refresh only updates whichever token is in the form; re-applying it undid the user's pick.
+  const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!preselectedTokenId || !balanceData) return;
-    const match = balanceData.find(t => t.tokenId === preselectedTokenId);
-    if (!match) return;
-    const uiToken: UIToken = {
-      id: match.tokenId,
-      name: match.metadata.symbol,
-      decimals: match.metadata.decimals,
-      balance: match.balance,
-      fiatPrice: listedPrice(tokenPrices, priceSymbolFor(match.tokenId, match.metadata.symbol)),
-      scaleIsKnown: hasKnownScale(match.metadata)
-    };
-    setValue('token', uiToken);
-  }, [preselectedTokenId, balanceData, tokenPrices, setValue]);
+    if (!balanceData) return;
+    if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
+      const match = balanceData.find(t => t.tokenId === preselectedTokenId);
+      if (match) {
+        appliedPreselectionRef.current = preselectedTokenId;
+        const uiToken: UIToken = {
+          id: match.tokenId,
+          name: match.metadata.symbol,
+          decimals: match.metadata.decimals,
+          balance: match.balance,
+          fiatPrice: listedPrice(tokenPrices, priceSymbolFor(match.tokenId, match.metadata.symbol)),
+          scaleIsKnown: hasKnownScale(match.metadata)
+        };
+        setValue('token', uiToken);
+        return;
+      }
+    }
+    const current = getValues('token');
+    const held = current && balanceData.find(t => t.tokenId === current.id);
+    if (!current || !held) return;
+    const fiatPrice = listedPrice(tokenPrices, priceSymbolFor(held.tokenId, held.metadata.symbol));
+    if (held.balance === current.balance && fiatPrice === current.fiatPrice) return;
+    setValue('token', { ...current, balance: held.balance, fiatPrice });
+  }, [preselectedTokenId, balanceData, tokenPrices, setValue, getValues]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is

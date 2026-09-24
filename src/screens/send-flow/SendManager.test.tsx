@@ -130,6 +130,7 @@ jest.mock('./SendAmount', () => ({
     <div data-testid="select-amount">
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
       <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
+      <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
@@ -1209,6 +1210,63 @@ describe('token preselection', () => {
     } finally {
       walletStoreState.tokenPrices = { TKN: { price: 3 } };
     }
+  });
+
+  describe('after the user picks another token', () => {
+    const threeTokens = (t2Balance = 7) => [
+      { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 0 },
+      { tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 2 }, balance: t2Balance, fiatPrice: 0 },
+      { tokenId: 'T3', metadata: { symbol: 'TK3', decimals: 2 }, balance: 9, fiatPrice: 0 }
+    ];
+
+    const preselectT1ThenPickT2 = () => {
+      mockSearch = '?tokenId=T1';
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      useAllBalancesMock.mockReturnValue({ data: threeTokens() });
+      const utils = renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      return utils;
+    };
+
+    afterEach(() => {
+      walletStoreState.tokenPrices = { TKN: { price: 3 } };
+    });
+
+    it('keeps the picked token when prices refresh, and gives it the price that lands', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      walletStoreState.tokenPrices = { TKN: { price: 3 }, TK2: { price: 5 } };
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^5$/);
+    });
+
+    it('keeps the picked token when balances refresh, and copies its new balance', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      useAllBalancesMock.mockReturnValue({ data: threeTokens(11) });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^11$/);
+    });
+
+    it('applies a new preselected token once', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      mockSearch = '?tokenId=T3';
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK3');
+
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      useAllBalancesMock.mockReturnValue({ data: threeTokens() });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+    });
   });
 
   it('does not preselect when balances have not loaded yet', () => {
