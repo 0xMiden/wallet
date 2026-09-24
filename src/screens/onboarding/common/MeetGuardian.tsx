@@ -212,11 +212,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                   ))}
                 </ul>
 
-                <p className="text-caption text-muted">
-                  {bioKey
-                    ? t(bioKey, { operators: String(options.length) })
-                    : t('guardianBioGeneric', { operators: String(options.length) })}
-                </p>
+                <p className="text-caption text-muted">{t(bioKey ?? 'guardianBioGeneric')}</p>
 
                 {chooseDifferent}
               </Card>

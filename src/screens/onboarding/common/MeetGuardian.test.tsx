@@ -112,7 +112,7 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
     expect(screen.getByTestId('meet-guardian-latency')).toHaveTextContent('meetGuardianLatencyMs:42');
     expect(screen.getByText('meetGuardianFastestOf:2')).toBeInTheDocument();
-    expect(screen.getByText('guardianBioGateway:2')).toBeInTheDocument();
+    expect(screen.getByText('guardianBioGateway')).toBeInTheDocument();
     expect(screen.getByText('meetGuardianCannotMoveFunds')).toBeInTheDocument();
     expect(screen.getByText('meetGuardianCanSwitch')).toBeInTheDocument();
 

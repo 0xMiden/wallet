@@ -2207,48 +2207,23 @@
   },
   "guardianBioGeneric": {
     "message": "$operators$ 於 Miden 平台上的獨立 Guardian 營運商之一。",
-    "englishSource": "One of $operators$ independent Guardian operators on Miden.",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
+    "englishSource": "One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioOpenZeppelin": {
     "message": "OpenZeppelin 是以太坊標準合約庫背後的資安公司。Miden 平台上 $operators$ 獨立的 Guardian 營運商之一。",
-    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
+    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioGateway": {
     "message": "Gateway.fm 為歐洲各地的網路及 Rollup 營運 blockchain 基礎設施。$operators$ 在 Miden 上的獨立 Guardian 營運商之一。",
-    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
+    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioLambdaClass": {
     "message": "LambdaClass 是一家專門開發零知識證明器及 blockchain 客戶端之工程公司。該公司是 Miden 上 $operators$ 獨立 Guardian 營運商之一。",
-    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
+    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioKoda": {
     "message": "Korea Digital Asset（Koda）是韓國一家受監管的數位資產託管機構，亦是 Miden 平台上 $operators$ 獨立 Guardian 營運商之一。",
-    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
+    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
   },
   "learnMoreAboutGuardian": {
     "message": "進一步了解Guardian",
