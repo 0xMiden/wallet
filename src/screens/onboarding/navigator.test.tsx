@@ -332,12 +332,18 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null });
   });
 
-  it('MeetGuardian and ChooseGuardian sit at the same progress position', () => {
-    const { unmount } = renderFlow({ step: OnboardingStep.MeetGuardian, onboardingType: OnboardingType.Create });
-    const meetProgress = screen.getByTestId('progress').getAttribute('data-current');
-    unmount();
-    renderFlow({ step: OnboardingStep.ChooseGuardian, onboardingType: OnboardingType.Create });
-    expect(screen.getByTestId('progress').getAttribute('data-current')).toBe(meetProgress);
+  // Written out, not compared with each other: two missing table entries would agree on the fallback.
+  it.each([
+    [true, '3', '4'],
+    [false, '2', '3']
+  ])('MeetGuardian and ChooseGuardian both sit at the guardian position (mobile %s)', (mobile, current, steps) => {
+    mockPlatform.isMobile = mobile;
+    for (const step of [OnboardingStep.MeetGuardian, OnboardingStep.ChooseGuardian]) {
+      const { unmount } = renderFlow({ step, onboardingType: OnboardingType.Create });
+      expect(progress()).toHaveAttribute('data-current', current);
+      expect(progress()).toHaveAttribute('data-steps', steps);
+      unmount();
+    }
   });
 
   it('BackupSeedPhrase: passes the seed phrase through and submits verify', () => {

@@ -21,23 +21,34 @@ const fakePage = (initiallyChecked: readonly string[] = []) => {
   return { page, calls, checked };
 };
 
+// Written out rather than read from the helper: an emptied or shortened list must fail here, not pass.
+const EXPECTED_CHECK_IDS = [
+  'onboarding-meet-guardian-check-local-state',
+  'onboarding-meet-guardian-check-seed-phrase',
+  'onboarding-meet-guardian-check-guardian'
+];
+
 describe('openGuardianPickerFromMeetGuardian', () => {
+  it('ticks exactly the three facts the step shows', () => {
+    expect([...MEET_GUARDIAN_CHECK_TEST_IDS]).toEqual(EXPECTED_CHECK_IDS);
+  });
+
   it('waits for the step, ticks all three facts, then opens the picker', async () => {
     const { page, calls, checked } = fakePage();
     await openGuardianPickerFromMeetGuardian(page, 60_000);
     expect(calls).toEqual([
       'wait:onboarding-meet-guardian:60000',
-      ...MEET_GUARDIAN_CHECK_TEST_IDS.map(id => `click:${id}`),
+      ...EXPECTED_CHECK_IDS.map(id => `click:${id}`),
       'click:meet-guardian-choose-different'
     ]);
-    MEET_GUARDIAN_CHECK_TEST_IDS.forEach(id => expect(checked.has(id)).toBe(true));
+    EXPECTED_CHECK_IDS.forEach(id => expect(checked.has(id)).toBe(true));
   });
 
   it('leaves a box already ticked alone, so a retry never unticks it', async () => {
-    const { page, calls, checked } = fakePage([MEET_GUARDIAN_CHECK_TEST_IDS[2]]);
+    const { page, calls, checked } = fakePage([EXPECTED_CHECK_IDS[2]!]);
     await openGuardianPickerFromMeetGuardian(page);
-    expect(calls).not.toContain(`click:${MEET_GUARDIAN_CHECK_TEST_IDS[2]}`);
+    expect(calls).not.toContain(`click:${EXPECTED_CHECK_IDS[2]}`);
     expect(calls[0]).toBe('wait:onboarding-meet-guardian:30000');
-    MEET_GUARDIAN_CHECK_TEST_IDS.forEach(id => expect(checked.has(id)).toBe(true));
+    EXPECTED_CHECK_IDS.forEach(id => expect(checked.has(id)).toBe(true));
   });
 });
