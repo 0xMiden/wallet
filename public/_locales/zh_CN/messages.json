@@ -1568,6 +1568,10 @@
     "message": "输入金额",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "计算中",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "选择一个代币",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "旋转设备键",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "新设备密钥",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "生成一个新的设备（热）密钥，并在链上替换当前的密钥。如果您怀疑设备已遭入侵，此操作将非常有用。",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "无法验证此钱包的解锁方式。请检查您的网络连接并重试。",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "更改二维码颜色",
+    "englishSource": "Change the QR code color"
   }
 }

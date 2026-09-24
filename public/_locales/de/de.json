@@ -336,6 +336,7 @@
   "sendTo": "Senden an",
   "selectAmount": "Betrag auswählen",
   "enterAmount": "Betrag eingeben",
+  "calculatingQuote": "Wird berechnet",
   "selectAToken": "Wählen Sie ein Token aus",
   "searchForTokens": "Nach Tokens suchen",
   "available": "Verfügbar",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "Ihr alter „Guardian“ kann dies nicht blockieren",
   "oldGuardianCantBlockBody": "Die Rotation wird durch Ihre beiden geräteinternen Schlüssel genehmigt. Der alte „Guardian“ wird lediglich benachrichtigt.",
   "replaceHotKey": "Gerätetaste drehen",
+  "newDeviceKey": "Neuer Geräteschlüssel",
   "replaceHotKeyDescription": "Erstellen Sie einen neuen (Hot-)Key für Ihr Gerät und ersetzen Sie den aktuellen in der Blockchain. Dies ist nützlich, wenn Sie den Verdacht haben, dass Ihr Gerät kompromittiert wurde.",
   "replaceHotKeyConfirmation": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Cold Key) signiert. Ihr „seed phrase“ wird nicht benötigt, und Ihr Guthaben sowie Ihr Konto bleiben unverändert. Möchten Sie fortfahren?",
   "confirmReplaceHotKey": "Drehung bestätigen",
@@ -1177,5 +1179,6 @@
   "saveContact": "Speichern",
   "contactAdded": "Hinzugefügt",
   "guardianCardMeta": "Betrieben von $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut."
+  "couldNotCheckUnlockMethod": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+  "receiveQrColorAction": "Farbe des QR-Codes ändern"
 }

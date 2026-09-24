@@ -1568,6 +1568,10 @@
     "message": "Wpisz kwotę",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Obliczanie",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Wybierz token",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Przycisk obracania urządzenia",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "Nowy klucz urządzenia",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Utwórz nowy skrót klawiszowy (dla gorących klawiszy) i zastąp nim obecny w łańcuchu bloków. Przydatne, jeśli podejrzewasz, że Twoje urządzenie zostało przejęte.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Zmień kolor kodu QR",
+    "englishSource": "Change the QR code color"
   }
 }

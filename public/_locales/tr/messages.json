@@ -1568,6 +1568,10 @@
     "message": "Tutarı girin",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Hesaplanıyor",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Bir jeton seçin",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Cihaz tuşunu döndür",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "Yeni cihaz anahtarı",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Yeni bir cihaz (hızlı erişim) tuşu oluşturun ve zincir üzerindeki mevcut tuşu bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu işlem yararlı olabilir.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "QR kodu rengini değiştir",
+    "englishSource": "Change the QR code color"
   }
 }

@@ -336,6 +336,7 @@
   "sendTo": "Enviar para",
   "selectAmount": "Selecione o valor",
   "enterAmount": "Inserir valor",
+  "calculatingQuote": "A calcular",
   "selectAToken": "Selecione um token",
   "searchForTokens": "Pesquisar tokens",
   "available": "Disponível",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "Seu antigo Guardian não consegue bloquear isso",
   "oldGuardianCantBlockBody": "A rotação é aprovada por suas duas chaves no dispositivo. O antigo Guardian é apenas notificado.",
   "replaceHotKey": "Tecla para girar o dispositivo",
+  "newDeviceKey": "Nova chave do dispositivo",
   "replaceHotKeyDescription": "Gere uma nova tecla de atalho (hotkey) para o dispositivo e substitua a atual na cadeia de blocos. Isso é útil caso você suspeite que seu dispositivo tenha sido comprometido.",
   "replaceHotKeyConfirmation": "Isso é assinado com sua chave de recuperação (fria). Sua chave de recuperação (seed phrase) não é necessária, e seus fundos e sua conta permanecem os mesmos. Deseja continuar?",
   "confirmReplaceHotKey": "Confirmar rotação",
@@ -1177,5 +1179,6 @@
   "saveContact": "Salvar",
   "contactAdded": "Adicionado",
   "guardianCardMeta": "Operado por $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente."
+  "couldNotCheckUnlockMethod": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente.",
+  "receiveQrColorAction": "Alterar a cor do código QR"
 }

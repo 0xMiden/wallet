@@ -1568,6 +1568,10 @@
     "message": "금액 입력",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "계산 중",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "토큰 선택",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "기기 키 회전",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "새 기기 키",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "새로운 기기(핫) 키를 생성하고, 온체인에서 기존 키를 대체합니다. 기기가 해킹당했을 가능성이 있다고 의심될 때 유용합니다.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "QR 코드 색상 변경",
+    "englishSource": "Change the QR code color"
   }
 }

@@ -1568,6 +1568,10 @@
     "message": "Introducir importe",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Calculando",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Selecciona un token",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Girar la tecla del dispositivo",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "Nueva clave del dispositivo",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Genera una nueva tecla de acceso rápido (hotkey) y sustituye la actual en la cadena de bloques. Resulta útil si sospechas que tu dispositivo ha sido comprometido.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Cambiar el color del código QR",
+    "englishSource": "Change the QR code color"
   }
 }

@@ -1568,6 +1568,10 @@
     "message": "Введіть суму",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Обчислення",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Виберіть токен",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Повернути клавішу пристрою",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "Новий ключ пристрою",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Створити нову комбінацію клавіш (гарячу клавішу) для пристрою та замінити поточну в ланцюжку блоків. Це корисно, якщо ви підозрюєте, що ваш пристрій зламано.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "Не вдалося перевірити спосіб розблокування цього гаманця. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Змінити колір QR-коду",
+    "englishSource": "Change the QR code color"
   }
 }

@@ -1568,6 +1568,10 @@
     "message": "Saisir le montant",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Calcul en cours",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Sélectionnez un jeton",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Touche « Rotation de l'appareil »",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "Nouvelle clé d'appareil",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Générer une nouvelle clé (rapide) pour votre appareil et remplacer la clé actuelle sur la chaîne. Utile si vous pensez que votre appareil a été piraté.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Changer la couleur du QR code",
+    "englishSource": "Change the QR code color"
   }
 }

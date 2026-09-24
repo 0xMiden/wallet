@@ -779,6 +779,15 @@ body[data-home-band]::before {
     --card-green: #778c72;
     --card-purple: #847595;
 
+    /* The QR code's palette: the five card colors at their LIGHT values, declared once and NOT
+     * redeclared in `.dark`, because a QR is always drawn on a white tile (the modules have to
+     * stay dark enough to scan) and dark mode's lighter card colors fall under 2:1 on white. */
+    --qr-slate: #777386;
+    --qr-orange: #e77537;
+    --qr-blue: #607c92;
+    --qr-green: #778c72;
+    --qr-purple: #847595;
+
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
     --ds-page: #ffffff;

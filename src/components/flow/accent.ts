@@ -16,6 +16,10 @@ interface AccentClasses {
   bg: string;
   border: string;
   tint: string;
+  /** The same colour as a stroke, for a stroked glyph (the `ListRow` chevron). */
+  stroke: string;
+  /** A hairline in the flow's colour, quiet enough to stay a rule: the `before:` rule of a row. */
+  rule: string;
 }
 
 // Literal class strings, so Tailwind generates every one of them.
@@ -25,35 +29,45 @@ export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
     ink: 'text-accent-tint-ink',
     bg: 'bg-primary-500',
     border: 'border-primary-500',
-    tint: 'bg-primary-50'
+    tint: 'bg-primary-50',
+    stroke: 'stroke-primary-500',
+    rule: 'before:bg-primary-500/25'
   },
   send: {
     text: 'text-accent-send',
     ink: 'text-accent-send-ink',
     bg: 'bg-accent-send',
     border: 'border-accent-send',
-    tint: 'bg-accent-send-tint'
+    tint: 'bg-accent-send-tint',
+    stroke: 'stroke-accent-send',
+    rule: 'before:bg-accent-send/25'
   },
   receive: {
     text: 'text-accent-receive',
     ink: 'text-accent-receive-ink',
     bg: 'bg-accent-receive',
     border: 'border-accent-receive',
-    tint: 'bg-accent-receive-tint'
+    tint: 'bg-accent-receive-tint',
+    stroke: 'stroke-accent-receive',
+    rule: 'before:bg-accent-receive/25'
   },
   earn: {
     text: 'text-accent-earn',
     ink: 'text-accent-earn-ink',
     bg: 'bg-accent-earn',
     border: 'border-accent-earn',
-    tint: 'bg-accent-earn-tint'
+    tint: 'bg-accent-earn-tint',
+    stroke: 'stroke-accent-earn',
+    rule: 'before:bg-accent-earn/25'
   },
   swap: {
     text: 'text-accent-swap',
     ink: 'text-accent-swap-ink',
     bg: 'bg-accent-swap',
     border: 'border-accent-swap',
-    tint: 'bg-accent-swap-tint'
+    tint: 'bg-accent-swap-tint',
+    stroke: 'stroke-accent-swap',
+    rule: 'before:bg-accent-swap/25'
   }
 };
 

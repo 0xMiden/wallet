@@ -336,6 +336,7 @@
   "sendTo": "傳送至",
   "selectAmount": "選擇金額",
   "enterAmount": "輸入金額",
+  "calculatingQuote": "計算中",
   "selectAToken": "選擇一個代幣",
   "searchForTokens": "搜尋代幣",
   "available": "有貨",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "您的舊 Guardian 無法阻止此事",
   "oldGuardianCantBlockBody": "輪替操作須經您裝置上的兩把金鑰批准。舊的 Guardian 僅會收到通知。",
   "replaceHotKey": "裝置旋轉鍵",
+  "newDeviceKey": "新裝置金鑰",
   "replaceHotKeyDescription": "產生一個新的裝置（熱）鍵，並在區塊鏈上取代目前的裝置鍵。若您懷疑裝置已遭入侵，此功能將十分實用。",
   "replaceHotKeyConfirmation": "此操作將使用您的恢復（冷）金鑰進行簽名。無需提供您的 seed phrase，您的資金和帳戶將保持不變。要繼續嗎？",
   "confirmReplaceHotKey": "確認旋轉方向",
@@ -1177,5 +1179,6 @@
   "saveContact": "儲存",
   "contactAdded": "新增時間",
   "guardianCardMeta": "營運方：$operator$ · $location$",
-  "couldNotCheckUnlockMethod": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。"
+  "couldNotCheckUnlockMethod": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
+  "receiveQrColorAction": "更改 QR Code 顏色"
 }

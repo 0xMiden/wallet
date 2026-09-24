@@ -42,6 +42,9 @@ export type { AnimatedCopyIconProps } from './AnimatedCopyIcon';
 export { CopyLabel } from './CopyLabel';
 export type { CopyLabelProps } from './CopyLabel';
 
+export { WaveDots } from './WaveDots';
+export type { WaveDotsProps } from './WaveDots';
+
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
 

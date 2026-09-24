@@ -1568,6 +1568,10 @@
     "message": "Betrag eingeben",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Wird berechnet",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Wählen Sie ein Token aus",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Gerätetaste drehen",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "Neuer Geräteschlüssel",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Erstellen Sie einen neuen (Hot-)Key für Ihr Gerät und ersetzen Sie den aktuellen in der Blockchain. Dies ist nützlich, wenn Sie den Verdacht haben, dass Ihr Gerät kompromittiert wurde.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Farbe des QR-Codes ändern",
+    "englishSource": "Change the QR code color"
   }
 }

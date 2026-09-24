@@ -1568,6 +1568,10 @@
     "message": "Введите сумму",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Вычисление",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Выберите токен",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Повернуть клавишу устройства",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "Новый ключ устройства",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Сгенерируйте новую горячую клавишу устройства и замените текущую в цепочке блоков. Это полезно, если вы подозреваете, что ваше устройство скомпрометировано.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Изменить цвет QR-кода",
+    "englishSource": "Change the QR code color"
   }
 }

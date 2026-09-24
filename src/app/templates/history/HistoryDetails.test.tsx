@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
@@ -37,8 +37,13 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 // ---------------------------------------------------------------------------
-let mockAccount: { publicKey?: string; name?: string } | undefined = { publicKey: 'acct-A', name: 'Mine' };
-let mockAllAccounts: Array<{ publicKey: string; name: string }> = [{ publicKey: 'acct-B', name: 'Other' }];
+let mockAccount: { publicKey?: string; name?: string; guardianEndpoint?: string } | undefined = {
+  publicKey: 'acct-A',
+  name: 'Mine'
+};
+let mockAllAccounts: Array<{ publicKey: string; name: string; guardianEndpoint?: string }> = [
+  { publicKey: 'acct-B', name: 'Other' }
+];
 interface MetadataStore {
   tokenPrices: Record<string, { price: number }>;
   assetsMetadata: Record<string, AssetMetadata>;
@@ -188,28 +193,6 @@ jest.mock('app/layouts/PageLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="page-layout">{children}</div>
 }));
 
-jest.mock('components/GuardianTransitionHero', () => ({
-  GuardianTransitionHero: ({
-    previousEndpoint,
-    newEndpoint,
-    previousLabel,
-    newLabel
-  }: {
-    previousEndpoint?: string;
-    newEndpoint?: string;
-    previousLabel: string;
-    newLabel: string;
-  }) => (
-    <div
-      data-testid="guardian-transition-hero"
-      data-previous={previousEndpoint ?? 'unknown'}
-      data-new={newEndpoint ?? 'unknown'}
-      data-previous-label={previousLabel}
-      data-new-label={newLabel}
-    />
-  )
-}));
-
 // Forwards `onClose` (rather than silently dropping it, as the old mock did)
 // so a regression that reintroduces a header close control is caught here
 // rather than only in the real PageHeader's own suite.
@@ -304,7 +287,8 @@ jest.mock('./TransactionIcon', () => ({
   default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
   // Reads the shared constant so a future move of the activity hues carries this mock with it;
   // it was left on the retired literal when they last moved.
-  getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send
+  getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send,
+  isGuardianOp: jest.requireActual('./TransactionIcon').isGuardianOp
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
@@ -751,8 +735,11 @@ describe('HistoryDetails', () => {
     });
   });
 
-  describe('Guardian switch details', () => {
-    it('renders the From/To hero, status, generic details, and no wallet destination rows', async () => {
+  describe('Guardian change details', () => {
+    const LAMBDA = 'https://miden-guardian.lambdaclass.com';
+    const OZ = 'https://guardian.openzeppelin.com';
+
+    it('renders both providers on brand tiles, old to new, with status and no wallet destination rows', async () => {
       setMockRow({
         ...baseSendTx,
         type: 'switch-guardian',
@@ -763,17 +750,21 @@ describe('HistoryDetails', () => {
         faucetId: undefined,
         outputNoteIds: undefined,
         extraInputs: {
-          previousGuardianEndpoint: 'https://old.example',
-          newGuardianEndpoint: 'https://new.example'
+          previousGuardianEndpoint: LAMBDA,
+          newGuardianEndpoint: OZ
         }
       });
       await renderAndLoad();
 
-      const hero = screen.getByTestId('guardian-transition-hero');
-      expect(hero).toHaveAttribute('data-previous', 'https://old.example');
-      expect(hero).toHaveAttribute('data-new', 'https://new.example');
-      expect(hero).toHaveAttribute('data-previous-label', 'from');
-      expect(hero).toHaveAttribute('data-new-label', 'to');
+      const summary = screen.getByTestId('guardian-change-summary');
+      expect(summary).toHaveAttribute('data-kind', 'switch');
+      // A logo tile per side, each resolved from its own endpoint.
+      expect(screen.getAllByTestId('guardian-logo-tile')).toHaveLength(2);
+      expect(within(summary).getByText('LambdaClass')).toBeInTheDocument();
+      expect(within(summary).getByText('OpenZeppelin')).toBeInTheDocument();
+      expect(within(summary).getByText('from')).toBeInTheDocument();
+      expect(within(summary).getByText('to')).toBeInTheDocument();
+
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
       expect(screen.queryByTestId('tx-icon')).toBeNull();
       expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
@@ -791,13 +782,84 @@ describe('HistoryDetails', () => {
         amount: undefined,
         faucetId: undefined,
         outputNoteIds: undefined,
-        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+        extraInputs: { newGuardianEndpoint: OZ }
       });
       await renderAndLoad();
 
-      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-previous', 'unknown');
-      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-new', 'https://new.example');
+      const summary = screen.getByTestId('guardian-change-summary');
+      // The unknown side keeps the generic avatar rather than borrowing a brand.
+      expect(within(summary).getByText('unknown')).toBeInTheDocument();
+      expect(within(summary).getByText('OpenZeppelin')).toBeInTheDocument();
+      expect(within(summary).getAllByTestId('guardian-avatar')).toHaveLength(1);
       expect(rowByLabel('txIdLabel')?.textContent).toContain('tx-1');
+    });
+
+    it('draws the guardian the rotation ran under once, and puts the new key in the details', async () => {
+      // The account has since moved to another guardian; the row keeps the one it recorded.
+      mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: OZ };
+      setMockRow({
+        ...baseSendTx,
+        type: 'replace-hot-key',
+        displayMessage: 'Device key rotated',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newHotPublicKey: '0xnewhotkey', guardianEndpoint: LAMBDA }
+      });
+      await renderAndLoad();
+
+      const summary = screen.getByTestId('guardian-change-summary');
+      expect(summary).toHaveAttribute('data-kind', 'single');
+      // No provider changed, so one tile, one name and no arrow.
+      expect(screen.getAllByTestId('guardian-logo-tile')).toHaveLength(1);
+      expect(within(summary).getByText('LambdaClass')).toBeInTheDocument();
+      expect(within(summary).queryByText('OpenZeppelin')).toBeNull();
+      expect(within(summary).getByText('guardianBadge')).toBeInTheDocument();
+      expect(screen.queryByTestId('guardian-change-arrow')).toBeNull();
+
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('newDeviceKey')?.textContent).toContain('0xnewhotkey');
+      // A rotation moves no value: the wallet From/To rows stay off.
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('gives a threshold update the details section and no wallet From/To rows', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'update-procedure-threshold',
+        displayMessage: 'Account secured',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { procedure: 'update_guardian', threshold: 2 }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('names no guardian for a rotation recorded without one, rather than guessing the current one', async () => {
+      mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: OZ };
+      setMockRow({
+        ...baseSendTx,
+        type: 'replace-hot-key',
+        displayMessage: 'Device key rotated',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newHotPublicKey: '0xnewhotkey' }
+      });
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('guardian-change-summary')).toBeNull();
+      expect(screen.queryByText('OpenZeppelin')).toBeNull();
+      expect(rowByLabel('newDeviceKey')?.textContent).toContain('0xnewhotkey');
     });
   });
 

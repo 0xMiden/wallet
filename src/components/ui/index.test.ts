@@ -49,6 +49,7 @@ import { SubPageLayout } from './SubPageLayout';
 import { TabHeader, TabHeaderAction } from './TabHeader';
 import { TextAction } from './TextAction';
 import { TextField } from './TextField';
+import { WaveDots } from './WaveDots';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
 // jsdom lacks the layout APIs it probes, so stub it to a passthrough. This
@@ -73,6 +74,7 @@ describe('components/ui barrel', () => {
     Avatar,
     Pill,
     StatusBadge,
+    WaveDots,
     BalanceCard,
     CopyButton,
     CopyChip,

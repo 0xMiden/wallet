@@ -4,6 +4,7 @@ import { cva } from 'class-variance-authority';
 
 import { ReactComponent as CheckIcon } from 'app/icons/v2/checkmark.svg';
 import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
+import { ACCENT_CLASSES, type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { Link } from 'lib/woozie';
@@ -52,6 +53,12 @@ interface ListRowBaseProps {
    * refused (a second tap on a choice that already left the page).
    */
   haptic?: boolean;
+  /**
+   * Paints the row's chrome in a flow's colour: the leading glyph and its circle, the chevron and
+   * the hairline above the row. The title, subtitle and value stay `ink`/`muted`, which is what
+   * keeps the row readable — an accent is under 4.5:1 as text. Undefined leaves the neutral row.
+   */
+  accent?: FlowAccent;
   /** Layout only (margins). */
   className?: string;
   'aria-label'?: string;
@@ -126,6 +133,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
     tabIndex,
     onKeyDown,
     haptic = true,
+    accent,
     className,
     'aria-label': ariaLabel,
     'data-testid': dataTestId
@@ -135,7 +143,13 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
   const leading: Leading = avatar ? 'avatar' : icon ? 'icon' : 'none';
   const interactive = Boolean(onClick || to || href || htmlFor);
   const showChevron = chevron ?? Boolean(to || href);
-  const classes = cn(rowVariants({ leading, size: subtitle ? 'default' : 'compact', interactive }), className);
+  const tone = accent ? ACCENT_CLASSES[accent] : null;
+  const classes = cn(
+    rowVariants({ leading, size: subtitle ? 'default' : 'compact', interactive }),
+    // After the variants, so the accent's rule replaces the neutral hairline.
+    tone?.rule,
+    className
+  );
 
   const content = (
     <>
@@ -145,7 +159,11 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         icon && (
           <span
             aria-hidden="true"
-            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-page text-ink [&>svg]:h-4 [&>svg]:w-4"
+            data-slot="icon"
+            className={cn(
+              'flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-page text-ink [&>svg]:h-4 [&>svg]:w-4',
+              tone && [tone.tint, tone.text]
+            )}
           >
             {icon}
           </span>
@@ -169,7 +187,11 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         </span>
       )}
       {showChevron && (
-        <ChevronRightIcon data-slot="chevron" aria-hidden="true" className="h-5 w-5 shrink-0 stroke-muted" />
+        <ChevronRightIcon
+          data-slot="chevron"
+          aria-hidden="true"
+          className={cn('h-5 w-5 shrink-0 stroke-muted', tone?.stroke)}
+        />
       )}
     </>
   );

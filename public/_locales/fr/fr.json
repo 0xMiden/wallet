@@ -336,6 +336,7 @@
   "sendTo": "Envoyer à",
   "selectAmount": "Sélectionnez un montant",
   "enterAmount": "Saisir le montant",
+  "calculatingQuote": "Calcul en cours",
   "selectAToken": "Sélectionnez un jeton",
   "searchForTokens": "Rechercher des jetons",
   "available": "Disponible",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "Votre ancien Guardian ne peut pas bloquer cela",
   "oldGuardianCantBlockBody": "La rotation est approuvée par vos deux clés stockées sur l’appareil. L’ancien Guardian est simplement informé.",
   "replaceHotKey": "Touche « Rotation de l'appareil »",
+  "newDeviceKey": "Nouvelle clé d'appareil",
   "replaceHotKeyDescription": "Générer une nouvelle clé (rapide) pour votre appareil et remplacer la clé actuelle sur la chaîne. Utile si vous pensez que votre appareil a été piraté.",
   "replaceHotKeyConfirmation": "Cette opération est signée à l'aide de votre clé de récupération (à froid). Votre mot de passe « seed phrase » n'est pas requis, et le solde de votre compte reste inchangé. Voulez-vous continuer ?",
   "confirmReplaceHotKey": "Confirmer la rotation",
@@ -1177,5 +1179,6 @@
   "saveContact": "Enregistrer",
   "contactAdded": "Ajouté",
   "guardianCardMeta": "Exploité par $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Vérifiez votre connexion et réessayez."
+  "couldNotCheckUnlockMethod": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Vérifiez votre connexion et réessayez.",
+  "receiveQrColorAction": "Changer la couleur du QR code"
 }

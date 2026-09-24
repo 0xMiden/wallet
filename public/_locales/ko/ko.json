@@ -336,6 +336,7 @@
   "sendTo": "받는 사람",
   "selectAmount": "금액 선택",
   "enterAmount": "금액 입력",
+  "calculatingQuote": "계산 중",
   "selectAToken": "토큰 선택",
   "searchForTokens": "토큰 검색",
   "available": "구입 가능",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "기존의 Guardian으로는 이를 차단할 수 없습니다",
   "oldGuardianCantBlockBody": "로테이션은 기기에 저장된 두 개의 키로 승인됩니다. 기존 Guardian에는 알림만 전송됩니다.",
   "replaceHotKey": "기기 키 회전",
+  "newDeviceKey": "새 기기 키",
   "replaceHotKeyDescription": "새로운 기기(핫) 키를 생성하고, 온체인에서 기존 키를 대체합니다. 기기가 해킹당했을 가능성이 있다고 의심될 때 유용합니다.",
   "replaceHotKeyConfirmation": "이 작업은 귀하의 복구(콜드) 키로 서명됩니다. seed phrase은 필요하지 않으며, 귀하의 자산과 계정은 그대로 유지됩니다. 계속하시겠습니까?",
   "confirmReplaceHotKey": "회전 확인",
@@ -1177,5 +1179,6 @@
   "saveContact": "저장",
   "contactAdded": "추가됨",
   "guardianCardMeta": "운영: $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요."
+  "couldNotCheckUnlockMethod": "이 지갑의 잠금 해제 방법을 확인할 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+  "receiveQrColorAction": "QR 코드 색상 변경"
 }

@@ -137,6 +137,37 @@ describe('TransactionIcon', () => {
     });
   });
 
+  describe('guardian operation branch', () => {
+    // The detail header draws what the Activity row draws (HistoryView): the swap glyph on the slate.
+    it.each([
+      ['replace-hot-key', 'replace-hot-key' as const],
+      ['switch-guardian', 'switch-guardian' as const],
+      ['update-procedure-threshold', 'update-procedure-threshold' as const]
+    ])('renders the slate swap square for %s, not the receive arrow', (_label, txType) => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType, transactionIcon: 'DEFAULT' })} size="lg" />
+      );
+
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('w-18', 'h-18', 'rounded-10');
+      expect(wrapper).toHaveStyle({ backgroundColor: '#777487' });
+      expect(wrapper).not.toHaveStyle({ backgroundColor: TRANSACTION_COLORS.receive });
+      expect(wrapper.querySelector('svg')).toHaveClass('w-8', 'h-8');
+      expect(wrapper.querySelector('svg')).not.toHaveClass('text-pure-white');
+    });
+
+    it('renders the failed cross for a failed rotation', () => {
+      const { container } = render(
+        <TransactionIcon entry={makeEntry({ txType: 'replace-hot-key', transactionIcon: 'FAILED' })} size="lg" />
+      );
+
+      const wrapper = root(container);
+      expect(wrapper).toHaveClass('bg-[#CC5D5D]', 'rounded-10');
+      expect(wrapper).not.toHaveStyle({ backgroundColor: '#777487' });
+      expect(wrapper.querySelector('svg')).toHaveClass('w-8', 'h-8');
+    });
+  });
+
   describe('cancelled branch', () => {
     it('renders the grey cross and takes precedence over every other branch', () => {
       const { container } = render(
@@ -181,6 +212,13 @@ describe('TransactionIcon', () => {
     ])('uses the slate bridge accent for %s', (_label, overrides) => {
       expect(getTransactionIconBackgroundColor(makeEntry(overrides))).toBe('#777487');
     });
+
+    it.each([['switch-guardian' as const], ['replace-hot-key' as const], ['update-procedure-threshold' as const]])(
+      'gives %s the same slate the activity row paints, not the receive green',
+      txType => {
+        expect(getTransactionIconBackgroundColor(makeEntry({ txType }))).toBe('#777487');
+      }
+    );
 
     it('reddens a failed bridge', () => {
       mockBridgeStatusOf.mockReturnValue('failed');

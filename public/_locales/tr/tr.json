@@ -336,6 +336,7 @@
   "sendTo": "Alıcı",
   "selectAmount": "Tutar Seç",
   "enterAmount": "Tutarı girin",
+  "calculatingQuote": "Hesaplanıyor",
   "selectAToken": "Bir jeton seçin",
   "searchForTokens": "Jetonları ara",
   "available": "Mevcut",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "Eski Guardian’ınız bunu engelleyemez",
   "oldGuardianCantBlockBody": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian’a yalnızca bildirim gönderilir.",
   "replaceHotKey": "Cihaz tuşunu döndür",
+  "newDeviceKey": "Yeni cihaz anahtarı",
   "replaceHotKeyDescription": "Yeni bir cihaz (hızlı erişim) tuşu oluşturun ve zincir üzerindeki mevcut tuşu bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu işlem yararlı olabilir.",
   "replaceHotKeyConfirmation": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanmıştır. seed phrase adresiniz gerekmemektedir; bakiyeniz ve hesabınız değişmez. Devam etmek istiyor musunuz?",
   "confirmReplaceHotKey": "Dönüşü onayla",
@@ -1177,5 +1179,6 @@
   "saveContact": "Kaydet",
   "contactAdded": "Eklendi",
   "guardianCardMeta": "İşleten: $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin."
+  "couldNotCheckUnlockMethod": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
+  "receiveQrColorAction": "QR kodu rengini değiştir"
 }

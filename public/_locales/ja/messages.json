@@ -1568,6 +1568,10 @@
     "message": "金額を入力",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "計算中",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "トークンを選択してください",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "デバイスのキーを回転させる",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "新しいデバイスキー",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "新しいデバイス（ホット）キーを生成し、オンチェーンで現在のキーと置き換えます。デバイスが不正アクセスされた疑いがある場合に役立ちます。",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "QRコードの色を変更",
+    "englishSource": "Change the QR code color"
   }
 }

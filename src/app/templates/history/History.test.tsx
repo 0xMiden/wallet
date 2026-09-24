@@ -102,6 +102,7 @@ jest.mock('lib/miden/activity', () => ({
 
 jest.mock('lib/miden/db/types', () => ({
   ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 },
+  STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES,
   formatTransactionStatus: (...args: unknown[]) => mockFormatTransactionStatus(...args)
 }));
 

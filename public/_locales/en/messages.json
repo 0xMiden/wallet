@@ -1568,6 +1568,10 @@
     "message": "Enter amount",
     "englishSource": "Enter amount"
   },
+  "calculatingQuote": {
+    "message": "Calculating",
+    "englishSource": "Calculating"
+  },
   "selectAToken": {
     "message": "Select a token",
     "englishSource": "Select a token"
@@ -2638,6 +2642,10 @@
   "replaceHotKey": {
     "message": "Rotate device key",
     "englishSource": "Rotate device key"
+  },
+  "newDeviceKey": {
+    "message": "New device key",
+    "englishSource": "New device key"
   },
   "replaceHotKeyDescription": {
     "message": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised.",
@@ -5238,5 +5246,9 @@
   "couldNotCheckUnlockMethod": {
     "message": "Couldn't check this wallet's unlock method. Check your connection and try again.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Change the QR code color",
+    "englishSource": "Change the QR code color"
   }
 }

@@ -336,6 +336,7 @@
   "sendTo": "Wyślij do",
   "selectAmount": "Wybierz kwotę",
   "enterAmount": "Wpisz kwotę",
+  "calculatingQuote": "Obliczanie",
   "selectAToken": "Wybierz token",
   "searchForTokens": "Wyszukaj tokeny",
   "available": "Dostępne",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "Twój stary Guardian nie może tego zablokować",
   "oldGuardianCantBlockBody": "Rotacja jest zatwierdzana za pomocą dwóch kluczy przechowywanych na urządzeniu. Stary Guardian otrzymuje jedynie powiadomienie.",
   "replaceHotKey": "Przycisk obracania urządzenia",
+  "newDeviceKey": "Nowy klucz urządzenia",
   "replaceHotKeyDescription": "Utwórz nowy skrót klawiszowy (dla gorących klawiszy) i zastąp nim obecny w łańcuchu bloków. Przydatne, jeśli podejrzewasz, że Twoje urządzenie zostało przejęte.",
   "replaceHotKeyConfirmation": "Zostało to podpisane Twoim kluczem odzyskiwania (kluczem „cold”). Twój klucz „seed phrase” nie jest wymagany, a stan środków i konta pozostaje bez zmian. Czy chcesz kontynuować?",
   "confirmReplaceHotKey": "Potwierdź obrót",
@@ -1177,5 +1179,6 @@
   "saveContact": "Zapisz",
   "contactAdded": "Dodano",
   "guardianCardMeta": "Obsługiwany przez $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie."
+  "couldNotCheckUnlockMethod": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
+  "receiveQrColorAction": "Zmień kolor kodu QR"
 }

@@ -336,6 +336,7 @@
   "sendTo": "送金先",
   "selectAmount": "金額を選択してください",
   "enterAmount": "金額を入力",
+  "calculatingQuote": "計算中",
   "selectAToken": "トークンを選択してください",
   "searchForTokens": "トークンを検索する",
   "available": "在庫あり",
@@ -586,6 +587,7 @@
   "oldGuardianCantBlockTitle": "以前のGuardianではこれをブロックすることはできません",
   "oldGuardianCantBlockBody": "ローテーションは、デバイス上の2つの鍵によって承認されます。以前のGuardianには通知されるのみです。",
   "replaceHotKey": "デバイスのキーを回転させる",
+  "newDeviceKey": "新しいデバイスキー",
   "replaceHotKeyDescription": "新しいデバイス（ホット）キーを生成し、オンチェーンで現在のキーと置き換えます。デバイスが不正アクセスされた疑いがある場合に役立ちます。",
   "replaceHotKeyConfirmation": "これは、お客様の復旧（コールド）キーで署名されています。seed phraseは不要であり、残高やアカウントの状態は変わりません。続行しますか？",
   "confirmReplaceHotKey": "回転を確認する",
@@ -1177,5 +1179,6 @@
   "saveContact": "保存",
   "contactAdded": "追加日",
   "guardianCardMeta": "運営: $operator$ · $location$",
-  "couldNotCheckUnlockMethod": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。"
+  "couldNotCheckUnlockMethod": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
+  "receiveQrColorAction": "QRコードの色を変更"
 }
