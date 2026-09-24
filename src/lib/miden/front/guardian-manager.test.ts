@@ -428,6 +428,26 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 
+    it("an init in flight across another account's clear is still cached", async () => {
+      const providerB = makeProvider([{ ...guardianAccount, publicKey: 'B' }]);
+      let resolveB!: (value: unknown) => void;
+      mockMultisigServiceInit.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveB = resolve;
+        })
+      );
+
+      const pendingB = getOrCreateMultisigService('B', providerB);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      clearGuardianServiceFor('A');
+      resolveB({ guardianEndpoint: 'https://default.guardian.test', id: 'B' });
+      await pendingB;
+
+      mockMultisigServiceInit.mockClear();
+      expect(await getOrCreateMultisigService('B', providerB)).toMatchObject({ id: 'B' });
+      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
+    });
+
     it('clearGuardianCache wipes every entry', async () => {
       mockMultisigServiceInit
         .mockResolvedValueOnce({ guardianEndpoint: 'https://default.guardian.test' })

@@ -31,13 +31,15 @@ const guardianServiceCache = new Map<string, CacheEntry>();
 // each tick can start a fresh init before the resolved service reaches the cache.
 // Tagged with the generation it started on, so a caller arriving after a recovery
 // is not handed an init that is building on the client that just died.
-type InflightEntry = { promise: Promise<MultisigService>; generation: number };
+// `owner` identifies the init that registered the entry, for its own cache-write check.
+type InflightEntry = { promise: Promise<MultisigService>; generation: number; owner: object };
 const guardianServiceInflight = new Map<string, InflightEntry>();
 
-// Bumped by every clear. Deleting an in-flight entry does not stop its
-// initializer, so each one captures this at entry and skips the cache write if a
-// clear landed while it was building - otherwise it repopulates the account the
-// clear just evicted.
+// Deleting an in-flight entry does not stop its initializer, so it caches its
+// service only if its own entry is still registered - otherwise it repopulates the
+// account a clear just evicted. A single-account clear deletes only that account's
+// entries, so other accounts' builds still cache. The global clear also bumps this
+// epoch, which each initializer captures at entry.
 let serviceClearGeneration = 0;
 
 /**
@@ -113,6 +115,7 @@ export async function getOrCreateMultisigService(
     guardianServiceInflight.delete(accountPublicKey);
   }
 
+  const owner = {};
   const initPromise = (async () => {
     // Verify this is a Guardian account
     const accounts = await provider.getAccounts();
@@ -193,14 +196,14 @@ export async function getOrCreateMultisigService(
     // leaves the entry already stale and the next access rebuilds. This caller
     // still gets the service and fails on its next WASM call, exactly as every
     // other in-flight user of the dead client does.
-    if (serviceClearGeneration === startedAtClear) {
+    if (serviceClearGeneration === startedAtClear && guardianServiceInflight.get(accountPublicKey)?.owner === owner) {
       guardianServiceCache.set(accountPublicKey, { service, hotPublicKey, generation: startedAtGeneration });
     }
 
     return service;
   })();
 
-  guardianServiceInflight.set(accountPublicKey, { promise: initPromise, generation: startedAtGeneration });
+  guardianServiceInflight.set(accountPublicKey, { promise: initPromise, generation: startedAtGeneration, owner });
   try {
     return await initPromise;
   } finally {
@@ -241,7 +244,6 @@ export function clearGuardianCache(): void {
  * instance still points at the old endpoint.
  */
 export function clearGuardianServiceFor(accountPublicKey: string): void {
-  serviceClearGeneration++;
   // Keys are whatever spelling each caller passed (bare dApp id or stored
   // composite), so drop every entry for this account, not just the exact key.
   for (const map of [guardianServiceCache, guardianServiceInflight]) {
