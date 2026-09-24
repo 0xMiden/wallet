@@ -115,6 +115,7 @@ jest.mock('./ReviewSwap', () => ({
       <span data-testid="rs-offer-amount">{props.offerAmount}</span>
       <span data-testid="rs-request-amount">{props.requestAmount}</span>
       <span data-testid="rs-market-price">{String(props.swapEta?.marketPrice)}</span>
+      <span data-testid="rs-fill-seconds">{String(props.swapEta?.estimatedSeconds)}</span>
       <input
         data-testid="rs-expiry"
         value={props.expirySeconds}
@@ -279,6 +280,19 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
 });
+
+// A new market quote: a new rate and a new fill time together.
+const moveMarket = () => {
+  mockSwapEtaResult = {
+    ...mockSwapEtaResult,
+    eta: { ...mockSwapEtaResult.eta, marketPrice: '3', canFill: true, estimatedSeconds: 42 }
+  };
+};
+
+const expectReviewQuote = (marketPrice: string, fillSeconds: string) => {
+  expect(screen.getByTestId('rs-market-price')).toHaveTextContent(marketPrice);
+  expect(screen.getByTestId('rs-fill-seconds')).toHaveTextContent(fillSeconds);
+};
 
 const setOffer = (value: string) => fireEvent.change(screen.getByTestId('sa-offer-input'), { target: { value } });
 const setRequest = (value: string) => fireEvent.change(screen.getByTestId('sa-request-input'), { target: { value } });
@@ -638,6 +652,26 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true);
     });
 
+    it('holds the rate and fill time with the amount while a press is in flight, then follows the quote', async () => {
+      let releaseConfirm!: (confirmed: boolean) => void;
+      mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (releaseConfirm = resolve)));
+      const { rerender } = renderFlow();
+      setOffer('10');
+      expectReviewQuote('2', 'null');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      moveMarket();
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+      expectReviewQuote('2', 'null');
+
+      await act(async () => releaseConfirm(false));
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+      expectReviewQuote('3', '42');
+    });
+
     it('catches the review up with the latest quote once a press settles on Review', async () => {
       let releaseConfirm!: (confirmed: boolean) => void;
       mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (releaseConfirm = resolve)));
@@ -971,7 +1005,7 @@ describe('SwapFlow / SwapManager', () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
       expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
-      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      moveMarket();
       view.rerender(<SwapFlow />);
       return view;
     };
@@ -979,6 +1013,7 @@ describe('SwapFlow / SwapManager', () => {
     it('sends the amount the press reviewed when the challenge is approved after the market moves', async () => {
       await openChallengeThenMoveMarket();
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+      expectReviewQuote('2', 'null');
 
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
@@ -1016,9 +1051,10 @@ describe('SwapFlow / SwapManager', () => {
       });
       expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
 
-      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      moveMarket();
       rerender(<SwapFlow />);
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+      expectReviewQuote('2', 'null');
 
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
@@ -1043,6 +1079,7 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expectReviewQuote('3', '42');
     });
 
     it('catches the review up once mobile back abandons the challenge', async () => {
@@ -1054,6 +1091,7 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expectReviewQuote('3', '42');
     });
 
     it('catches the review up once the stale-context reset abandons the challenge', async () => {
@@ -1064,6 +1102,7 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expectReviewQuote('3', '42');
     });
   });
 

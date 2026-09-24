@@ -131,6 +131,15 @@ const SwapManager: React.FC = () => {
     }
   }, [quote, requestEdited, submitting, spendingLimitAssessment]);
 
+  // The review's Rate and fill-time lines come from the same quote as its amount, so they
+  // hold with it: a held amount beside a live rate would show a price the swap does not use.
+  const [reviewEta, setReviewEta] = useState(swapEta.eta);
+  useEffect(() => {
+    if (!submitting && spendingLimitAssessment === undefined) {
+      setReviewEta(swapEta.eta);
+    }
+  }, [swapEta.eta, submitting, spendingLimitAssessment]);
+
   // Balances are keyed by `getBech32AddressFromAccountId(faucet)` (BasicWallet
   // interface + active-network HRP), while the swap registry stores
   // hand-authored faucet strings that may use a different encoding. Normalize
@@ -421,7 +430,7 @@ const SwapManager: React.FC = () => {
               offerAmount={offerAmount}
               requestToken={requestToken}
               requestAmount={requestAmount}
-              swapEta={swapEta.eta}
+              swapEta={reviewEta}
               expirySeconds={expirySeconds}
               autoConsume={autoConsume}
               onExpirySecondsChange={setExpirySeconds}
@@ -442,7 +451,7 @@ const SwapManager: React.FC = () => {
       offerAmount,
       requestToken,
       requestAmount,
-      swapEta.eta,
+      reviewEta,
       expirySeconds,
       autoConsume,
       submitting,
