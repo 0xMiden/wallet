@@ -56,6 +56,31 @@ describe('activityGroupKeyOf', () => {
     expect(activityGroupKeyOf(faucetClaim)).toEqual({ kind: 'faucet', id: 'faucet' });
   });
 
+  // A queued or processing claim's entry is built from the transaction row, which has no icon.
+  it('keeps a faucet claim in the faucet group while it is queued, processing and completed', () => {
+    const claim = { txType: 'consume' as const, faucetId: FAUCET, secondaryAddress: FAUCET };
+    for (const type of [HistoryEntryType.PendingTransaction, HistoryEntryType.ProcessingTransaction]) {
+      expect(activityGroupKeyOf(entry({ ...claim, type }))).toEqual({ kind: 'faucet', id: 'faucet' });
+    }
+    expect(activityGroupKeyOf(entry({ ...claim, transactionIcon: 'RECEIVE' }))).toEqual({
+      kind: 'faucet',
+      id: 'faucet'
+    });
+  });
+
+  it('keeps a pending send to the faucet address out of the faucet group', () => {
+    expect(
+      activityGroupKeyOf(
+        entry({
+          type: HistoryEntryType.PendingTransaction,
+          txType: 'send',
+          faucetId: FAUCET,
+          secondaryAddress: FAUCET
+        })
+      )
+    ).toEqual({ kind: 'address', id: FAUCET });
+  });
+
   it('keys both guardian operations into the system group', () => {
     expect(activityGroupKeyOf(entry({ txType: 'switch-guardian' }))).toEqual({ kind: 'guardian', id: 'guardian' });
     expect(activityGroupKeyOf(entry({ txType: 'replace-hot-key' }))).toEqual({ kind: 'guardian', id: 'guardian' });

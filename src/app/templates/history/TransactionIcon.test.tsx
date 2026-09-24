@@ -33,6 +33,11 @@ jest.mock('./transactionUtils', () => ({
   TRANSACTION_COLORS: { send: '#91ACC1', receive: '#99AC94', faucet: '#CCA4B8', bridge: '#777487' }
 }));
 
+const NATIVE_FAUCET = 'miden-native-faucet';
+
+// Only the real `isFaucetRequest` reads it, in the one test that swaps it in.
+jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => NATIVE_FAUCET }));
+
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
 const mockBridgeStatusOf = bridgeStatusOf as jest.MockedFunction<typeof bridgeStatusOf>;
 
@@ -197,6 +202,19 @@ describe('TransactionIcon', () => {
     it('uses the faucet accent for a faucet request', () => {
       mockIsFaucetRequest.mockReturnValue(true);
       expect(getTransactionIconBackgroundColor(makeEntry({ transactionIcon: 'SEND' }))).toBe(TRANSACTION_COLORS.faucet);
+    });
+
+    it('uses the faucet accent for a queued faucet claim, whose entry carries no icon', () => {
+      mockIsFaucetRequest.mockImplementation(
+        jest.requireActual<typeof import('./transactionUtils')>('./transactionUtils').isFaucetRequest
+      );
+      const claim = makeEntry({
+        type: HistoryEntryType.PendingTransaction,
+        txType: 'consume',
+        faucetId: NATIVE_FAUCET,
+        secondaryAddress: NATIVE_FAUCET
+      });
+      expect(getTransactionIconBackgroundColor(claim)).toBe(TRANSACTION_COLORS.faucet);
     });
 
     it.each([
