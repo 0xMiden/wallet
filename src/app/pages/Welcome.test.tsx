@@ -705,6 +705,54 @@ describe('Welcome — hash → step routing', () => {
     );
   });
 
+  // A Guardian import whose lookup fails at Confirmation raises guardianLookupError for that seed.
+  const failGuardianImport = async () => {
+    mockRegisterWallet.mockRejectedValueOnce(new Error('no guardian for this seed'));
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockFlowProps.current.guardianLookupError).toBe(true);
+  };
+
+  it('does not show an abandoned import its lookup failure after a return to Welcome', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await failGuardianImport();
+    await setHash('');
+    expect(mockFlowProps.current.guardianLookupError).toBe(false);
+  });
+
+  it('a pasted key retires the lookup failure of the seed before it', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await failGuardianImport();
+    await dispatch({ id: 'import-hot-key-submit', payload: 'deadbeef' });
+    expect(mockFlowProps.current.guardianLookupError).toBe(false);
+  });
+
+  it.each([
+    ['the select-import-type action', () => dispatch({ id: 'select-import-type' })],
+    ['#select-import-type', () => setHash('#select-import-type')]
+  ])('%s starts an import with no credentials from the last one', async (_name, enter) => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#import-select-recovery-method');
+    await enter();
+    expect(mockFlowProps.current.seedPhrase).toBeNull();
+    expect(mockFlowProps.current.password).toBeNull();
+  });
+
   it('does not carry a failed biometric attempt into the next one', async () => {
     mockIsMobileFn.mockReturnValue(true);
     mockBiometricHW.mockResolvedValue(true);

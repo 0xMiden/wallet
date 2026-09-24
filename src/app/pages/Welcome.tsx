@@ -255,10 +255,10 @@ const Welcome: FC = () => {
   // under E2E and on non-Chrome — those keep the classic click-to-create flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
-  // A flow's state belongs to one attempt: a create starts, and leaving for Welcome ends, with nothing an
-  // abandoned import or an earlier attempt left behind. A seed, key, password or staged wallet file would pass
-  // for this flow's own, and a failed confirmation's attempts and error would greet the next one. Setters only,
-  // so the identity is stable.
+  // A flow's state belongs to one attempt: a create or an import starts, and leaving for Welcome ends, with
+  // nothing an abandoned attempt left behind. A seed, key, password or staged wallet file would pass for this
+  // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one.
+  // Setters only, so the identity is stable.
   const resetFlowState = useCallback(() => {
     setSeedPhrase(null);
     setKeyPairPayload(null);
@@ -268,6 +268,7 @@ const Welcome: FC = () => {
     setBiometricAttempts(0);
     setBiometricError(null);
     setConfirmPhase('idle');
+    setGuardianLookupError(false);
   }, []);
 
   // Telemetry for the onboarding flow the user is currently walking through.
@@ -650,8 +651,7 @@ const Welcome: FC = () => {
         break;
       case 'select-import-type':
         beginOnboardingFlow('import');
-        setImportType(null);
-        setWalletFilePayload(null);
+        resetFlowState();
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
           navigate('/#network-notice');
@@ -668,6 +668,8 @@ const Welcome: FC = () => {
         navigate('/#import-from-key');
         break;
       case 'import-hot-key-submit':
+        // A new key retires a Guardian lookup failure raised for the previous credential.
+        setGuardianLookupError(false);
         setKeyPairPayload(action.payload);
         // Mutually exclusive with the seed credential (see the state comment).
         setSeedPhrase(null);
@@ -1048,7 +1050,8 @@ const Welcome: FC = () => {
       // Arriving at Welcome from inside the flow (history, an edited URL, a guard's redirect) ends the attempt.
       // The first render is not an arrival: a fresh load, or the E2E bypass seeding the flow on mount.
       if (previous !== null) cancelOnLeavingOnboarding('/');
-    } else if (hash === '#select-wallet-type' || hash === '#choose-protection') {
+    } else if (hash === '#select-wallet-type' || hash === '#choose-protection' || hash === '#select-import-type') {
+      // Every create or import submits its credential after these screens.
       resetFlowState();
     } else if (hash === '#setup-biometric' && onboardingType !== OnboardingType.Create) {
       // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.
