@@ -8,10 +8,12 @@ import { goBack, navigate } from 'lib/woozie';
 import { EARN_DATA } from './data';
 import EarnPositions from './EarnPositions';
 
-// i18n: assert on keys, not English copy. Interpolated values (e.g. APY) are
-// discarded by this key-only stub, so those assertions target the key.
+// i18n: assert on keys, not English copy. An interpolated call appends its values (`key:a,b`), so a
+// test can see the value it interpolates (the APY), not just the key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key}:${Object.values(opts).join(',')}` : key)
+  })
 }));
 
 // Pull the mocked router/haptics fns back out for assertions.
@@ -128,8 +130,12 @@ describe('EarnPositions', () => {
     expect(within(region).getAllByText(`${firstPosition.protocol} • ${firstPosition.asset}`)).toHaveLength(
       EARN_DATA.positions.length
     );
-    // APY renders via t('earnPositionsApy', { apy }); the key-only stub drops the value.
-    expect(within(region).getAllByText('earnPositionsApy')).toHaveLength(EARN_DATA.positions.length);
+    // Each card's APY is interpolated into t('earnPositionsApy', { apy }).
+    EARN_DATA.positions.forEach(position => {
+      expect(
+        within(screen.getByTestId(`earn-position-card-${position.id}`)).getByText(`earnPositionsApy:${position.apy}`)
+      ).toBeInTheDocument();
+    });
     expect(within(region).getAllByText(firstPosition.amount)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.rewards)).toHaveLength(EARN_DATA.positions.length);
     expect(within(region).getAllByText(firstPosition.depositedAmount)).toHaveLength(EARN_DATA.positions.length);
