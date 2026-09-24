@@ -501,6 +501,17 @@ describe('History', () => {
       }
     });
 
+    it('keeps loading while the pending read is still in flight after the transactions read resolved', async () => {
+      mockGetCompletedTransactions.mockResolvedValue([]);
+      mockGetUncompletedTransactions.mockReturnValue(new Promise(() => undefined));
+      await act(async () => {
+        render(<History address="0xme" />);
+      });
+
+      await waitFor(() => expect(mockHistoryViewProps).toBeDefined());
+      expect(mockHistoryViewProps.initialLoading).toBe(true);
+    });
+
     it('forwards no load error when both reads succeed', async () => {
       await renderHistory();
 

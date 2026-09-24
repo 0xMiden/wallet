@@ -131,6 +131,7 @@ const History = memo<HistoryProps>(
 
     const {
       data: latestPendingTransactions,
+      isLoading: pendingLoading,
       error: pendingError,
       mutate: mutateTx
     } = useRetryableSWR(
@@ -279,7 +280,8 @@ const History = memo<HistoryProps>(
       <HistoryView
         entries={entries ?? []}
         // Under Pending both reads are paused, and one that never ran reports loading until they resume.
-        initialLoading={filter !== 'pending' && transactionsLoading}
+        // One list, so it is loading until both reads have answered once.
+        initialLoading={filter !== 'pending' && (transactionsLoading || pendingLoading)}
         // The list is both reads together, so either failing is a failed load, and Retry re-runs both.
         loadError={filter !== 'pending' && Boolean(latestError || pendingError)}
         onRetry={() => {

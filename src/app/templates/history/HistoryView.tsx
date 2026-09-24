@@ -12,6 +12,7 @@ import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
+import { TextAction } from 'components/ui/TextAction';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
@@ -438,11 +439,28 @@ const HistoryView = memo<HistoryViewProps>(
       );
     }
 
+    // Rows on screen with a failed read behind them are not the whole history: say so above them.
+    const loadErrorNotice = loadError ? (
+      <div
+        role="alert"
+        data-testid="history-load-error-notice"
+        className="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-fill px-4 py-3"
+      >
+        <span className="text-body-sm text-ink">{t('tokenActivityLoadError')}</span>
+        {onRetry && (
+          <TextAction onClick={onRetry} data-testid="history-load-retry">
+            {t('retry')}
+          </TextAction>
+        )}
+      </div>
+    ) : null;
+
     // Summary view (used outside the full Activity page) keeps the legacy
     // HistoryItem look — small list of recent entries, no grouping or chrome.
     if (!fullHistory) {
       return (
         <div className={classNames('w-full', 'flex flex-col', className)}>
+          {loadErrorNotice}
           {entries.map((entry, index) => (
             <HistoryItem
               entry={entry}
@@ -509,6 +527,7 @@ const HistoryView = memo<HistoryViewProps>(
 
     return (
       <div className={classNames('w-full pb-6 flex flex-col', className)}>
+        {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
             loadMore={loadMore}

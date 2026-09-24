@@ -293,11 +293,20 @@ describe('HistoryView empty state', () => {
       expect(onRetry).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps the rows it has', () => {
-      render(<HistoryView {...baseProps} entries={[makeEntry({ key: 'kept' })]} loadError onRetry={jest.fn()} />);
+    it.each([
+      ['the summary list', {}],
+      ['the Activity list', { fullHistory: true }],
+      ["one token's list", { fullHistory: true, tokenId: 'token-1' }]
+    ])('keeps the rows it has in %s, under an alert with Retry', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(
+        <HistoryView {...baseProps} {...modeProps} entries={[makeEntry({ key: 'kept' })]} loadError onRetry={onRetry} />
+      );
 
-      expect(screen.queryByRole('alert')).toBeNull();
-      expect(screen.getByTestId('history-item')).toHaveAttribute('data-key', 'kept');
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryAllByTestId(/^(history-item|activity-row)$/)).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
     });
   });
 
