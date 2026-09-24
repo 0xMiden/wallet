@@ -3,6 +3,29 @@ import { act, renderHook } from '@testing-library/react';
 import { getActivityView, setActivityView, useActivityView } from './activity-view';
 import { ACTIVITY_VIEW_STORAGE_KEY, ACTIVITY_VIEWS, DEFAULT_ACTIVITY_VIEW } from './constants';
 
+// Every listener React hands a setting's `subscribe` is a spy, so a test can see whether a write
+// still reaches a hook after it unmounted.
+const mockListeners: jest.Mock[] = [];
+jest.mock('react', () => {
+  const actual = jest.requireActual('react');
+  const spied = new WeakMap<object, (listener: () => void) => () => void>();
+  return {
+    ...actual,
+    useSyncExternalStore: (subscribe: (listener: () => void) => () => void, getSnapshot: () => unknown) => {
+      let wrapped = spied.get(subscribe);
+      if (!wrapped) {
+        wrapped = listener => {
+          const spy = jest.fn(listener);
+          mockListeners.push(spy);
+          return subscribe(spy);
+        };
+        spied.set(subscribe, wrapped);
+      }
+      return actual.useSyncExternalStore(wrapped, getSnapshot);
+    }
+  };
+});
+
 describe('activity view setting', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -83,15 +106,17 @@ describe('activity view setting', () => {
       expect(first.result.current).toBe('list');
     });
 
-    it('unsubscribes on unmount so a later change does not update it', () => {
-      const { result, unmount } = renderHook(() => useActivityView());
+    it('unsubscribes on unmount so a later change does not reach it', () => {
+      mockListeners.length = 0;
+      const { unmount } = renderHook(() => useActivityView());
       act(() => setActivityView('groups'));
-      expect(result.current).toBe('groups');
+      expect(mockListeners.some(listener => listener.mock.calls.length > 0)).toBe(true);
 
       unmount();
+      mockListeners.forEach(listener => listener.mockClear());
 
       act(() => setActivityView('list'));
-      expect(result.current).toBe('groups');
+      expect(mockListeners.every(listener => listener.mock.calls.length === 0)).toBe(true);
       expect(getActivityView()).toBe('list');
     });
   });

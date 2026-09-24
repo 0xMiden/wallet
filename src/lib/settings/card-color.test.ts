@@ -4,6 +4,29 @@ import { getCardColor, setCardColor, useCardColor } from './card-color';
 import { CARD_COLOR_STORAGE_KEY, CARD_COLORS, DEFAULT_CARD_COLOR } from './constants';
 import { createPersistedSetting } from './persisted-setting';
 
+// Every listener React hands a setting's `subscribe` is a spy, so a test can see whether a write
+// still reaches a hook after it unmounted.
+const mockListeners: jest.Mock[] = [];
+jest.mock('react', () => {
+  const actual = jest.requireActual('react');
+  const spied = new WeakMap<object, (listener: () => void) => () => void>();
+  return {
+    ...actual,
+    useSyncExternalStore: (subscribe: (listener: () => void) => () => void, getSnapshot: () => unknown) => {
+      let wrapped = spied.get(subscribe);
+      if (!wrapped) {
+        wrapped = listener => {
+          const spy = jest.fn(listener);
+          mockListeners.push(spy);
+          return subscribe(spy);
+        };
+        spied.set(subscribe, wrapped);
+      }
+      return actual.useSyncExternalStore(wrapped, getSnapshot);
+    }
+  };
+});
+
 describe('card color setting', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -106,21 +129,21 @@ describe('card color setting', () => {
       expect(result.current).toBe('purple');
     });
 
-    it('unsubscribes on unmount so later changes do not update it', () => {
-      const { result, unmount } = renderHook(() => useCardColor());
+    it('unsubscribes on unmount so later changes do not reach it', () => {
+      mockListeners.length = 0;
+      const { unmount } = renderHook(() => useCardColor());
       act(() => {
         setCardColor('blue');
       });
-      expect(result.current).toBe('blue');
+      expect(mockListeners.some(listener => listener.mock.calls.length > 0)).toBe(true);
 
       unmount();
+      mockListeners.forEach(listener => listener.mockClear());
 
-      // After unmount the listener is removed; the next change must not throw
-      // and the unmounted hook keeps its last value.
       act(() => {
         setCardColor('orange');
       });
-      expect(result.current).toBe('blue');
+      expect(mockListeners.every(listener => listener.mock.calls.length === 0)).toBe(true);
       expect(getCardColor()).toBe('orange');
     });
   });
@@ -128,6 +151,18 @@ describe('card color setting', () => {
   describe('createPersistedSetting', () => {
     const KEY = 'persisted_setting_test';
     const make = () => createPersistedSetting(KEY, ['a', 'b'] as const, 'a');
+
+    it('stops telling a listener about writes once it unsubscribes', () => {
+      const setting = make();
+      const listener = jest.fn();
+      const unsubscribe = setting.subscribe(listener);
+      setting.set('b');
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
+      setting.set('a');
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
 
     it('reads the fallback, writes through storage, and re-renders subscribers', () => {
       const setting = make();

@@ -43,5 +43,5 @@ export function createPersistedSetting<T extends string>(key: string, allowed: r
     return useSyncExternalStore(subscribe, get);
   }
 
-  return { get, set, useValue };
+  return { get, set, subscribe, useValue };
 }
