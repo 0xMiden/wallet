@@ -340,6 +340,16 @@ describe('AllHistory', () => {
       expect(screen.getByRole('radiogroup', { name: 'activityView' })).toBeTruthy();
     });
 
+    it('marks each view with the shared selection mark', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      const mark = (view: string) =>
+        screen.getByTestId(`activity-view-${view}`).querySelector('[data-slot="checkbox-indicator"]');
+      expect(mark('list')).toHaveAttribute('data-state', 'checked');
+      expect(mark('groups')).toHaveAttribute('data-state', 'unchecked');
+    });
+
     it('holds the two views and nothing else: no filters, no divider', () => {
       render(<AllHistory />);
       openMenu();

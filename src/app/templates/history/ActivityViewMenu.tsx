@@ -2,7 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as CheckIcon } from 'app/icons/v2/checkmark.svg';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { Popover } from 'components/ui/Popover';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { ActivityView } from 'lib/settings/constants';
@@ -13,19 +13,6 @@ const VIEW_CHOICES: { view: ActivityView; labelKey: string }[] = [
   { view: 'list', labelKey: 'activityViewList' },
   { view: 'groups', labelKey: 'activityViewGroups' }
 ];
-
-/** The radio mark beside a view's name: the app's round check, filled once chosen. */
-const RadioMark: React.FC<{ selected: boolean }> = ({ selected }) => (
-  <span
-    aria-hidden="true"
-    className={cn(
-      'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border',
-      selected ? 'border-accent-primary bg-accent-primary' : 'border-hairline'
-    )}
-  >
-    {selected && <CheckIcon className="h-1.5 w-2 fill-pure-white" />}
-  </span>
-);
 
 /** A bar of the thumbnail; the widths differ so the preview reads as text, not as a table. */
 const Bar: React.FC<{ className?: string }> = ({ className }) => (
@@ -89,7 +76,7 @@ const ViewChoice: React.FC<ViewChoiceProps> = ({ view, label, selected, onSelect
       <Thumbnail view={view} />
     </span>
     <span className="flex min-w-0 items-center gap-1.5">
-      <RadioMark selected={selected} />
+      <CheckboxIndicator checked={selected} />
       <span className="truncate text-body-sm text-ink">{label}</span>
     </span>
   </button>
