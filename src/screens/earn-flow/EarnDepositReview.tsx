@@ -23,18 +23,13 @@ import {
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { ChartContainer } from 'lib/ui/charts';
+import { CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { navigate, useLocation } from 'lib/woozie';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnVault } from './types';
 import { useEarnPositions } from './useEarnPositions';
-
-// Tokens, not literals: recharts takes SVG paint strings, so the custom properties go straight in
-// and follow the theme.
-const CHART_POSITIVE = 'var(--status-positive)';
-const CHART_RULE = 'var(--ds-hairline)';
 
 // Fractions of a year for the projection columns; rewards = amount × APY × fraction.
 const projectionPeriods = [

@@ -10,7 +10,7 @@ import { Pill } from 'components/ui/Pill';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
-import { ChartContainer } from 'lib/ui/charts';
+import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, MetricCard, PositionLogo } from './components';
@@ -26,10 +26,6 @@ const TIMEFRAME_ITEMS: SegmentedControlItem<EarnTimeframe>[] = TIMEFRAMES.map(tf
   id: tf,
   label: tf
 }));
-// Tokens, not literals: recharts takes SVG paint strings, so the custom properties go straight in
-// and follow the theme.
-const CHART_POSITIVE = 'var(--status-positive)';
-const CHART_DOT_RING = 'var(--ds-page)';
 
 interface EarnPositionDetailProps {
   positionId: string;
@@ -105,14 +101,7 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
             content={({ active, payload }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
-              return (
-                <div className="rounded-xl bg-ink px-2 py-1 text-pure-white shadow">
-                  <div className="text-badge">${toAdaptiveFixed(point.value)}</div>
-                  {/* An inverted surface: `muted` is tuned for `page` and `fill`, so the quiet line
-                      here is the same white held back. */}
-                  <div className="text-caption text-pure-white/70">{point.label}</div>
-                </div>
-              );
+              return <ChartValueTooltip value={`$${toAdaptiveFixed(point.value)}`} label={point.label} />;
             }}
           />
           <Area

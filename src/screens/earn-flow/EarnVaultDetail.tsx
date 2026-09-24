@@ -8,7 +8,7 @@ import { PageHeader } from 'components/PageHeader';
 import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
-import { ChartContainer } from 'lib/ui/charts';
+import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { MetricCard } from './components';
@@ -24,10 +24,6 @@ const TIMEFRAME_ITEMS: SegmentedControlItem<EarnTimeframe>[] = TIMEFRAMES.map(tf
   id: tf,
   label: tf
 }));
-// The chart's own ink, as a token rather than a literal: recharts takes SVG paint strings, so the
-// CSS custom property goes in directly and follows the theme.
-const CHART_POSITIVE = 'var(--status-positive)';
-const CHART_DOT_RING = 'var(--ds-page)';
 
 interface EarnVaultDetailProps {
   vaultId: string;
@@ -117,14 +113,7 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
             content={({ active, payload }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
-              return (
-                <div className="rounded-xl bg-ink px-2 py-1 text-pure-white shadow">
-                  <div className="text-badge">{Number(point.value).toFixed(2)}%</div>
-                  {/* An inverted surface: `muted` is tuned for `page` and `fill`, so the quiet line
-                      here is the same white held back. */}
-                  <div className="text-caption text-pure-white/70">{point.label}</div>
-                </div>
-              );
+              return <ChartValueTooltip value={`${Number(point.value).toFixed(2)}%`} label={point.label} />;
             }}
           />
           <Area
