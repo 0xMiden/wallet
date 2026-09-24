@@ -2210,8 +2210,8 @@
     }
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin은 이더리움 표준 계약 라이브러리를 개발한 보안 기업입니다. Miden에서 $operators$의 독립적인 Guardian 운영사 중 하나입니다.",
-    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "message": "OpenZeppelin은 이더리움에서 널리 사용되는 스마트 계약 라이브러리를 개발한 blockchain의 보안 전문 기업입니다. Miden의 독립적인 Guardian 운영자 중 하나인 $operators$입니다.",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2219,8 +2219,8 @@
     }
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm은 유럽 전역의 네트워크 및 롤업을 위한 blockchain 인프라를 운영합니다. Miden에서 $operators$의 독립적인 Guardian 운영자 중 하나입니다.",
-    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "message": "Gateway.fm은 네트워크 및 롤업을 위한 blockchain 인프라를 구축하고 운영합니다. Miden에서 활동하는 $operators$의 독립적인 Guardian 운영자 중 하나입니다.",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2228,8 +2228,8 @@
     }
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass는 제로 지식 증명기(zero-knowledge provers)와 익명 결제(blockchain) 클라이언트를 개발하는 엔지니어링 기업입니다. Miden에서 활동하는 $operators$의 독립적인 Guardian 운영자 중 하나입니다.",
-    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "message": "LambdaClass는 첨단 암호화 및 blockchain 인프라를 구축하는 엔지니어링 기업입니다. Miden에서 $operators$의 독립적인 Guardian 운영사 중 하나입니다.",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2237,8 +2237,8 @@
     }
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset(Koda)는 한국에서 규제를 받는 디지털 자산 수탁 기관입니다. Miden에서 $operators$의 독립적인 Guardian 운영사 중 하나입니다.",
-    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "message": "Korea Digital Asset(KODA)은 한국에서 규제를 받는 디지털 자산 수탁 기관입니다. Miden 플랫폼의 $operators$ 독립적인 Guardian 운영사 중 하나입니다.",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"

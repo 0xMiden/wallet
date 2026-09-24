@@ -2210,8 +2210,8 @@
     }
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin ist das Sicherheitsunternehmen hinter den Standard-Vertragsbibliotheken von Ethereum. Einer von $operators$ unabhängigen „Guardian“-Betreibern auf Miden.",
-    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "message": "OpenZeppelin ist ein auf „blockchain“ spezialisiertes Sicherheitsunternehmen, das hinter weit verbreiteten Smart-Contract-Bibliotheken für Ethereum steht. Einer von $operators$ unabhängigen Guardian-Betreibern auf Miden.",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2219,8 +2219,8 @@
     }
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm betreibt eine „blockchain“-Infrastruktur für Netzwerke und Rollups in ganz Europa. Einer von $operators$ unabhängigen „Guardian“-Betreibern auf Miden.",
-    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "message": "Gateway.fm entwickelt und betreibt eine „blockchain“-Infrastruktur für Netzwerke und Rollups. Einer v$operators$r unabhängigen „Guardian“-Betreibern auf Miden.",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2228,8 +2228,8 @@
     }
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass ist ein Ingenieurbüro, das Zero-Knowledge-Prover und „blockchain“-Clients entwickelt. Einer v$operators$r unabhängiger „Guardian“-Betreiber auf Miden.",
-    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "message": "LambdaClass ist ein Ingenieurbüro, das fortschrittliche Kryptografie- und „blockchain“-Infrastrukturen entwickelt. Einer der unabhängigen „Guardian“-Betreiber auf Miden unter $operators$.",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2237,8 +2237,8 @@
     }
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset (Koda) ist ein regulierter Verwahrer digitaler Vermögenswerte in Südkorea. Einer v$operators$r unabhängiger „Guardian“-Betreiber auf Miden.",
-    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "message": "Korea Digital Asset (KODA) ist ein regulierter Verwahrer digitaler Vermögenswerte in Südkorea. Einer der unabhängigen „Guardian“-Betreiber von „$operators$“ auf Miden.",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"

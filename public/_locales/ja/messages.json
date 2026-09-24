@@ -2210,8 +2210,8 @@
     }
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelinは、イーサリアムの標準契約ライブラリを支えるセキュリティ企業です。Midenにおける$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "message": "OpenZeppelinは、イーサリアムで広く利用されているスマートコントラクトライブラリを開発しているblockchainのセキュリティ企業です。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2219,8 +2219,8 @@
     }
   },
   "guardianBioGateway": {
-    "message": "Gateway.fmは、ヨーロッパ全域のネットワークおよびロールアップ向けにblockchainインフラを運用しています。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "message": "Gateway.fmは、ネットワークおよびロールアップ向けのblockchainインフラを構築・運用しています。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2228,8 +2228,8 @@
     }
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClassは、ゼロ知識証明プロバーおよびblockchainクライアントを開発するエンジニアリング企業です。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "message": "LambdaClassは、高度な暗号技術およびblockchainインフラを構築するエンジニアリング企業です。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2237,8 +2237,8 @@
     }
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset（Koda）は、韓国で規制対象となっているデジタル資産カストディアンです。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "message": "Korea Digital Asset (KODA) は、韓国で規制を受けたデジタル資産カストディアンです。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
     "placeholders": {
       "operators": {
         "content": "$1"
