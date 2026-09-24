@@ -241,11 +241,61 @@ describe('QRCode', () => {
       expect(isShown(painted.container)).toBe(true);
       expect(isShown(mockInstances[1]!.container)).toBe(false);
       expect(getByTestId('qr-code')).toHaveAttribute('data-qr-payload', 'miden:mtst1other');
+      // The address change repainted the committed instance itself, with the new payload and the
+      // palette it now shows.
+      expect((painted.updates.at(-1) as { data: string }).data).toBe('miden:mtst1other');
+      expect(getByTestId('qr-code')).toHaveAttribute('data-qr-palette', 'purple');
 
       mockGetRawData.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
       await ref.current!.getImageBlob();
       expect(painted.rawData).toContain('png');
       expect(mockInstances[1]!.rawData).not.toContain('png');
+    });
+
+    it('never blanks the code for a tap back to the colour it already shows', async () => {
+      const draw = deferred();
+      mockGetRawData.mockImplementation((type: string) => (type === 'svg' ? draw.promise : undefined));
+      const { rerender } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
+      const painted = mockInstances[0]!;
+      rerender(<QRCode address={ADDRESS} size={200} palette="purple" />);
+      rerender(<QRCode address={ADDRESS} size={200} palette="green" />);
+
+      // Back to what is painted: no repaint of the visible code, and the late purple draw is dropped.
+      expect(painted.updates).toHaveLength(1);
+      await act(async () => draw.resolve(undefined));
+      expect(isShown(painted.container)).toBe(true);
+      expect(isShown(mockInstances[1]!.container)).toBe(false);
+    });
+
+    it('reports the colour it painted, not the one it was asked for', async () => {
+      const draw = deferred();
+      mockGetRawData.mockImplementation((type: string) => (type === 'svg' ? draw.promise : undefined));
+      const { rerender, getByTestId } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
+      rerender(<QRCode address={ADDRESS} size={200} palette="purple" />);
+
+      expect(getByTestId('qr-code')).toHaveAttribute('data-qr-palette', 'green');
+      await act(async () => draw.resolve(undefined));
+      expect(getByTestId('qr-code')).toHaveAttribute('data-qr-palette', 'purple');
+    });
+
+    it('keeps the painted code, and says so, when a recolour draw fails', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        mockGetRawData.mockImplementation((type: string) =>
+          type === 'svg' ? Promise.reject(new Error('draw failed')) : undefined
+        );
+        const { rerender, getByTestId } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
+        const painted = mockInstances[0]!;
+        await act(async () => {
+          rerender(<QRCode address={ADDRESS} size={200} palette="purple" />);
+        });
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('[QRCode]'), expect.any(Error));
+        expect(isShown(painted.container)).toBe(true);
+        expect(getByTestId('qr-code')).toHaveAttribute('data-qr-palette', 'green');
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('exports the code that is on screen after a colour change', async () => {

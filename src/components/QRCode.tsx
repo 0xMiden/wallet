@@ -171,6 +171,8 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
       palette
     });
     const [shownSlot, setShownSlot] = useState<0 | 1>(0);
+    // The palette the visible code was painted with, set only where a paint commits.
+    const [shownPalette, setShownPalette] = useState<QRPalette>(palette);
     // What the committed instance was last drawn with, and a counter over every option change: a
     // staged colour that finishes after a newer change (another tap, a new address) is dropped.
     const applied = useRef<{ qrValue: string; size: number; palette: QRPalette } | null>(null);
@@ -194,10 +196,14 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
     useEffect(() => {
       const gen = ++generation.current;
       const last = applied.current;
+      const sameCode = last !== null && last.qrValue === qrValue && last.size === size;
+      // Back to the palette already painted, with a staged draw still pending: the bumped generation
+      // drops that draw, and the painted code is left alone (update() would blank it).
+      if (sameCode && last.palette === palette) return;
       // A colour change alone never clears the painted code: qr-code-styling's update() empties its
       // container and redraws asynchronously, so the new colour is drawn into the other slot and
       // swapped in once it is complete.
-      if (last && last.qrValue === qrValue && last.size === size && last.palette !== palette) {
+      if (sameCode) {
         const slot = committed.current.slot === 0 ? 1 : 0;
         const container = (slot === 0 ? slotA : slotB).current;
         if (!container) return;
@@ -210,14 +216,18 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
             committed.current = { instance: staged, slot, palette };
             applied.current = { qrValue, size, palette };
             setShownSlot(slot);
+            setShownPalette(palette);
           })
-          .catch(() => undefined);
+          .catch(e => {
+            console.warn('[QRCode] recolour draw failed, keeping the painted palette:', e);
+          });
         return;
       }
       committed.current.instance.update(options);
       committed.current = { ...committed.current, palette };
       applied.current = { qrValue, size, palette };
       setPaintedValue(typeof options.data === 'string' ? options.data : '');
+      setShownPalette(palette);
     }, [options, qrValue, size, palette]);
 
     useImperativeHandle(
@@ -247,14 +257,13 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
     );
 
     return (
-      // `data-qr-payload` mirrors the payload the encoder was last PAINTED with, and
-      // is deliberately written from inside the `qrCode.update(options)` effect above
-      // rather than straight from `qrValue`. The instance is created once and only
-      // that effect repaints it, so mirroring `qrValue` here would report what the
-      // component computed even when the repaint never ran — a QR left showing a
-      // previous account would still read as correct. Sourcing the attribute from the
-      // repaint means a broken/removed `update()` leaves the attribute stale (or, on
-      // first mount, absent) alongside the stale picture.
+      // `data-qr-payload` and `data-qr-palette` mirror what was last PAINTED, and are
+      // written where a paint commits (the committed instance's `update()`, or a staged
+      // recolour once its draw lands) rather than straight from the props. Mirroring the
+      // props would report what the component computed even when the paint never ran or
+      // failed: a QR left showing a previous account, or its old colour, would still read
+      // as correct. Sourcing them from the commit means a broken paint leaves them stale
+      // (or, on first mount, absent) alongside the stale picture.
       //
       // The attribute exists because the rendered SVG carries no trace of its own
       // payload and the repo has no QR *decoder* (qr-code-styling is an encoder;
@@ -264,7 +273,7 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
         className={cn('flex flex-col items-center bg-pure-white rounded-2xl p-2', fluid && 'w-full')}
         data-testid="qr-code"
         data-qr-payload={paintedValue || undefined}
-        data-qr-palette={palette}
+        data-qr-palette={shownPalette}
       >
         {([slotA, slotB] as const).map((slotRef, slot) =>
           fluid ? (
