@@ -27,7 +27,8 @@ import {
   ensureGuardianProcedureThresholds,
   generateTransaction,
   initiateReplaceHotKeyTransaction,
-  initiateSwitchGuardianTransaction
+  initiateSwitchGuardianTransaction,
+  initiateUpdateProcedureThresholdTransaction
 } from './index';
 import {
   ITransactionStatus,
@@ -348,6 +349,25 @@ const makeGuardianProvider = (isGuardian: boolean) => {
   };
 };
 
+// The provider stores the account under its composite id while callers (a dApp, a bare deep link) may
+// pass the bare one. A row queued under the bare spelling leaves every later step to rediscover the
+// stored one, and a step that cannot read the provider then acts on the wrong key.
+const makeSuffixGuardianProvider = () => ({
+  ...makeGuardianProvider(true),
+  getAccounts: async () => [
+    {
+      publicKey: 'acc-1_suffix',
+      name: 'Guardian account',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      guardianEndpoint: 'https://old.guardian',
+      hotPublicKey: 'old-hot-pub',
+      coldPublicKey: 'cold'
+    }
+  ]
+});
+
 describe('initiateSwitchGuardianTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -367,6 +387,13 @@ describe('initiateSwitchGuardianTransaction', () => {
     const extra = row.extraInputs as Record<string, unknown>;
     expect(extra.previousGuardianEndpoint).toBe('https://old.guardian');
     expect(extra.newGuardianEndpoint).toBe('https://new.guardian');
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, makeSuffixGuardianProvider());
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
   });
 
   it('throws when the target account is not a Guardian account', async () => {
@@ -6185,8 +6212,15 @@ describe('initiateReplaceHotKeyTransaction', () => {
     }
   });
 
-  it('queues the rotation unstamped when the account read for the stamp fails', async () => {
-    // Eligibility (isGuardianAccount) has already answered; only the stamp's own read fails.
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeSuffixGuardianProvider());
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
+  });
+
+  // Eligibility and the stored id come from one account read, so a read that fails queues nothing.
+  it('refuses the rotation when the account read fails', async () => {
     mockIsGuardianAccount.mockResolvedValue(true);
     const provider = {
       ...makeGuardianProvider(true),
@@ -6194,20 +6228,17 @@ describe('initiateReplaceHotKeyTransaction', () => {
         throw new Error('vault read failed');
       }
     };
-    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).resolves.toBeDefined();
-    expect(txStore).toHaveLength(1);
-    expect(
-      (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
-    ).toBeUndefined();
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).rejects.toThrow('vault read failed');
+    expect(txStore).toHaveLength(0);
   });
 
-  it('records no guardian when the provider has no such account', async () => {
+  it('refuses the rotation when the provider has no such account', async () => {
     mockIsGuardianAccount.mockResolvedValue(true);
     const provider = { ...makeGuardianProvider(true), getAccounts: async () => [] };
-    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
-    expect(
-      (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
-    ).toBeUndefined();
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).rejects.toThrow(
+      'Replace hot key is only supported for Guardian accounts'
+    );
+    expect(txStore).toHaveLength(0);
   });
 
   it('throws when the target account is not a Guardian account', async () => {
@@ -6399,7 +6430,9 @@ describe('completeReplaceHotKeyTransaction', () => {
       sync: jest.fn(async () => {})
     });
     const provider = {
-      getAccounts: async () => [{ publicKey: 'acc-1', coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }],
+      getAccounts: async () => [
+        { publicKey: 'acc-1', type: WalletType.Guardian, coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }
+      ],
       getPublicKeyForCommitment: async () => 'pk',
       signWord: async () => 'sig',
       swapHotKey: jest.fn(async () => {})
@@ -6497,6 +6530,35 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
+  it('moves the stored hot pointer of a rotation initiated under another spelling when every account read fails', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeSuffixGuardianProvider());
+    const row = txStore[0] as Record<string, unknown>;
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.extraInputs = { ...(row.extraInputs as object), newHotPublicKey: 'new-hot-pub' };
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => {
+        throw new Error('vault read failed');
+      },
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey
+    };
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeReplaceHotKeyTransaction(row as never, makeResult() as never, provider as never);
+      await jest.runAllTimersAsync();
+      await completion;
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
   it('reads the account and checks its hardening under the stored id when the row was queued under another spelling', async () => {
     const tx = new ReplaceHotKeyTransaction('acc-1', false);
     tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
@@ -6582,6 +6644,26 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
   });
 });
 
+describe('initiateUpdateProcedureThresholdTransaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateUpdateProcedureThresholdTransaction(
+      'acc-1',
+      'update_guardian',
+      2,
+      false,
+      makeSuffixGuardianProvider()
+    );
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
+  });
+});
+
 describe('ensureGuardianProcedureThresholds', () => {
   beforeEach(() => {
     txStore.length = 0;
@@ -6595,7 +6677,8 @@ describe('ensureGuardianProcedureThresholds', () => {
     // left the row Queued for the rest of the session on mobile/desktop.
     mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 1 });
 
-    const txId = await ensureGuardianProcedureThresholds('guardian-acc', false, {} as never);
+    const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc', type: WalletType.Guardian }] };
+    const txId = await ensureGuardianProcedureThresholds('guardian-acc', false, provider as never);
 
     expect(typeof txId).toBe('string');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
