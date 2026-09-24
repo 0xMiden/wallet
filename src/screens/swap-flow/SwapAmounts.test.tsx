@@ -2,10 +2,13 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { SwapAmounts, SwapAmountsProps } from './SwapAmounts';
+
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 
 // --- i18n: echo the key back so we can assert against raw translation keys.
 jest.mock('react-i18next', () => ({
@@ -365,6 +368,8 @@ describe('SwapAmounts — CTA', () => {
     );
     const sendFooter = screen.getByText('send cta').parentElement;
 
+    expect(swapFooter).toHaveAttribute('data-flow-footer');
+    expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: swapFooter }));
     expect(swapFooter?.className).toBe(sendFooter?.className);
     // The keyboard-aware cushion, not the old fixed pb-24. It keeps the navbar-cushion tag: the
     // docked bar draws over the page, so the CTA clears it for as long as it is up.
