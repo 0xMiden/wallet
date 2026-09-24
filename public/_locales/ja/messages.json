@@ -699,8 +699,8 @@
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "私の『Seed phrase』は$num$語です",
-    "englishSource": "My Seed phrase is $num$ words",
+    "message": "私のリカバリーフレーズは$num$語です",
+    "englishSource": "My recovery phrase is $num$ words",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -1031,20 +1031,20 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "秘密鍵のQRコードをスキャンするか、Midenの日常用鍵およびEVM秘密鍵を入力してください。日常用鍵はGuardianアカウントを特定します。指定されたEVM鍵はそのEVMアドレスを復元します。ウォレットは、これらの鍵が関連付けられているかどうかを検証することはできません。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "秘密鍵のQRコードをスキャンするか、Midenの日常用鍵とEVM秘密鍵を入力してください。日常用鍵はGuardianアカウントを特定します。指定されたEVM鍵はEVMアドレスを復元します。ウォレットは、これらの鍵が互いに関連しているかどうかを検証することはできません。",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
-    "message": "デイリーキー（16進数）",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常用キー（16進数）",
+    "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
     "message": "両方の秘密鍵を、有効な、0以外の32バイトのsecp256k1スカラー（各64文字の16進数）として提供してください。QRコードには、正確に「hot-key:evm-key」が含まれている必要があります。",
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Midenの日常的な秘密鍵",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常的に使用する秘密鍵",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM秘密鍵",
@@ -1095,20 +1095,20 @@
     "englishSource": "Could not import an account with this key."
   },
   "importHotKeyWrongScheme": {
-    "message": "このキーはサポートされていない方式を使用しています。Guardianアカウントの通常キーを貼り付けてください。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "このキーはサポートされていない方式を使用しています。Guardianアカウントの日常用キーを貼り付けてください。",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
   },
   "importHotKeyNoAccount": {
     "message": "このキー（Guardian）に対応するGuardianアカウントは見つかりませんでした。",
     "englishSource": "No Guardian account was found for this key at this Guardian."
   },
   "importHotKeyIsRecoveryKey": {
-    "message": "これはリカバリーキーのようです。代わりに日常的に使用するキーを貼り付けてください。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "これはリカバリーキーのようです。代わりに日常用のキーを貼り付けてください。",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
   },
   "importHotKeyNotActive": {
-    "message": "このキーは、当該アカウントでは無効になりました。現在のデイリーキーを貼り付けてください。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "この鍵は、当該アカウントではもはや有効ではありません。現在の日常用鍵を貼り付けてください。",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
   },
   "recoveryActionsRequireRecoveryKey": {
     "message": "Guardian 変更や鍵の置き換えにはリカバリーキーが必要ですが、このデバイスにはそのキーは保存されていません。",
@@ -1181,10 +1181,6 @@
   "recoveryPhrase": {
     "message": "リカバリーフレーズ",
     "englishSource": "Recovery Phrase"
-  },
-  "revealRecoveryPhrase": {
-    "message": "リカバリーフレーズを表示",
-    "englishSource": "Reveal recovery phrase"
   },
   "viewThisInPrivatePlace": {
     "message": "人目につかない場所でこれを見る",
@@ -1334,8 +1330,8 @@
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "Seed Phrase",
-    "englishSource": "Seed Phrase"
+    "message": "リカバリーフレーズ",
+    "englishSource": "Recovery Phrase"
   },
   "keepSeedPhraseSecret": {
     "message": "内緒にしておいてください。",
@@ -1784,8 +1780,8 @@
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Seed Phrase を確認してください",
-    "englishSource": "Verify seed phrase"
+    "message": "リカバリーフレーズの確認",
+    "englishSource": "Verify recovery phrase"
   },
   "faucetPromptTitle": {
     "message": "ウォレットに資金を入金する",
@@ -1882,12 +1878,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "日常的に使用される鍵はローテーションが必要です",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常キーはローテーションが必要です",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "このデバイスでは、普段使用しているキーが使用できなくなりました。キーを回転させて署名機能を復元してください。資金には影響ありません。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "このデバイスでは、日常的に使用しているキーをこれ以上使用できなくなりました。署名機能を復元するためにキーをローテーションしてください。資産には影響ありません。",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "キーを回転させる",
@@ -2023,8 +2019,8 @@
     "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
   },
   "importWithSeedPhrase": {
-    "message": "Seed Phraseを使用してインポートする",
-    "englishSource": "Import with seed phrase"
+    "message": "リカバリーフレーズを使用したインポート",
+    "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "既存の 12 単語のリカバリ フレーズを使用します。他のウォレットプロバイダーからウォレットをインポートすることもできます。",
@@ -2151,8 +2147,8 @@
     "englishSource": "No guardian"
   },
   "noGuardianOptionSubtitle": {
-    "message": "上級 — seed phrase のみを使用して回復します。保護者の連帯保証人はいません。",
-    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+    "message": "上級者向け — リカバリーフレーズのみを使用して復元してください。「guardian」の共同署名者は不要です。",
+    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "運営：",
@@ -2275,12 +2271,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "ウォレットの12語からなる「Seed phrase」を入力してください。",
-    "englishSource": "Enter your wallet's 12-word seed phrase."
+    "message": "ウォレットの12語のリカバリーフレーズを入力してください。",
+    "englishSource": "Enter your wallet's 12-word recovery phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Miden Seedのフレーズのみがサポートされています。",
-    "englishSource": "Only Miden seed phrases are supported."
+    "message": "Midenのリカバリーフレーズのみがサポートされています。",
+    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "ウォレットの準備が完了しました！",
@@ -2367,8 +2363,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "seed phraseはリカバリーキーであり、日常的に使用するキーをローテーションするために使用されるもので、日常的な取引には使用しません。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "リカバリーフレーズは鍵を復元するものです。これは日常的に使用する鍵をローテーションするために使用されるものであり、日々の取引には使用されません。",
+    "englishSource": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "選択",
@@ -2427,8 +2423,8 @@
     "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
-    "message": "Miden Testnetでは、ユーザーの利便性向上のため、アカウントIDをbech32形式にアップグレードしました。ウォレットを引き続きご利用いただくには、バックアップファイルまたはseed phraseから復元するか、新しいウォレットを作成してください。",
-    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
+    "message": "Miden Testnetは、ユーザー体験を向上させるため、bech32アカウントIDへアップグレードされました。ウォレットを引き続きご利用になるには、バックアップファイルまたはリカバリーフレーズから復元するか、新しいウォレットを作成してください。",
+    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
     "message": "ご迷惑をおかけして申し訳ございません。",
@@ -2447,16 +2443,16 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12語のSeed phraseを把握しているか、暗号化されたバックアップファイルをお持ちでない限り、サインアウトしないでください。",
-    "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
+    "message": "12語のリカバリーフレーズを知っているか、暗号化されたバックアップファイルを持っている場合を除き、ログアウトしないでください。",
+    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
     "message": "生体認証によるロック解除が必要です",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "このウォレットでは、生体認証のみが使用されます。ロックを解除するには、Face ID、Touch ID、またはデバイスのパスコードを使用してください。別のデバイスでウォレットにアクセスするには、12語の「Seed phrase」を使用してください。",
-    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
+    "message": "このウォレットは生体認証のみを使用します。ロックを解除するには、Face ID、Touch ID、またはデバイスのパスコードを使用してください。別のデバイスでウォレットにアクセスするには、12語のリカバリーフレーズを使用してください。",
+    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
     "message": "ウォレットをリセットする",
@@ -2623,8 +2619,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "日常用語集",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常用キー",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "リカバリーフレーズ（コールド）",
@@ -2639,20 +2635,20 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "毎日キーをローテーションする",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "デイリーキーをローテーションする",
+    "englishSource": "Rotate everyday key"
   },
   "newDeviceKey": {
-    "message": "新しいデバイスキー",
-    "englishSource": "New device key"
+    "message": "新しい日常用キー",
+    "englishSource": "New everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "新しいデイリーキーを生成し、オンチェーンで現在のキーと置き換えてください。デバイスが侵害された疑いがある場合に役立ちます。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "新しい日常用キーを生成し、オンチェーンで現在のキーと置き換えます。デバイスが侵害された疑いがある場合に役立ちます。",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "これは、お客様の復旧（コールド）キーで署名されています。seed phraseは不要であり、残高やアカウントの状態は変わりません。続行しますか？",
-    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+    "message": "これは、あなたのリカバリー（コールド）キーで署名されます。リカバリーフレーズを入力する必要はなく、資金やアカウントはそのまま維持されます。続行しますか？",
+    "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
     "message": "回転を確認する",
@@ -2660,19 +2656,19 @@
   },
   "hotKeyRotationOverlayTitle": {
     "message": "日常的に使用する鍵のローテーション",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "日常的に使用しているキーがローテーションされています。これは、復旧したアカウントが同期を行い、取引を行えるようにするために必要な処理です。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常的に使用している鍵がローテーションされています。これは、復元されたアカウントが同期を行い、取引を行えるようにするために必要な手順です。",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "日常的な鍵のローテーションに失敗しました",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "毎日の鍵のローテーションに失敗しました",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "日常鍵のローテーション中に問題が発生しました。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常キーのローテーション中に問題が発生しました。",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "再試行",
@@ -2711,20 +2707,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "日常的なキーを公開する",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常キーを公開する",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "「Everyday Key」は「設定」→「Everyday Keyの更新」から更新可能です。そのため、これを公開しても「seed phrase」を公開するよりもリスクは低くなりますが、更新するまでは、これを保持している者なら誰でもトランザクションに署名することができます。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "日常用キーは「設定」→「日常用キーのローテーション」からローテーション可能です。そのため、これを開示してもリカバリーフレーズほど重大なリスクにはなりませんが、ローテーションを行うまでは、このキーを保持している者は誰でもトランザクションに署名することができます。",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
     "message": "秘密鍵を開示する前に",
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "これらの鍵を所持する者は誰でも、あなたのMidenおよびEVM資産を制御できます。Midenの日常用鍵をローテーションしても、漏洩したEVM鍵は変更されず、保護されることもありません。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "これらの鍵を所持する者は誰でも、あなたのMidenおよびEVM資産を管理することができます。Midenの日常鍵をローテーションしても、漏洩したEVM鍵は変更も保護もされません。",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "http:// または https:// で始まる有効な URL を入力してください",
@@ -3040,8 +3036,8 @@
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "seed phrase から派生したパブリックアカウントをインポートします。",
-    "englishSource": "Import the public account derived from your seed phrase."
+    "message": "リカバリーフレーズから導出された公開アカウントをインポートしてください。",
+    "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
     "message": "Guardian URL",
@@ -3802,8 +3798,8 @@
     "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
-    "message": "seed phrase なら、いつでもパブリックアカウントを復元できます。ウォレットのロックを素早く解除する方法については、以下から選択してください。",
-    "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+    "message": "リカバリーフレーズがあれば、いつでも公開アカウントを復元できます。ウォレットを素早くロック解除する方法については、以下から選択してください。",
+    "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
     "message": "Faucet リクエスト",
@@ -4557,68 +4553,68 @@
     "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "seed phraseを削除する前に、必ず書き留めておいてください。日常的な取引は引き続き行えます。Guardianの変更や日常的なキーの更新を行う際には、seed phraseの入力が必要となります。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "リカバリーフレーズを削除する前に書き留めておいてください。日常的な取引は引き続き可能です。Guardianの変更や日常的な鍵の交換を行う際には、リカバリーフレーズの入力が必要になります。",
+    "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
     "message": "すべての単語をこの順序で紙に書き出してください。その紙は、このデバイスとは別の安全な場所に保管してください。",
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "これにより、このデバイス上のこのウォレットから、seed phraseおよびGuardianの復元キーが削除されます。紙のバックアップは大切に保管してください。以前に作成されたバックアップは削除されません。",
-    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+    "message": "これにより、このデバイス上のこのウォレットからリカバリーフレーズおよびGuardianのリカバリーキーが削除されます。紙のバックアップは保管しておいてください。以前に作成されたバックアップは削除されません。",
+    "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
     "message": "このデバイスから削除",
     "englishSource": "Remove from this device"
   },
   "seedPhraseRemoved": {
-    "message": "Seed phrase このデバイスから削除されました",
-    "englishSource": "Seed phrase removed from this device"
+    "message": "このデバイスからリカバリーフレーズが削除されました",
+    "englishSource": "Recovery phrase removed from this device"
   },
   "seedPhraseUnavailable": {
-    "message": "このウォレットにはseed phraseは保存されていません。",
-    "englishSource": "There is no seed phrase stored in this wallet."
+    "message": "このウォレットにはリカバリーフレーズは保存されていません。",
+    "englishSource": "There is no recovery phrase stored in this wallet."
   },
   "seedRemovalIncomplete": {
     "message": "削除は完了していません。ウォレットを再度アンロックして、リカバリー情報の削除を完了してください。",
     "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
   "seedRemovalFailed": {
-    "message": "seed phraseの削除を完了できませんでした。もう一度試してください。",
-    "englishSource": "Could not finish removing the seed phrase. Try again."
+    "message": "リカバリーフレーズの削除を完了できませんでした。もう一度お試しください。",
+    "englishSource": "Could not finish removing the recovery phrase. Try again."
   },
   "seedRemovalBusy": {
-    "message": "seed phraseを削除する前に、現在の取引が完了するのを待ってください。",
-    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+    "message": "現在の取引が完了するまで待ってから、リカバリーフレーズを削除してください。",
+    "englishSource": "Wait for the current transactions to finish before removing the recovery phrase."
   },
   "seedRemovalKeysNotReady": {
-    "message": "seed phraseを取り外す前に、アカウントの復旧と日常的なキーの有効化を完了させてください。",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "リカバリーフレーズを削除する前に、アカウントの復旧と日常キーの有効化を完了させてください。",
+    "englishSource": "Finish account recovery and everyday key activation before removing the recovery phrase."
   },
   "seedRequiredForAccountCreation": {
-    "message": "アカウント作成には、保存済みのseed phraseが必要です。この操作のための一時的なシード入力の機能は、現時点では利用できません。",
-    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+    "message": "アカウントの作成には、保存済みのリカバリーフレーズが必要です。この操作のためだけにそれを入力する機能は、現時点では利用できません。",
+    "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "この操作を行うには、リカバリーキー（seed phrase）が必要です。",
-    "englishSource": "This action requires your recovery seed phrase."
+    "message": "この操作には、リカバリーフレーズが必要です。",
+    "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "seed phrase を入力してください",
-    "englishSource": "Enter your seed phrase"
+    "message": "リカバリーフレーズを入力してください",
+    "englishSource": "Enter your recovery phrase"
   },
   "recoverySeedTemporaryDescription": {
     "message": "ペーパーバックアップをご利用ください。このフレーズはこの操作にのみ使用され、このデバイスには保存されません。",
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "有効なseed phraseを入力してください。",
-    "englishSource": "Enter a valid seed phrase."
+    "message": "有効なリカバリーフレーズを入力してください。",
+    "englishSource": "Enter a valid recovery phrase."
   },
   "wrongRecoverySeed": {
-    "message": "この seed phrase は、このアカウントと一致しません。",
-    "englishSource": "This seed phrase does not match this account."
+    "message": "このリカバリーフレーズは、このアカウントと一致しません。",
+    "englishSource": "This recovery phrase does not match this account."
   },
   "recoveryActionUnavailable": {
     "message": "この復旧措置は利用できなくなりました。",
@@ -5244,5 +5240,9 @@
   "activityUnread": {
     "message": "未読",
     "englishSource": "Unread"
+  },
+  "revealRecoveryPhrase": {
+    "message": "リカバリーフレーズを表示",
+    "englishSource": "Reveal recovery phrase"
   }
 }

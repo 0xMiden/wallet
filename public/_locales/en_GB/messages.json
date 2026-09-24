@@ -699,8 +699,8 @@
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "My Seed phrase is $num$ words",
-    "englishSource": "My Seed phrase is $num$ words",
+    "message": "My recovery phrase is $num$ words",
+    "englishSource": "My recovery phrase is $num$ words",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -1032,11 +1032,11 @@
   },
   "importHotKeyDescription": {
     "message": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Everyday key (hex)",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
     "message": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key.",
@@ -1044,7 +1044,7 @@
   },
   "midenHotPrivateKey": {
     "message": "Miden everyday private key",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM private key",
@@ -1096,7 +1096,7 @@
   },
   "importHotKeyWrongScheme": {
     "message": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
   },
   "importHotKeyNoAccount": {
     "message": "No Guardian account was found for this key at this Guardian.",
@@ -1104,11 +1104,11 @@
   },
   "importHotKeyIsRecoveryKey": {
     "message": "This looks like your recovery key. Paste the everyday key instead.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
   },
   "importHotKeyNotActive": {
     "message": "This key is no longer active for the account. Paste the current everyday key.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
   },
   "recoveryActionsRequireRecoveryKey": {
     "message": "Guardian changes and key replacement need the recovery key, which is not on this device.",
@@ -1181,10 +1181,6 @@
   "recoveryPhrase": {
     "message": "Recovery Phrase",
     "englishSource": "Recovery Phrase"
-  },
-  "revealRecoveryPhrase": {
-    "message": "Reveal recovery phrase",
-    "englishSource": "Reveal recovery phrase"
   },
   "viewThisInPrivatePlace": {
     "message": "View this in a private place",
@@ -1334,8 +1330,8 @@
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "Seed Phrase",
-    "englishSource": "Seed Phrase"
+    "message": "Recovery Phrase",
+    "englishSource": "Recovery Phrase"
   },
   "keepSeedPhraseSecret": {
     "message": "Keep it in secret.",
@@ -1784,8 +1780,8 @@
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Verify seed phrase",
-    "englishSource": "Verify seed phrase"
+    "message": "Verify recovery phrase",
+    "englishSource": "Verify recovery phrase"
   },
   "faucetPromptTitle": {
     "message": "Fund your wallet",
@@ -1883,11 +1879,11 @@
   },
   "hotKeyRotationPromptTitle": {
     "message": "Everyday key needs rotation",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
     "message": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "Rotate key",
@@ -2023,8 +2019,8 @@
     "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
   },
   "importWithSeedPhrase": {
-    "message": "Import with seed phrase",
-    "englishSource": "Import with seed phrase"
+    "message": "Import with recovery phrase",
+    "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers.",
@@ -2151,8 +2147,8 @@
     "englishSource": "No guardian"
   },
   "noGuardianOptionSubtitle": {
-    "message": "Advanced — recover with your seed phrase only. No guardian co-signer.",
-    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+    "message": "Advanced — recover with your recovery phrase only. No guardian co-signer.",
+    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "Operated by:",
@@ -2275,12 +2271,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "Enter your wallet's 12-word seed phrase.",
-    "englishSource": "Enter your wallet's 12-word seed phrase."
+    "message": "Enter your wallet's 12-word recovery phrase.",
+    "englishSource": "Enter your wallet's 12-word recovery phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Only Miden seed phrases are supported.",
-    "englishSource": "Only Miden seed phrases are supported."
+    "message": "Only Miden recovery phrases are supported.",
+    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Your wallet is ready!",
@@ -2367,8 +2363,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions.",
+    "englishSource": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "Select",
@@ -2427,8 +2423,8 @@
     "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
-    "message": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one.",
-    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
+    "message": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one.",
+    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
     "message": "We’re sorry for the inconvenience.",
@@ -2447,16 +2443,16 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file.",
-    "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
+    "message": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file.",
+    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
     "message": "Biometric Unlock Required",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase.",
-    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
+    "message": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase.",
+    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
     "message": "Reset Wallet",
@@ -2624,7 +2620,7 @@
   },
   "walletKeyHot": {
     "message": "Everyday key",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "Recovery phrase (cold)",
@@ -2640,19 +2636,19 @@
   },
   "replaceHotKey": {
     "message": "Rotate everyday key",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Rotate everyday key"
   },
   "newDeviceKey": {
-    "message": "New device key",
-    "englishSource": "New device key"
+    "message": "New everyday key",
+    "englishSource": "New everyday key"
   },
   "replaceHotKeyDescription": {
     "message": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?",
-    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+    "message": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?",
+    "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
     "message": "Confirm rotation",
@@ -2660,19 +2656,19 @@
   },
   "hotKeyRotationOverlayTitle": {
     "message": "Rotating your everyday key",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
     "message": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
     "message": "Everyday key rotation failed",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
     "message": "Something went wrong while rotating your everyday key.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "Retry",
@@ -2712,11 +2708,11 @@
   },
   "revealHotKey": {
     "message": "Reveal everyday key",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate.",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Before you reveal your private keys",
@@ -2724,7 +2720,7 @@
   },
   "hotKeyRevealWarningBody": {
     "message": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Enter a valid URL starting with http:// or https://",
@@ -3040,8 +3036,8 @@
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "Import the public account derived from your seed phrase.",
-    "englishSource": "Import the public account derived from your seed phrase."
+    "message": "Import the public account derived from your recovery phrase.",
+    "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
     "message": "Guardian URL",
@@ -3802,8 +3798,8 @@
     "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
-    "message": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
-    "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+    "message": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
+    "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
     "message": "Faucet Request",
@@ -4557,68 +4553,68 @@
     "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase.",
+    "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
     "message": "Write all words on paper in this order. Keep the paper in a safe place outside this device.",
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted.",
-    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+    "message": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted.",
+    "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
     "message": "Remove from this device",
     "englishSource": "Remove from this device"
   },
   "seedPhraseRemoved": {
-    "message": "Seed phrase removed from this device",
-    "englishSource": "Seed phrase removed from this device"
+    "message": "Recovery phrase removed from this device",
+    "englishSource": "Recovery phrase removed from this device"
   },
   "seedPhraseUnavailable": {
-    "message": "There is no seed phrase stored in this wallet.",
-    "englishSource": "There is no seed phrase stored in this wallet."
+    "message": "There is no recovery phrase stored in this wallet.",
+    "englishSource": "There is no recovery phrase stored in this wallet."
   },
   "seedRemovalIncomplete": {
     "message": "Removal is not complete. Unlock the wallet again to finish removing the recovery material.",
     "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
   "seedRemovalFailed": {
-    "message": "Could not finish removing the seed phrase. Try again.",
-    "englishSource": "Could not finish removing the seed phrase. Try again."
+    "message": "Could not finish removing the recovery phrase. Try again.",
+    "englishSource": "Could not finish removing the recovery phrase. Try again."
   },
   "seedRemovalBusy": {
-    "message": "Wait for the current transactions to finish before removing the seed phrase.",
-    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+    "message": "Wait for the current transactions to finish before removing the recovery phrase.",
+    "englishSource": "Wait for the current transactions to finish before removing the recovery phrase."
   },
   "seedRemovalKeysNotReady": {
-    "message": "Finish account recovery and everyday key activation before removing the seed phrase.",
-    "englishSource": "stale: re-translate with the everyday-key sense"
+    "message": "Finish account recovery and everyday key activation before removing the recovery phrase.",
+    "englishSource": "Finish account recovery and everyday key activation before removing the recovery phrase."
   },
   "seedRequiredForAccountCreation": {
-    "message": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available.",
-    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+    "message": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available.",
+    "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "This action requires your recovery seed phrase.",
-    "englishSource": "This action requires your recovery seed phrase."
+    "message": "This action requires your recovery phrase.",
+    "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "Enter your seed phrase",
-    "englishSource": "Enter your seed phrase"
+    "message": "Enter your recovery phrase",
+    "englishSource": "Enter your recovery phrase"
   },
   "recoverySeedTemporaryDescription": {
     "message": "Use your paper backup. The phrase is used only for this action and is not saved on this device.",
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Enter a valid seed phrase.",
-    "englishSource": "Enter a valid seed phrase."
+    "message": "Enter a valid recovery phrase.",
+    "englishSource": "Enter a valid recovery phrase."
   },
   "wrongRecoverySeed": {
-    "message": "This seed phrase does not match this account.",
-    "englishSource": "This seed phrase does not match this account."
+    "message": "This recovery phrase does not match this account.",
+    "englishSource": "This recovery phrase does not match this account."
   },
   "recoveryActionUnavailable": {
     "message": "This recovery action is no longer available.",
@@ -5244,5 +5240,9 @@
   "activityUnread": {
     "message": "Unread",
     "englishSource": "Unread"
+  },
+  "revealRecoveryPhrase": {
+    "message": "Reveal recovery phrase",
+    "englishSource": "Reveal recovery phrase"
   }
 }
