@@ -135,3 +135,14 @@ it('ignores saves before the list is read and runs saves made during a write aft
   expect(write.mock.calls.map(call => call[1])).toEqual([['old', 'first'], ['old', 'first', 'second'], []]);
   expect(result.current.ids.size).toBe(0);
 });
+
+it('restores only the notes it is given', async () => {
+  read.mockResolvedValue(['kept', 'first', 'second']);
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+  await act(async () => {
+    await result.current.restore(['first', 'second']);
+  });
+  expect([...result.current.ids]).toEqual(['kept']);
+  expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['kept']);
+});

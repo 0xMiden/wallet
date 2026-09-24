@@ -1,14 +1,19 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
+import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 
 import { ActivityGroupPage } from './ActivityGroup';
 
 const FAUCET = 'miden-native-faucet';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: { count?: number }) => (options?.count === undefined ? key : `${key}:${options.count}`)
+  })
+}));
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => FAUCET }));
 
 const mockBack = jest.fn();
@@ -21,6 +26,37 @@ jest.mock('app/hooks/useBackWithFallback', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({ useAccount: () => ({ publicKey: '0xme' }) }));
+
+const claimNote = (id: string, senderAddress: string, faucetId = 'token-faucet') => ({
+  id,
+  faucetId,
+  amount: '1000000',
+  senderAddress,
+  isBeingClaimed: false,
+  type: 'unknown' as const,
+  metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+});
+const mockClaims: { items: PendingActivityItem[] } = { items: [] };
+const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: jest.fn(), restore: jest.fn() };
+jest.mock('app/hooks/useActivityClaims', () => ({
+  useActivityClaims: () => ({
+    items: mockClaims.items,
+    accept: jest.fn(),
+    acceptMany: jest.fn(),
+    account: { publicKey: '0xme' },
+    isLoadingNotes: false
+  })
+}));
+jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => jest.fn() }));
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Secondary: 'secondary' },
+  Button: ({ title, onClick }: { title: string; onClick: () => void }) => (
+    <button type="button" onClick={onClick}>
+      {title}
+    </button>
+  )
+}));
 
 const contacts = { value: [{ address: 'mtst1aliceaddress0000', name: 'Alice' }] };
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
@@ -69,6 +105,8 @@ describe('ActivityGroupPage', () => {
   beforeEach(() => {
     historyProps = {};
     mockLabels.value = undefined;
+    mockClaims.items = [];
+    mockHidden.ids = new Set();
     jest.clearAllMocks();
   });
 
@@ -149,5 +187,55 @@ describe('ActivityGroupPage', () => {
 
     expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history');
     expect(screen.queryByTestId('history')).toBeNull();
+  });
+
+  describe('the claims of this group', () => {
+    const drawn = () => ((historyProps.drawnPendingItems ?? []) as PendingActivityItem[]).map(item => item.note.id);
+    const represented = () => ((historyProps.pendingItems ?? []) as PendingActivityItem[]).map(item => item.note.id);
+
+    it('draws the claim card of a note from this address and keeps its consume row out', () => {
+      mockClaims.items = [{ note: claimNote('from-alice', 'MTST1ALICEADDRESS0000'), status: 'claimed', txId: 'tx' }];
+      render(<ActivityGroupPage kind="address" id="mtst1aliceaddress0000" />);
+
+      expect(drawn()).toEqual(['from-alice']);
+      expect(represented()).toEqual(['from-alice']);
+      expect(historyProps.renderPendingItem).toEqual(expect.any(Function));
+    });
+
+    it('draws no card for a claim from another address', () => {
+      mockClaims.items = [{ note: claimNote('from-bob', 'mtst1bobaddress'), status: 'pending' }];
+      render(<ActivityGroupPage kind="address" id="mtst1aliceaddress0000" />);
+
+      expect(drawn()).toEqual([]);
+      // Still represented, as in the Activity views, so its consume row stays out wherever it would land.
+      expect(represented()).toEqual(['from-bob']);
+    });
+
+    it('draws a faucet claim on the faucet page and not on the faucet address page', () => {
+      mockClaims.items = [
+        { note: claimNote('minted', FAUCET, FAUCET), status: 'pending' },
+        { note: claimNote('from-alice', 'mtst1aliceaddress0000'), status: 'pending' }
+      ];
+      const { unmount } = render(<ActivityGroupPage kind="faucet" />);
+      expect(drawn()).toEqual(['minted']);
+      unmount();
+
+      render(<ActivityGroupPage kind="address" id={FAUCET} />);
+      expect(drawn()).toEqual([]);
+    });
+
+    it('counts and restores only the declined claims of this group', () => {
+      mockClaims.items = [
+        { note: claimNote('alice-declined', 'mtst1aliceaddress0000'), status: 'pending' },
+        { note: claimNote('alice-failed', 'mtst1aliceaddress0000'), status: 'failed' },
+        { note: claimNote('bob-declined', 'mtst1bobaddress'), status: 'pending' }
+      ];
+      mockHidden.ids = new Set(['alice-declined', 'alice-failed', 'bob-declined']);
+      render(<ActivityGroupPage kind="address" id="mtst1aliceaddress0000" />);
+
+      expect(screen.getByText('activityHiddenTransfers:2')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'activityRestoreTransfers' }));
+      expect(mockHidden.restore).toHaveBeenCalledWith(['alice-declined', 'alice-failed']);
+    });
   });
 });

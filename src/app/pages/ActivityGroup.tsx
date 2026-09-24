@@ -3,9 +3,16 @@ import React, { FC, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { ACTIVITY_GROUP_LABELS, activityGroupMatcher, isActivityGroupKind } from 'app/templates/history/activityGroups';
+import { RestoreDeclinedTransfers } from 'app/templates/history/ActivityClaimsStatus';
+import {
+  ACTIVITY_GROUP_LABELS,
+  activityClaimMatcher,
+  activityGroupMatcher,
+  isActivityGroupKind
+} from 'app/templates/history/activityGroups';
 import History from 'app/templates/history/History';
 import { shortAddr } from 'app/templates/history/HistoryView';
+import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
@@ -44,6 +51,20 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   }, [allContacts, address]);
 
   const predicate = useMemo(() => (isActivityGroupKind(kind) ? activityGroupMatcher(kind, id) : undefined), [kind, id]);
+  // Claims are drawn as the Activity views draw them: every represented claim keeps its consume row out, and
+  // this group's own are drawn as cards, so a claim reads once here, in the groups and in the list.
+  const { representedItems, renderPendingItem, hidden, declinedItems } = useActivityClaimList('', 'all');
+  const claimMatcher = useMemo(
+    () => (isActivityGroupKind(kind) ? activityClaimMatcher(kind, id) : undefined),
+    [kind, id]
+  );
+  const drawnPendingItems = useMemo(
+    () => (claimMatcher ? representedItems.filter(item => claimMatcher(item.note)) : []),
+    [representedItems, claimMatcher]
+  );
+  const groupDeclinedIds = claimMatcher
+    ? declinedItems.filter(item => claimMatcher(item.note)).map(item => item.note.id)
+    : [];
 
   // An unknown kind, or an address group with no address: nothing to narrow by, so there is no
   // page to show. Back to the tab rather than an empty list that looks like "no activity".
@@ -62,12 +83,16 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
 
   return (
     <SubPageLayout title={title} onBack={back} focusTitleOnMount bodyRef={bodyRef} data-testid="activity-group-page">
+      <RestoreDeclinedTransfers count={groupDeclinedIds.length} onRestore={() => hidden.restore(groupDeclinedIds)} />
       <History
         address={account.publicKey}
         fullHistory
         centerEmptyState
         scrollParentRef={bodyRef}
         predicate={predicate}
+        pendingItems={representedItems}
+        drawnPendingItems={drawnPendingItems}
+        renderPendingItem={renderPendingItem}
       />
     </SubPageLayout>
   );

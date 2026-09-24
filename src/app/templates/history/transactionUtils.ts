@@ -117,7 +117,9 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   };
 };
 
-export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
+export const isFaucetRequest = (
+  entry: Pick<IHistoryEntry, 'transactionIcon' | 'faucetId' | 'secondaryAddress'>
+): boolean => {
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return false;
   return (

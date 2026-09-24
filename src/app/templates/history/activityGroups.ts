@@ -145,12 +145,31 @@ export function groupActivityEntries(
  * feed, narrowed — infinite scroll, the in-flight rows and the row rendering all come with it.
  */
 export function activityGroupMatcher(kind: ActivityGroupKind, id?: string): (entry: IHistoryEntry) => boolean {
+  const matches = groupKeyMatcher(kind, id);
+  return entry => matches(activityGroupKeyOf(entry));
+}
+
+/**
+ * The group a claim card belongs to: the one its consume row joins. That row copies the note's faucet and
+ * sender (`ConsumeTransaction`), so the faucet test is `isFaucetRequest` run on those two.
+ */
+export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress: string }): ActivityGroupKey {
+  const row = { transactionIcon: 'RECEIVE' as const, faucetId: note.faucetId, secondaryAddress: note.senderAddress };
+  return isFaucetRequest(row) ? { kind: 'faucet', id: 'faucet' } : { kind: 'address', id: note.senderAddress.trim() };
+}
+
+/** `activityGroupMatcher` for claim cards, which have no history entry yet. */
+export function activityClaimMatcher(
+  kind: ActivityGroupKind,
+  id?: string
+): (note: { faucetId: string; senderAddress: string }) => boolean {
+  const matches = groupKeyMatcher(kind, id);
+  return note => matches(activityClaimGroupKeyOf(note));
+}
+
+function groupKeyMatcher(kind: ActivityGroupKind, id?: string): (key: ActivityGroupKey) => boolean {
   const wanted = kind === 'address' ? id?.trim().toLowerCase() : undefined;
-  return entry => {
-    const key = activityGroupKeyOf(entry);
-    if (key.kind !== kind) return false;
-    return kind === 'address' ? key.id.toLowerCase() === wanted : true;
-  };
+  return key => key.kind === kind && (kind !== 'address' || key.id.toLowerCase() === wanted);
 }
 
 /** The route of a group's page. A category group needs no id; an address carries one. */
