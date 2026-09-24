@@ -57,7 +57,19 @@ jest.mock('lib/ui/drawer', () => ({
       {children}
     </div>
   ),
-  DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
+  DrawerContent: ({
+    children,
+    className,
+    overlayClassName
+  }: {
+    children: React.ReactNode;
+    className?: string;
+    overlayClassName?: string;
+  }) => (
+    <div data-testid="drawer-content" data-class={className} data-overlay-class={overlayClassName}>
+      {children}
+    </div>
+  ),
   DrawerHeader: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-header">{children}</div>,
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
 }));
@@ -145,7 +157,21 @@ describe('GuardianInfoDrawer', () => {
   it('carries no literal colours: every badge is on a token tint', () => {
     const { container } = renderDrawer();
 
+    const badgeOf = (glyph: HTMLElement) => glyph.closest('[aria-hidden="true"]');
+    const [checkmark, close] = ['checkmark', 'close'].map(
+      name => screen.getAllByTestId('icon').find(icon => icon.getAttribute('data-name') === name)!
+    );
+    expect(badgeOf(checkmark!)).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
+    expect(badgeOf(screen.getByText('!'))).toHaveClass('bg-accent-tint', 'text-accent-tint-ink');
+    expect(badgeOf(close!)).toHaveClass('bg-negative-tint', 'text-negative-tint-ink');
     expect(container.innerHTML).not.toMatch(/#[0-9A-Fa-f]{6}/);
+  });
+
+  it('dims the page behind with the shared sheet scrim, like every other sheet', () => {
+    renderDrawer();
+
+    // No overlay override: DrawerContent's own bg-scrim applies.
+    expect(screen.getByTestId('drawer-content')).not.toHaveAttribute('data-overlay-class');
   });
 
   it('closes the drawer when the "gotIt" button is clicked', () => {
