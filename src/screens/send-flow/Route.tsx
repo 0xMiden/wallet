@@ -145,7 +145,7 @@ export const Route: React.FC<RouteStepProps> = ({
         />
       </div>
 
-      <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true">
+      <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true" data-flow-footer="">
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}

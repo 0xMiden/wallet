@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -319,13 +321,23 @@ describe('SelectAmount', () => {
       expect(def.innerHTML).toContain(defaultFooterPb);
       expect(def.querySelector('[data-navbar-cushion="true"]')).not.toBeNull();
 
-      // Keyboard padding snaps (lib/mobile/keyboard-inset.ts): animating it reflows every frame.
+      // Keyboard padding snaps (lib/mobile/keyboard-inset.ts): animating it reflows every frame. The
+      // footer adds no transition of its own, and main.css exempts a flow footer's cushion collapse.
       expect(def.querySelector('[data-navbar-cushion="true"]')!.className).not.toContain('transition-[padding-bottom]');
+      expect(def.querySelector('[data-navbar-cushion="true"]')).toHaveAttribute('data-flow-footer');
 
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();
       expect(override.innerHTML).not.toContain(defaultFooterPb);
     });
+  });
+
+  it("snaps a flow footer's cushion: main.css sets no transition on it", () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodies = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      .filter(([, selector]) => selector.trim() === "[data-navbar-cushion='true'][data-flow-footer]")
+      .map(([, , body]) => body);
+    expect(bodies.some(body => /(^|;)\s*transition:\s*none\s*(;|$)/.test(body.trim()))).toBe(true);
   });
 
   describe('token selector', () => {

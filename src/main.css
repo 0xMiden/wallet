@@ -529,6 +529,11 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
 body[data-hide-navbar] [data-navbar-cushion='true'] {
   padding-bottom: 1rem;
 }
+/* A flow footer's cushion snaps: animating padding-bottom reflows the page
+ * every frame. */
+[data-navbar-cushion='true'][data-flow-footer] {
+  transition: none;
+}
 
 /* BottomNav's shadow deliberately overflows #root into body's safe-area
  * padding. On iOS WKWebView that strip is not repainted when TabLayout is
