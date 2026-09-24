@@ -5,7 +5,6 @@ import { Share } from '@capacitor/share';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
@@ -162,10 +161,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
     <HomeGroupPaneBody testId="receive-page" title={t('receiveAt')} titleTestId="receive-title">
-      {/* The clipboard fallback's field, never shown. `fieldWrapperBottomMargin` is off because
-          the wrapper is a laid-out box even with the input hidden, and its 8px sat above the
-          title — which is why "Receive at" used to start lower than the other panes' titles. */}
-      <FormField ref={fieldRef} value={address} style={{ display: 'none' }} fieldWrapperBottomMargin={false} />
+      {/* The clipboard fallback's field, never shown. */}
+      <input ref={fieldRef} value={address} readOnly className="sr-only" tabIndex={-1} />
       {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
       <span data-testid="receive-address-full" className="sr-only">
         {address}

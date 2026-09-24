@@ -62,8 +62,6 @@ jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
-jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
-
 jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: false, sidePanel: false })
 }));
@@ -237,6 +235,17 @@ describe('Receive - Address', () => {
 
     const full = container.querySelector('[data-testid="receive-address-full"]');
     expect(full?.textContent).toBe('test-account-123');
+  });
+
+  it('holds the clipboard fallback address in a bare sr-only input, not a FormField wrapper', async () => {
+    const container = await renderReceive();
+
+    const field = container.querySelector<HTMLInputElement>('input.sr-only');
+    expect(field?.value).toBe('test-account-123');
+    expect(field).toHaveAttribute('readonly');
+    expect(field?.tabIndex).toBe(-1);
+    // FormField wraps its field in a `relative … items-stretch` div; a bare input has none.
+    expect(field?.parentElement?.className.includes('items-stretch')).toBe(false);
   });
 
   it('rolls the address to "copied" and morphs the glyph to a check for a beat, then reverts', async () => {
