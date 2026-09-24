@@ -141,13 +141,16 @@ describe('SegmentedControl — the raised bubble', () => {
 
     const selected = getRadio('Pending');
     const bubble = bubbleIn(selected)!;
-    expect(bubble).toHaveClass('inset-0', 'rounded-full', 'bg-raised', 'shadow-raised');
+    // The bottom nav's bubble in everything but its fill — the shadow, the pressed shadow and the
+    // `-inset-px` that reaches past the item's padding box to cover the outline it carries when
+    // it is not selected - filled with the accent tint.
+    expect(bubble).toHaveClass('-inset-px', 'rounded-full', 'bg-accent-tint', 'shadow-raised');
+    expect(bubble).not.toHaveClass('bg-raised');
     expect(bubble).toHaveClass('group-active:shadow-raised-pressed');
-    expect(selected).toHaveClass('group', 'rounded-full', 'text-ink');
+    expect(selected).toHaveClass('group', 'rounded-full', 'text-accent-tint-ink');
     expect(selected).not.toHaveClass('overflow-hidden');
 
     expect(bubbleIn(getRadio('All'))).toBeNull();
-    expect(getRadio('All')).toHaveClass('text-muted');
   });
 
   it('moves one shared bubble when the value changes, scoped per control', () => {
@@ -414,5 +417,44 @@ describe('SegmentedControl — layouts', () => {
     renderControl({ layout: 'fill' });
 
     expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe('SegmentedControl selection', () => {
+  const pillItems = [
+    { id: 'all', label: 'All' },
+    { id: 'sent', label: 'Sent' }
+  ];
+
+  it('outlines every item and puts the selected one under the accent-tint bubble', () => {
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
+    const all = screen.getByRole('radio', { name: 'All' });
+    const sent = screen.getByRole('radio', { name: 'Sent' });
+
+    // Unselected: an outlined pill on the page, `ink` label.
+    expect(sent).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
+    expect(sent.querySelector('[data-slot="motion-highlight"]')).toBeNull();
+
+    // Selected: the same border, transparent, so the width never shifts, and the bubble over it.
+    expect(all).toHaveClass('border', 'border-transparent');
+    expect(all).not.toHaveClass('border-hairline');
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-tint', 'shadow-raised');
+
+    // The tint carries an `accent-tint-ink` label (the tested 4.5:1 pairing; white on the accent is
+    // 3:1, short of text contrast at 14px), crossfading in on the bubble's own clock.
+    expect(all).toHaveClass('text-accent-tint-ink');
+    expect(all).not.toHaveClass('text-pure-white');
+    expect(all.className).toContain('transition-colors');
+    expect(all.className).toContain('motion-reduce:transition-none');
+
+    // 8px between outlined pills: two hairlines 4px apart read as one seam.
+    expect(screen.getByRole('radiogroup')).toHaveClass('gap-2');
+  });
+
+  it('slides the selection above the other pills', () => {
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
+    const all = screen.getByRole('radio', { name: 'All' });
+    // Later pills paint an opaque `page` fill, so the moving bubble must sit above them.
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveStyle({ zIndex: '1' });
   });
 });

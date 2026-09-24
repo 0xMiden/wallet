@@ -9,25 +9,15 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
-import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
+import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
-import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import {
-  cancelTransactionById,
-  isCancellableTransaction,
-  isRequeueableTransaction,
-  isUnverifiableSendRetryError,
-  isUserCancelledTransaction,
-  requestSWTransactionProcessing,
-  requeueFailedTransaction,
-  retryEarnWithdrawReceive,
-  USER_CANCELLED_TRANSACTION_REASON
-} from 'lib/miden/activity';
+import { isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -58,6 +48,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import {
+  consumeAssetBreakdown,
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -71,7 +62,7 @@ import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
-import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
+import TransactionIcon, { getTransactionIconBackgroundColor, isGuardianOp } from './TransactionIcon';
 import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
   bridgeInRowDisplay,
@@ -84,6 +75,7 @@ import {
   swapSettlementOf
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
+import { useTransactionActions } from './useTransactionActions';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -260,11 +252,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-  const [isRetrying, setIsRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
-  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
@@ -362,6 +349,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
         const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
+        const hotKeyExtra = tx.type === 'replace-hot-key' ? tx.extraInputs : undefined;
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
@@ -401,6 +389,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           txType: tx.type,
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
+          newHotPublicKey: hotKeyExtra?.newHotPublicKey,
+          rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
@@ -472,45 +462,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
 
-  const handleCancel = useCallback(async () => {
-    setIsCancelling(true);
-    setCancelError(null);
-
-    try {
-      await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to cancel transaction:', error);
-      setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
-    } finally {
-      setIsCancelling(false);
-    }
-  }, [t, transactionId]);
-
-  const handleRetry = useCallback(
-    async (acknowledgeUnverifiedSend = false) => {
-      if (!entry) return;
-      setIsRetrying(true);
-      setRetryError(null);
-      setNeedsSendAcknowledgement(false);
-      try {
-        if (entry.txType === 'earn-withdraw') {
-          await retryEarnWithdrawReceive(transactionId);
-        } else {
-          await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
-          requestSWTransactionProcessing();
-          navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
-          return;
-        }
-      } catch (error) {
-        console.error('[HistoryDetails] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
-      } finally {
-        setIsRetrying(false);
-      }
-    },
-    [entry, t, transactionId]
-  );
+  // Cancel, Retry and the swap-order cancel, with their in-flight flags and error
+  // strings. Shared with `SwapDetail`, which renders the swap branch of this same
+  // page - see `useTransactionActions`.
+  const actions = useTransactionActions(transactionId, entry, transaction);
+  const { canCancel, canRetry, earnRetryKind } = actions;
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
@@ -549,6 +505,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // A device-key rotation changes the account's signer, not its co-signer, so it
+  // draws the guardian once. Both are structural Guardian ops: neither moves
+  // value, so neither gets the wallet From/To rows.
+  const isHotKeyRotation = entry?.txType === 'replace-hot-key';
+  const guardianOp = entry ? isGuardianOp(entry.txType) : false;
+  // The guardian the rotation ran under, as its record stored it. A row recorded without one names
+  // no guardian: the account's current endpoint may belong to a later switch.
+  const rotationGuardianEndpoint = isHotKeyRotation ? entry?.rotationGuardianEndpoint : undefined;
   // Which way the money moved is a property of the transaction TYPE, not of its
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
@@ -568,7 +532,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
-    : isGuardianSwitch
+    : guardianOp
       ? undefined
       : isBridgeIn
         ? undefined
@@ -577,7 +541,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.secondaryAddress;
   const toAddress = isBridgeOut
     ? undefined
-    : isGuardianSwitch
+    : guardianOp
       ? undefined
       : isBridgeIn
         ? entry?.address
@@ -600,11 +564,29 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // whole transaction. A batch claim's hero lists every asset it swept up, and a
   // single-faucet estimate under it reads as the total while understating it -
   // no figure is better than a confidently wrong one.
+  //
+  // Still suppressed now that the breakdown below prices nothing by itself, and
+  // deliberately not replaced by a per-asset sum: `getTokenPrice` answers $1 for
+  // any symbol Binance does not list, and a batch claim's secondary faucets are
+  // exactly the ones the wallet has never resolved - so a "total" would quietly
+  // value every unknown asset at a dollar a unit. The assets an unknown-scale
+  // faucet contributed have no honest quantity to multiply either. Gating the
+  // figure on every asset being both resolved and listed would make it appear
+  // and vanish between renders as metadata lands, which is worse than absent.
+  // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token && !spansMultipleAssets
       ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
       : undefined;
+  // One entry per faucet the claim swept up, each with the asset and quantity
+  // that faucet contributed. Resolved through the SAME helper as the hero badge
+  // over it, so the two cannot disagree about what a faucet is called - and
+  // synchronously, so a faucet the store resolves later re-renders both.
+  const assetBreakdown =
+    spansMultipleAssets && transaction
+      ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
+      : [];
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
@@ -621,25 +603,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
-  // Cancel is offered on a narrower set than "pending": a structural op that has
-  // already been picked up cannot be stopped, retried, or completed afterwards,
-  // so the button only mislabels a rotation that is going to land anyway.
-  const canCancel = entry ? isCancellableTransaction({ status: entry.status, type: entry.txType }) : false;
-  const earnRetryKind = earnWithdrawalRetryKind(transaction);
-  const canRetry =
-    entry !== null &&
-    !entry.isCancelled &&
-    !transaction?.restoredFromBackup &&
-    (entry.txType === 'earn-withdraw'
-      ? earnRetryKind !== undefined
-      : isRequeueableTransaction({
-          status: entry.status,
-          type: entry.txType,
-          // Epoch (Fast) bridged sends are not replayable - their Epoch intent is
-          // already gone, so a requeue would mint a second orphan collateral note.
-          bridgeProvider: entry.bridgeProvider,
-          restoredFromBackup: transaction?.restoredFromBackup
-        }));
 
   return (
     <PageLayout hideToolbar>
@@ -673,19 +636,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
+            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate(ACTIVITY_PENDING_PATH) : undefined}
+            offerCancelOrder={receipt.offerCancel}
+            reclaimPending={receipt.reclaimPending}
+            isCancellingOrder={actions.isCancellingOrder}
+            cancelOrderError={actions.cancelOrderError}
+            onCancelOrder={actions.onCancelOrder}
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
             {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
-                <GuardianTransitionHero
+                <GuardianChangeSummary
+                  kind="switch"
                   previousEndpoint={entry.previousGuardianEndpoint}
                   newEndpoint={entry.newGuardianEndpoint}
-                  previousLabel={t('from')}
-                  newLabel={t('to')}
                 />
+              ) : rotationGuardianEndpoint ? (
+                <GuardianChangeSummary kind="single" endpoint={rotationGuardianEndpoint} />
               ) : (
                 <>
                   <TransactionIcon entry={entry} size="lg" />
@@ -730,7 +699,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <div className="mt-4">
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
-                <DetailSection title={t(isGuardianSwitch ? 'details' : 'transferDetails')}>
+                <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 
                   {isBridgeIn && entry.bridgeInSourceAddress && (
@@ -753,9 +722,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
-                  {isGuardianSwitch && !entry.externalTxId && entry.txId && (
+                  {guardianOp && !entry.externalTxId && entry.txId && (
                     <DetailRow label={t('txIdLabel')}>
                       <HashChip hash={entry.txId} trimHash className="ml-2" />
+                    </DetailRow>
+                  )}
+
+                  {/* A rotation's whole subject: the guardian above is unchanged, the key is what moved. */}
+                  {isHotKeyRotation && entry.newHotPublicKey && (
+                    <DetailRow label={t('newDeviceKey')} data-testid="history-detail-new-device-key">
+                      <HashChip hash={entry.newHotPublicKey} trimHash className="ml-2" />
                     </DetailRow>
                   )}
 
@@ -780,9 +756,64 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       />
                     </DetailRow>
                   )}
+
+                  {/*
+                    The faucet that minted the asset this row moved - the token's
+                    on-chain identity, which the FAQ documents and nothing in the app
+                    showed. A faucet IS an account, so it gets the same treatment as
+                    From/To: a trimmed, copyable chip over the account explorer.
+
+                    Rows with no asset (a guardian switch, a key rotation, a dApp
+                    `execute`) carry no `faucetId` and render no row rather than an
+                    empty one. Swaps never reach here: they take the `SwapDetail`
+                    branch, which labels both of their faucets.
+
+                    `tx.faucetId` is only the FIRST faucet of the row, so a claim
+                    spanning several hands off to the per-asset card below rather
+                    than naming one of them here as though it were the whole
+                    transaction.
+                  */}
+                  {!spansMultipleAssets && entry.faucetId && (
+                    <DetailRow label={t('faucetId')} data-testid="history-detail-faucet-id">
+                      <ExternalLinkValue
+                        displayValue={<HashChip hash={entry.faucetId} trimHash className="ml-2" />}
+                        href={getExplorerAccountUrl(entry.faucetId)}
+                      />
+                    </DetailRow>
+                  )}
                 </DetailSection>
               </div>
             </div>
+
+            {/*
+              Per-asset faucets, for a claim that swept up several at once.
+
+              Accept All consumes every waiting transfer in ONE `consume`, and
+              those notes can come from different faucets. The row keeps a total
+              per faucet in `assetTotals`, but `tx.faucetId` is just the first of
+              them - so the single Faucet ID row above would name one faucet and
+              say nothing about the rest. Each asset gets its own row instead:
+              the quantity and symbol it contributed on the left, the faucet that
+              minted it on the right, with the same trimmed copyable chip over
+              the account explorer that From/To and the single-faucet row use.
+            */}
+            {assetBreakdown.length > 0 && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailSection title={t('faucetIds')}>
+                    {assetBreakdown.map(part => (
+                      <DetailRow key={part.faucetId} label={part.label} data-testid="history-detail-faucet-id">
+                        <ExternalLinkValue
+                          displayValue={<HashChip hash={part.faucetId} trimHash className="ml-2" />}
+                          href={getExplorerAccountUrl(part.faucetId)}
+                        />
+                      </DetailRow>
+                    ))}
+                  </DetailSection>
+                </div>
+              </div>
+            )}
 
             {/* Smart Withdraw details (market, position owner, intent, note) */}
             {isEarnWithdraw && earnWithdraw && (
@@ -1033,14 +1064,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
         {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
-            {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
+            {actions.cancelError && (
+              <p className="mb-2 text-center text-sm text-status-negative">{actions.cancelError}</p>
+            )}
             <Button
               data-testid="history-cancel-button"
               variant={ButtonVariant.Destructive}
               title={t('cancel')}
-              isLoading={isCancelling}
-              disabled={isCancelling}
-              onClick={handleCancel}
+              isLoading={actions.isCancelling}
+              disabled={actions.isCancelling}
+              onClick={actions.onCancel}
               className="max-w-none"
             />
           </div>
@@ -1054,9 +1087,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
-            {retryError && (
+            {actions.retryError && (
               <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
-                {retryError}
+                {actions.retryError}
               </p>
             )}
             {maxNetworkFee && !isEarnWithdraw && (
@@ -1071,21 +1104,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               data-testid="history-retry-button"
               variant={ButtonVariant.Primary}
               title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
-              isLoading={isRetrying}
-              disabled={isRetrying}
-              onClick={() => handleRetry(false)}
+              isLoading={actions.isRetrying}
+              disabled={actions.isRetrying}
+              onClick={() => actions.onRetry(false)}
               className="max-w-none"
             />
             {/* Only after the refusal above has been shown, so the warning is
                 always read first. */}
-            {needsSendAcknowledgement && (
+            {actions.needsSendAcknowledgement && (
               <Button
                 data-testid="history-retry-anyway-button"
                 variant={ButtonVariant.Secondary}
                 title={t('retryAnyway')}
-                isLoading={isRetrying}
-                disabled={isRetrying}
-                onClick={() => handleRetry(true)}
+                isLoading={actions.isRetrying}
+                disabled={actions.isRetrying}
+                onClick={() => actions.onRetry(true)}
                 className="mt-2 max-w-none"
               />
             )}

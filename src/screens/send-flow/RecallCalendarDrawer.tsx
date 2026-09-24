@@ -5,6 +5,10 @@ import { addDays, addHours, addMinutes, differenceInSeconds, format } from 'date
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { Button, ButtonVariant } from 'components/ui/Button';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { Pill } from 'components/ui/Pill';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import { Calendar } from 'lib/ui/calendar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -137,7 +141,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
         <DrawerHeader>
           <DrawerTitle>{t('expirationDate')}</DrawerTitle>
         </DrawerHeader>
-        <div className="px-4 pb-4 flex flex-col items-center overflow-y-auto no-scrollbar max-h-[70vh]">
+        <div className="no-scrollbar flex max-h-[70vh] flex-col gap-5 overflow-y-auto px-4 pb-4">
           <Calendar
             mode="single"
             selected={recallDate}
@@ -154,76 +158,81 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
             month={calendarMonth}
             onMonthChange={setCalendarMonth}
             disabled={{ before: new Date() }}
-            className="p-0 [--cell-size:--spacing(8)]"
+            className="self-center p-0 [--cell-size:--spacing(8)]"
           />
 
-          {/* Time Input */}
-          <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-border-subtle">
-            <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
-            <span className="text-sm font-medium text-ink">{t('time')}</span>
-            <input
-              type="time"
-              data-testid="recall-time-input"
-              value={recallTime}
-              onChange={e => {
-                onRecallTimeChange(e.target.value);
-                // Keep recallBlocks in lockstep with the time too (see onSelect).
-                if (recallDate) {
-                  onRecallBlocksChange(String(dateTimeToRecallBlocks(combineDateAndTime(recallDate, e.target.value))));
+          {/* The time sits in the same one-row `fill` group every setting uses, rather than under a
+              rule of its own. */}
+          <section>
+            <ListGroup>
+              <ListRow
+                icon={<Icon name={IconName.Calendar} size="xs" fill="currentColor" />}
+                title={t('time')}
+                trailing={
+                  <input
+                    type="time"
+                    aria-label={t('time')}
+                    data-testid="recall-time-input"
+                    value={recallTime}
+                    onChange={e => {
+                      onRecallTimeChange(e.target.value);
+                      // Keep recallBlocks in lockstep with the time too (see onSelect).
+                      if (recallDate) {
+                        onRecallBlocksChange(
+                          String(dateTimeToRecallBlocks(combineDateAndTime(recallDate, e.target.value)))
+                        );
+                      }
+                    }}
+                    className={clsx(
+                      'rounded-full bg-page px-3 py-1.5 text-value outline-none',
+                      'focus-visible:ring-2 focus-visible:ring-accent-primary',
+                      '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
+                      selectionInPast ? 'text-negative-ink' : 'text-ink'
+                    )}
+                  />
                 }
-              }}
-              className={clsx(
-                'ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer',
-                selectionInPast ? 'text-red-500' : 'text-ink'
-              )}
-            />
-          </div>
-          {selectionInPast && <p className="w-full mt-2 text-xs text-red-500">{t('recallTimeInPast')}</p>}
+              />
+            </ListGroup>
+            {selectionInPast && <p className="px-1 pt-2 text-caption text-negative-ink">{t('recallTimeInPast')}</p>}
+          </section>
 
-          {/* Confirm button */}
-          {recallDate && (
-            <button
-              type="button"
-              disabled={selectionInPast}
-              className={clsx(
-                'w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium',
-                selectionInPast ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-              )}
-              onClick={() => applyDateTimeSelection(recallDate, recallTime)}
-            >
-              {t('confirm')}
-            </button>
-          )}
-
-          {/* Presets */}
-          <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3 mt-3 w-full">
+          {/* Presets, as the app's quiet chips rather than six outlined boxes. */}
+          <div className="flex flex-wrap gap-2">
             {RECALL_PRESETS(t).map((preset, i) => (
-              <button
+              <Pill
                 key={i}
-                type="button"
-                className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-ink hover:bg-input-bg transition-colors cursor-pointer"
                 onClick={() => {
                   const date = preset.fn(new Date());
                   applyDateTimeSelection(date, format(date, 'HH:mm'));
                 }}
               >
                 {preset.label}
-              </button>
+              </Pill>
             ))}
           </div>
 
-          {/* No expiration — clears the reclaim height so the send goes out as a
-              plain P2ID note (recipient keeps it; the sender has no recall window). */}
-          <button
-            type="button"
-            className="w-full mt-2 py-2.5 rounded-[10px] border border-border-card text-ink text-sm font-medium hover:bg-input-bg transition-colors cursor-pointer"
-            onClick={() => {
-              onRecallNever();
-              onOpenChange(false);
-            }}
-          >
-            {t('never')}
-          </button>
+          <div className="flex flex-col items-center gap-2.5">
+            {recallDate && (
+              <Button
+                title={t('confirm')}
+                accent="send"
+                disabled={selectionInPast}
+                className="max-w-none"
+                onClick={() => applyDateTimeSelection(recallDate, recallTime)}
+              />
+            )}
+            {/* No expiration — clears the reclaim height so the send goes out as a
+                plain P2ID note (recipient keeps it; the sender has no recall window). */}
+            <Button
+              title={t('never')}
+              variant={ButtonVariant.Secondary}
+              className="max-w-none"
+              onClick={() => {
+                onRecallNever();
+                onOpenChange(false);
+              }}
+            />
+          </div>
         </div>
       </DrawerContent>
     </Drawer>

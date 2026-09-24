@@ -3,6 +3,7 @@ import React from 'react';
 import classNames from 'clsx';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { FlowAccent } from 'components/flow/accent';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 
@@ -22,8 +23,8 @@ export interface ReviewAction {
 export interface ReviewLayoutProps {
   /** Hero block — a `Hero` amount (bridge deposit) or a composed swap hero. */
   hero: React.ReactNode;
-  /** Orange underline under the hero. Default true; every current caller passes false (kept for a future hero that wants the accent divider back). */
-  heroDivider?: boolean;
+  /** The flow this review belongs to; colours the primary CTA. Defaults to the brand orange. */
+  accent?: FlowAccent;
   /** Divider lines around the children. Default true; a caller whose rows already live in one `DetailCard` (its own hairlines) passes false. */
   dividers?: boolean;
   /** The row content — a `DetailCard` of `DetailRow`s. */
@@ -35,7 +36,7 @@ export interface ReviewLayoutProps {
 }
 
 /**
- * Shared shell for review/confirmation screens: hero → orange divider → detail
+ * Shared shell for review/confirmation screens: hero → detail
  * rows → primary/secondary CTAs, all in one scrolling column (the CTAs flow at
  * the end of the content, not a sticky footer). There is no screen header; back
  * is reached via the secondary CTA (or native mobile back). Flow-specific content
@@ -44,7 +45,7 @@ export interface ReviewLayoutProps {
  */
 export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   hero,
-  heroDivider = true,
+  accent = 'brand',
   dividers = true,
   children,
   primary,
@@ -62,8 +63,6 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
           {hero}
 
-          {heroDivider && <div className="mt-4 h-2 w-full rounded-full bg-primary-500" />}
-
           <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
         </div>
 
@@ -73,6 +72,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
             type={primary.type ?? 'button'}
             title={primary.label}
             variant={ButtonVariant.Primary}
+            accent={accent}
             onClick={primary.onPress}
             isLoading={primary.loading}
             disabled={primary.disabled || primary.loading}

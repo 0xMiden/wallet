@@ -371,6 +371,26 @@ const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
 export const ENDPOINT_PERSIST_TIMEOUT_MS = 15_000;
 
 /**
+ * The stored WalletAccount id for a row queued under any spelling of it. The
+ * vault matches account records with ===, so a write keyed on the queued id can
+ * silently miss the account. Falls back to the queued id when nothing matches or
+ * the lookup fails: a post-commit completion must still reach its terminal writes.
+ */
+const storedAccountIdFor = async (guardianProvider: GuardianAccountProvider, accountId: string): Promise<string> => {
+  try {
+    const accounts = await withTimeout(
+      Promise.resolve(guardianProvider.getAccounts()),
+      ENDPOINT_PERSIST_TIMEOUT_MS,
+      'reading the stored guardian account'
+    );
+    return accounts.find(a => sameWalletAccountId(a.publicKey, accountId))?.publicKey ?? accountId;
+  } catch (error) {
+    console.warn('Could not resolve the stored guardian account id (using the queued id):', error);
+    return accountId;
+  }
+};
+
+/**
  * How many times to try writing the terminal status of a rotation that has
  * ALREADY committed on chain, and how long to space the attempts.
  *
@@ -432,6 +452,7 @@ export const completeReplaceHotKeyTransaction = async (
     // immediately transacts stays broken for the whole of that window.
     let reRegisterFailed = false;
     let reRegisterError: unknown;
+    let storedAccountId = tx.accountId;
     for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
       try {
         const accounts = await guardianProvider.getAccounts();
@@ -439,9 +460,10 @@ export const completeReplaceHotKeyTransaction = async (
         if (!walletAccount) {
           throw new Error(`Guardian account ${tx.accountId} not found in provider`);
         }
+        storedAccountId = walletAccount.publicKey;
         const sdkAccount = await withWasmClientLock(async () => {
           await midenClientProxy.syncState();
-          return midenClientProxy.getAccount(tx.accountId);
+          return midenClientProxy.getAccount(walletAccount.publicKey);
         });
         if (!sdkAccount) {
           throw new Error(`Guardian account ${tx.accountId} not found in local client`);
@@ -480,16 +502,17 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
-    await guardianProvider.swapHotKey(tx.accountId, newHotPublicKey);
+    await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
     // Drop the cached MultisigService — its bound hot signer is now stale.
-    clearGuardianServiceFor(tx.accountId);
+    clearGuardianServiceFor(storedAccountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       ...feeFieldsFromResult(result),
       displayMessage: 'Everyday key rotated',
       completedAt: Math.floor(Date.now() / 1000),
-      // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
-      // extraInputs) and record whether the guardian re-register landed (#619 gap 1).
+      // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
+      // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
+      // guardian re-register landed (#619 gap 1).
       extraInputs: { ...tx.extraInputs, reRegisterFailed },
       // `result` is absent on the apply-after-submit-failed reconcile path: the
       // rotation is already on chain, we just lack the local TransactionResult.
@@ -503,7 +526,7 @@ export const completeReplaceHotKeyTransaction = async (
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
     // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(tx.accountId, tx.delegateTransaction, guardianProvider);
+    await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
@@ -530,7 +553,8 @@ export const completeUpdateProcedureThresholdTransaction = async (
     completedAt: Math.floor(Date.now() / 1000),
     resultBytes: result.serialize()
   });
-  // The cached service's procedureThresholds are now stale — drop it.
+  // The cached service's procedureThresholds are now stale - drop it. The cache is
+  // keyed canonically, so the queued id needs no account-list read first.
   clearGuardianServiceFor(tx.accountId);
 
   // Same gap as replace-hot-key: the OZ lib submitted `update_procedure_threshold`
@@ -610,6 +634,7 @@ export const completeSwitchGuardianTransaction = async (
   let registerFailed = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
+    const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
 
     // Mirror upstream `multisig.executeProposal`'s post-submit block for
     // switch_guardian proposals: register on the new guardian with the updated
@@ -673,7 +698,7 @@ export const completeSwitchGuardianTransaction = async (
       // the flag is a harmless false positive — drift reconciliation reads the
       // stored endpoint, finds it correct, and affirms in-sync.
       await withTimeout(
-        Promise.resolve(guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint)),
+        Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, newGuardianEndpoint)),
         ENDPOINT_PERSIST_TIMEOUT_MS,
         'persisting the new guardian endpoint'
       );
@@ -690,7 +715,7 @@ export const completeSwitchGuardianTransaction = async (
       if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
       } else {
-        await finalizeDirectGuardianSwitch(tx.accountId, newGuardianEndpoint, guardianProvider);
+        await finalizeDirectGuardianSwitch(storedAccountId, newGuardianEndpoint, guardianProvider);
       }
     } catch (registerError) {
       registerFailed = true;
@@ -702,7 +727,7 @@ export const completeSwitchGuardianTransaction = async (
     }
 
     try {
-      clearGuardianServiceFor(tx.accountId);
+      clearGuardianServiceFor(storedAccountId);
     } catch (evictError) {
       console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
     }

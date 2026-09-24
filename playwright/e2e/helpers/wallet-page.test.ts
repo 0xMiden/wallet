@@ -58,11 +58,14 @@ function makeSendPage(
           waitFor: jest.fn(async () => {
             if (opts.waitForError !== undefined) throw new Error(opts.waitForError);
             if (appearOnWait.includes(tokenId)) present.add(tokenId);
-          })
+          }),
+          click: jest.fn(async () => clickedTokenIds.push(tokenId))
         }),
-        locator: jest.fn(() => ({
-          first: () => ({ click: jest.fn(async () => clickedTokenIds.push(tokenId)) })
-        }))
+        // The picker row itself carries both data-token-id and its send-token-* test id, so
+        // nothing matches beneath it: a nested lookup is the harness looking in the wrong place.
+        locator: jest.fn((inner: string) => {
+          throw new Error(`nested lookup "${inner}" under the token row finds nothing`);
+        })
       };
     })
   } as unknown as Page;

@@ -47,7 +47,7 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
   }) => (
     <div data-testid="choose-guardian" data-current={currentEndpoint} data-allow-custom={String(allowCustomEndpoint)}>
       {/* Stands in for the picker's page mode: given onBack it draws the shared
-        header, the back chevron beside the one h1. */}
+        header, the back button beside the one h1. */}
       {onBack && (
         <button type="button" onClick={onBack}>
           back

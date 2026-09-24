@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import BigNumber from 'bignumber.js';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -60,12 +61,11 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 
-// Balance is a render-prop that hands its child the total fiat BigNumber; the
-// child immediately runs it through the (mocked) toLocalFormat, so any value is
-// fine here.
+// Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
+// to a number for `AnimatedNumber` and formats it through the (mocked) toLocalFormat.
 jest.mock('app/templates/Balance', () => ({
   __esModule: true,
-  default: ({ children }: { children: (b: unknown) => React.ReactElement }) => children(0)
+  default: ({ children }: { children: (b: BigNumber) => React.ReactElement }) => children(new BigNumber(0))
 }));
 
 jest.mock('app/templates/HomePrompts', () => ({
@@ -109,6 +109,8 @@ jest.mock('components/Loader', () => ({
 }));
 
 jest.mock('components/ui', () => ({
+  AnimatedNumber: ({ value, format }: { value: number | null; format: (value: number) => string }) =>
+    typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
   BalanceCard: ({
     accountNumber,
     accountId,
@@ -119,7 +121,7 @@ jest.mock('components/ui', () => ({
   }: {
     accountNumber: string;
     accountId: string;
-    amount: string;
+    amount: React.ReactNode;
     onMore: () => void;
     state?: string;
     // Surfaced so a test can see what Home passes: a stub that drops it makes the call site

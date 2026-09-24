@@ -94,18 +94,9 @@
     "message": "Cargando",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "Se devolverá al remitente si no es reclamado por $date$",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "Se devuelve al remitente si no se acepta antes del $date$",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -415,6 +406,10 @@
     "message": "No se han podido cargar tus posiciones. Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "No se ha podido cargar esta caja fuerte. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -435,6 +430,14 @@
   "earnSeeAll": {
     "message": "Ver todo",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Sin posiciones activas",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Realiza un depósito en una caja fuerte a continuación para empezar a ganar recompensas.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Cajas fuertes destacadas",
@@ -611,24 +614,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "Esta transacción se realiza en la cadena de bloques, pero la clave privada note no se ha podido entregar al servicio de transporte note. Hasta que esto ocurra, el destinatario no podrá verla ni gastarla.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "Esta transacción está en la cadena, pero la transferencia privada no se pudo entregar al servicio de entrega. Hasta que lo haga, el destinatario no puede verla ni gastarla.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "Esta transacción se realiza en la cadena de bloques, pero el monedero no ha podido confirmar que la clave privada note haya llegado al servicio de transporte note.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "Esta transacción está en la cadena, pero la cartera no pudo confirmar que la transferencia privada llegara al servicio de entrega.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Mantén esta cartera abierta y conectada: el envío se vuelve a intentar automáticamente durante un tiempo tras el envío, y esta advertencia desaparece si se completa con éxito. Si el destinatario sigue sin recibir nada al cabo de una hora, no lo envíes de nuevo; guarda el ID de la transacción que aparece a continuación y ponte en contacto con el servicio de asistencia, ya que el «note» aún puede recuperarse a partir de él.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Mantén esta cartera abierta y conectada: la entrega se reintenta automáticamente durante un tiempo después del envío y este aviso desaparece si se completa. Si el destinatario sigue sin recibir nada al cabo de una hora, no vuelvas a enviar; guarda el ID de transacción de abajo y contacta con soporte, ya que la transferencia todavía puede recuperarse a partir de él.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Entrega confirmada",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "El destinatario ha recibido y gastado esta «note» privada, por lo que su entrega queda confirmada en la cadena de bloques.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "El destinatario ha aceptado y gastado esta transferencia privada, por lo que su entrega está confirmada en la cadena.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -888,8 +891,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "Reclamar note",
-    "englishSource": "Claiming note"
+    "message": "Aceptando la transferencia",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "Ejecución de la transacción",
@@ -980,12 +983,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "Entrega de «note»",
-    "englishSource": "Delivering note"
+    "message": "Entregando la transferencia",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "Envío seguro de la «note» al destinatario.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "Enviando la transferencia al destinatario de forma segura.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "Estado",
@@ -1552,6 +1555,10 @@
     "message": "Enviar a",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Introduce una dirección de Miden o Ethereum",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Selecciona el importe",
     "englishSource": "Select Amount"
@@ -1559,6 +1566,10 @@
   "enterAmount": {
     "message": "Introducir importe",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "Calculando",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "Selecciona un token",
@@ -1661,8 +1672,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Consumo automático",
-    "englishSource": "Auto consume"
+    "message": "Aceptar automáticamente",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "Elige dos fichas diferentes para intercambiarlas.",
@@ -1698,8 +1709,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Si para entonces no se han reclamado, puedes reclamar el «$amount$» para que vuelva a tu monedero. No se pierden fondos.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "Si no se acepta para entonces, los $amount$ vuelven como una transferencia pendiente que aceptas tú. No se pierde ningún fondo.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1814,20 +1825,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "Escaneando la dirección privada notes: vaciando el transporte note…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "Buscando transferencias privadas…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "Escaneando «notes» privadas: importando «notes» de propuestas pendientes…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "Buscando transferencias privadas: importando propuestas pendientes…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "Sincronizando notes…",
-    "englishSource": "Syncing public notes…"
+    "message": "Sincronizando transferencias públicas…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "Sincronización de la cadena de bloques pública notes: bloque $current$ de $latest$",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "Sincronizando transferencias públicas: bloque $current$ de $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1838,14 +1849,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "Tienes una nota pendiente: Notes",
-    "englishSource": "You have Pending Notes"
+    "message": "Tienes transferencias por aceptar",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "Tienes «notes» pendientes por un valor de $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$ en espera",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2631,6 +2642,10 @@
     "message": "Rotar la clave diaria",
     "englishSource": "stale: re-translate with the everyday-key sense"
   },
+  "newDeviceKey": {
+    "message": "Nueva clave del dispositivo",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Genera una nueva clave diaria y sustituye la actual en la cadena de bloques. Resulta útil si sospechas que tu dispositivo ha sido comprometido.",
     "englishSource": "stale: re-translate with the everyday-key sense"
@@ -2799,18 +2814,6 @@
     "message": "Tu MIDEN se reserva para la comisión de red. Recibe más MIDEN para poder enviar.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Cada reclamación paga su propia comisión. Si se reclaman juntas, solo se paga una.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Se cobra una vez por cada activo reclamado.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Necesitas MIDEN para pagar la comisión de red. Obtén algo de MIDEN para continuar.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -2820,12 +2823,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "Aceptar automáticamente las transferencias MIDEN",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Reclima automáticamente los MIDEN entrantes notes en tu saldo, igual que al pulsar «Reclamar». No realiza reclamaciones con más frecuencia ni supone un coste adicional en comisiones respecto a pulsar «Reclamar» tú mismo.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "Acepta automáticamente las transferencias MIDEN entrantes en tu saldo, igual que si pulsaras Aceptar. No acepta con más frecuencia ni cuesta más comisiones que pulsar Aceptar tú mismo.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Creando tu archivo de monedero…",
@@ -3102,6 +3105,10 @@
     "message": "Inicio",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "Ganar",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note ID",
     "englishSource": "Note ID"
@@ -3270,137 +3277,17 @@
     "message": "Enviar pago",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Reclamar todo",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "¿Reclamar todo? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Total pendiente",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes pendiente",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "activos",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ Entrantes",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden utiliza un sistema exclusivo denominado «notes». Aquí es donde reclamas manualmente el dinero que recibes. Es una forma de mantener tu monedero a salvo de actores malintencionados.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes pendientes en todos los activos de «$assets$»",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ transferencias recibidas",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ pendiente",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "La reclamación ha fallado: pulsa «Reintentar» para volver a intentarlo",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "No se pudo aceptar: toca Reintentar para volver a intentarlo",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "Este artículo «note» ya no está disponible.",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "notes pendientes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "¿Qué son las «notes» pendientes?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Consulta tu «notes»",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Añade estos fondos pendientes a tu saldo para empezar a gastarlos.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Cuando alguien te envía fondos, estos llegan como privados",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— Paquetes sellados que solo tú puedes abrir.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Consumo",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "Un «note» lo transfiere a tu saldo disponible. Hasta que lo hagas, los fondos son tuyos, pero aún no puedes gastarlos.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "Tienes",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "A la espera. Úsalas cuando quieras: no hay prisa y tus fondos nunca corren ningún riesgo.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "Esta transferencia ya no está disponible",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "Consigue fichas",
@@ -3421,6 +3308,18 @@
   "faucetId": {
     "message": "Faucet ID",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "Faucet ID ofrecido",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "Faucet ID solicitado",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Establecer un nuevo ID de «Faucet»",
@@ -3483,12 +3382,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "Los mensajes entrantes de notes deben reintentarse",
-    "englishSource": "Incoming notes need a retry"
+    "message": "Hay transferencias entrantes que requieren un reintento",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "Un «note» entrante requiere un nuevo intento",
-    "englishSource": "An incoming note needs a retry"
+    "message": "Una transferencia entrante requiere un reintento",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ No se pudieron importar automáticamente.",
@@ -3500,8 +3399,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note no se ha podido importar automáticamente.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "No se pudo importar automáticamente 1 transferencia.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Mañana",
@@ -3865,13 +3764,9 @@
     "message": "Retroalimentación háptica",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "Actualmente no tienes ningún «notes» que reclamar.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "Has recibido un correo electrónico de note",
-    "englishSource": "You have received a note"
+    "message": "Tienes una transferencia entrante",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "La transacción ha fallado",
@@ -3882,16 +3777,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "Pulsa aquí para reclamarlo",
-    "englishSource": "Tap here to claim it"
+    "message": "Toca aquí para aceptarla",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Haz clic para verlo y reclamarlo",
-    "englishSource": "Click to view and claim it"
+    "message": "Haz clic para revisarla y aceptarla",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes reclamar",
-    "englishSource": "$count$ notes to claim",
+    "message": "$count$ transferencias por aceptar",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3978,10 +3873,6 @@
     "message": "Introduce la dirección",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "No se ha podido reclamar note",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "Red de pruebas",
     "englishSource": "Testnet"
@@ -4013,6 +3904,18 @@
   "recentActivity": {
     "message": "Actividad reciente",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Aún no hay actividad",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Las transacciones con este token aparecerán aquí.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "No se ha podido cargar esta actividad.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Tipo",
@@ -4087,12 +3990,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes agrupadas en este swap",
-    "englishSource": "Notes bundled into this swap"
+    "message": "Ejecuciones agrupadas en este swap",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Note de ejecución $number$",
-    "englishSource": "Fill note $number$",
+    "message": "Ejecución $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4100,8 +4003,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Consumido · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "Aceptada · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4129,24 +4032,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Todavía no se ha agrupado ninguna Note.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "Todavía no se ha agrupado ninguna ejecución.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Ir a Pending Notes",
-    "englishSource": "Go to Pending Notes"
+    "message": "Ir a las transferencias pendientes",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Cancelar el swap",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "¿Cancelar este swap?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "El importe que sigue ofertado vuelve a tu cuenta. Lo que ya se haya emparejado es tuyo.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Devolviendo a tu cuenta el importe que seguía ofertado. Puede tardar un momento.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "No disponible",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "ID de la transacción de consumo",
-    "englishSource": "Consume TX ID"
+    "message": "ID de TX de aceptación",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "ID de la transacción de consumo $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "ID de TX de aceptación $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4526,12 +4445,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "Consumo total",
-    "englishSource": "Total Consumed"
+    "message": "Total aceptado",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes Consumido",
-    "englishSource": "Notes Consumed"
+    "message": "ID de transferencia",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "Consumido",
@@ -4739,8 +4658,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "Reclamado el",
-    "englishSource": "Claimed on"
+    "message": "Aceptada el",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "Conecta únicamente un monedero de prueba",
@@ -4760,8 +4679,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "¿Ocultar esta transferencia de la sección «Actividad» en este dispositivo? Esto no devuelve los fondos al remitente ni elimina el «note». Puedes restaurar las transferencias ocultas en la sección «Actividad».",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "¿Ocultar esta transferencia de la Actividad en este dispositivo? Esto no devuelve los fondos al remitente ni cancela la transferencia. Puedes restaurar las transferencias ocultas en Actividad.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "Actividad de búsqueda",
@@ -4812,8 +4731,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "Aún no aceptadas: revísalas y acéptalas para reclamar estos fondos.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "Aún no aceptada: revísala y acéptala para añadir estos fondos a tu saldo.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "La red puede reiniciarse",
@@ -4971,9 +4890,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "Reclamado",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$ en espera",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ en espera · $hidden$ ocultas",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "Envía a esta dirección únicamente tokens de Miden $network$. Los fondos reales enviados a esta dirección no se pueden recuperar.",
@@ -5198,5 +5134,115 @@
   "couldNotCheckUnlockMethod": {
     "message": "No se ha podido comprobar el método de desbloqueo de este monedero. Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Cambiar el color del código QR",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "Recibir en",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Tus ganancias",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "Seg.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Min.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Hora",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "Día",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Unidad de caducidad",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "Más información sobre $label$",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "Introduce un número entero de $min$ a $max$.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Vista de actividad",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Opciones de vista",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Lista",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Grupos",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Intercambios",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Otra actividad",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "Aceptada",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "Aceptando…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "Transferencias",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "No leído",
+    "englishSource": "Unread"
   }
 }

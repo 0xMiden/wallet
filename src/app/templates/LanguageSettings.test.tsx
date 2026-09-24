@@ -152,7 +152,9 @@ describe('LanguageSettings', () => {
     expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'overflow-y-auto');
     const rows = screen.getAllByRole('radio');
     expect(new Set(rows.map(row => row.parentElement)).size).toBe(1);
-    expect(rows[0]!.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // `plain`: the page IS the list, so the group has no surface and its rows sit on the margin.
+    expect(rows[0]!.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(rows[0]!.parentElement).not.toHaveClass('bg-fill');
     expect(rows[0]!.querySelector('[data-slot="title"]')).toHaveTextContent('English');
   });
 

@@ -20,15 +20,14 @@ import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import SpendingLimits from 'app/templates/SpendingLimits';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
-import { PageHeader } from 'components/PageHeader';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SectionHeader } from 'components/ui/SectionHeader';
-import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayout';
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
-import { TabHeader } from 'components/ui/TabHeader';
+import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -50,6 +49,9 @@ type SettingsProps = {
   tabSlug?: string | null;
   rootScrollTop?: React.MutableRefObject<number>;
 };
+
+/** A tab that only opens something outside the wallet: the shared header, and nothing under it. */
+const EmptySubPage: FC = () => <SubPageLayout />;
 
 // A Guardian account has no private-key reveal: its everyday (hot) key is revealed at
 // `reveal-hot-key`, and the cold key has no import path, so showing it gives the
@@ -84,15 +86,15 @@ type Tab = {
   pageTitleI18nKey?: string;
   // Sub-pages are routed, so they own their own exit — none of them takes a host
   // close handler any more.
+  /**
+   * Every panel renders `SubPageLayout` — the header, the one scrolling body and the pinned
+   * actions — taking its header from the `SubPageHeaderProvider` this host wraps it in. A tab
+   * that is only a link out of the wallet uses `EmptySubPage`, which is the header and nothing
+   * else, so a deep link to its slug still has a way back. An `actionOnly` row never routes, so its
+   * `Component` is never drawn.
+   */
   Component: React.FC;
   testID?: SettingsSelectors;
-  hasOwnLayout?: boolean;
-  /**
-   * The page renders `SubPageLayout` itself (header, scrolling body, pinned footer), taking its
-   * header from the `SubPageHeaderProvider` this host wraps it in. Set per page as it moves onto
-   * the layout; the others still get the host's header and padded body.
-   */
-  rendersSubPageLayout?: boolean;
   rightText?: string;
   linksOutsideOfWallet?: boolean;
   onClick?: () => void;
@@ -162,8 +164,7 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'general-settings',
         titleI18nKey: 'generalSettings',
         Component: GeneralSettings,
-        testID: SettingsSelectors.GeneralButton,
-        rendersSubPageLayout: true
+        testID: SettingsSelectors.GeneralButton
       },
       {
         slug: 'address-book',
@@ -175,8 +176,7 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'language',
         titleI18nKey: 'language',
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton,
-        rendersSubPageLayout: true
+        testID: SettingsSelectors.LanguageButton
       }
     ]
   },
@@ -191,15 +191,13 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'recoveryPhrase',
         Component: RecoveryPhraseSettings,
         requiresSeedPhrase: true,
-        testID: SettingsSelectors.RecoveryPhraseButton,
-        rendersSubPageLayout: true
+        testID: SettingsSelectors.RecoveryPhraseButton
       },
       {
         slug: 'keys',
         titleI18nKey: 'keys',
         Component: KeysSettings,
-        testID: SettingsSelectors.KeysButton,
-        rendersSubPageLayout: true
+        testID: SettingsSelectors.KeysButton
       },
       {
         // The file is the only backup of an OffChain account's private state and of an
@@ -209,8 +207,7 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'encryptedWalletFile',
         Component: EncryptedFileFlow,
         testID: SettingsSelectors.EncryptedWalletFile,
-        requiresFileBackup: true,
-        hasOwnLayout: true
+        requiresFileBackup: true
       },
       {
         slug: 'spending-limits',
@@ -232,8 +229,7 @@ const TAB_GROUPS: TabGroup[] = [
         // the anchor and Link's analytics call, and an absent one became an
         // empty data-testid plus a ButtonPress event with an empty name.
         testID: SettingsSelectors.GuardianSettingsButton,
-        guardianOnly: true,
-        rendersSubPageLayout: true
+        guardianOnly: true
       }
     ]
   },
@@ -245,8 +241,7 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'advanced-settings',
         titleI18nKey: 'advancedSettings',
         Component: AdvancedSettings,
-        testID: SettingsSelectors.AdvancedSettingsButton,
-        rendersSubPageLayout: true
+        testID: SettingsSelectors.AdvancedSettingsButton
       },
       {
         // Distinct slug: the connected-dApps list page owns '/settings/dapps'
@@ -254,8 +249,7 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'dapp-settings',
         titleI18nKey: 'authorizedDApps',
         Component: DAppDrawerSettings,
-        testID: SettingsSelectors.DAppsButton,
-        rendersSubPageLayout: true
+        testID: SettingsSelectors.DAppsButton
       }
     ]
   },
@@ -266,13 +260,13 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: PRIVACY_POLICY_URL,
         titleI18nKey: 'privacyPolicy',
-        Component: () => null,
+        Component: EmptySubPage,
         linksOutsideOfWallet: true
       },
       {
         slug: TERMS_OF_USE_URL,
         titleI18nKey: 'termsOfService',
-        Component: () => null,
+        Component: EmptySubPage,
         linksOutsideOfWallet: true
       },
       {
@@ -314,16 +308,14 @@ const HIDDEN_TABS: Tab[] = [
     titleI18nKey: 'recoveryPhrase',
     Component: RevealSeedPhraseFlow,
     requiresSeedPhrase: true,
-    reportsSeedState: true,
-    hasOwnLayout: true
+    reportsSeedState: true
   },
   {
     slug: 'remove-seed-phrase',
     titleI18nKey: 'removeSeedPhrase',
     Component: RemoveSeedPhrase,
     requiresSeedPhrase: true,
-    reportsSeedState: true,
-    hasOwnLayout: true
+    reportsSeedState: true
   },
   {
     slug: 'reveal-private-key',
@@ -331,8 +323,7 @@ const HIDDEN_TABS: Tab[] = [
     Component: RevealPrivateKey,
     requiresSeedPhrase: true,
     standardOnly: true,
-    testID: SettingsSelectors.RevealPrivateKeyButton,
-    rendersSubPageLayout: true
+    testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
     slug: 'reveal-hot-key',
@@ -340,14 +331,12 @@ const HIDDEN_TABS: Tab[] = [
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
-    requiresActivatedHotKey: true,
-    rendersSubPageLayout: true
+    requiresActivatedHotKey: true
   },
   {
     slug: 'verify-seed-phrase',
     titleI18nKey: 'verifySeedPhrase',
-    Component: VerifySeedPhraseFlow,
-    hasOwnLayout: true
+    Component: VerifySeedPhraseFlow
   },
   {
     slug: 'edit-miden-faucet-id',
@@ -355,8 +344,7 @@ const HIDDEN_TABS: Tab[] = [
     ownsInitialFocus: () => true,
     titleI18nKey: 'editMidenFaucetId',
     Component: EditMidenFaucetId,
-    testID: SettingsSelectors.EditMidenFaucetButton,
-    rendersSubPageLayout: true
+    testID: SettingsSelectors.EditMidenFaucetButton
   },
   {
     slug: 'export-account-file',
@@ -367,14 +355,12 @@ const HIDDEN_TABS: Tab[] = [
     slug: 'networks',
     titleI18nKey: 'networks',
     Component: NetworksSettings,
-    testID: SettingsSelectors.NetworksButton,
-    rendersSubPageLayout: true
+    testID: SettingsSelectors.NetworksButton
   },
   {
     slug: 'dapps',
     titleI18nKey: 'authorizedDApps',
-    Component: DAppSettings,
-    rendersSubPageLayout: true
+    Component: DAppSettings
   }
 ];
 
@@ -442,8 +428,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     const devEndpointsTab: Tab = {
       slug: 'network-endpoints',
       titleI18nKey: 'devEndpointsRow',
-      Component: () => null,
-      hasOwnLayout: true
+      // `/settings/network-endpoints` is its own route (PageRouter), served by the read-only
+      // Developer Settings page ahead of this one; this entry only draws the menu row.
+      Component: EmptySubPage
     };
 
     return groups.map(group =>
@@ -528,8 +515,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // <body>. Skipped for the pages that focus a field themselves — see `ownsInitialFocus`.
   const focusSubPageTitle = activeTab ? !activeTab.ownsInitialFocus?.() : false;
 
-  if (activeTab?.rendersSubPageLayout) {
+  if (activeTab) {
     return (
+      // Every sub-page draws its own `SubPageLayout`: the header, the one scrolling body and the
+      // pinned actions all come from there, so the host adds no frame of its own - no second
+      // scroller around the page, no padded wrapper, no header the page then has to work around.
       // No key: every sub-page tab has its own Component, so a sibling-to-sibling move already
       // remounts the page and re-runs its header's focus effect. A key here claimed to cause that
       // and changed nothing - removing it left the test written to pin it green.
@@ -543,79 +533,34 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
 
   return (
     <>
-      {/* Headers sit OUTSIDE the scroll container below: a sub-page's header
-          carries its only back affordance, and Language or Address Book
-          overflow the popup, which would scroll it away. */}
-      {activeTab ? (
-        !activeTab.hasOwnLayout && (
-          <PageHeader
-            className="px-4"
-            title={subPageTitle}
-            onBack={handleSubPageBack}
-            focusTitleOnMount={focusSubPageTitle}
-            // Prefixed: the scroll container below is a sibling in this same
-            // fragment and keys on the slug too, and two siblings sharing a key
-            // makes React render both of them.
-            key={`header-${activeTab.slug}`}
-          />
-        )
-      ) : (
-        // Settings root is a primary tab destination, so it wears the same
-        // header as Activity and Explore: a plain title, no back chevron.
-        // Sub-pages above keep PageHeader — that back arrow is their only
-        // way out.
-        <TabHeader title={t('settings')} />
-      )}
-
-      {/* Sibling sub-pages share a layout, so key their scrollers to prevent
-          one page inheriting another's offset. Restore only the root list. */}
+      {/* Settings root is a primary tab destination, so it wears the same header as Activity and
+          Explore: the shared `TabRootHeader`, here without a filter row, a plain title and no back
+          button. A sub-page above keeps `PageHeader`, drawn by its own layout. */}
+      <TabRootHeader title={t('settings')} />
       <div
-        key={activeTab?.slug ?? 'root'}
         // A ref avoids re-rendering the page on every scroll event.
         ref={node => {
-          if (node && !activeTab) node.scrollTop = rootScrollTop.current;
+          if (node) node.scrollTop = rootScrollTop.current;
         }}
-        onScroll={
-          activeTab
-            ? undefined
-            : event => {
-                rootScrollTop.current = event.currentTarget.scrollTop;
-              }
-        }
+        onScroll={event => {
+          rootScrollTop.current = event.currentTarget.scrollTop;
+        }}
         className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col"
       >
-        {activeTab ? (
-          activeTab.hasOwnLayout ? (
-            <activeTab.Component />
-          ) : (
-            // No `onClose`: the sub-pages that still call it do so immediately
-            // before navigating on, and popping first would race the push. The
-            // one screen whose action means "done here" pops itself.
-            //
-            // `font-heading` stays. Dropping it to fix a font was the wrong scope:
-            // the problem was that Preflight sets `font: inherit` on form controls,
-            // so RevealSecret's recovery-phrase and private-key textareas inherited
-            // the display face for the app's highest-stakes text — but removing the
-            // blanket switched all twelve routed screens to Inter to fix those two
-            // fields, and only LanguageSettings kept Nunito, by way of an inline
-            // style. The textareas ask for `font-sans` themselves instead.
-            <div className="font-heading px-4 flex-1 flex flex-col min-h-0">
-              <activeTab.Component />
-            </div>
-          )
-        ) : (
+        {
           // pb-22 reserves space at the bottom so the last row can scroll above
-          // the React BottomNav.
-          <div className="flex w-full flex-col gap-5 px-4 pt-1 pb-22">
+          // the React BottomNav. No top padding: the 8px under the rule is
+          // TabRootHeader's, the same 8px the other tab roots' filter rows get.
+          <div className="flex w-full flex-col gap-5 px-4 pb-22">
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header
                     renders as h1. `lg` + the group's own coloured glyph: these are
                     page-level section titles, not the plain 13px list-group label. */}
-                <SectionHeader size="lg" icon={<group.Icon />}>
+                <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
                   {t(group.titleI18nKey)}
                 </SectionHeader>
-                <ListGroup>
+                <ListGroup surface="plain">
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
                     const isSupport = tab.slug === 'support';
@@ -652,7 +597,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
 
             <p className="px-1 text-caption text-muted">{t('settingsVersion', { version: pkg.version })}</p>
           </div>
-        )}
+        }
       </div>
     </>
   );

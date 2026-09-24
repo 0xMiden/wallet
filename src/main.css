@@ -53,6 +53,38 @@ button:disabled,
 @import 'tippy.js/animations/shift-away-subtle.css';
 @import 'vaul/style.css';
 
+/* Every sheet opens and closes on the tab-bar springs, so arriving at one feels like switching
+ * nav tabs: bouncy in with a single overshoot, snappy out. vaul runs the open/close as a CSS
+ * `animation` and the drag-release snap-back as an INLINE `transition`, so the springs arrive as
+ * `linear()` curves in custom properties that `lib/ui/drawer.tsx` sets on both the sheet and its
+ * backdrop (`lib/animation/sheet.ts`); the declared fallbacks are vaul's own stock curve.
+ *
+ * The snap-back rule clamps `transition-duration`/`transition-timing-function` with `!important`
+ * (an inline style outranks a plain rule) but deliberately leaves `transition-property` alone:
+ * vaul sets `transition: none` inline while a drag is in progress, and overriding the property
+ * too would animate every pointer move.
+ *
+ * An overshoot on the way in lifts the sheet past its resting edge for a frame; vaul's own
+ * `::after` skirt (200% tall, `background: inherit`) is what fills the gap under it, which is why no
+ * sheet may clip itself (`overflow-hidden` on DrawerContent would cut the skirt off).
+ *
+ * vaul inserts its own stylesheet at runtime, AFTER this one, so a tie in specificity goes to vaul:
+ * each selector here carries one attribute more than the vaul rule it overrides
+ * (`[data-vaul-drawer]`, `[data-vaul-overlay][data-vaul-snap-points=false]`). */
+[data-vaul-drawer][data-vaul-drawer-direction],
+[data-vaul-overlay][data-vaul-snap-points][data-state] {
+  animation-duration: var(--sheet-open-duration, 0.5s);
+  animation-timing-function: var(--sheet-open-easing, cubic-bezier(0.32, 0.72, 0, 1));
+  transition-duration: var(--sheet-open-duration, 0.5s) !important;
+  transition-timing-function: var(--sheet-open-easing, cubic-bezier(0.32, 0.72, 0, 1)) !important;
+}
+
+[data-vaul-drawer][data-vaul-drawer-direction][data-state='closed'],
+[data-vaul-overlay][data-vaul-snap-points][data-state='closed'] {
+  animation-duration: var(--sheet-close-duration, 0.5s);
+  animation-timing-function: var(--sheet-close-easing, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
 /* vaul animates the sheet and its backdrop three ways, and reduced motion has
  * to beat all three:
  *   1. open/close — a CSS animation on [data-vaul-drawer] (slideFromBottom /
@@ -81,8 +113,8 @@ button:disabled,
  * [data-vaul-drawer-wrapper] (App.tsx), so the wrapper is clamped here too and
  * the scale lands at once under reduced motion. */
 @media (prefers-reduced-motion: reduce) {
-  [data-vaul-drawer],
-  [data-vaul-overlay],
+  [data-vaul-drawer][data-vaul-drawer-direction][data-state],
+  [data-vaul-overlay][data-vaul-snap-points][data-state],
   [data-vaul-drawer-wrapper] {
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;
@@ -612,7 +644,7 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
 
 /* Bottom-CTA footers that reserve space for the floating BottomNav (pb-24)
  * tag themselves with data-navbar-cushion. While the navbar is hidden —
- * notably when the soft keyboard is up (TabLayout hides it) — collapse the
+ * notably when the soft keyboard is up (lib/mobile/keyboard-inset hides it) — collapse the
  * cushion so the CTA sits snug above the keyboard instead of leaving a dead
  * gap. Timed to match the navbar fade above. */
 [data-navbar-cushion='true'] {
@@ -620,6 +652,15 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
 }
 body[data-hide-navbar] [data-navbar-cushion='true'] {
   padding-bottom: 1rem;
+}
+/* A route with no TabLayout has no bar to clear, so its cushion takes the same flat margin. */
+body:not([data-navbar-mounted]) [data-navbar-cushion='true'] {
+  padding-bottom: 1rem;
+}
+/* A flow footer's cushion snaps: it slides with useSlideOnReflow, and a padding transition under
+ * that slide would reflow every frame and leave the slide's start position stale. */
+[data-navbar-cushion='true'][data-flow-footer] {
+  transition: none;
 }
 
 /* BottomNav's shadow deliberately overflows #root into body's safe-area
@@ -638,6 +679,21 @@ body[data-hide-navbar]::after {
    * mobile page only. */
   height: var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)));
   background-color: var(--color-app-bg);
+  pointer-events: none;
+}
+
+/* Home's top action bar band continues up through the status-bar safe area,
+ * which body paints above #root. TabLayout sets the attribute while Home is
+ * the active tab on mobile and its layer is fully on screen. */
+body[data-home-band]::before {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: env(safe-area-inset-top);
+  background-color: var(--ds-action-bar);
   pointer-events: none;
 }
 
@@ -704,6 +760,12 @@ body[data-hide-navbar]::after {
     --accent-swap: var(--action-swap);
     --accent-swap-tint: var(--action-swap-tint);
     --accent-swap-ink: var(--action-swap-ink);
+    /* What a flow draws ON its fill (a glyph, the toggle thumb, the CTA label) needs 3:1 there. */
+    --accent-brand-on: #ffffff;
+    --accent-send-on: #ffffff;
+    --accent-receive-on: #ffffff;
+    --accent-earn-on: #ffffff;
+    --accent-swap-on: #ffffff;
     /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
     --network-miden-tint: #fff3ec;
     --network-miden-border: #f7d6c2;
@@ -736,6 +798,9 @@ body[data-hide-navbar]::after {
     --tx-swap: var(--action-swap);
     --tx-earn: var(--action-earn);
     --tx-faucet: #ba839f;
+    /* A mark with no category of its own (the Activity groups' "Other"): the same neutral a
+     * cancelled row's mark already wears. */
+    --tx-other: #737373;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -764,11 +829,25 @@ body[data-hide-navbar]::after {
     --card-green: #778c72;
     --card-purple: #847595;
 
+    /* The QR code's palette: the five card colors at their LIGHT values, declared once and NOT
+     * redeclared in `.dark`, because a QR is always drawn on a white tile (the modules have to
+     * stay dark enough to scan) and dark mode's lighter card colors fall under 2:1 on white. */
+    --qr-slate: #777386;
+    --qr-orange: #e77537;
+    --qr-blue: #607c92;
+    --qr-green: #778c72;
+    --qr-purple: #847595;
+
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
     --ds-page: #ffffff;
+    /* The scrim behind a sheet or an overlay. One value in both themes: the sheet sits on its own
+     * surface, so what the scrim has to do is dim the page behind it, and that job does not change
+     * with the theme. Plain black at 55% — no blur, no gloss. */
+    --ds-scrim: rgba(0, 0, 0, 0.55);
     --ds-fill: #f3f0ec;
     --ds-fill-pressed: #e9e5e0;
+    --ds-action-bar: #f9f9f9;
     --ds-hairline: rgba(63, 63, 63, 0.1);
     --ds-ink: #3f3f3f;
     --ds-muted: #6b6b6b;
@@ -791,6 +870,11 @@ body[data-hide-navbar]::after {
     --ds-pending-tint-ink: #7a5b26;
     --ds-negative-tint: #f6e5e1;
     --ds-negative-tint-ink: #9b4638;
+    /* The unread / notification mark. Its own token, NOT `--status-negative`: an unread transfer
+     * is not an error, and the two must be free to diverge. Red because that is what a
+     * notification mark means on every platform the wallet ships on; 3.3:1 on `page`, which is
+     * the bar for a non-text mark. */
+    --ds-notification: #ff3b30;
   }
 
   .dark {
@@ -828,6 +912,12 @@ body[data-hide-navbar]::after {
     --action-receive-ink: var(--action-receive);
     --action-earn-ink: #8d8a9a;
     --action-swap-ink: var(--action-swap);
+    /* Dark mode's send, receive and swap fills are pastels, where white falls under 3:1. */
+    --accent-brand-on: #ffffff;
+    --accent-send-on: #191919;
+    --accent-receive-on: #191919;
+    --accent-earn-on: #ffffff;
+    --accent-swap-on: #191919;
     --network-miden-tint: #3a2418;
     --network-miden-border: #5c3622;
     --network-miden-text: #f2a57a;
@@ -854,6 +944,7 @@ body[data-hide-navbar]::after {
     --tx-swap: #a289bf;
     --tx-earn: #777487;
     --tx-faucet: #ba839f;
+    --tx-other: #737373;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;
@@ -877,6 +968,7 @@ body[data-hide-navbar]::after {
     --ds-page: #191919;
     --ds-fill: #262422;
     --ds-fill-pressed: #33302d;
+    --ds-action-bar: #1e1e1e;
     --ds-hairline: rgba(255, 255, 255, 0.09);
     /* A drop shadow barely reads on #191919, so dark raises the bubble with the lighter fill, a
      * lit top edge and a faint ring. */
@@ -897,5 +989,7 @@ body[data-hide-navbar]::after {
     --ds-pending-tint-ink: #d8bc86;
     --ds-negative-tint: #3d2724;
     --ds-negative-tint-ink: #e7a193;
+    /* Lifted on #191919, where the light red sits at 2.9:1. */
+    --ds-notification: #ff453a;
   }
 }

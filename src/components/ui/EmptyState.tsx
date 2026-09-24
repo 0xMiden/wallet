@@ -5,6 +5,8 @@ import clsx from 'clsx';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 
+import { outlineSurfaceClassName } from './surfaces';
+
 export interface EmptyStateSecondaryAction {
   label: string;
   onClick: () => void;
@@ -13,6 +15,8 @@ export interface EmptyStateSecondaryAction {
 
 export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   icon: IconName;
+  /** `fill` (default), or `dashed`: on `page` inside a dashed hairline, for a slot that is waiting to be filled. */
+  surface?: 'fill' | 'dashed';
   title: string;
   /** Optional: not every empty state needs a second line of copy. */
   description?: string;
@@ -28,6 +32,7 @@ export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
 export const EmptyState: React.FC<EmptyStateProps> = ({
   className,
   icon = IconName.Apps,
+  surface = 'fill',
   title,
   description,
   secondaryAction,
@@ -37,11 +42,17 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     <div
       {...props}
       className={clsx(
-        'flex flex-col items-center justify-center gap-3 rounded-2xl bg-fill px-6 py-10 text-center',
+        'flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-10 text-center',
+        surface === 'fill' ? 'bg-fill' : [outlineSurfaceClassName, 'border-dashed'],
         className
       )}
     >
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-page text-muted">
+      <div
+        className={clsx(
+          'flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-muted',
+          surface === 'fill' ? 'bg-page' : 'bg-fill'
+        )}
+      >
         <Icon name={icon} fill="currentColor" size="md" />
       </div>
       <div className="flex flex-col items-center gap-1">

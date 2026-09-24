@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 
-import { wordlists } from 'bip39';
 import { useTranslation } from 'react-i18next';
 
+import { englishWordlist } from '@miden/hd-key';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
@@ -61,7 +61,7 @@ export const RecoverySeedPrompt: React.FC<Props> = ({ transaction, onClose }) =>
       )}
       <ImportSeedPhraseScreen
         key={inputVersion}
-        wordslist={wordlists.english ?? []}
+        wordslist={englishWordlist}
         titleKey="recoverySeedRequiredTitle"
         descriptionKey="recoverySeedTemporaryDescription"
         submitting={submitting}

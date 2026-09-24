@@ -94,18 +94,9 @@
     "message": "Yükleniyor",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "$date$ tarafından talep edilmezse gönderene iade edilir.",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "$date$ tarihine kadar kabul edilmezse gönderene geri döner",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -415,6 +406,10 @@
     "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Bu kasayı yükleyemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -435,6 +430,14 @@
   "earnSeeAll": {
     "message": "Tümünü Göster",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Aktif pozisyon yok",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Ödüller kazanmaya başlamak için aşağıdaki kasalardan birine para yatırın.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Öne Çıkan Kasalar",
@@ -611,24 +614,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "Bu işlem blok zinciri üzerindedir, ancak özel note, note aktarım hizmetine teslim edilememiştir. Teslim edilene kadar alıcı bu tutarı göremez veya harcayamaz.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "Bu işlem zincirde, ancak özel transfer teslimat hizmetine iletilemedi. İletilene kadar alıcı transferi göremez veya harcayamaz.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "Bu işlem zincir üzerindedir, ancak cüzdan, özel note adresinin note aktarım hizmetine ulaştığını doğrulayamadı.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "Bu işlem zincirde, ancak cüzdan özel transferin teslimat hizmetine ulaştığını doğrulayamadı.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Bu cüzdanı açık ve bağlı tutun — gönderimden sonra bir süre boyunca teslimat otomatik olarak yeniden denenir ve işlem başarılı olursa bu uyarı kaybolur. Alıcı bir saat sonra hâlâ bir şey almamışsa, tekrar göndermeyin; aşağıdaki işlem kimliğini kaydedin ve destek ekibiyle iletişime geçin, çünkü note bu kimlikten kurtarılabilir.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Bu cüzdanı açık ve bağlı tutun — teslimat, gönderimden sonra bir süre otomatik olarak yeniden denenir ve başarılı olursa bu uyarı kalkar. Bir saat sonra alıcıda hâlâ bir şey yoksa tekrar göndermeyin; aşağıdaki işlem kimliğini kaydedin ve desteğe başvurun, çünkü transfer bu kimlikten hâlâ kurtarılabilir.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Teslimat onaylandı",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "Alıcı bu özel note adresini almış ve harcamıştır, bu nedenle teslimatı zincir üzerinde onaylanmıştır.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "Alıcı bu özel transferi kabul edip harcadı, bu nedenle teslimatı zincirde doğrulandı.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -888,8 +891,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "note'i Talep Etme",
-    "englishSource": "Claiming note"
+    "message": "Transfer kabul ediliyor",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "İşlemin gerçekleştirilmesi",
@@ -980,12 +983,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "note’in Teslimatı",
-    "englishSource": "Delivering note"
+    "message": "Transfer teslim ediliyor",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "note'i alıcıya güvenli bir şekilde gönderme.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "Transfer alıcıya güvenli şekilde gönderiliyor.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "Durum",
@@ -1552,6 +1555,10 @@
     "message": "Alıcı",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Miden veya Ethereum adresi girin",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Tutar Seç",
     "englishSource": "Select Amount"
@@ -1559,6 +1566,10 @@
   "enterAmount": {
     "message": "Tutarı girin",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "Hesaplanıyor",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "Bir jeton seçin",
@@ -1661,8 +1672,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Otomatik tüketim",
-    "englishSource": "Auto consume"
+    "message": "Otomatik kabul",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "Değiştirmek için iki farklı jeton seçin.",
@@ -1698,8 +1709,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "O zamana kadar talep edilmezse, $amount$ adresinden cüzdanınıza geri alabilirsiniz. Hiçbir fon kaybolmaz.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "O tarihe kadar kabul edilmezse $amount$ sizin kabul edeceğiniz bekleyen bir transfer olarak geri döner. Hiçbir fon kaybolmaz.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1814,20 +1825,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "Özel notes adresini tarama: note aktarımını boşaltma…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "Özel transferler aranıyor…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "Özel notes adresini tarama: bekleyen tekliflerden notes adresini içe aktarma…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "Özel transferler aranıyor: bekleyen teklifler içe aktarılıyor…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "notes'un halka açık veritabanını senkronize ediyor…",
-    "englishSource": "Syncing public notes…"
+    "message": "Herkese açık transferler eşitleniyor…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "notes'ın senkronizasyonu: $latest$ adresindeki $current$ bloğu",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "Herkese açık transferler eşitleniyor: blok $current$ / $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1838,14 +1849,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "Bekleyen Notes'unuz var",
-    "englishSource": "You have Pending Notes"
+    "message": "Kabul edilecek transferleriniz var",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "$amount$ değerinde bekleyen notes'nuz bulunmaktadır.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$ bekliyor",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2631,6 +2642,10 @@
     "message": "Günlük anahtarı değiştirin",
     "englishSource": "stale: re-translate with the everyday-key sense"
   },
+  "newDeviceKey": {
+    "message": "Yeni cihaz anahtarı",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Her gün yeni bir anahtar oluşturun ve zincir üzerindeki mevcut anahtarı bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu yöntem yararlı olabilir.",
     "englishSource": "stale: re-translate with the everyday-key sense"
@@ -2799,18 +2814,6 @@
     "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Talep edilen her varlık için bir kez ücret alınır.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -2820,12 +2823,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "MIDEN transferlerini otomatik kabul et",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\" düğmesine dokunmakla aynıdır. Kendiniz \"Talep Et\" düğmesine dokunmaktan daha sık talep etmez veya daha fazla ücret gerektirmez.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "Gelen MIDEN transferlerini bakiyenize otomatik olarak kabul eder — Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Cüzdan dosyanız oluşturuluyor…",
@@ -3102,6 +3105,10 @@
     "message": "Ana Sayfa",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "Kazan",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note Kimlik",
     "englishSource": "Note ID"
@@ -3270,137 +3277,17 @@
     "message": "Ödemeyi Gönder",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Tümünü Talep Et",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Hepsini Talep Et? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Toplam Beklemede Olan",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes beklemede",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "varlıklar",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ Gelen",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden, \"notes\" (Gelen Ödemeleri Talep Etme) adlı benzersiz bir sistem kullanır. Bu sistemde, gelen parayı manuel olarak talep edersiniz. Bu, cüzdanınızı kötü niyetli kişilerden korumanın bir yoludur.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$’ın tüm varlıklarında beklemede olan",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ gelen havaleler",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ çözülmemiş",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "Talep başarısız oldu — Yeniden Dene düğmesine dokunarak tekrar deneyin",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "Kabul edilemedi — tekrar denemek için Yeniden Dene'ye dokunun",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "Bu note adresi artık kullanılamıyor",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Bekleyen notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "Bekleyen \"notes\" nedir?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "notes'ınızı kullanın",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Harcamaya başlamak için bu bekleyen fonları bakiyenize ekleyin.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Birisi size para gönderdiğinde, bu para \"private\" olarak gelir",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— Yalnızca sizin açabileceğiniz mühürlü paketler.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Tüketim",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "Bir \"note\" işlemi, bu tutarı harcayabileceğiniz bakiyenize aktarır. Bu işlemi gerçekleştirene kadar fonlar size aittir ancak henüz harcanamaz.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "Elinizde",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "Bekliyor. Bunları istediğiniz zaman kullanabilirsiniz — aceleye gerek yok ve hiçbir zaman fonlarınız risk altında olmaz.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "Bu transfer artık kullanılamıyor",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "Jetonları al",
@@ -3421,6 +3308,18 @@
   "faucetId": {
     "message": "Faucet Kimlik",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "Sunulan Faucet Kimlik",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "İstenen Faucet Kimlik",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Faucet'ın yeni kimliğini belirle",
@@ -3483,12 +3382,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "Gelen \"notes\" işlemleri için yeniden deneme gerekir",
-    "englishSource": "Incoming notes need a retry"
+    "message": "Gelen transferler için yeniden deneme gerekiyor",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "Gelen bir note işlemi için yeniden deneme gerekir",
-    "englishSource": "An incoming note needs a retry"
+    "message": "Gelen bir transfer için yeniden deneme gerekiyor",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ otomatik olarak içe aktarılamadı.",
@@ -3500,8 +3399,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note otomatik olarak içe aktarılamadı.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "1 transfer otomatik olarak içe aktarılamadı.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Yarın",
@@ -3865,13 +3764,9 @@
     "message": "Dokunsal Geri Bildirim",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "Şu anda talep edebileceğiniz bir notes'ınız bulunmamaktadır.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "note'i aldınız",
-    "englishSource": "You have received a note"
+    "message": "Gelen bir transferiniz var",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "İşlem başarısız oldu",
@@ -3882,16 +3777,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "Almak için buraya dokunun",
-    "englishSource": "Tap here to claim it"
+    "message": "Kabul etmek için buraya dokunun",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Görüntülemek ve talepte bulunmak için tıklayın",
-    "englishSource": "Click to view and claim it"
+    "message": "İncelemek ve kabul etmek için tıklayın",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes talep etmek",
-    "englishSource": "$count$ notes to claim",
+    "message": "Kabul edilecek $count$ transfer",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3978,10 +3873,6 @@
     "message": "Adresi Girin",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "note'i talep edemedi",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "Test ağı",
     "englishSource": "Testnet"
@@ -4013,6 +3904,18 @@
   "recentActivity": {
     "message": "Son etkinlikler",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Henüz herhangi bir işlem yok",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Bu token ile yapılan işlemler burada görünecektir.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Bu etkinlik yüklenemedi.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Tür",
@@ -4087,12 +3990,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Bu takasta paketlenen Notes",
-    "englishSource": "Notes bundled into this swap"
+    "message": "Bu takasta toplanan gerçekleşmeler",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Gerçekleşme Note $number$",
-    "englishSource": "Fill note $number$",
+    "message": "Gerçekleşme $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4100,8 +4003,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Kullanıldı · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "Kabul edildi · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4129,24 +4032,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Henüz hiçbir Note paketlenmedi.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "Henüz gerçekleşme toplanmadı.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Pending Notes'a git",
-    "englishSource": "Go to Pending Notes"
+    "message": "Bekleyen transferlere git",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Takası iptal et",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Bu takas iptal edilsin mi?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "Hâlâ teklifte duran tutar hesabınıza geri döner. Zaten eşleşen kısım sizde kalır.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Hâlâ teklifte duran tutar hesabınıza geri gönderiliyor. Bu biraz sürebilir.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "Mevcut değil",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Kullanım işlemi kimliği",
-    "englishSource": "Consume TX ID"
+    "message": "Kabul TX kimliği",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Kullanım işlemi kimliği $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "Kabul TX kimliği $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4526,12 +4445,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "Toplam Tüketim",
-    "englishSource": "Total Consumed"
+    "message": "Toplam Kabul Edilen",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes Tüketilen",
-    "englishSource": "Notes Consumed"
+    "message": "Transfer kimlikleri",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "Tüketilen",
@@ -4739,8 +4658,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "Talep edildi",
-    "englishSource": "Claimed on"
+    "message": "Kabul edildi",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "Yalnızca bir test cüzdanını bağlayın",
@@ -4760,8 +4679,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "Bu transfer bu cihazdaki Etkinlik'ten gizlensin mi? Bu, parayı gönderene iade etmez ve transferi iptal etmez. Gizlenen transferleri Etkinlik'ten geri getirebilirsiniz.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "Arama etkinliği",
@@ -4812,8 +4731,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "Henüz kabul edilmedi — bu fonları talep etmek için inceleyin ve kabul edin.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "Henüz kabul edilmedi — bu parayı bakiyenize eklemek için inceleyip kabul edin.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "Ağ sıfırlanabilir",
@@ -4971,9 +4890,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "Talep Edildi",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$ bekliyor",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ bekliyor · $hidden$ gizli",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "Buraya yalnızca Miden $network$ tokenleri gönderin. Bu adrese gönderilen gerçek fonlar geri alınamaz.",
@@ -5198,5 +5134,115 @@
   "couldNotCheckUnlockMethod": {
     "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "QR kodu rengini değiştir",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "Şu adrese al",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Kazançlarınız",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "Sn.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Dk.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Saat",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "Gün",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Son kullanma birimi",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "$label$ hakkında daha fazla bilgi",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "$min$ ile $max$ arasında bir tam sayı girin.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Etkinlik görünümü",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Görünüm seçenekleri",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Liste",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Gruplar",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Takaslar",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Diğer etkinlikler",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "Kabul Edildi",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "Kabul ediliyor…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "Transferler",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "Okunmadı",
+    "englishSource": "Unread"
   }
 }

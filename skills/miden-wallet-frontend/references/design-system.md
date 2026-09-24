@@ -49,7 +49,30 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `page` | #FFFFFF | #191919 | The page, headers, sheets. |
 | `fill` | #F3F0EC | #262422 | Every contained element: list groups, detail cards, search, pills, inputs, secondary buttons, the sheet ✕. |
 | `fill-pressed` | #E9E5E0 | #33302D | A pressed or selected element on `fill`; the sheet handle. |
-| `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; a header once content scrolls under it. |
+| `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; the outline on a segmented control's items; under Home's action bar; a pushed page's header once content scrolls under it. A tab root uses the 4px `fill` rule instead. |
+| `scrim` | #000 at 55% | same | The dim behind a sheet or an overlay. One value in both themes, and never blurred: the job is to dim the page, not to frost it. |
+
+#### The three list surfaces
+
+A group of rows or a card takes one of three surfaces, chosen by where it sits, not by what it
+holds. `ListGroup` and `Card` both declare it as `surface`. This replaces the earlier "every
+contained element is `fill`, borders never outline a card" rule: `fill` is now one of three, and
+the `outline` a card used to be forbidden is the right answer for a card that has to hold its own
+edge on the page.
+
+| Surface | Shape | Where | Replaces |
+| --- | --- | --- | --- |
+| `plain` | No surface. Rows sit on the page's own 16px margin, hairlines run the full width, each group introduced by a `SectionHeader size="lg"` with the group's glyph. | A page whose body IS the list: Settings root and every settings sub-page (General, Language, Networks, Keys, Advanced, Developer, Authorized DApps), the Address Book, Explore's app lists. | full-page lists drawn as one `fill` or `outline` card |
+| `fill` (default) | 16px radius on `fill`, hairlines inset past the leading visual. | A group embedded in a page or a sheet that has to read as one block: the Receive actions, detail and review cards, a sheet's choices, the add-contact sheet, a small group beside other content. | ad-hoc `rounded-2xl bg-fill` stacks |
+| `outline` | 16px radius, `bg-page` with a `hairline` border. | A card that has to separate itself where it sits: Activity's rows, pending transfers, Earn's cards, the home prompt card. | the same cards drawn as lone `fill` blocks on `page` |
+
+A `plain` group has no surface to anchor it, so its `SectionHeader` is load-bearing: the label is
+what says where the group starts. The one exception is a page whose whole body is a single list
+(Networks, Language, Keys) — there the page header is the label. Watch the four details that make
+`plain` work: rows flush to the page margin (the group sets `px-0` on its children), hairlines full
+width, the section label on the same margin rather than the 4px list inset (`SubPageSection` does
+both from its `icon` prop), and enough clearance under the last row that it does not touch a pinned
+CTA.
 
 ### Text
 
@@ -62,11 +85,12 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `accent` | #E77537 | #E77537 | Primary CTA fill, selected state, focus ring. White on it is 3.0:1: labels on it are 19px bold or larger. Never text: #E77537 is 2.64:1 on `fill` and 3.0:1 on white. |
+| `accent` | #E77537 | #E77537 | Primary CTA fill, a selected icon, focus ring, a held icon button. White on it is 3.0:1: that clears rule 6 at 19px bold (the CTA) and for a glyph (a `filled` `IconButton`'s active state), and nowhere else, so a 14px selected label sits on `accent-tint` instead. The colour is the same in both themes, so every ratio holds in both. Never text: #E77537 is 2.64:1 on `fill` and 3.0:1 on white. |
 | `accent-tint` | #FDEEE5 | #3A2418 | Selected pill fill. |
 | `accent-tint-ink` | #A84A18 | #F2A57A | Text on `accent-tint` (5.1:1), and every text action: Copy, Edit, See all, a header's text action. |
 | `positive` / `positive-ink` | #90BA89 / #3D7A34 | #90BA89 / #90BA89 | Fill / text for success. |
 | `pending` / `pending-ink` | #E85D2F / #B8451A | #E85D2F / #F08B57 | Fill / text for in progress. |
+| `notification` | #FF3B30 | #FF453A | The unread mark (`UnreadDot`) only. Its own token, not `negative`: an unread transfer is not an error. 3.3:1 on `page`, the bar for a non-text mark. |
 | `negative` / `negative-ink` | #FF5500 / #C63A00 | #C51A0A / #FF7A4D | Fill / text for errors and destructive actions. |
 | `positive-tint` / `pending-tint` / `negative-tint` | #E8EEE5 / #F4ECDC / #F6E5E1 | #28302A / #3A3222 / #3D2724 | `StatusBadge` fills, from the activity icon family: sage (received #99AC94), sand and clay. Opaque, so a badge reads the same on `page` and `fill`. |
 | `positive-tint-ink` / `pending-tint-ink` / `negative-tint-ink` | #4F6549 / #7A5B26 / #9B4638 | #B2C4AC / #D8BC86 / #E7A193 | Text on those tints (5.41 / 5.33 / 5.17:1 light, 7.36 / 6.91 / 6.55:1 dark) and signed amounts in Activity rows and detail cards (at least 5.5:1 on `fill` and `page`). `*-ink` above stays for errors and destructive text. |
@@ -112,9 +136,12 @@ currency at 3:1 and the change pill at 4.5:1.
 
 Home's five actions each take one colour of the account card palette (`card-*`, the AccountsDrawer
 "Card color" picker), and that one brand colour is both the tab's icon in the top action bar and the
-accent of the tab's flow: back arrows, chevrons, the address caret, route card borders, the
-processing spinner and the summary arrow. The activity icon squares follow it too (`tx-sent`,
-`tx-received`, `tx-swap`, `tx-earn`); the faucet has no tab and keeps its rose #CCA4B8.
+accent of the tab's flow, on EVERY page of it: back arrows, chevrons, the address caret, route card
+borders, the processing spinner, selected states, the swap direction glyph, a row's toggle, and the
+primary CTA, from the first step through review, processing and the receipt. The one exception is the
+summary arrow: it wears the transaction's own Activity colour, which can differ from the flow's.
+The activity icon squares follow it too (`tx-sent`, `tx-received`, `tx-swap`, `tx-earn`); the faucet
+has no tab and keeps its rose #CCA4B8.
 
 The action colours are the card colours, so they are brand colours too (rule 7): never darkened for
 contrast. Glyphs, icons and borders take the brand colour, which needs 3:1. Text in an action's
@@ -146,8 +173,16 @@ Contrast of the brand colour as a glyph, light (dark is 3.37:1 or better everywh
   `fill`.
 - Text never takes the bare action colour: `text-accent-{flow}-ink` (or `ACCENT_CLASSES[flow].ink`),
   never `text-accent-{flow}`. A chevron that belongs to a text action takes the ink with its label.
-- The tint is the colour at 12% over the page, solid. The primary CTA stays `accent` (#E77537) in
-  every flow.
+- The tint is the colour at 12% over the page, solid.
+- The primary CTA takes the FLOW's colour (`Button`'s `accent` prop → `ACCENT_CLASSES[flow].cta`):
+  the fill at rest, at 90% on hover, at 40% disabled — the same ratio the brand's pre-blended
+  `primary-disabled` is, kept translucent so one string stays right in both themes. A flow is one
+  colour end to end, and a CTA in a different colour from the page it sits on was the one thing
+  that broke that. The brand orange stays on app-level surfaces, which belong to no tab:
+  onboarding, settings, global confirmations, the stand-alone contacts screens and the EVM
+  bridge-in screens. The add-contact step inside the send flow is a step of that flow and takes
+  the send colour. Overview's action colour IS the brand orange, so its flow needs nothing done to
+  it.
 - `design-tokens.test.ts` asserts the brand values, the mapping, the aliases, the tints and the
   contrast of both the colour and its ink.
 
@@ -169,13 +204,13 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 
 | Type style | Face | Size / line | Weight | Where |
 | --- | --- | --- | --- | --- |
-| `text-display` | Nunito | 48 / 52 | 800 | The balance on the balance card (scaled down inline to fit, `leading-none`) |
+| `text-display` | Nunito | 48 / 52 | 800 | The balance on the balance card (scaled down inline to fit, `leading-none`), and the one figure a page is about where no card holds it: Earn's total rewards, a vault's APY, a deposit or withdraw review's amount |
 | `text-entry-unit` | Nunito | 22 / 28 | 700 | The unit beside an entry or the balance ("USD") |
-| `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | `TabHeader` and tab roots; an onboarding step's title |
+| `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | Page titles: `TabHeader`, `PageHeader` and `FlowLayout` step titles; an onboarding step's title |
 | `text-hero-value` | Nunito | 32 / 36 | 900 | `Hero` value: amounts on review and receipt |
 | `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name, outcome and passcode titles |
-| `text-title-page` | Nunito | 20 / 26 | 800 | `PageHeader`, `DrawerTitle`, `AlertSheet`, `SectionHeader` `xl` |
-| `text-title-section` | Nunito | 18 / 24 | 800 | `SectionHeader` `lg`, `EmptyState` title, Explore app names |
+| `text-title-page` | Nunito | 20 / 26 | 800 | `SectionHeader` `xl` |
+| `text-title-section` | Nunito | 18 / 24 | 800 | `DrawerTitle` (every sheet, `AlertSheet` included), `SectionHeader` `lg`, `EmptyState` title, Explore app names |
 | `text-cta` | Nunito | 19 / 24 | 800 | `Button` `lg` |
 | `text-cta-sm` | Nunito | 15 / 20 | 800 | `Button` `sm` |
 | `text-row-title` | Nunito | 16 / 20 | 700 | `ListRow`, Activity and asset row titles, a row's price |
@@ -201,10 +236,21 @@ otherwise reads `text-value` as a colour and drops it beside `text-ink`).
 A 4px grid. Page margin 16px on every page, header and sheet. 20px between sections. Two buttons
 side by side sit 10px apart (`gap-2.5`), each `flex-1`.
 
+**The 20px is the frame's, not the page's.** `SubPageLayout`'s body is a `gap-5` column, so a
+page's sections are its direct children and it adds no `gap-*`, `pt-*`, `pb-*` or `mt-*` between
+them. `FlowLayout`'s body is `HomeGroupPaneBody`, which has no gap, so a pane supplies its own
+`gap-5` wrapper and its sections are that wrapper's children. A page that wrapped its sections in a
+box of its own (a `<form>`, a padded `div`, a scroller) set that gap a second time, and the six
+pages that did had six different numbers - 4, 5, 6, 16, 20 and 24px all shipped. Where a page needs a `<form>`,
+the layout's body IS the form (`onSubmit`, with `formId` for a pinned submit button and `formRef`
+for a focus call); where a section's own parts sit closer than 20px, that number goes on the
+`SubPageSection` (`className="gap-3"`), never between sections.
+
 | Element | Height |
 | --- | --- |
-| Page header | 52px |
-| CTA (`Button` lg) | 52px |
+| Tab root band | 56px title row + the 4px rule = 60px (Home's action bar), then 8px, then 48px of filter row |
+| Page header | 60px row (taller for a two-line title), then the 4px rule |
+| CTA (`Button` lg) | 48px (label stays 19px bold: white on `accent` is 3.0:1, which only clears at 19px bold) |
 | Compact button (`Button` sm) | 36px |
 | Search, single-line input | 44px / 52px |
 | Pill | 32px (24px status in a header, 20px status in a row) |
@@ -232,8 +278,20 @@ segmented control's thumb and a raised bubble.
 
 Raised is only for interactive toggles and bubbles. Cards, list groups and detail cards stay flat.
 
-Cards and row cards are `fill` with no border; borders never outline a card; hairlines only divide
-rows inside a group.
+### Charts
+
+A chart's paint is a token, passed as the custom property itself — recharts and raw SVG both take
+`var(--…)` wherever they take a colour, and the value then follows the theme like everything else.
+A literal hex in a `stroke`, `fill`, `stopColor` or a `ChartContainer` config is the same mistake as
+one in a class. The three earn charts use `var(--status-positive)` for the series, `var(--ds-page)`
+for the ring around the last-point dot and `var(--ds-hairline)` for a reference line. A tooltip sits
+on `ink` with `pure-white` text: `muted` is tuned for `page` and `fill`, so the quiet second line is
+the same white held back (`text-pure-white/70`), not a grey token.
+
+Flat does not mean one fill: separation comes from whichever of the three list surfaces above the
+group sits on. A `hairline` border is the `outline` surface, not elevation, and it is how a card
+holds its edge on `page` (Activity's rows, pending transfers, Earn's cards, the home prompt card).
+Hairlines inside a group still only divide its rows. Nothing gets a shadow to separate it.
 
 ### Screen sizes
 
@@ -246,37 +304,43 @@ CTA never do. The CTA clears the home indicator on iOS.
 
 | Element | Canonical (`components/ui`) | Anatomy | Replaces |
 | --- | --- | --- | --- |
-| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 52px pill. `primary`: `accent`, white `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. | `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
-| Icon button | `IconButton` | Header: a bare 24px glyph in a 44px hit area, `ink`. Sheet and overlay: a 32px circle on `fill`, `muted` glyph. | `NavButton`, `CircleButton`, ad-hoc round buttons |
-| Pushed page header | `PageHeader` (`components/PageHeader`) | 52px row: bare chevron, 20px title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. No horizontal padding of its own: it takes the page's, so a caller in an unpadded parent passes `className="px-4"`. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the round back buttons and grey title bars |
-| Tab root header | `TabHeader` | `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px. No grey bar under it. | the 4px grey rule |
-| Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
-| Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, and every segment resizes on the same spring as the bubble. | — |
-| Segmented control | `SegmentedControl` | One choice out of a few, drawn like the tab bars (see below). `items` (`id`, label, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, settings choices). Always a radio group: arrow keys move focus and the selection together, and a settings choice takes `fill`. | the Activity filter pills, the token detail timeframe row, `TabPicker` (theme, developer endpoint preset and network id) |
+| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 48px pill. `primary`: fill from `ACCENT_CLASSES[accent].cta` (`brand` by default), its `accent-{flow}-on` `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `ghost`: transparent on `page`, a `hairline` border, `ink` label, `fill` on hover, for a quiet action where a filled `secondary` is too heavy (Keys: Rotate device key). `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. A card's actions are these same pills inside the card's padding, never flush panels with their radius overridden away. One `primary` per screen, except TokenDetail's Send/Receive pair; two side by side are 10px apart. | `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
+| Icon button | `IconButton` | Round wherever the wallet puts one. `filled`: a 44px circle on `fill` with a 24px `ink` glyph, the full 44px target (a pushed page's back button, a tab root's header actions). `circle`: a 32px (or 36px where the row needs a bigger target) circle on `fill`, `muted` glyph (sheets and overlays). A held toggle (a tab root's open search) fills the `filled` circle with `accent` and turns the glyph white: 3:1, which rule 6 allows for a glyph. Flat, never the raised bubble: that now means "selected". `bare` (a 24px `ink` glyph in a 44px hit area, no circle) is legacy, kept only for rows not yet moved. | `NavButton`, `CircleButton`, ad-hoc round buttons, the bare header glyph |
+| Pushed page header | `PageHeader` (`components/PageHeader`) | Row of at least 60px, growing for a two-line title: the `filled` `IconButton` back button (`ArrowLeft`), the `text-title-tab` title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last; then `HeaderRule`, the 4px rounded rule on `fill`, under the row, and **the 8px under it is the header's**: a pushed page opens where a tab root opens, and no page adds a `pt-*` of its own below the rule - every page that did started its body somewhere else (2, 3, 4, 6 and 8 all shipped at once), which is how the encrypted-wallet-file page came to sit against the rule while its siblings had air. `SubPageLayout`, `FlowLayout` and the pages that assemble the frame by hand all rely on it; `src/components/PushedPageGap.test.tsx` holds `SubPageLayout` and `FlowLayout` to one number. No horizontal padding of its own: `className` lands on the block holding the row and the rule, so a caller in an unpadded parent passes `className="px-4"` and both inset together. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the grey title bars, and the earlier bare-chevron 52px row this replaced (Brian's call, 2026-09-20, taking the contributor's header as the shared one) |
+| Metric tile | `MetricCard` (`screens/earn-flow/components`) | A figure too small for a hero and too plain for a row: a `Card` on `fill` with `padding="none"`, 12px of its own, a centred `text-label` `muted` caption over a centred `text-value`. Two or three up in an equal-column grid with a 8-12px gap, so a wrapped caption cannot make one tile narrower than its neighbour. Sentence case, never uppercase: it is a label, not a heading. | the 10px uppercase `rounded-10` earn tiles |
+| Tab root header | `TabRootHeader` | The whole top of a tab root - Activity, Explore, Settings - in one component, never hand-assembled. A 56px title row (`TabHeader`: `text-title-tab` title left, 44px `filled` `IconButton` actions right, the search field swapping into the title's place), then the 4px `HeaderRule` on `fill` inset to the page margin: 60px, what Home's `SegmentedActionBar` occupies, so the content line does not move between tabs. **The row carries no vertical padding** - in a column flex parent that padding made the 44px action the row's automatic minimum and pushed it to 64px - and both sides of the search swap are the same 36px box, so opening search moves nothing. 8px under the rule, then the optional filter row: `SegmentedControl` at `md`, 4px above and below, at the 16px page margin. The rule, that 8px and the row's padding are the header's; a page's body adds no top padding of its own, and passes only `items`, `value`, `onChange` and a label. | `TabHeader` used directly, per-page dividers, gaps and filter rows |
+| Flow frame | `FlowLayout`, `SubPageLayout`, `HomeGroupPane` | `PageHeader` + scrolling body + pinned CTA. `FlowLayout` frames a flow's steps, `SubPageLayout` a pushed settings page and the contact pages (its body sections 20px apart, its footer's buttons 10px apart; `onSubmit` makes that body the page's `<form>`, so Enter submits and a pinned button reaches it with `type="submit" form={formId}`). Every page Settings routes to draws its own `SubPageLayout` and the host draws nothing around it - one path, no second scroller, no padded wrapper; `Settings.tsx` takes only the title, back and focus policy and hands them down through `SubPageHeaderProvider`. Both pin the CTA through `FlowFooter`, so it rides the keyboard up and down on one spring (`useSlideOnReflow`) rather than jumping with the layout: a pinned CTA is never a bare `div` at the end of a page. The four home panes (Send, Receive, Earn, Swap) and every flow step inside them are drawn in `app/layouts/HomeGroupPane`: `HomeGroupPaneRoot` is the full-bleed outer box (Send and Swap put their `Navigator` between it and the body), `HomeGroupPaneBody` the scrolling body and `HomeGroupPane` the two together, and `FlowLayout`'s body is `HomeGroupPaneBody`. The body is `touch-action: pan-y` with `overflow-x: hidden`, so the horizontal swipe always belongs to the carousel and a pane that wants a sideways scroller opts in with its own `touch-pan-x`; it keeps the 16px gutter on the body and the pinned CTA alike, starts a pane's first line 36px down, where a pushed step's content starts (`top="root"`; a pushed step takes `top="header"` and only `PageHeader`'s own 8px), and has no gap between its children. | hand-built frames |
+| Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, in bold (`font-bold`), and every segment resizes on the same spring as the bubble. | - |
+| Segmented control | `SegmentedControl` | One choice out of a few, drawn one way: no track, every item an outlined pill (`hairline` on `page`, `ink` label, 8px apart), and the selected one under the bottom nav's own raised bubble (`raisedBubbleClassName` and `useTabBarMotion` verbatim, reaching 1px past the item so it covers the outline, which goes transparent rather than away so the width never shifts), filled with `accent-tint` and lifted above the other pills while it slides. Its label is `accent-tint-ink`, the tested 4.5:1 pair (white on `accent` is 3:1, short of rule 6 at 14px), crossfading in over `durations.normal` (the settle time of the spring the bubble rides) and switching instantly under reduced motion. `items` (`id`, label, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, a few settings choices). Always a radio group: arrow keys move focus and the selection together, and a settings choice takes `fill`. On a tab root it is reached only through `TabRootHeader`. | the Activity and Explore filter pills, the token detail timeframe row, `TabPicker` (theme, developer endpoint preset and network id) |
 | Search | `SearchInput` | 44px pill on `fill`, no border, 16px glyph, left-aligned 16px text, clear button; a 1.5px `accent` ring while focused. | `SearchField`, `SearchAssetField` |
-| Text field | `TextField` | `text-label` `muted` label above; `text-body` text; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
+| Text field | `TextField` | `text-label` `muted` label above; `text-body` text; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; a `text-caption` `muted` hint or, on error, a `negative` ring and a `text-caption` `negative-ink` message with `role="alert"`. `secret` is for key material: a frosted cover (`bg-page/60`, the eye-off glyph and "tap to reveal") sits over the value whenever the field is not focused, and a revealed field blurs itself after `SECRET_REVEAL_MS` (30 s) or the moment the window goes away — the one `FormField` behaviour that was holding the import and reveal screens on the atom. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
 | Toggle | `Toggle` on Radix Switch (*planned*) | 51 × 31, `accent` when on. Until then `components/Toggle` (on the `press` preset) is the one to use. | `ToggleSwitch`, `SettingToggle` |
-| Checkbox | `CheckboxRow`, `CheckboxIndicator` (`components/ui/Checkbox`) | `CheckboxIndicator`: the one selection mark, 22px round, a `page` disc with a hairline edge (the same mark `ChoiceCardGroup` draws); checked, an `accent` fill springs in (`snappy`) and the check draws in (`pathLength`, tab-bar spring), reversed on uncheck, instant under reduced motion. `CheckboxRow`: a `ListGroup` row that is itself the `role="checkbox"` button (box leading, `text-row-title` title, `text-caption` `muted` description, inset hairline); tap, Space or Enter toggles it with `hapticSelection` and the press dip. A native `button` today; Radix Checkbox can replace the internals later. | `components/Checkbox` (deleted); still to migrate: atoms `Checkbox`, `FormCheckbox` |
-| List group | `ListGroup` | 16px radius on `fill`; hairlines between rows, inset past the leading visual. | ad-hoc stacks |
+| Checkbox | `CheckboxRow`, `CheckboxConsent`, `CheckboxIndicator` (`components/ui/Checkbox`) | `CheckboxIndicator`: the one selection mark, 22px round, a `page` disc with a hairline edge (the same mark `ChoiceCardGroup` draws); checked, an `accent` fill springs in (`snappy`) and the check draws in (`pathLength`, tab-bar spring), reversed on uncheck, instant under reduced motion. `CheckboxRow`: a `ListGroup` row that is itself the `role="checkbox"` button (box leading, `text-row-title` title, `text-caption` `muted` description, inset hairline); tap, Space or Enter toggles it with `hapticSelection` and the press dip. `CheckboxConsent`: the "I understand" tick a page asks for before it reveals or exports key material — the mark and the sentence (`text-body` `ink`) on the page rather than in a group, inset 4px so it lines up with a section's label, the whole line the `role="checkbox"` button, and no haptic of its own (the pages that use it disagree on whether it buzzes, so the caller decides). A native `button` today; Radix Checkbox can replace the internals later. | `components/Checkbox` (deleted), three hand-built consent rows (one of them a raw `<input type="checkbox">`); still to migrate: atoms `Checkbox`, `FormCheckbox` |
+| List group | `ListGroup` | One of the three list surfaces (see Surfaces), set by `surface`: `plain` for a page that is a list, `fill` (default, 16px radius) for a group embedded in a page or a sheet, `outline` for a card that has to separate itself. Hairlines between rows, inset past the leading visual on `fill` and `outline`, full width on `plain`. | ad-hoc stacks, full-page lists drawn as one card |
 | List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, `text-row-title` over a `text-caption` `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
-| Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink` (Settings' coloured group headers). | ~40 hand-styled headings, uppercase labels |
+| Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink`. `lg` + `icon` on the page margin is the standard header of a `plain` group, on Settings root, its sub-pages, the Address Book and Explore alike; `SubPageSection` takes the glyph as `icon` and applies the rest. `tone="muted"` quiets an `lg` or `xl` title to the label colour. A caller removes the 4px inset with `className="px-0"` to sit flush with a `plain` group. | ~40 hand-styled headings, uppercase labels |
 | Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; `text-body-sm` `muted` label, `text-value` `ink` value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
-| Card | `Card`, `CardButton` | `fill`, 16px radius, no border, on `page`; cards in a list are separated by space (12px), never by an outline. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). Anything drawn inside a card sits on `page` (an icon tile, a neutral icon circle), since grey on `fill` disappears. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
+| Card | `Card`, `CardButton` | 16px radius on `fill` (default) or `outline` (see Surfaces); cards in a list are separated by space (12px). The home prompt card (`PromptCard`, in `PromptCarousel`) is `outline`, like an Activity row - it is one actionable card on the page, not a grey block; its carousel dots are `hairline` so they read beside that edge. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). What sits inside a card (an icon tile, a neutral icon circle) takes the surface the card is not, since grey on grey disappears: on a `fill` card it sits on `page`; on an `outline` card (itself on `page`) it sits on `fill`, as Earn's vault rows do. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
 | Choice cards | `ChoiceCardGroup` | One choice out of a set of cards (a guardian operator, a recovery method, an import type): each a `Card`-look `fill` surface, 16px radius, no border, min 72px, all rows as tall as the tallest; leading 48px logo tile or icon, `text-row-title` title, `text-caption` `muted` subtitle or meta line, a badge top right (`Pill` "Current", `StatusBadge`), a trailing `CheckboxIndicator` as its radio mark. Chosen: a 2px inset `accent` ring and the mark filled `accent` with the drawn check (not raised: cards stay flat). Behaves like `SegmentedControl`: `radiogroup`/`radio`, roving tab stop, arrows and Home/End move focus and choice together, `hapticSelection` once per real change, tab-bar press dip and check pop, still under reduced motion. | the guardian picker's bordered tiles and grey header strip, outlined option buttons |
+| Inline message | `ErrorLine` (`components/ui/ErrorLine`), `Notice` | `ErrorLine`: one `text-caption` `negative-ink` line under the thing that failed, inset 4px like the section label, selectable so a message worth reporting can be copied, `role="alert"` (or `role="note"` for a standing condition — a page that always says this in this state never "just" changed). It renders nothing for an empty message, so a caller passes its error state straight in. A failure that needs a title and a surface is a `Notice` (`block`); a failure that belongs to one field is `TextField`'s `error`. | seven inline error paragraphs, each with its own size and its own retired colour token (`text-sm text-status-negative`, `-mt-2 text-caption`, `text-red-500 text-xs`) |
+| Recovery phrase | `SeedPhraseGrid`, `SeedPhrasePlaceholder`, `SeedPhrasePrivacyHero` (`components/ui/SeedPhraseGrid`) | The words on a `fill` card at the group radius, three numbered columns — the number is how the user checks they wrote the phrase down in order, so every screen that shows the words shows them the same way, in the phrase's own casing. `SeedPhrasePlaceholder` is the blurred stand-in on the warning step (twelve bars, `aria-hidden`), `SeedPhrasePrivacyHero` the "view this somewhere private" hero both screens open on. | the reveal screen's centred, capitalized, unnumbered grid and the verify flow's numbered one; two copies of the placeholder and two of the hero |
 | Text action | `TextAction` | `text-action` `accent-tint-ink`, no underline, 44px hit area, tap haptic: "Learn more", "Use a custom URL". | underlined `primary-500` links, hand-styled text buttons |
 | Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the `text-hero-value` or `text-hero-name`, then a `text-body-sm` `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
-| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink` (a multi-select chip or a tag; a single choice in a row is a `SegmentedControl`); 16px icon slot. Status tones (`positive`, `warning`, `negative` on their opaque tints; `inactive` on `fill-pressed` with `ink`) are for `StatusBadge`, which picks them. | `lib/ui/badge`, seed-word `Chip`, `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
+| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink` (a multi-select chip or a tag; a single choice in a row is a `SegmentedControl`); 16px icon slot. `tone="page"` is the pill that sits INSIDE a `fill` element — Paste and Scan in a text field, a tag over a card's artwork — and is a tone, not a `className` override. Status tones (`positive`, `warning`, `negative` on their opaque tints; `inactive` on `fill-pressed` with `ink`) are for `StatusBadge`, which picks them. | `lib/ui/badge`, seed-word `Chip`, `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
 | Status badge | `StatusBadge` (on `Pill`) | The status word alone, no dot, on the status's tint: positive (confirmed, claimed, received, filled, online) sage, pending (pending, in progress, redeeming, delivering, open, checking) sand, negative (failed, offline, needs attention) clay, each `*-tint` with its `*-tint-ink`; neutral (cancelled, reclaimed, unavailable, not connected) `fill-pressed` with `ink`. `sm`: 20px, 12px semibold, in rows (Activity, pending transfers, the swap fill list). `md`: 24px, 12px bold, in detail headers. A closed `status` set maps each state to its i18n label and tone; a new state is added there. `live` adds `role="status"` where the status changes on screen (detail headers, the swap order line, the guardian pill); never in a list. | the Activity row's dot and 10px colored text, history's `StatusPill` (now a wrapper that maps a transaction row to a status), the bridge and earn detail pills, the legacy summary rows' dots, the swap order's colored line and pending text, the guardian's red/green pill |
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
-| Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, `text-title-section` title, `text-body-sm` `muted` body, a 36px `secondary` button. | `components/EmptyState` (moved), ad-hoc "No …" lines |
-| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 20px title left, 32px ✕ right, 16px margin; one decision per sheet; CTA pinned. | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
+| Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, `text-title-section` title, `text-body-sm` `muted` body, a 36px `secondary` button. `surface="dashed"`: on `page` inside a dashed hairline (icon circle on `fill`), for a slot waiting to be filled. | `components/EmptyState` (moved), ad-hoc "No …" lines |
+| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 18px title left, 32px ✕ right, 16px margin, no rule under the header; rows in `ListGroup`s on `fill`; one decision per sheet; CTA pinned. Opens and closes on the tab-bar springs over a plain `scrim` (see Motion). | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
 | Confirm / alert | `useConfirm` / `useAlert` (`lib/ui/dialog`), rendered by `AlertSheet` with Radix AlertDialog semantics | Title, one sentence, a `destructive` or `primary` button over a `secondary` Cancel. | `ConfirmationModal`, `AlertModal` |
+| Unread indicator | `UnreadDot` | One `notification` dot. `row`: 8px in a row's own left margin, ahead of the leading visual, so the title column does not move between a read row and an unread one. `badge`: on an icon's top-right corner, ringed in `page`; `pulse` breathes the icon under it at 1.06 for the one indicator that has to be noticed unasked (the Activity tab). Renders NOTHING when read, so nothing loops behind a hidden badge. Carries its own label — never colour alone — and never a live region. | the Activity tab's `bg-status-negative` dot |
 | Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner`, `CircularProgress` |
 | Skeleton | `Skeleton` | `fill` blocks shaped like the content (`inverse` on a colored surface); tests find it by `data-slot="skeleton"`. | `lib/ui/skeleton`, ad-hoc `animate-pulse` |
+| Popover | `Popover` | A panel hanging off the control that opened it, for a short menu of choices that would be too much chrome as a sheet — the Activity tab's view switcher. **One decision per popover**, as with a sheet: the switcher holds the two views and nothing else, and the filters it briefly also carried went back to the row under the title where they always were (Brian, simulator review). A control whose own row is on screen does not get a second home in a menu. It is a dialog, not a tooltip: `role="dialog"`, `aria-modal`, a required `aria-label`, focus into the panel on open, Tab cycling inside it, and Escape, a tap outside or the mobile back gesture closing it and handing focus back to the anchor (which is why a header action that opens one forwards its ref). 16px radius on `page` with a `hairline` edge and `shadow-raised`; a transparent backdrop, no scrim — a popover says what it belongs to by where it hangs, and dimming the page would be louder than the menu. Measured from the anchor's rect 8px under it, aligned to its `start` or `end` edge, clamped to the 16px page margin and re-measured on scroll (captured, so a page's own scroller counts) and resize; if it would run off the bottom it scrolls rather than flipping above a control that is already at the top of the screen. Opens on `useTabBarMotion().highlight` — the nav highlight's own spring — from `scale 0.94` at the anchor's corner, instant under reduced motion. | ad-hoc anchored menus |
 | Menu, tooltip | `DropdownMenu`, `Tooltip` on Radix (*planned*) | Until then `components/Tooltip` stays on tippy.js. | overflow menus, tippy.js |
 | Passcode keypad | `Numpad` (`components/Numpad`), `PasscodeDots`, `PasscodeScreen` | `Numpad`: twelve slots, 1–9, biometric key or empty, 0, bare backspace; round 76px keys on `fill` (`fill-pressed` held), 32px 800 digits, 28 / 16px gaps, 64px keys with 24 / 12px gaps under 720px of viewport height; `press` motion and the tap haptic on every key. `PasscodeDots`: 14px dots, `hairline` empty and `ink` filled with a pop, the `shake` preset and the error haptic on a rejected code. `PasscodeScreen`: title, message (`negative-ink` for errors) and dots, then the keypad, as one group a little below centre (the leftover height splits 3:2 above and below), and an optional text action centred 16px under the last key row, clear of a thumb aimed at 0. Unlock and onboarding draw `PasscodeScreen`; sheets draw `PasscodeEntry` over the same keypad and dots. | the square 92px keys, the unlock and onboarding copies of the dots |
+| Number | `AnimatedNumber` | Every figure the wallet shows that can change while it is on screen: a balance, a fiat value, a token quantity, a percentage, an APY. Takes `value` (a number) and `format` (the caller's own formatter, returning the WHOLE display string - `$`, the token symbol, the `%` and all - so it lands in one text node), plus `placeholder` for anything that is not a finite number. Counts to a new value ON CHANGE ONLY; `tabular-nums`; `aria-live="off"`. See "Numbers" under Motion. | a formatted figure dropped straight into a span |
 | Copy | `CopyButton`, `CopyChip`; `AnimatedCopyIcon`, `CopyLabel` | `CopyButton`: an `accent-tint-ink` text action in a detail row, or with `icon` (`leading`, `trailing`, `only`) the copy glyph beside a value (balance card, Receive address). `CopyChip`: a `Pill` with copy for hashes and addresses (`AddressChip` and `HashChip` are thin wrappers over it). Every copy confirms in place, the same way (`lib/animation/copy`): the glyph morphs to a check (`AnimatePresence mode="popLayout"`, scale 0.6 → 1, a 25° turn and blur 4px → 0 on `springs.tabSwitch`, opacity and blur on a short tween so they never overshoot); a text label rolls up to "Copied" in a vertically clipped slot on the same spring. Both hold for `COPY_FEEDBACK_MS` (1.5 s) and run back. One light haptic per tap (`CopyButton`'s, or `Pill`'s), none on a failed write, which shows nothing. Reduced motion: an instant swap, no blur, turn or travel. An `aria-live` region carries "Copied"; the leaving side is `aria-hidden`. Colour is the caller's: glyph and label paint in `currentColor`. No toast: the control that was tapped confirms. A copy owned elsewhere (the seed phrase's hidden-field copy) uses `AnimatedCopyIcon` and `CopyLabel` with its own `copied`. | atoms `CopyButton`, raw clipboard calls, per-site `Checkmark`/`CopyNew` swaps, `FileCopy`/`CheckboxCircleFill` copy glyphs |
 
 ## Motion
@@ -294,8 +358,48 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `sheet` | y 24 + scale 0.96 + opacity, `springs.sheetPresent`, `fade` backdrop | dApp confirm, switcher, peek card, seed warning |
 | `page` | incoming page from the right over `durations.page` (0.34s) on `easings.standard`; the page beneath to `pageSlideParallax` (−24%) under a `pageSlideDim` dim (`FullScreenPage`, `MobilePageLayers`) | four page-transition models |
 | `press` | `whileTap` scale 0.96, `springs.snappy` | `Button` (inline 800/35), `Toggle` (700/30), CSS `active:scale-*` |
+| `count` | a displayed number travelling to a new value over `durations.count` (0.6s) on `easings.standard`; a tween, never a spring: a spring overshoots, and a balance that overshoots shows a figure the account never held | numbers snapping to their new value |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
+| `pulse` | 2.4s scale 1 → 1.06 → 1 loop, still under reduced motion | — |
 | `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
+
+### Numbers
+
+`AnimatedNumber` (`components/ui`) owns every figure that changes on screen, on the `count` preset:
+
+- **On change only.** A page mounting, or a hidden `TabPane` coming back, never starts a count — a
+  balance must not climb from zero every time home is opened. A pane hidden while its value changes
+  counts behind the curtain and is already settled when it is shown.
+- **The formatter is the caller's** (`lib/i18n/numbers` and friends) and is called once per frame,
+  so it must not change shape with magnitude or the row jitters. Where the rule is adaptive, bind it
+  to the destination: `adaptiveFormatterFor` (`lib/i18n`), `balanceFormatterFor` (send flow). A
+  figure that sits inside a localized sentence calls `t()` from inside the formatter, so the line
+  stays one string and one text node.
+- **Reduced motion**, and any realm that cannot report the preference (no `matchMedia` — which is
+  also jsdom, so a test reads the settled value synchronously), sets the value immediately.
+- **Not every number.** A figure that is only correct because it never became a float — anything
+  formatted from `bigint` base units, or from the decimal string the user typed on the amount step —
+  stays un-animated, as do counts inside a sentence, a chart tooltip tracking the pointer, and a
+  figure interpolated into a string a component also reads out as its accessible name
+  (`PromptCard`'s `body`). The balance card's delta pill is un-animated because it has no producer:
+  when a real delta lands it arrives as numbers and gets wrapped then.
+
+### Sheets
+
+Every `Drawer` moves like a tab switch, through `lib/animation/sheet.ts`:
+
+- **In.** `springs.tabSwitch` — the nav highlight's own spring: ~350ms with one visible 7%
+  overshoot past the resting edge. vaul's `::after` skirt fills the gap the overshoot opens under
+  the sheet.
+- **Out.** `springs.tabIconPop` — ~225ms and flat, so dismissing is quick and never wobbles.
+- **Drag release.** The snap-back to rest uses the `in` curve; drag-to-dismiss and the snap
+  behaviour are vaul's, unchanged.
+- **Backdrop.** The `scrim` fades on the same curve and duration as the sheet it belongs to.
+- **How.** vaul runs the sheet as a CSS `animation` and the snap-back as an inline `transition`, so
+  these springs cannot be framer transitions: `springToLinearEasing` solves each one and
+  `lib/ui/drawer.tsx` hands it to `main.css` as a `linear()` curve in a custom property.
+- **Reduced motion.** `main.css`'s `prefers-reduced-motion` block clamps every vaul duration, so
+  the sheet and its scrim land at once, with no overshoot.
 
 ### Tab bars and segmented controls
 
@@ -303,11 +407,13 @@ The bottom nav, the top action bar and every `SegmentedControl` move alike, thro
 `lib/animation/tab-bar.ts` (`useTabBarMotion`, `useTabIconPop`):
 
 - **Anatomy.** No strip behind the items: they sit on the page. The selected item carries the
-  raised bubble (`bg-raised` + `shadow-raised`, full radius), one bubble per control, drawn by the
-  shared `Highlight` (`components/ui/animate/highlight`) under the item's content. A selected item
-  is `ink`, the others `muted`; a 2px focus ring in `accent-primary` at 30%. A segmented control
-  keeps 4px above and below its items so a scrolling row clips neither the bubble's shadow nor the
-  ring.
+  raised bubble (`shadow-raised`, full radius), one bubble per control, drawn by the shared
+  `Highlight` (`components/ui/animate/highlight`) under the item's content: `bg-raised` in the tab
+  bars, `accent-tint` in a segmented control, whose items are all outlined pills. A selected item
+  is `ink` (the bottom nav's icon is `accent-primary`, a segmented label `accent-tint-ink`), the
+  others `muted` (`ink` on a segmented control's outlined pills); a 2px focus ring in
+  `accent-primary` at 30%. A segmented control keeps 4px above and below its items so a scrolling
+  row clips neither the bubble's shadow nor the ring.
 - **Switch.** The bubble slides to the new item on `springs.tabSwitch`, one visible overshoot; its
   `layoutId` is scoped to the control, so two mounted controls never trade bubbles.
 - **Pop.** The newly selected item's icon (a segmented control's whole content) rises to
@@ -337,7 +443,12 @@ step is `aria-hidden` and takes no pointer. Only mobile animates; reduced motion
 Home, Explore and the top action bar define the look and change only for consistency: card radii
 10px → 16px (prompt card) and 22px → full (action segments); Activity's 40px square icons → round;
 `opacity-50` text → `muted`; the hex literals #A8BBA3, #FFFFFF4D, #E5E5EA, #8E8E93, #ECEAE7 and
-`bg-red-500` → tokens; the TabHeader grey bar removed; Home and Explore bottom clearance unified.
+`bg-red-500` → tokens; Home and Explore bottom clearance unified. The 4px rule under a tab root's
+title stays — it is Ahmad's, and it is the divider every tab root uses.
+
+Home's action bar is also the ruler. Its 60px — 4px, 48px segments, 8px — is what every other tab
+root's title row plus its rule has to come to, so the content line never moves as tabs change.
+`TabRootHeader` is where that number lives, and the 56px title row is what pays for the rule.
 
 ## Migration order
 
@@ -350,7 +461,7 @@ caller of what it replaces and deletes the retired component.
 3. **Motion foundation**: `presets.ts`, `MotionConfig`, the unguarded `Button` and `Toggle`
    springs.
 4. **Headers**: `PageHeader` in direction B, then `NavigationHeader`, `ScreenHeader` and the earn
-   headers onto it; `TabHeader` without its bar; `DrawerTitle` at 20px.
+   headers onto it; `TabHeader` without its bar; `DrawerTitle` at 18px.
 5. **Buttons**: `Button` and `IconButton` in `components/ui`.
 6. **Lists**: `ListGroup`, `ListRow`, `SectionHeader`, `EmptyState`; the contact picker (search and
    sections) is built on them.

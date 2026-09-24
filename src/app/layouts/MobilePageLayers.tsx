@@ -2,7 +2,7 @@ import React, { createContext, FC, useContext, useEffect, useLayoutEffect, useMe
 
 import { AnimatePresence, motion, TargetAndTransition, usePresence, useReducedMotion } from 'framer-motion';
 
-import { PageActiveContext } from 'app/layouts/page-active';
+import { PageActiveContext, PageOnScreenContext } from 'app/layouts/page-active';
 import { pageSlideDim, pageSlideParallax, usePreset } from 'lib/animation';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -64,6 +64,22 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
       break;
   }
   if (layerMotion === 'uncover') uncovering.current = true;
+  // Set while a slide page covers this layer; cleared once its way back has finished. A slide page
+  // returned to from another slide page is `still`, yet it animates back from the covered offset too.
+  const covered = useRef(false);
+  if (layerMotion === 'cover') covered.current = true;
+
+  // Fully on screen: off the moment a push starts covering this layer, and after a pop only once
+  // its own way back has finished (a covered layer, or a fresh one mounted in `reveal`), since the
+  // page above is still sliding off until then. Set during render, so the commit that changes
+  // `present` never paints a stale value.
+  const settled = present && !(animated && (covered.current || layerMotion === 'reveal'));
+  const [onScreen, setOnScreen] = useState(settled);
+  const [onScreenFor, setOnScreenFor] = useState(present);
+  if (onScreenFor !== present) {
+    setOnScreenFor(present);
+    setOnScreen(settled);
+  }
 
   useLayoutEffect(() => {
     mounted.add(layerKey);
@@ -113,10 +129,16 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
       transition={page.transition}
       onAnimationComplete={() => {
         if (!present && layerMotion === 'uncover') remove?.();
+        if (present && !onScreen) {
+          covered.current = false;
+          setOnScreen(true);
+        }
       }}
     >
       <LocationProvider snapshot={location}>
-        <PageActiveContext.Provider value={present}>{children}</PageActiveContext.Provider>
+        <PageActiveContext.Provider value={present}>
+          <PageOnScreenContext.Provider value={onScreen}>{children}</PageOnScreenContext.Provider>
+        </PageActiveContext.Provider>
       </LocationProvider>
       <motion.div
         aria-hidden

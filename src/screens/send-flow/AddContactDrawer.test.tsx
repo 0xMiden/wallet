@@ -23,7 +23,11 @@ jest.mock('lib/ui/drawer', () => ({
 }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
+    <button data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
 }));
 jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
@@ -65,6 +69,12 @@ it('shows the known address in full and asks only for a name', () => {
   expect(screen.getByTestId('address-book-name-input')).toBeInTheDocument();
   expect(screen.queryByTestId('add-contact-network-sepolia')).not.toBeInTheDocument();
   expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
+});
+
+it('gives the add-contact submit the send flow colour', () => {
+  renderSheet();
+
+  expect(screen.getByTestId('address-book-add-contact')).toHaveAttribute('data-accent', 'send');
 });
 
 it('saves a Miden contact with a trimmed name and closes', async () => {

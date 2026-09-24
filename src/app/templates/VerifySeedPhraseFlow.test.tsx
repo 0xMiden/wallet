@@ -40,13 +40,6 @@ jest.mock('lib/mobile/screenshot-guard', () => ({
   useScreenshotGuard: () => true
 }));
 
-// Alert surfaces the hardware-unlock `authError`; render its description so we
-// can assert the error text made it to the screen.
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description }: { description?: string }) => <div role="alert">{description}</div>
-}));
-
 jest.mock('components/Button', () => ({
   Button: ({
     onClick,
@@ -238,7 +231,7 @@ describe('VerifySeedPhraseFlow', () => {
 
   it('gives the warning header its own horizontal padding', async () => {
     // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
     await renderFlow();
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
   });

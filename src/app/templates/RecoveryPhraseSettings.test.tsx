@@ -29,7 +29,7 @@ jest.mock('lib/woozie', () => ({
 }));
 
 describe('RecoveryPhraseSettings', () => {
-  it('renders the reveal and remove rows in one ListGroup on SubPageLayout', () => {
+  it('renders the reveal and remove rows in one plain ListGroup on SubPageLayout', () => {
     render(<RecoveryPhraseSettings />);
 
     const page = screen.getByTestId('recovery-phrase-settings');
@@ -38,7 +38,9 @@ describe('RecoveryPhraseSettings', () => {
     const reveal = screen.getByTestId('recovery-phrase-reveal');
     const remove = screen.getByTestId('recovery-phrase-remove');
     expect(reveal.parentElement).toBe(remove.parentElement);
-    expect(reveal.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // The page IS the list: a `plain` group, no surface, rows on the page margin.
+    expect(reveal.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(reveal.parentElement).not.toHaveClass('bg-fill');
     expect(reveal.querySelector('[data-slot="title"]')).toHaveTextContent('revealRecoveryPhrase');
     expect(remove.querySelector('[data-slot="title"]')).toHaveTextContent('removeSeedPhrase');
     expect(remove.querySelector('[data-slot="chevron"]')).not.toBeNull();

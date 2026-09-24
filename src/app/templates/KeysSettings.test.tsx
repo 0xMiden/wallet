@@ -194,8 +194,11 @@ describe('KeysSettings — layout', () => {
 
     const reveal = screen.getByTestId('keys-reveal-private-key');
     expect(screen.queryByTestId('keys-rotate-guardian')).toBeNull();
-    // One ListGroup on the shared fill holds the row.
-    expect(reveal.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // One `plain` ListGroup holds the row: the page IS the list, so it has no surface and its
+    // rows sit on the page margin.
+    expect(reveal.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(reveal.parentElement).not.toHaveClass('bg-fill');
+    expect(reveal.parentElement).not.toHaveClass('border');
     // Rows are ListRows: the shared 16px title and a trailing chevron.
     expect(reveal.querySelector('[data-slot="title"]')).toHaveTextContent('revealPrivateKey');
     expect(reveal.querySelector('[data-slot="chevron"]')).not.toBeNull();

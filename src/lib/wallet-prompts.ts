@@ -59,7 +59,6 @@ export type WalletWidePromptType = Exclude<WalletPromptType, WalletPromptType.Fa
 export type WalletPromptStorage = {
   version: 1;
   prompts: Partial<Record<WalletWidePromptType, WalletPromptStatus>>;
-  pendingNotesDismissedIds: string[];
   // The faucet prompt is about one account's balance, so its status is kept per
   // account address. A wallet-wide status let one account's completion or dismiss
   // hide Fund on every other account (#921). Any `prompts.faucet` left by an older
@@ -73,7 +72,6 @@ export const WALLET_PROMPTS_STORAGE_KEY = 'wallet_prompts_v1';
 export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
   version: 1,
   prompts: {},
-  pendingNotesDismissedIds: [],
   faucetByAccount: {}
 };
 
@@ -83,27 +81,6 @@ export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'
 
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
 const VALID_TYPES = new Set<string>(Object.values(WalletPromptType).filter(type => type !== WalletPromptType.Faucet));
-
-/**
- * How many dismissed pending-note ids are kept. A dismiss covers the notes the surface could
- * see, so ids another surface stored are kept rather than replaced; the oldest go once the
- * list is full, which is what stops it growing for as long as the wallet lives.
- */
-export const PENDING_NOTES_DISMISSED_IDS_LIMIT = 200;
-
-// Ids dismissed now go last, so dismissing a note again keeps it out of the prompt. The batch
-// just dismissed is kept whole however large it is: dropping part of it would offer the card
-// again for a note the user dismissed a moment ago. `current` is normalized by every reader.
-function mergePendingNotesDismissedIds(current: readonly string[], dismissed: readonly string[]): string[] {
-  const incoming = new Set(normalizePendingNotesDismissedIds(dismissed));
-  const kept = current.filter(id => !incoming.has(id));
-  return [...kept, ...incoming].slice(-Math.max(PENDING_NOTES_DISMISSED_IDS_LIMIT, incoming.size));
-}
-
-function normalizePendingNotesDismissedIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.filter((id): id is string => typeof id === 'string' && id.length > 0)));
-}
 
 export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], tokenPrices: TokenPrices): number {
   return notes.reduce((total, note) => {
@@ -210,7 +187,6 @@ export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorag
       }
       return acc;
     }, {}),
-    pendingNotesDismissedIds: normalizePendingNotesDismissedIds(Reflect.get(value, 'pendingNotesDismissedIds')),
     faucetByAccount: normalizeFaucetByAccount(Reflect.get(value, 'faucetByAccount'))
   };
 }
@@ -730,15 +706,8 @@ export function useWalletPromptStorage() {
   );
 
   const setPromptStatus = useCallback(
-    (type: WalletWidePromptType, status: WalletPromptStatus, dismissedNoteIds?: readonly string[]) =>
-      updateStorage(current => ({
-        ...current,
-        prompts: { ...current.prompts, [type]: status },
-        pendingNotesDismissedIds:
-          dismissedNoteIds === undefined
-            ? current.pendingNotesDismissedIds
-            : mergePendingNotesDismissedIds(current.pendingNotesDismissedIds, dismissedNoteIds)
-      })),
+    (type: WalletWidePromptType, status: WalletPromptStatus) =>
+      updateStorage(current => ({ ...current, prompts: { ...current.prompts, [type]: status } })),
     [updateStorage]
   );
 

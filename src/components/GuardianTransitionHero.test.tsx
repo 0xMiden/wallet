@@ -28,11 +28,11 @@ it('renders provider names and a custom endpoint hostname between the supplied l
       newEndpoint="https://custom.guardian.example/path"
       previousLabel="Current"
       newLabel="New"
-      className="history-hero"
+      className="review-hero"
     />
   );
 
-  expect(screen.getByTestId('guardian-transition-hero')).toHaveClass('history-hero');
+  expect(screen.getByTestId('guardian-transition-hero')).toHaveClass('review-hero');
   expect(screen.getByText('Current')).toBeInTheDocument();
   expect(screen.getByText('LambdaClass')).toBeInTheDocument();
   expect(screen.getByTestId('transition-icon')).toHaveTextContent('ArrowDown');
@@ -55,7 +55,6 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
       newEndpoint="https://guardian.openzeppelin.com"
       previousLabel="Current"
       newLabel="New"
-      variant="review"
     />
   );
 

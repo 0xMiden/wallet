@@ -1,7 +1,10 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { PRIMARY_HEX } from 'utils/brand-colors';
@@ -32,6 +35,8 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
+
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
 jest.mock('components/TokenLogo', () => ({
@@ -41,8 +46,18 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="confirm-btn" onClick={onClick} disabled={disabled}>
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    accent
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    accent?: string;
+  }) => (
+    <button data-testid="confirm-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
@@ -50,7 +65,9 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} className={className} />
+  ),
   IconName: { ChevronDown: 'chevron-down', ChevronRightLucide: 'chevron-right', Globe: 'Globe' }
 }));
 
@@ -216,6 +233,20 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('confirm-btn')).toHaveTextContent('Swap Now');
     });
 
+    it('draws the confirm CTA in the accent it is given', () => {
+      renderComponent({ accent: 'earn' });
+      expect(screen.getByTestId('confirm-btn')).toHaveAttribute('data-accent', 'earn');
+    });
+
+    // 12px text needs 4.5:1, which white on the light fills never reaches: the flow's ink on its tint.
+    it('draws the network pill in the flow ink on its tint', () => {
+      renderComponent({ accent: 'send' });
+
+      const pill = screen.getByText('miden');
+      expect(pill).toHaveClass('bg-accent-send-tint', 'text-accent-send-ink');
+      expect(pill).not.toHaveClass('text-pure-white', 'bg-accent-send');
+    });
+
     it('hides the network pill when showNetworkPill is false', () => {
       renderComponent({ showNetworkPill: false });
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
@@ -293,10 +324,26 @@ describe('SelectAmount', () => {
       expect(def.innerHTML).toContain(defaultFooterPb);
       expect(def.querySelector('[data-navbar-cushion="true"]')).not.toBeNull();
 
+      // Keyboard padding snaps (lib/mobile/keyboard-inset.ts): animating it reflows every frame. The
+      // footer adds no transition of its own, and main.css exempts a flow footer's cushion collapse.
+      expect(def.querySelector('[data-navbar-cushion="true"]')!.className).not.toContain('transition-[padding-bottom]');
+      expect(def.querySelector('[data-navbar-cushion="true"]')).toHaveAttribute('data-flow-footer');
+
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();
       expect(override.innerHTML).not.toContain(defaultFooterPb);
     });
+  });
+
+  it("snaps a flow footer's cushion: main.css sets no transition on it", () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const bodies = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g), ([, selector = '', body = '']) => ({
+      selector: selector.trim(),
+      body: body.trim()
+    }))
+      .filter(rule => rule.selector === "[data-navbar-cushion='true'][data-flow-footer]")
+      .map(rule => rule.body);
+    expect(bodies.some(body => /(^|;)\s*transition:\s*none\s*(;|$)/.test(body))).toBe(true);
   });
 
   describe('token selector', () => {
@@ -505,6 +552,8 @@ describe('SelectAmount', () => {
       const circle = globeIcon?.parentElement as HTMLElement;
       expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
       expect(circle.className).not.toContain('bg-primary-500');
+      expect(globeIcon).toHaveClass('text-accent-brand-on');
+      expect(globeIcon).not.toHaveClass('text-pure-white');
     });
   });
 
@@ -518,6 +567,92 @@ describe('SelectAmount', () => {
     it('expands past 4dp rather than rounding a dust balance to zero', () => {
       renderComponent({ token: baseToken({ balance: 0.00001234, fiatPrice: 0.2 }) });
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
+    });
+  });
+
+  it('pins its CTA in a flow footer that slides and snaps its cushion, like every flow page', () => {
+    renderComponent();
+
+    const footer = screen.getByTestId('confirm-btn').parentElement!;
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+    expect(footer).toHaveAttribute('data-flow-footer');
+    expect(footer.className).not.toContain('transition-[padding-bottom]');
+    expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: footer }));
+  });
+
+  describe('an Available figure that changes', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    type Figures = { available: string; fiat: string };
+    const figures = (): Figures => {
+      const [available, fiat] = Array.from(screen.getByTestId('ai-helper').querySelectorAll('.tabular-nums'));
+      return { available: available?.textContent ?? '', fiat: fiat?.textContent ?? '' };
+    };
+    const amountOf = (text: string) => Number(text.replace(/[^\d.]/g, ''));
+
+    /** The figures right after the change, and every figure shown until the count is done. */
+    const change = async (from: UIToken, to: UIToken) => {
+      const props: SelectAmountProps = {
+        amount: '10',
+        isValidAmount: true,
+        onAmountChange: jest.fn(),
+        onSelectToken: jest.fn(),
+        onConfirm: jest.fn()
+      };
+      const { rerender } = render(<SelectAmount {...props} token={from} />);
+      const helper = screen.getByTestId('ai-helper');
+      const frames: Figures[] = [];
+      const observer = new MutationObserver(() => frames.push(figures()));
+      observer.observe(helper, { characterData: true, childList: true, subtree: true });
+
+      rerender(<SelectAmount {...props} token={to} />);
+      const first = figures();
+      frames.push(first);
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+      frames.push(figures());
+      return { first, frames };
+    };
+
+    const TOKEN_A = baseToken({ id: 'a', name: 'USDC', balance: 12000, fiatPrice: 0.2 });
+    const TOKEN_B = baseToken({ id: 'b', name: 'ETH', balance: 0.25, fiatPrice: 2 });
+
+    it("lands on the new token's Available balance instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, TOKEN_B);
+
+      expect(first.available).toBe('available 0.25 ETH');
+      expect(frames.filter(frame => amountOf(frame.available) > 0.25)).toEqual([]);
+    });
+
+    it("lands on the new token's fiat value instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, TOKEN_B);
+
+      expect(amountOf(first.fiat)).toBe(0.5);
+      expect(frames.filter(frame => amountOf(frame.fiat) > 0.5)).toEqual([]);
+    });
+
+    it('still counts the Available balance when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame.available) > 12000 && amountOf(frame.available) < 15000)).toBe(true);
+      expect(frames[frames.length - 1]?.available).toBe('available 15000 USDC');
+    });
+
+    it('still counts the fiat value when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame.fiat) > 2400 && amountOf(frame.fiat) < 3000)).toBe(true);
+      expect(amountOf(frames[frames.length - 1]?.fiat ?? '')).toBe(3000);
     });
   });
 });

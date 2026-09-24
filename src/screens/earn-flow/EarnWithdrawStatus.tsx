@@ -4,15 +4,24 @@ import { useTranslation } from 'react-i18next';
 
 import { formatEarnWithdrawAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
-import { PageHeader } from 'components/PageHeader';
+import { accentForTransactionType } from 'components/flow/accent';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
+import { StatusBadge } from 'components/ui/StatusBadge';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
+import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+
+/**
+ * An earn row's icon is the earn slate wherever it is drawn, so the arrow beside it is too; the
+ * badge's default is the Send blue, another flow's colour.
+ */
+const EARN_ARROW_FILL = 'var(--tx-earn)';
 
 interface EarnWithdrawStatusProps {
   txId: string;
@@ -55,6 +64,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         headerTitle={t('success')}
         title={t('withdrawalStarted')}
         footerDescription={t('withdrawalStartedDescription')}
+        accent={accentForTransactionType('earn-withdraw')}
         primaryAction={{ label: t('done'), onClick: onDone }}
         secondaryAction={{
           label: t('viewInActivities'),
@@ -63,19 +73,28 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         }}
         onClose={onDone}
       >
-        <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
+        <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
         <ReceiptRows
           className="mt-4"
           rows={[
             { label: t('route'), value: 'Sepolia → Miden' },
             {
               label: t('status'),
-              value:
-                inputs.phase === 'received'
-                  ? t('received')
-                  : inputs.phase === 'delivering'
-                    ? t('earnWithdrawStatusDelivering')
-                    : t('earnWithdrawStatusRedeeming')
+              // A status word is a `StatusBadge`, never a bare line of text: the closed set
+              // already carries these three and picks each one's tone and label.
+              value: (
+                <StatusBadge
+                  status={
+                    inputs.phase === 'received'
+                      ? 'received'
+                      : inputs.phase === 'delivering'
+                        ? 'delivering'
+                        : 'redeeming'
+                  }
+                  live
+                  data-testid="earn-withdraw-status-badge"
+                />
+              )
             }
           ]}
         />
@@ -84,28 +103,38 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-ink">
-      <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
-      <main className="flex flex-1 flex-col">
-        <section className="flex flex-1 flex-col items-center pt-5">
-          <Hero
-            visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
-            name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
-          />
-          <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
-          <p className="mt-4 text-center text-sm font-medium text-ink">
-            {failed
-              ? (inputs.error ?? t('transactionErrorDescription'))
-              : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
-          </p>
-        </section>
-        <div className="w-full shrink-0 pt-10 pb-6">
-          <Button type="button" variant={ButtonVariant.Primary} onClick={onDone} className="w-full max-w-none">
-            {failed ? t('done') : t('hide')}
-          </Button>
-        </div>
-      </main>
-    </div>
+    // The shared pushed-page frame, like every other earn page: header, body, pinned action.
+    <SubPageLayout
+      data-testid="earn-withdraw-status-page"
+      title={t('transactionProcessingHeader')}
+      onClose={onDone}
+      footer={
+        <Button
+          type="button"
+          variant={ButtonVariant.Primary}
+          accent="earn"
+          onClick={onDone}
+          className="w-full max-w-none"
+        >
+          {failed ? t('done') : t('hide')}
+        </Button>
+      }
+    >
+      <section className="flex flex-1 flex-col items-center pt-5">
+        <Hero
+          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+          name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
+        />
+        <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
+        {/* The `Hero`'s own secondary line; an error takes the negative ink, as on every other
+            screen that reports one. */}
+        <p className={cn('mt-4 text-center text-body-sm', failed ? 'text-negative-ink' : 'text-muted')}>
+          {failed
+            ? (inputs.error ?? t('transactionErrorDescription'))
+            : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
+        </p>
+      </section>
+    </SubPageLayout>
   );
 };
 

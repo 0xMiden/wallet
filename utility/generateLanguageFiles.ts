@@ -49,7 +49,8 @@ const DEEPL_CONTEXT =
   'tokens owed to you, never a legal claim or assertion; "Bridge" means moving assets ' +
   'between blockchains, never a physical bridge ("bridge in progress" = a transfer is ' +
   'underway, not construction); "Withdraw" means taking funds out, never cancel; "Vault" ' +
-  'is a secure asset store; "pending notes" are payment notes awaiting collection. ' +
+  'is a secure asset store; "Accept"/"Decline" are what a user does with an incoming ' +
+  'transfer of money, and a "pending transfer" is money waiting to be accepted. ' +
   '"Everyday key" is the name of the account\'s day-to-day signing key, a noun like ' +
   '"signing key": translate it as a kind of key, never as a frequency ("daily", ' +
   '"regularly") and never as vocabulary or terminology; rotating it means replacing it ' +

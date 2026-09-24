@@ -31,7 +31,7 @@ import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
 import { GuardianProbeState, ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
 
 export interface OnboardingFlowProps {
-  wordslist: string[];
+  wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
   step: OnboardingStep;
@@ -87,7 +87,7 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
 };
 
 /**
- * Every step's header: the shared `PageHeader` row with the back chevron on the left and the flow's
+ * Every step's header: the shared `PageHeader` row with the back button on the left and the flow's
  * progress centred in it. Back is the onboarding state machine's own step back (`onAction('back')`,
  * the same one the mobile back gesture takes), never the router's history.
  */
@@ -104,7 +104,7 @@ const Header: React.FC<{
       <ProgressIndicator
         currentStep={currentStep ?? 1}
         steps={totalSteps}
-        // Centred on the row whether or not the chevron is there; decorative, the step's title says where you are.
+        // Centred on the row whether or not the back button is there; decorative, the step's title says where you are.
         aria-hidden="true"
         className={cn('pointer-events-none absolute left-1/2 -translate-x-1/2', !currentStep && 'opacity-0')}
       />

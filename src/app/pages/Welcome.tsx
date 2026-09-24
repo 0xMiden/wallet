@@ -1,9 +1,8 @@
 import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { generateMnemonic } from 'bip39';
-import wordslist from 'bip39/src/wordlists/english.json';
 import { useTranslation } from 'react-i18next';
 
+import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
@@ -359,7 +358,7 @@ const Welcome: FC = () => {
     console.log(
       `[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}, onboardingType=${bypassOnboardingType}`
     );
-    const testSeed = importedSeed ?? generateMnemonic(128).split(' ');
+    const testSeed = importedSeed ?? generateMnemonic().split(' ');
     // E2E-only: surface the mnemonic actually used for this bypass run
     // (freshly generated for Create, or the caller's own for Import) so the
     // harness can recover the just-created wallet from a SEPARATE profile
@@ -577,7 +576,7 @@ const Welcome: FC = () => {
         // User finished the (fake) biometric prompt — generate the mnemonic
         // silently and route to guardian selection. The hardware/password
         // decision is deferred to after the guardian is chosen.
-        setSeedPhrase(generateMnemonic(128).split(' '));
+        setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
         navigate('/#choose-guardian');
@@ -594,7 +593,7 @@ const Welcome: FC = () => {
           navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
           break;
         }
-        setSeedPhrase(generateMnemonic(128).split(' '));
+        setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
@@ -714,7 +713,7 @@ const Welcome: FC = () => {
           // Extension/desktop create flow: the password screen replaces
           // passcode setup and runs before guardian selection — generate the
           // mnemonic here, exactly like setup-passcode-submit does.
-          setSeedPhrase(generateMnemonic(128).split(' '));
+          setSeedPhrase(generateMnemonic().split(' '));
           setProtectionMethod('password');
           navigate('/#choose-guardian');
         } else if (onboardingType === OnboardingType.Import) {

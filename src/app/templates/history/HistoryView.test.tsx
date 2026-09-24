@@ -2,11 +2,13 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { resetActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
+import { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
@@ -14,6 +16,10 @@ import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
+
+// The pending card wrapper's props, recorded by the framer-motion mock below. A layout animation
+// is measured, never written to markup, so its mode cannot be asserted from the DOM alone.
+const mockPendingWrapper: { props: Record<string, unknown> | null } = { props: null };
 
 // Icon: expose the requested glyph name + size + className so buildRowProps'
 // icon selection (the white-fill classes, and that every row asks for the
@@ -50,11 +56,14 @@ jest.mock('framer-motion', () => {
         (
           { children, layout, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
-        ) => (
-          <div ref={ref} data-layout={String(layout)} {...rest}>
-            {children}
-          </div>
-        )
+        ) => {
+          if (rest['data-pending-note-id'] !== undefined) mockPendingWrapper.props = { layout, transition, ...rest };
+          return (
+            <div ref={ref} data-layout={String(layout)} {...rest}>
+              {children}
+            </div>
+          );
+        }
       )
     }
   };
@@ -72,7 +81,8 @@ jest.mock('components/ui', () => ({
     amount,
     status,
     onClick,
-    className
+    className,
+    leading
   }: {
     icon: React.ReactNode;
     iconBg?: string;
@@ -87,6 +97,7 @@ jest.mock('components/ui', () => ({
     status: string;
     onClick?: () => void;
     className?: string;
+    leading?: React.ReactNode;
   }) => (
     <div
       data-testid="activity-row"
@@ -104,6 +115,7 @@ jest.mock('components/ui', () => ({
       data-clickable={onClick ? 'yes' : 'no'}
       onClick={onClick}
     >
+      {leading}
       {icon}
     </div>
   ),
@@ -119,10 +131,28 @@ jest.mock('components/ui', () => ({
 // Imported from its own module path in the source (not the `components/ui`
 // barrel mocked above), so it needs its own mock.
 jest.mock('components/ui/EmptyState', () => ({
-  EmptyState: ({ icon, title, className }: { icon: string; title: string; className?: string }) => (
-    <div data-testid="empty-state" data-classname={className}>
+  EmptyState: ({
+    icon,
+    title,
+    description,
+    surface,
+    className,
+    role,
+    secondaryAction
+  }: {
+    icon: string;
+    title: string;
+    description?: string;
+    surface?: string;
+    className?: string;
+    role?: string;
+    secondaryAction?: { label: string; onClick: () => void };
+  }) => (
+    <div data-testid="empty-state" data-classname={className} data-surface={surface} role={role}>
       <span data-testid="icon" data-name={icon} />
       <h3>{title}</h3>
+      {description && <p>{description}</p>}
+      {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
     </div>
   )
 }));
@@ -161,7 +191,9 @@ jest.mock('./transactionUtils', () => ({
   isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
   // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
   // the earn-deposit status branch is exercised with realistic values.
-  earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending')
+  earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
+  // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
+  TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
 
 const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
@@ -268,6 +300,74 @@ describe('HistoryView empty state', () => {
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
     expect(container.querySelector('.mt-8')).toBeNull();
     expect(container.querySelector('.m-4')).toBeNull();
+  });
+
+  it("draws a token's own empty card, dashed, when the history is one token's", () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory tokenId="token-1" />);
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    expect(screen.getByText('tokenActivityEmptyTitle')).toBeInTheDocument();
+    expect(screen.getByText('tokenActivityEmptyBody')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state')).toHaveAttribute('data-surface', 'dashed');
+  });
+
+  it('keeps the plain no-operations card for a history that is not one token', () => {
+    render(<HistoryView {...baseProps} entries={[]} fullHistory />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+    expect(screen.getByTestId('empty-state')).not.toHaveAttribute('data-surface', 'dashed');
+  });
+
+  describe('after a failed load', () => {
+    const emptyModes: Array<[string, Partial<React.ComponentProps<typeof HistoryView>>]> = [
+      ['the default list', {}],
+      ['the centred Activity list', { centerEmptyState: true }],
+      ["one token's full history", { tokenId: 'token-1', fullHistory: true }]
+    ];
+
+    it.each(emptyModes)(
+      'says the load failed, with Retry, while the other read still loads, in %s',
+      (_mode, modeProps) => {
+        const onRetry = jest.fn();
+        render(<HistoryView {...baseProps} {...modeProps} entries={[]} initialLoading loadError onRetry={onRetry} />);
+
+        expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+        fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+        expect(onRetry).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(emptyModes)('says the load failed, with Retry, instead of the empty card, in %s', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(<HistoryView {...baseProps} {...modeProps} entries={[]} loadError onRetry={onRetry} />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryByText('noOperationsFound')).toBeNull();
+      expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['the summary list', {}],
+      ['the Activity list', { fullHistory: true }],
+      ["one token's list", { fullHistory: true, tokenId: 'token-1' }]
+    ])('keeps the rows it has in %s, under an alert with Retry', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(
+        <HistoryView {...baseProps} {...modeProps} entries={[makeEntry({ key: 'kept' })]} loadError onRetry={onRetry} />
+      );
+
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryAllByTestId(/^(history-item|activity-row)$/)).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('keeps the centred Activity card as it is, even with a token id', () => {
+    render(<HistoryView {...baseProps} entries={[]} centerEmptyState tokenId="token-1" />);
+    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
+    expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
   });
 });
 
@@ -654,13 +754,13 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
   });
 
-  it('renders every row on the shared fill card, with no border', () => {
+  it('renders every row as an outlined card on the page: a hairline edge, no fill', () => {
     renderFull();
     const rows = screen.getAllByTestId('activity-row');
     expect(rows.length).toBeGreaterThan(0);
     rows.forEach(row => {
-      expect(row).toHaveClass('bg-fill', 'rounded-2xl', 'px-4', 'py-3');
-      expect(row.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+      expect(row).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'px-4', 'py-3');
+      expect(row).not.toHaveClass('bg-fill');
       expect(row).not.toHaveClass('bg-white');
     });
   });
@@ -715,6 +815,37 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     fireEvent.click(rowByTitle('Received'));
     expect(navigate).toHaveBeenCalledWith('/history-details/tx-receive');
+  });
+
+  describe('unread', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      resetActivityReadState();
+      // Before every fixture's timestamp, so the whole list arrives unread.
+      jest.spyOn(Date, 'now').mockReturnValue(0);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('marks a row unread until its own detail is opened', () => {
+      const { rerender } = renderFull();
+      const row = rowByTitle('Received');
+      expect(within(row).getByTestId('activity-row-unread')).toHaveClass('bg-notification');
+
+      // Opening THAT row reads it. Opening the tab reads nothing, which is why the other rows
+      // keep their dots.
+      fireEvent.click(row);
+      rerender(<HistoryView {...baseProps} entries={entries} fullHistory className="full-class" />);
+      expect(within(rowByTitle('Received')).queryByTestId('activity-row-unread')).toBeNull();
+      expect(screen.getAllByTestId('activity-row-unread').length).toBeGreaterThan(0);
+    });
+
+    it('leaves an existing history read on first run', () => {
+      jest.spyOn(Date, 'now').mockReturnValue((DAY_B + 86_400) * 1000);
+      resetActivityReadState();
+      renderFull();
+
+      expect(screen.queryByTestId('activity-row-unread')).toBeNull();
+    });
   });
 });
 
@@ -985,6 +1116,26 @@ describe('HistoryView infinite scroll wiring', () => {
   });
 });
 
+describe('HistoryView Guardian ops', () => {
+  it('paints a device-key rotation row like a guardian switch: the slate its detail page uses, the Guardian glyph', () => {
+    const entries = [
+      makeEntry({ key: 'switch', txType: 'switch-guardian', message: 'Guardian switched' }),
+      makeEntry({ key: 'rotation', txType: 'replace-hot-key', message: 'Device key rotated' }),
+      makeEntry({ key: 'threshold', txType: 'update-procedure-threshold', message: 'Account secured' })
+    ];
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    // TransactionIcon's slate (#777487) is the detail page's accent for all three.
+    expect(getTransactionIconBackgroundColor(entries[1]!)).toBe('#777487');
+    for (const title of ['Guardian switched', 'Device key rotated', 'Account secured']) {
+      const row = rowByTitle(title);
+      expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
+      expect(row.querySelector('svg')).not.toBeNull();
+      expect(within(row).queryByTestId('icon')).toBeNull();
+    }
+  });
+});
+
 describe('HistoryView Guardian switch audit trail', () => {
   it('shows custom provider hosts for every transaction status', () => {
     const entries = [
@@ -1173,6 +1324,44 @@ it('places pending notes between transactions by inclusion date in the same date
   ]);
   expect(screen.getAllByText('January 15, 2024')).toHaveLength(1);
   expect(screen.getAllByText('January 16, 2024')).toHaveLength(1);
+});
+
+it('moves a pending card with the rows beside it, and never animates its height', () => {
+  // The card is the only child of a date group that is not a row, and it used to be the only one
+  // that was not a Framer projection node either: it jumped to its new place on a filter change
+  // while the `ActivityRow` inside it slid there. `layout="position"` puts it in the projection
+  // tree with its neighbours. Position-only is load-bearing: the card's box grows when its
+  // disclosure opens, and full `layout` would animate that — the height tween the card itself
+  // just lost, moved one level up.
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'moving-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span data-testid="pending-moving-row">Pending note</span>}
+    />
+  );
+
+  const wrapperProps = mockPendingWrapper.props;
+  expect(wrapperProps).not.toBeNull();
+  expect(wrapperProps?.layout).toBe('position');
+  expect(wrapperProps?.['data-pending-note-id']).toBe('moving-note');
 });
 
 it('keeps an undated note visible without assigning a false date', () => {

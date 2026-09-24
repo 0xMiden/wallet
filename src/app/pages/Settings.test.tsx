@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
@@ -99,7 +100,7 @@ jest.mock('lib/woozie', () => ({
   goBack: jest.fn(),
   HistoryAction: { Push: 'push', Replace: 'replace' },
   // Read by useBackWithFallback at call time, which decides whether the sub-page
-  // header's back chevron pops history or falls back to the settings root.
+  // header's back button pops history or falls back to the settings root.
   createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/settings/sub' }),
   listen: () => () => undefined
 }));
@@ -220,7 +221,7 @@ jest.mock('app/templates/GeneralSettings', () => ({
   default: mockLayoutPage('general-settings')
 }));
 
-jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: () => <div data-testid="address-book" /> }));
+jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: mockLayoutPage('address-book') }));
 jest.mock('app/templates/DAppDrawerSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('dapp-drawer-settings')
@@ -247,7 +248,7 @@ jest.mock('app/templates/LanguageSettings', () => ({
 }));
 jest.mock('app/templates/SpendingLimits', () => ({
   __esModule: true,
-  default: () => <div data-testid="spending-limits-settings" />
+  default: mockLayoutPage('spending-limits-settings')
 }));
 jest.mock('app/templates/RevealSecret', () => ({
   __esModule: true,
@@ -281,7 +282,7 @@ jest.mock('./AdvancedSettings', () => ({
 }));
 jest.mock('./ExportAccountFile', () => ({
   __esModule: true,
-  default: () => <div data-testid="export-account-file" />
+  default: mockLayoutPage('export-account-file')
 }));
 jest.mock('./Networks', () => ({
   __esModule: true,
@@ -371,11 +372,33 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 
-    // The root wears the same TabHeader as Activity and Explore — a plain
+    // The root wears the same TabRootHeader as Activity and Explore — a plain
     // heading, not the sub-page PageHeader.
-    expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { level: 1, name: 'settings' });
+    expect(heading).toBeInTheDocument();
+    // ...ending in the same inset rule, not a hairline.
+    const header = heading.closest('header')!;
+    expect(header).not.toHaveClass('border-b');
+    expect(header.nextElementSibling).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
     expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
+  });
+
+  // The Settings half of the tab-root parity check; Activity's and Explore's is
+  // `TabRootHeaderParity.test.tsx`, which compares against this same reference band.
+  it('draws the shared tab-root band, class for class, with no filter row of its own', () => {
+    const reference = render(<TabRootHeader title="settings" />);
+    const referenceHeader = reference.container.querySelector('header')!.className;
+    reference.unmount();
+
+    const { container } = render(<Settings tabSlug={null} />);
+
+    expect(container.querySelector('header')!.className).toBe(referenceHeader);
+    // The same 4px rule, and the same 8px under it, as Activity and Explore — from the shared
+    // header, not from the page.
+    expect(container.querySelector('header + div')).toHaveClass('mx-4', 'mb-2', 'h-1', 'rounded-full', 'bg-fill');
+    // Settings does not filter, so the band is the title row alone.
+    expect(screen.queryByRole('radiogroup')).toBeNull();
   });
 
   it('gives the root no back affordance, since it is a tab destination', () => {
@@ -410,7 +433,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.queryByTestId('row-guardianSettings')).not.toBeInTheDocument();
   });
 
-  it('draws each group as a section label over a fill group whose rows all show a chevron', () => {
+  it('draws each group as a section label over a plain group whose rows all show a chevron', () => {
     render(<Settings tabSlug={null} />);
 
     // Settings' group headers are the `lg` SectionHeader variant, not the plain
@@ -418,7 +441,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     const heading = screen.getByRole('heading', { level: 2, name: 'preferences' });
     expect(heading).toHaveClass('text-ink', 'text-title-section');
     const row = screen.getByTestId('row-generalSettings');
-    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // Plain surface: no fill, rows flush with the page margin, hairlines full width.
+    expect(row.parentElement).not.toHaveClass('bg-fill');
+    expect(row.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    // The header drops the label's 4px inset so its glyph lines up with the rows.
+    expect(heading.closest('.px-0')).not.toBeNull();
     screen.getAllByTestId(/^row-/).forEach(r => expect(r).toHaveAttribute('data-chevron', 'true'));
   });
 
@@ -628,16 +655,18 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
-  // THREE tabs still render inside the host's padded body: address-book, spending-limits and
-  // export-account-file. Everything else either carries its own layout or is `actionOnly`, which
-  // Settings.tsx:451 filters out of `activeTab` so it can never resolve as a route. The guard for
-  // that wrapper used to be this file's only one, and it was re-pointed at a page that moved onto
-  // the shared layout, which left the wrapper assertable nowhere.
-  it('keeps the display face on a sub-page that still takes the host body', () => {
-    const { container } = render(<Settings tabSlug="address-book" />);
+  // The last three tabs that rendered inside the host's padded body (address-book, spending-limits
+  // and export-account-file) draw their own SubPageLayout now, so the host has one path and no
+  // wrapper: none of them may pick the blanket display face back up. `actionOnly` tabs are
+  // filtered out of `activeTab` and never resolve as a route.
+  it.each([['address-book'], ['spending-limits'], ['export-account-file']])(
+    'puts the former host-body page %s on its own layout, with no blanket display face',
+    tabSlug => {
+      const { container } = render(<Settings tabSlug={tabSlug} />);
 
-    expect(container.querySelector('.font-heading')).not.toBeNull();
-  });
+      expect(container.querySelector('.font-heading')).toBeNull();
+    }
+  );
 
   it('wraps a SubPageLayout page in no blanket display face', () => {
     // The host's old padded body set `font-heading` on everything under it, which
@@ -709,7 +738,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-title')).toHaveTextContent('language');
   });
 
-  // The root's back-to-home chevron is gone: Settings is a bottom-nav
+  // The root's back-to-home button is gone: Settings is a bottom-nav
   // destination, and tab roots don't carry one (see the tab-destination test
   // in the root-menu block above). Sub-page back behaviour is unchanged and
   // still covered below.
@@ -835,11 +864,12 @@ describe('Settings page — recovery phrase row', () => {
 });
 
 describe('Settings page — active tab routing', () => {
-  it('renders a hasOwnLayout tab without a navigation header', () => {
+  it('renders a page that sets its own header per step without one from the host', () => {
     render(<Settings tabSlug="reveal-seed-phrase" />);
 
     expect(screen.getByTestId('reveal-seed-flow')).toBeInTheDocument();
-    // Own-layout pages render neither the header nor the root menu.
+    // The host draws no header of its own: this page's layout sets a title and a back per step,
+    // and the mock stands in for the whole page. The root menu is gone either way.
     expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
@@ -873,7 +903,7 @@ describe('Settings page — active tab routing', () => {
 
   it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
     // A deep link or a reload lands on the sub-page at the first history entry,
-    // where goBack() is a no-op — the chevron has to route instead, and replace so
+    // where goBack() is a no-op - the back button has to route instead, and replace so
     // forward does not walk back into the page just left.
     mockHistoryPosition = 0;
     render(<Settings tabSlug="networks" />);
@@ -1055,6 +1085,21 @@ describe('Settings page — mobile body attribute effects', () => {
 //     TERMS_OF_USE_URL currently equals PRIVACY_POLICY_URL, so the tab lookup
 //     always resolves the Privacy tab first.
 //   Covering these would require changing the source, which the task forbids.
+
+it('has one rendering path for every sub-page: the page draws its own frame, the host adds none', () => {
+  // Was three: a page on the layout, a page with its own layout inside the host's scroller, and
+  // a page in a padded `font-heading` box under a header the host drew.
+  for (const slug of ['address-book', 'export-account-file', 'spending-limits', 'networks']) {
+    const { unmount } = render(<Settings tabSlug={slug} />);
+
+    expect(screen.getAllByTestId('nav-header')).toHaveLength(1);
+    // The layout's body is the only scroller, and nothing wraps it.
+    expect(document.querySelectorAll('.overflow-y-auto')).toHaveLength(1);
+    expect(document.querySelector('.font-heading')).toBeNull();
+
+    unmount();
+  }
+});
 
 // The file is the only backup of an OffChain account's private state and of an
 // imported key; the recovery phrase restores neither. It exports every account,

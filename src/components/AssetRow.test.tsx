@@ -16,17 +16,22 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 jest.mock('components/ui', () => ({
+  // The three figures are nodes now, not strings, so the stub renders them instead of stringifying
+  // them into attributes. `AnimatedNumber` stands in for the real one at its contract: a finite
+  // number goes through the caller's own formatter, anything else renders nothing.
+  AnimatedNumber: ({ value, format }: any) =>
+    typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
   AssetListItem: ({ icon, name, amount, chart, price, delta, onClick, 'data-testid': dataTestId }: any) => (
     <div
       data-testid={dataTestId ?? 'asset-list-item'}
       data-name={name}
-      data-amount={amount}
-      data-price={price}
-      data-delta-value={delta?.value}
       data-delta-direction={delta?.direction}
       data-has-onclick={onClick ? 'yes' : 'no'}
       onClick={onClick}
     >
+      <span data-testid="row-amount">{amount}</span>
+      {price !== undefined && <span data-testid="row-price">{price}</span>}
+      {delta && <span data-testid="row-delta">{delta.value}</span>}
       {icon}
       {chart}
     </div>
@@ -84,7 +89,7 @@ describe('AssetRow', () => {
 
     const item = screen.getByTestId('asset-list-item');
     // Delta formatting: "+" prefix + two decimals + "%".
-    expect(item).toHaveAttribute('data-delta-value', '+5.26%');
+    expect(screen.getByTestId('row-delta')).toHaveTextContent('+5.26%');
     expect(item).toHaveAttribute('data-delta-direction', 'positive');
 
     // Real points (length > 1) => the actual points and the positive color.
@@ -95,8 +100,8 @@ describe('AssetRow', () => {
     expect(spark).toHaveAttribute('data-height', '32');
 
     // Amount + price plumbing: standard 2dp formatting + symbol; balance * price.
-    expect(item).toHaveAttribute('data-amount', '2.00 BTC');
-    expect(item).toHaveAttribute('data-price', '$200.00');
+    expect(screen.getByTestId('row-amount')).toHaveTextContent('2.00 BTC');
+    expect(screen.getByTestId('row-price')).toHaveTextContent('$200.00');
 
     // getTokenPrice / useTokenSparkline called with the symbol.
     expect(mockGetTokenPrice).toHaveBeenCalledWith(TOKEN_PRICES, 'BTC');
@@ -108,9 +113,8 @@ describe('AssetRow', () => {
 
     render(<AssetRow asset={makeAsset({ balance: 0.001234 })} tokenPrices={TOKEN_PRICES} />);
 
-    const item = screen.getByTestId('asset-list-item');
-    expect(item).toHaveAttribute('data-amount', '0.0012 BTC');
-    expect(item).toHaveAttribute('data-price', '$0.0025');
+    expect(screen.getByTestId('row-amount')).toHaveTextContent('0.0012 BTC');
+    expect(screen.getByTestId('row-price')).toHaveTextContent('$0.0025');
   });
 
   it('treats an exactly-zero change as positive', () => {
@@ -119,7 +123,7 @@ describe('AssetRow', () => {
     render(<AssetRow asset={makeAsset()} tokenPrices={TOKEN_PRICES} />);
 
     const item = screen.getByTestId('asset-list-item');
-    expect(item).toHaveAttribute('data-delta-value', '+0.00%');
+    expect(screen.getByTestId('row-delta')).toHaveTextContent('+0.00%');
     expect(item).toHaveAttribute('data-delta-direction', 'positive');
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--status-positive)');
   });
@@ -131,9 +135,9 @@ describe('AssetRow', () => {
     render(<AssetRow asset={makeAsset({ balance: 4 })} tokenPrices={TOKEN_PRICES} />);
 
     const item = screen.getByTestId('asset-list-item');
-    expect(item).toHaveAttribute('data-delta-value', '-3.10%');
+    expect(screen.getByTestId('row-delta')).toHaveTextContent('-3.10%');
     expect(item).toHaveAttribute('data-delta-direction', 'negative');
-    expect(item).toHaveAttribute('data-price', '$200.00');
+    expect(screen.getByTestId('row-price')).toHaveTextContent('$200.00');
 
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--status-negative)');
   });
@@ -231,19 +235,19 @@ describe('AssetRow', () => {
     it('shows the symbol alone instead of a quantity', () => {
       render(<AssetRow asset={unknownAsset()} tokenPrices={TOKEN_PRICES} data-testid="row" />);
 
-      expect(screen.getByTestId('row').getAttribute('data-amount')).toBe('Unknown');
+      expect(screen.getByTestId('row-amount')).toHaveTextContent('Unknown');
     });
 
     it('omits the fiat value, which is derived from the same wrong balance', () => {
       render(<AssetRow asset={unknownAsset()} tokenPrices={TOKEN_PRICES} data-testid="row" />);
 
-      expect(screen.getByTestId('row').getAttribute('data-price')).toBeNull();
+      expect(screen.queryByTestId('row-price')).toBeNull();
     });
 
     it('still quantifies a token that reported its own decimals', () => {
       render(<AssetRow asset={makeAsset()} tokenPrices={TOKEN_PRICES} data-testid="row" />);
 
-      expect(screen.getByTestId('row').getAttribute('data-amount')).toBe('2.00 BTC');
+      expect(screen.getByTestId('row-amount')).toHaveTextContent('2.00 BTC');
     });
   });
 });

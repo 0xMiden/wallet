@@ -2,7 +2,7 @@ export { springs, type SpringName } from './springs';
 export { durations, type DurationName } from './durations';
 export { easings, type EasingName } from './easings';
 export { useMotion, useSprings, resolveTransition, reducedMotionTransition } from './use-motion';
-export { springToLinearEasing, type CompositorSpring } from './spring-easing';
+export { springToLinearEasing, supportsLinearEasing, type CompositorSpring } from './spring-easing';
 export { presets, presetNames, usePreset, resolvePreset, type MotionPreset, type PresetName } from './presets';
 export {
   pageSlideEntrance,
@@ -31,3 +31,4 @@ export {
   type ExploreMotion
 } from './explore';
 export { copyMotion, COPY_FEEDBACK_MS, type CopyMotion, type CopySwapMotion } from './copy';
+export { sheetMotion, sheetMotionVars, type SheetCurve } from './sheet';

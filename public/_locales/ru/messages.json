@@ -94,18 +94,9 @@
     "message": "Загрузка",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "Если не будет востребовано, возвращается отправителю по адресу $date$",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "Вернётся отправителю, если не будет принят до $date$",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -415,6 +406,10 @@
     "message": "Не удалось загрузить ваши позиции. Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Не удалось загрузить это хранилище. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -435,6 +430,14 @@
   "earnSeeAll": {
     "message": "Показать всё",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Нет открытых позиций",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Пополните хранилище ниже, чтобы начать получать вознаграждения.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Избранные хранилища",
@@ -611,24 +614,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "Эта транзакция находится в цепочке, но частный ключ note не удалось передать транспортной службе note. Пока это не произойдёт, получатель не сможет увидеть или потратить эти средства.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "Эта транзакция в блокчейне, но приватный перевод не удалось передать службе доставки. Пока этого не произойдёт, получатель не сможет его увидеть или потратить.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "Эта транзакция находится в цепочке, но кошелек не смог подтвердить, что закрытый ключ note поступил в транспортную службу note.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "Эта транзакция в блокчейне, но кошелёк не смог подтвердить, что приватный перевод достиг службы доставки.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Оставьте этот кошелёк открытым и подключённым — после отправки система автоматически повторяет попытку доставки в течение некоторого времени, и это предупреждение исчезнет, если доставка пройдёт успешно. Если получатель по-прежнему ничего не получил через час, не отправляйте снова; сохраните ID транзакции, указанный ниже, и обратитесь в службу поддержки, так как с его помощью всё ещё можно восстановить токены «note».",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Держите кошелёк открытым и подключённым — какое-то время после отправки доставка повторяется автоматически, и это предупреждение исчезнет, если она пройдёт. Если через час получатель так ничего и не получил, не отправляйте повторно; сохраните ID транзакции ниже и обратитесь в поддержку, так как перевод ещё можно восстановить по нему.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Доставка подтверждена",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "Получатель получил и потратил этот частный токен note, поэтому его доставка подтверждена в цепочке.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "Получатель принял и потратил этот приватный перевод, поэтому его доставка подтверждена в блокчейне.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -888,8 +891,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "Получение токенов note",
-    "englishSource": "Claiming note"
+    "message": "Принятие перевода",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "Выполнение транзакции",
@@ -980,12 +983,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "Предоставление услуг «note»",
-    "englishSource": "Delivering note"
+    "message": "Доставка перевода",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "Безопасная отправка файла «note» адресату.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "Безопасная отправка перевода получателю.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "Статус",
@@ -1552,6 +1555,10 @@
     "message": "Кому",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Введите адрес Miden или Ethereum",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Выберите сумму",
     "englishSource": "Select Amount"
@@ -1559,6 +1566,10 @@
   "enterAmount": {
     "message": "Введите сумму",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "Вычисление",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "Выберите токен",
@@ -1661,8 +1672,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Автоматическое потребление",
-    "englishSource": "Auto consume"
+    "message": "Автопринятие",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "Выберите два разных жетона для обмена.",
@@ -1698,8 +1709,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Если к этому моменту средства не будут востребованы, вы сможете вернуть токены $amount$ обратно в свой кошелек. Никакие средства не будут утрачены.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "Если к тому времени перевод не примут, $amount$ вернётся как ожидающий перевод, который вы примете. Средства не теряются.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1814,20 +1825,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "Сканирование частного notes: слив транспорта note…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "Поиск приватных переводов…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "Сканирование частного реестра notes: импорт notes из ожидающих предложений…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "Поиск приватных переводов: импорт ожидающих предложений…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "Синхронизация публичного реестра notes…",
-    "englishSource": "Syncing public notes…"
+    "message": "Синхронизация публичных переводов…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "Синхронизация публичной цепочки блоков notes: блок $current$ из $latest$",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "Синхронизация публичных переводов: блок $current$ из $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1838,14 +1849,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "У вас есть ожидающие квитанции (Notes)",
-    "englishSource": "You have Pending Notes"
+    "message": "У вас есть переводы для принятия",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "У вас есть ожидающие к оплате платежные уведомления (notes) на сумму $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$ в ожидании",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -2631,6 +2642,10 @@
     "message": "Ежедневная смена ключа",
     "englishSource": "stale: re-translate with the everyday-key sense"
   },
+  "newDeviceKey": {
+    "message": "Новый ключ устройства",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Генерируйте новый ежедневный ключ и замените им текущий в цепочке. Это полезно, если вы подозреваете, что ваше устройство скомпрометировано.",
     "englishSource": "stale: re-translate with the everyday-key sense"
@@ -2799,18 +2814,6 @@
     "message": "Ваши MIDEN зарезервированы для оплаты сетевой комиссии. Получите больше MIDEN, чтобы отправить.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "За каждое требование взимается отдельная комиссия. При одновременном предъявлении нескольких требований комиссия взимается только одна.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Взимается один раз за каждый заявленный актив.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Для оплаты сетевой комиссии вам понадобится MIDEN. Получите некоторое количество MIDEN, чтобы продолжить.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -2820,12 +2823,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "Автоматически принимать переводы MIDEN",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматически зачисляет поступающие токены MIDEN notes на ваш баланс — то же самое, что нажать кнопку «Получить». Это не происходит чаще и не обходится дороже, чем если бы вы нажимали кнопку «Получить» самостоятельно.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "Автоматически принимает входящие переводы MIDEN на ваш баланс — так же, как нажатие «Принять». Это не происходит чаще и не стоит больше комиссий, чем принятие вручную.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Создание файла кошелька…",
@@ -3102,6 +3105,10 @@
     "message": "Главная",
     "englishSource": "Home"
   },
+  "earn": {
+    "message": "Заработок",
+    "englishSource": "Earn"
+  },
   "noteId": {
     "message": "Note ИД",
     "englishSource": "Note ID"
@@ -3270,137 +3277,17 @@
     "message": "Отправить оплату",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Получить всё",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Получить всё? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Всего в процессе рассмотрения",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes в процессе рассмотрения",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "активы",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ Входящие",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden использует уникальную систему под названием «notes». Именно здесь вы вручную запрашиваете поступающие средства. Это способ защитить ваш кошелёк от злоумышленников",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes находящиеся в процессе перехода по всем активам $assets$",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ поступающие переводы",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ нерешенный",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "Ошибка при получении — нажмите «Повторить», чтобы попробовать ещё раз",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "Не удалось принять — нажмите «Повторить»",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "Эта страница note больше недоступна",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Ожидающие выплаты (notes)",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "Что такое ожидающие платежные уведомления (notes)?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Используйте свои «notes»",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Добавьте эти средства в ожидании зачисления на свой баланс, чтобы начать расходовать их.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Когда кто-то отправляет вам средства, они поступают в виде конфиденциальных",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— запечатанные пакеты, которые можете открыть только вы.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Использование",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "note» переводит их в ваш доступный для расходования баланс. До тех пор, пока вы этого не сделаете, средства принадлежат вам, но их пока нельзя потратить.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "У вас есть",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "В ожидании. Используйте их в любое время — спешить не нужно, и ваши средства никогда не подвергаются риску.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "Этот перевод больше недоступен",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "Получить токены",
@@ -3421,6 +3308,18 @@
   "faucetId": {
     "message": "Faucet ИД",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "Предлагаемый Faucet ИД",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "Запрашиваемый Faucet ИД",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Установить новый идентификатор «Faucet»",
@@ -3483,12 +3382,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "Входящие запросы «notes» требуют повторной попытки",
-    "englishSource": "Incoming notes need a retry"
+    "message": "Входящие переводы требуют повторной попытки",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "Для входящего запроса «note» требуется повторная попытка",
-    "englishSource": "An incoming note needs a retry"
+    "message": "Входящий перевод требует повторной попытки",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ не удалось импортировать автоматически.",
@@ -3500,8 +3399,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note не удалось импортировать автоматически.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "Не удалось автоматически импортировать 1 перевод.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Завтра",
@@ -3865,13 +3764,9 @@
     "message": "Тактильная обратная связь",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "В настоящее время у вас нет «notes», которые можно было бы получить.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "Вы получили письмо с адреса note",
-    "englishSource": "You have received a note"
+    "message": "У вас входящий перевод",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "Операция не удалась",
@@ -3882,16 +3777,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "Нажмите здесь, чтобы получить вознаграждение",
-    "englishSource": "Tap here to claim it"
+    "message": "Нажмите здесь, чтобы принять",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Нажмите, чтобы просмотреть и получить",
-    "englishSource": "Click to view and claim it"
+    "message": "Нажмите, чтобы просмотреть и принять",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes получить»",
-    "englishSource": "$count$ notes to claim",
+    "message": "$count$ переводов для принятия",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3978,10 +3873,6 @@
     "message": "Введите адрес",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "Не удалось получить вознаграждение note",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "Тестовая сеть",
     "englishSource": "Testnet"
@@ -4013,6 +3904,18 @@
   "recentActivity": {
     "message": "Последние действия",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Пока нет активности",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Транзакции с этим токеном будут отображаться здесь.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Не удалось загрузить эту операцию.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Тип",
@@ -4087,12 +3990,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes, объединённые в этот свап",
-    "englishSource": "Notes bundled into this swap"
+    "message": "Исполнения, включённые в этот своп",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Note исполнения $number$",
-    "englishSource": "Fill note $number$",
+    "message": "Исполнение $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4100,8 +4003,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Использовано · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "Принято · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4129,24 +4032,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Notes пока не объединены.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "Исполнений пока нет.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Перейти к Pending Notes",
-    "englishSource": "Go to Pending Notes"
+    "message": "К ожидающим переводам",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Отменить обмен",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Отменить этот обмен?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "Сумма, всё ещё выставленная в заявке, вернётся на ваш счёт. Уже исполненная часть останется у вас.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Возвращаем на ваш счёт сумму, остававшуюся в заявке. Это может занять момент.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "Нет в наличии",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "ID транзакции использования",
-    "englishSource": "Consume TX ID"
+    "message": "ID TX принятия",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "ID транзакции использования $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "ID TX принятия $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4526,12 +4445,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "Общее потребление",
-    "englishSource": "Total Consumed"
+    "message": "Всего принято",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes Потреблено",
-    "englishSource": "Notes Consumed"
+    "message": "ID переводов",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "Потреблено",
@@ -4739,8 +4658,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "Заявлено на",
-    "englishSource": "Claimed on"
+    "message": "Принято",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "Подключайте только тестовый кошелек",
@@ -4760,8 +4679,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "Скрыть этот перевод из Активности на этом устройстве? Это не вернёт средства отправителю и не отменит перевод. Скрытые переводы можно восстановить в Активности.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "Активность поиска",
@@ -4812,8 +4731,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "Ещё не принято — проверьте и примите, чтобы добавить эти средства к балансу.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "Сеть может сбросить настройки",
@@ -4971,9 +4890,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "Получено",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$ в ожидании",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ в ожидании · $hidden$ скрыто",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "Отправляйте на этот адрес только токены Miden $network$. Реальные средства, отправленные на этот адрес, не подлежат возврату.",
@@ -5198,5 +5134,115 @@
   "couldNotCheckUnlockMethod": {
     "message": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Изменить цвет QR-кода",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "Получить на",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Ваш доход",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "Сек.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Мин.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Час",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "День",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Единица срока действия",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "Подробнее о $label$",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "Введите целое число от $min$ до $max$.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Вид активности",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Параметры отображения",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Список",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Группы",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Обмены",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Прочая активность",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "Принято",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "Принятие…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "Переводы",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "Непрочитанное",
+    "englishSource": "Unread"
   }
 }

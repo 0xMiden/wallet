@@ -20,7 +20,7 @@ const RecoveryPhraseSettings: FC = () => {
   return (
     <SubPageLayout data-testid="recovery-phrase-settings">
       <SubPageSection>
-        <ListGroup>
+        <ListGroup surface="plain">
           {ROWS.map(row => (
             <ListRow key={row.titleI18nKey} title={t(row.titleI18nKey)} to={row.path} data-testid={row.testId} />
           ))}
