@@ -241,20 +241,30 @@ describe('MeetGuardianScreen', () => {
     expect(screen.queryByTestId('meet-guardian-no-guardian')).toBeNull();
   });
 
-  it('shows a card kept from before the picker at once, still checking rather than offline', () => {
-    renderScreen({
-      initialProgress: {
-        checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
-        chosenId: GATEWAY.id,
-        pickedByUser: false
-      }
-    });
+  it.each([false, true])(
+    'shows a card kept from before the picker at once, checking until its first verdict (picked by user: %s)',
+    pickedByUser => {
+      const view = renderScreen({
+        initialProgress: {
+          checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
+          chosenId: GATEWAY.id,
+          pickedByUser
+        }
+      });
 
-    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
-    expect(screen.queryByTestId('meet-guardian-latency')).toBeNull();
-    expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
-  });
+      const card = screen.getByTestId('meet-guardian-card');
+      expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
+      expect(screen.getByTestId('meet-guardian-checking-status')).toBeInTheDocument();
+      expect(card).toHaveAttribute('aria-busy', 'true');
+      expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
+      expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
+
+      view.setVerdicts({ [GATEWAY.endpoint]: { status: 'online', latencyMs: 30 } });
+      expect(screen.queryByTestId('meet-guardian-checking-status')).toBeNull();
+      expect(screen.getByTestId('meet-guardian-card')).toHaveAttribute('aria-busy', 'false');
+      expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
+    }
+  );
 
   it('drops the "fastest" caption for an operator the user picked in the full picker', () => {
     const view = renderScreen({

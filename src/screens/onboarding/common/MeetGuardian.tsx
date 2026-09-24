@@ -179,7 +179,11 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         {allChecked && (
           <motion.div key="guardian" className="shrink-0 overflow-hidden" {...reveal}>
             {chosen ? (
-              <Card data-testid="meet-guardian-card" className="flex flex-col gap-3">
+              <Card
+                data-testid="meet-guardian-card"
+                className="flex flex-col gap-3"
+                aria-busy={chosenVerdict === undefined}
+              >
                 <div className="flex items-center gap-3">
                   <GuardianLogoTile guardianId={chosen.id} />
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -195,12 +199,14 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                       {chosen.name}
                     </span>
                   </div>
-                  {/* Nothing while it is up: being on the card already says it answered. The badge appears
-                      only when a later round loses it, which is why Continue closed; a card kept from
-                      before the picker has no verdict yet and is still checking, not offline. */}
-                  {chosenVerdict?.status === 'offline' && (
+                  {/* Nothing once it answers. A card kept from before the picker has no verdict yet, so it says
+                      it is checking (Continue waits for the answer); a later round that loses the operator shows
+                      offline, which is why Continue closed. */}
+                  {chosenVerdict === undefined ? (
+                    <StatusBadge status="checking" live data-testid="meet-guardian-checking-status" />
+                  ) : chosenVerdict.status === 'offline' ? (
                     <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
-                  )}
+                  ) : null}
                 </div>
 
                 <ul className="flex flex-col gap-2">
@@ -229,7 +235,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                 {chooseDifferent}
               </div>
             ) : (
-              <Card data-testid="meet-guardian-checking" className="flex flex-col gap-3" aria-busy="true">
+              <Card data-testid="meet-guardian-checking" className="flex flex-col gap-3" aria-busy>
                 <div className="flex items-center gap-3">
                   <Skeleton className="size-12 rounded-xl bg-fill-pressed" />
                   <div className="flex flex-1 flex-col gap-1.5">

@@ -66,6 +66,8 @@ export interface CardProps {
   /** Layout only (margins, width, flex). */
   className?: string;
   'aria-label'?: string;
+  /** A card whose content is still loading (a skeleton, a check in flight). */
+  'aria-busy'?: boolean;
   'data-testid'?: string;
 }
 
@@ -81,6 +83,7 @@ export const Card: React.FC<CardProps> = ({
   pressable = false,
   className,
   'aria-label': ariaLabel,
+  'aria-busy': ariaBusy,
   'data-testid': dataTestId
 }) => {
   const Comp = asChild ? Slot : 'div';
@@ -88,6 +91,7 @@ export const Card: React.FC<CardProps> = ({
     <Comp
       className={cn(cardVariants({ padding, pressable }), className)}
       aria-label={ariaLabel}
+      aria-busy={ariaBusy}
       data-testid={dataTestId}
     >
       {children}
