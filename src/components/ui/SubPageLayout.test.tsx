@@ -153,6 +153,12 @@ describe('SubPageLayout', () => {
 
     expect(screen.queryByRole('banner')).toBeNull();
   });
+
+  it('does not typecheck with both bodyRef and onSubmit - the body is a div or a form, not both', () => {
+    // @ts-expect-error bodyRef and onSubmit are mutually exclusive at the type level.
+    const element = <SubPageLayout bodyRef={{ current: null }} onSubmit={() => {}} />;
+    expect(element).toBeTruthy();
+  });
 });
 
 describe('SubPageSection', () => {

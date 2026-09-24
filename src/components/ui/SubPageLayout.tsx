@@ -31,7 +31,7 @@ export const SubPageHeaderProvider: React.FC<{ value: SubPageHeaderConfig; child
   return <SubPageHeaderContext.Provider value={{ ...inherited, ...value }}>{children}</SubPageHeaderContext.Provider>;
 };
 
-export interface SubPageLayoutProps extends SubPageHeaderConfig {
+interface SubPageLayoutBaseProps extends SubPageHeaderConfig {
   /** A close button at the header's right, for a page that is dismissed rather than popped. */
   onClose?: () => void;
   /** The page's sections, 20px apart. Optional: a page can be its header alone. */
@@ -45,24 +45,36 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
   footer?: React.ReactNode;
   /** `stack` puts the footer's buttons one above the other, for labels too long to share a row. */
   footerLayout?: 'row' | 'stack';
-  /**
-   * The body element, for a page whose content pages itself as the body scrolls (an infinite
-   * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
-   */
-  bodyRef?: React.RefObject<HTMLDivElement>;
-  /**
-   * Makes the body itself the page's `<form>`, so Enter in any field submits it and a page needs
-   * no wrapper of its own inside the scroll area (a wrapper is another element with its own gap,
-   * which is how pages drifted apart). The pinned footer sits OUTSIDE it, so a button there
-   * submits with `type="submit" form={formId}`.
-   */
-  onSubmit?: React.FormEventHandler<HTMLFormElement>;
   /** The body form's id, for that footer button. Only meaningful with `onSubmit`. */
   formId?: string;
   /** The body form, for a page that focuses a field inside it on mount. Only with `onSubmit`. */
   formRef?: React.RefObject<HTMLFormElement>;
   'data-testid'?: string;
 }
+
+// bodyRef watches the body's own div as a scroll parent; onSubmit turns that body into a form
+// instead. A page cannot ask for both, so the two are mutually exclusive at the type level.
+type SubPageLayoutBodyProps =
+  | {
+      /**
+       * The body element, for a page whose content pages itself as the body scrolls (an infinite
+       * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
+       */
+      bodyRef?: React.RefObject<HTMLDivElement>;
+      onSubmit?: never;
+    }
+  | {
+      bodyRef?: never;
+      /**
+       * Makes the body itself the page's `<form>`, so Enter in any field submits it and a page
+       * needs no wrapper of its own inside the scroll area (a wrapper is another element with its
+       * own gap, which is how pages drifted apart). The pinned footer sits OUTSIDE it, so a button
+       * there submits with `type="submit" form={formId}`.
+       */
+      onSubmit?: React.FormEventHandler<HTMLFormElement>;
+    };
+
+export type SubPageLayoutProps = SubPageLayoutBaseProps & SubPageLayoutBodyProps;
 
 /**
  * The frame of every pushed Settings page: the shared `PageHeader`, a body that scrolls under it
