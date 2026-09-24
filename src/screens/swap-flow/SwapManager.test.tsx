@@ -618,6 +618,47 @@ describe('SwapFlow / SwapManager', () => {
       await act(async () => settle(undefined));
     });
 
+    it('holds the review still while a press is in flight: the amount shown is the one sent', async () => {
+      let settle!: (value: undefined) => void;
+      mockWalletState.assessSpendingLimit.mockReturnValue(new Promise(resolve => (settle = resolve)));
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const { rerender } = renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+
+      await act(async () => settle(undefined));
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true);
+    });
+
+    it('catches the review up with the latest quote once a press settles on Review', async () => {
+      let releaseConfirm!: (confirmed: boolean) => void;
+      mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (releaseConfirm = resolve)));
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const { rerender } = renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      rerender(<SwapFlow />);
+
+      await act(async () => releaseConfirm(false));
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
     it('discards a spending-limit assessment minted for another account', async () => {
       // The staleness guard exists because the account can change under an open challenge. An
       // assessment naming a different account can never authorize this swap, so it is dropped

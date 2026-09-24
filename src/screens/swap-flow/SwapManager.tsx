@@ -120,12 +120,14 @@ const SwapManager: React.FC = () => {
 
   // Mirror the quote into the editable receive field unless the user has taken
   // it over. `requestEdited` is cleared whenever they change the pay amount or
-  // a token, so the quote resumes driving the field.
+  // a token, so the quote resumes driving the field. A press in flight has
+  // already captured the amount it sends, so the review holds still until the
+  // press settles; a press that stays on Review then catches up.
   useEffect(() => {
-    if (!requestEdited) {
+    if (!requestEdited && !submitting) {
       setRequestAmount(quote);
     }
-  }, [quote, requestEdited]);
+  }, [quote, requestEdited, submitting]);
 
   // Balances are keyed by `getBech32AddressFromAccountId(faucet)` (BasicWallet
   // interface + active-network HRP), while the swap registry stores
