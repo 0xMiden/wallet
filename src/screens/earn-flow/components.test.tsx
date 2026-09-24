@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
 import { goBack } from 'lib/woozie';
@@ -347,6 +347,42 @@ describe('EarnSummaryPanel', () => {
       expect(screen.getByText('$218.32')).toBeInTheDocument();
       expect(screen.getByText('$4,218.32')).toBeInTheDocument();
       expect(screen.getByText('+$24.50')).toBeInTheDocument();
+    });
+  });
+
+  describe('a figure that travels', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('keeps two decimals on every frame of a travelling figure', async () => {
+      const { rerender } = render(
+        <EarnSummaryPanel summary={{ ...SUMMARY, totalRewardsUsd: 13.0071 }} titleId="earn-title" showMetrics={false} />
+      );
+      const figure = (container: HTMLElement) =>
+        (container.querySelector('section') as HTMLElement).querySelector('.tabular-nums') as HTMLElement;
+      const node = figure(document.body);
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+
+      rerender(
+        <EarnSummaryPanel summary={{ ...SUMMARY, totalRewardsUsd: 15.67 }} titleId="earn-title" showMetrics={false} />
+      );
+      frames.push(node.textContent ?? '');
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+
+      expect(node).toHaveTextContent('$15.67');
+      expect(frames.filter(frame => !/^\$[\d,]+\.\d{2}$/.test(frame))).toEqual([]);
     });
   });
 });

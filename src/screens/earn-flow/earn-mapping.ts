@@ -1,5 +1,5 @@
 import type { EarnPosition as LibEarnPosition, EarnVaultInfo } from 'lib/epoch';
-import { formatUsd } from 'lib/i18n/numbers';
+import { formatUsd, usdFormatterFor } from 'lib/i18n/numbers';
 
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
@@ -26,6 +26,20 @@ export function networkName(chainId: string): string {
 
 export function formatSignedUsd(value: number): string {
   return `+${formatUsd(value)}`;
+}
+
+/**
+ * The formatter for an animated earn USD figure: `usdFormatterFor` its value, with the `+` of
+ * `formatSignedUsd` when `signed`. A figure with no value renders its placeholder and never
+ * formats, so no target is invented for it.
+ */
+export function usdFigureFormatter(
+  target: number | null | undefined,
+  { signed = false }: { signed?: boolean } = {}
+): (value: number) => string {
+  if (target == null) return signed ? formatSignedUsd : formatUsd;
+  const format = usdFormatterFor(target);
+  return signed ? value => `+${format(value)}` : format;
 }
 
 /**

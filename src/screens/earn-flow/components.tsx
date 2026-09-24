@@ -11,7 +11,7 @@ import { Card } from 'components/ui/Card';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
-import { EARN_PLACEHOLDER, formatSignedUsd, formatUsd } from './earn-mapping';
+import { EARN_PLACEHOLDER, usdFigureFormatter } from './earn-mapping';
 import { EarnSummary } from './types';
 
 /** What the earn flow's header knows about the thing it is showing: the two names in its title and
@@ -138,7 +138,13 @@ export const EarnSummaryPanel: FC<{
     <EarnHero
       labelId={titleId}
       className={className}
-      value={<AnimatedNumber value={summary.totalRewardsUsd} format={formatUsd} placeholder={EARN_PLACEHOLDER} />}
+      value={
+        <AnimatedNumber
+          value={summary.totalRewardsUsd}
+          format={usdFigureFormatter(summary.totalRewardsUsd)}
+          placeholder={EARN_PLACEHOLDER}
+        />
+      }
       label={t('earnTotalEarnedRewards')}
       meta={
         <AnimatedNumber
@@ -155,7 +161,11 @@ export const EarnSummaryPanel: FC<{
           <MetricCard
             label={t('earnTotalDeposited')}
             value={
-              <AnimatedNumber value={summary.totalDepositedUsd} format={formatUsd} placeholder={EARN_PLACEHOLDER} />
+              <AnimatedNumber
+                value={summary.totalDepositedUsd}
+                format={usdFigureFormatter(summary.totalDepositedUsd)}
+                placeholder={EARN_PLACEHOLDER}
+              />
             }
           />
           <MetricCard
@@ -163,7 +173,7 @@ export const EarnSummaryPanel: FC<{
             value={
               <AnimatedNumber
                 value={summary.estimatedRewardsUsd}
-                format={formatSignedUsd}
+                format={usdFigureFormatter(summary.estimatedRewardsUsd, { signed: true })}
                 placeholder={EARN_PLACEHOLDER}
               />
             }

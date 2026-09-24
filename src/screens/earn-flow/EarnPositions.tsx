@@ -11,7 +11,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel } from './components';
-import { formatUsd } from './earn-mapping';
+import { usdFigureFormatter } from './earn-mapping';
 import { ProviderLogo } from './ProviderLogo';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
@@ -97,7 +97,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
       <AnimatedNumber
         className="mt-4 block text-hero-value text-ink"
         value={position.depositsUsd}
-        format={formatUsd}
+        format={usdFigureFormatter(position.depositsUsd)}
         placeholder={position.amount}
       />
       <div className="mt-3 text-value text-positive-tint-ink">{position.rewards}</div>

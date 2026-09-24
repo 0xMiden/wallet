@@ -13,6 +13,7 @@ import {
   toAdaptiveFixed,
   adaptiveFormatterFor,
   formatUsd,
+  usdFormatterFor,
   MAX_DISPLAY_DECIMAL_PLACES
 } from './numbers';
 
@@ -167,6 +168,18 @@ describe('adaptiveFormatterFor', () => {
   it('takes the minimum places and rounding mode through to every value', () => {
     expect(adaptiveFormatterFor(1, 4)(0.5)).toBe('0.5000');
     expect(adaptiveFormatterFor(1, 2, BigNumber.ROUND_DOWN)(0.999)).toBe('0.99');
+  });
+});
+
+describe('usdFormatterFor', () => {
+  it("holds the target's decimals for a frame formatUsd would widen", () => {
+    expect(formatUsd(13.0071)).toBe('$13.0071');
+    expect(usdFormatterFor(15.67)(13.0071)).toBe('$13.01');
+  });
+
+  it('keeps the $ prefix and en-US grouping of formatUsd', () => {
+    expect(usdFormatterFor(1500)(1234.5)).toBe('$1,234.50');
+    expect(usdFormatterFor(0.001234)(0.001234)).toBe(formatUsd(0.001234));
   });
 });
 
