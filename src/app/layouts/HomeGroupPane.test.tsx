@@ -112,6 +112,20 @@ describe('HomeGroupPaneBody', () => {
     expect(footer).toHaveClass(cushion);
     expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
   });
+
+  it('insets a pinned CTA to the same page margin as the body', () => {
+    render(
+      <HomeGroupPaneBody footer={<button>cta</button>}>
+        <p>content</p>
+      </HomeGroupPaneBody>
+    );
+
+    // FlowLayout has no outer gutter, so the footer's container is the only thing that keeps a
+    // full-width CTA (SwapAmounts, every flow page) off the pane's edges.
+    const footer = screen.getByText('cta').parentElement!;
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+    expect(footer).toHaveClass('px-4');
+  });
 });
 
 describe('the four panes are drawn in one box', () => {

@@ -113,6 +113,21 @@ describe('FlowLayout', () => {
     }
   });
 
+  it.each([
+    ['a pushed step', false],
+    ['a tab root', true]
+  ])('insets %s CTA to the page margin', (_, tabRoot) => {
+    render(
+      <FlowLayout tabRoot={tabRoot} title="Title" footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+
+    const footer = screen.getByText('cta').parentElement!;
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+    expect(footer).toHaveClass('px-4');
+  });
+
   it('puts a close button top right that calls onClose', () => {
     const onClose = jest.fn();
     render(

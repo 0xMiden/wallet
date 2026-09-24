@@ -25,7 +25,8 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
  *   which is exactly how the Send pane lost its swipe. A pane that genuinely wants a sideways
  *   scroller (Earn's position row) opts in explicitly, with its own `touch-pan-x` and a
  *   `pointerdown` that does not reach the track.
- * - **The page margin**: 16px, the design system's, the same on all four.
+ * - **The page margin**: 16px, the design system's, the same on all four, on the body and on the
+ *   pinned CTA alike.
  * - **The top offset**: 24px from the top of the pane to its first line, so the title does not
  *   move as you swipe between panes.
  * - **Bottom clearance** over the docked tab bar, from the same expression the pinned CTA uses, so
@@ -121,7 +122,7 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
       {children}
     </div>
 
-    {footer && <FlowFooter>{footer}</FlowFooter>}
+    {footer && <FlowFooter className={PANE_GUTTER}>{footer}</FlowFooter>}
   </>
 );
 
