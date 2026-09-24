@@ -70,7 +70,7 @@ import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
-import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
+import TransactionIcon, { getTransactionIconBackgroundColor, isGuardianOp } from './TransactionIcon';
 import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
   bridgeInRowDisplay,
@@ -550,7 +550,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // draws the guardian once. Both are structural Guardian ops: neither moves
   // value, so neither gets the wallet From/To rows.
   const isHotKeyRotation = entry?.txType === 'replace-hot-key';
-  const isGuardianOp = isGuardianSwitch || isHotKeyRotation;
+  const guardianOp = entry ? isGuardianOp(entry.txType) : false;
   // The guardian the rotation ran under, as its record stored it. A row recorded without one names
   // no guardian: the account's current endpoint may belong to a later switch.
   const rotationGuardianEndpoint = isHotKeyRotation ? entry?.rotationGuardianEndpoint : undefined;
@@ -573,7 +573,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
-    : isGuardianOp
+    : guardianOp
       ? undefined
       : isBridgeIn
         ? undefined
@@ -582,7 +582,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.secondaryAddress;
   const toAddress = isBridgeOut
     ? undefined
-    : isGuardianOp
+    : guardianOp
       ? undefined
       : isBridgeIn
         ? entry?.address
@@ -736,7 +736,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <div className="mt-4">
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
-                <DetailSection title={t(isGuardianOp ? 'details' : 'transferDetails')}>
+                <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 
                   {isBridgeIn && entry.bridgeInSourceAddress && (
@@ -759,7 +759,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
-                  {isGuardianOp && !entry.externalTxId && entry.txId && (
+                  {guardianOp && !entry.externalTxId && entry.txId && (
                     <DetailRow label={t('txIdLabel')}>
                       <HashChip hash={entry.txId} trimHash className="ml-2" />
                     </DetailRow>

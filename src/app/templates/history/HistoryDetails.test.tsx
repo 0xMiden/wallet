@@ -269,7 +269,8 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
-  getTransactionIconBackgroundColor: () => '#91ACC1'
+  getTransactionIconBackgroundColor: () => '#91ACC1',
+  isGuardianOp: jest.requireActual('./TransactionIcon').isGuardianOp
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here

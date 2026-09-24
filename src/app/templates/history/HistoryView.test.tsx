@@ -7,6 +7,7 @@ import { navigate } from 'lib/woozie';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
+import { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
@@ -953,6 +954,25 @@ describe('HistoryView infinite scroll wiring', () => {
     render(<HistoryView {...baseProps} entries={twoEntries} fullHistory />);
     expect(screen.queryByTestId('infinite-scroll')).toBeNull();
     expect(screen.getAllByTestId('activity-row')).toHaveLength(2);
+  });
+});
+
+describe('HistoryView Guardian ops', () => {
+  it('paints a device-key rotation row like a guardian switch: the slate its detail page uses, the Guardian glyph', () => {
+    const entries = [
+      makeEntry({ key: 'switch', txType: 'switch-guardian', message: 'Guardian switched' }),
+      makeEntry({ key: 'rotation', txType: 'replace-hot-key', message: 'Device key rotated' })
+    ];
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    // TransactionIcon's slate (#777487) is the detail page's accent for both.
+    expect(getTransactionIconBackgroundColor(entries[1]!)).toBe('#777487');
+    for (const title of ['Guardian switched', 'Device key rotated']) {
+      const row = rowByTitle(title);
+      expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
+      expect(row.querySelector('svg')).not.toBeNull();
+      expect(within(row).queryByTestId('icon')).toBeNull();
+    }
   });
 });
 

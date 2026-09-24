@@ -19,6 +19,13 @@ import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_C
 const SLATE_ICON_BG = '#777487';
 
 /**
+ * A structural Guardian operation: a guardian switch or a device-key rotation. Neither moves value;
+ * both draw the Guardian glyph on the slate in Activity and the slate accent on their detail page.
+ */
+export const isGuardianOp = (txType: IHistoryEntry['txType']): boolean =>
+  txType === 'switch-guardian' || txType === 'replace-hot-key';
+
+/**
  * An earn row renders as failed (red cross + red accent) when the tx hard-failed, a
  * withdraw phase failed, or a deposit's lending leg settled `failed`. Routing the
  * deposit case through `earnDepositSettlementOf` keeps the glyph/accent in lockstep
@@ -55,10 +62,9 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
 
   // A Guardian op carries no icon of its own, so it used to fall through to the
   // RECEIVE default and paint its detail page's section rule green - the colour
-  // of money arriving, on a page where nothing moved. It takes the slate the
-  // activity list already gives the switch-guardian row instead. `replace-hot-key`
-  // joins it: the two share that page's guardian card and its "Details" section.
-  if (entry.txType === 'switch-guardian' || entry.txType === 'replace-hot-key') return SLATE_ICON_BG;
+  // of money arriving, on a page where nothing moved. It takes the slate its
+  // activity row is painted with.
+  if (isGuardianOp(entry.txType)) return SLATE_ICON_BG;
 
   // Earn rows keep the Earn accent across states; any failed earn leg goes red.
   if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {

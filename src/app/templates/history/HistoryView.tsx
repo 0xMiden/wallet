@@ -18,6 +18,7 @@ import { navigate } from 'lib/woozie';
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
+import { isGuardianOp } from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
@@ -160,7 +161,7 @@ function buildRowProps(
   } else if (isFailed) {
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-[#CC5D5D]';
-  } else if (entry.txType === 'switch-guardian') {
+  } else if (isGuardianOp(entry.txType)) {
     iconNode = <SwapIcon className="w-5 h-5" />;
     iconBg = 'bg-[#777487]';
   } else if (icon === 'RECEIVE') {
