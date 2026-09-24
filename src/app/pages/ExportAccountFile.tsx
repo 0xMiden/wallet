@@ -138,18 +138,18 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
   }, []);
 
   useEffect(() => {
-    // This screen renders null until the probe resolves, so a rejection with no handler is a
-    // permanently blank page. Fall back to the password step-up, as VerifySeedPhraseFlow and
+    // The body waits for the probe, so a rejection with no handler leaves a header over an empty
+    // page for good. Fall back to the password step-up, as VerifySeedPhraseFlow and
     // RotateGuardianReview already do, so the export stays reachable.
     Vault.hasHardwareProtector()
       .then(setHasHardwareProtector)
       .catch(() => setHasHardwareProtector(false));
   }, []);
 
-  // Same shape as RevealSecret's: `hasHardwareProtector` is a dependency because this screen
-  // renders null until it resolves, so an effect without it runs once against a commit where
-  // formRef is still null and the field never gets focus. Passive, not layout, so it lands
-  // after the host page's title focus rather than being clobbered by it.
+  // Same shape as RevealSecret's: `hasHardwareProtector` is a dependency because the body (and its
+  // form) waits for it, so an effect without it runs once against a commit where formRef is still
+  // null and the field never gets focus. Passive, not layout, so it lands after the title focus of
+  // this page's own PageHeader rather than being clobbered by it.
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (!isMobile()) {
@@ -225,7 +225,11 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
     );
   }
 
-  if (hasHardwareProtector === null) return null;
+  // The frame renders while the protector check runs, so the header (and the title focus that
+  // announces the page) is there from the first frame; the body waits.
+  if (hasHardwareProtector === null) {
+    return <SubPageLayout data-testid="export-account-file">{null}</SubPageLayout>;
+  }
 
   const canSubmit = acknowledged && !isExporting && (hasHardwareProtector || password.length > 0);
 

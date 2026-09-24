@@ -213,7 +213,7 @@ describe('RevealSecret', () => {
       testRoot!.render(<RevealSecret reveal={reveal} />);
     });
     // Flush the Vault.hasHardwareProtector() promise so the body mounts
-    // (the component renders null until hasHardwareProtector resolves).
+    // (until hasHardwareProtector resolves, the component renders its header over an empty body).
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -392,9 +392,9 @@ describe('RevealSecret', () => {
   });
 
   it('puts the caret in the password field on desktop', async () => {
-    // The effect depends on `hasHardwareProtector` because this component renders
-    // `null` until that resolves. Without it in the deps it ran once against the
-    // empty first commit, when the form ref was still null, and never again — so
+    // The effect depends on `hasHardwareProtector` because this component's body
+    // waits for that to resolve. Without it in the deps it ran once against the
+    // empty first commit, when the form ref was still null, and never again - so
     // the field was never focused, while Settings suppressed its own title focus
     // on the strength of this effect and left focus on <body> with the page
     // unannounced. On the two screens that hand out recovery material.

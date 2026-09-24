@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+
+import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 
 import ExportAccountFile from './ExportAccountFile';
 
@@ -80,7 +82,7 @@ jest.mock('lib/miden/back/vault', () => ({
 }));
 
 const mockHapticMedium = jest.fn();
-jest.mock('lib/mobile/haptics', () => ({ hapticMedium: () => mockHapticMedium() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticMedium: () => mockHapticMedium(), hapticLight: jest.fn() }));
 
 let mockMobile = false;
 jest.mock('lib/platform', () => ({ isMobile: () => mockMobile }));
@@ -257,6 +259,30 @@ it('falls back to the password step-up when the hardware probe rejects', async (
   await renderReady();
 
   expect(screen.getByLabelText(messages.password)).toBeInTheDocument();
+});
+
+it('keeps its header while the hardware probe is pending, with an empty body and no footer', async () => {
+  mockHasHardwareProtector.mockReturnValue(new Promise(() => undefined));
+  const onBack = jest.fn();
+  render(
+    <SubPageHeaderProvider value={{ title: 'Export account file', onBack }}>
+      <ExportAccountFile />
+    </SubPageHeaderProvider>
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  expect(screen.getByRole('heading', { name: 'Export account file' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(onBack).toHaveBeenCalledTimes(1);
+  const page = screen.getByTestId('export-account-file');
+  expect(page.querySelector('[data-slot="body"]')!.childElementCount).toBe(0);
+  expect(page.querySelector('[data-slot="footer"]')).toBeNull();
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Enter passcode' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
 });
 
 it('zeroes bytes that arrive after the screen is gone, and opens no sheet over what replaced it', async () => {

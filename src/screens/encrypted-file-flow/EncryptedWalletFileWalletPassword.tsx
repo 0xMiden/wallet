@@ -71,8 +71,8 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
 
   useEffect(() => {
-    // This step draws the flow's only header and renders null until the probe settles, so a
-    // rejection falls back to the password step-up rather than leaving a blank page with no way back.
+    // This step draws the flow's only header and its body waits for the probe, so a rejection
+    // falls back to the password step-up rather than leaving an empty page for good.
     Vault.hasHardwareProtector()
       .then(setHasHardwareProtector)
       .catch(() => setHasHardwareProtector(false));
@@ -140,8 +140,10 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   // entered); extension/desktop use a typed password.
   const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
 
+  // The frame renders while the protector check runs, so the flow's title and back are there from
+  // the first frame; the body waits.
   if (hasHardwareProtector === null) {
-    return null;
+    return <SubPageLayout data-testid="encrypted-file-wallet-password">{null}</SubPageLayout>;
   }
 
   return (

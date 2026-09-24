@@ -223,10 +223,11 @@ describe('EncryptedFileFlow when the hardware probe rejects', () => {
     mockProbeRejects = true;
     render(<EncryptedFileFlow />);
 
+    // The step's frame is up while the probe is pending, so wait for the field the fallback brings.
     const unlockStep = await within(flowRoot()).findByTestId('encrypted-file-wallet-password');
+    expect(await within(unlockStep).findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
     expect(within(unlockStep).getByRole('heading', { level: 1, name: 'encryptedWalletFile' })).toBeInTheDocument();
     expect(within(unlockStep).getByRole('button', { name: 'back' })).toBeInTheDocument();
-    expect(within(unlockStep).getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
   });
 });
 
