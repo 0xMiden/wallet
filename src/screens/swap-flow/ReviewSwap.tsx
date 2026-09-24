@@ -188,7 +188,6 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     <ReviewLayout
       hero={hero}
       accent="swap"
-      heroDivider={false}
       dividers={false}
       primary={{
         label: t('swap'),

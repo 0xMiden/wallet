@@ -131,16 +131,12 @@ describe('ReviewLayout', () => {
     });
   });
 
-  describe('heroDivider branch', () => {
-    it('renders the orange hero divider by default', () => {
-      const { container } = render(<ReviewLayout {...makeProps()} />);
-      expect(container.querySelector('.bg-primary-500')).toBeInTheDocument();
-    });
-
-    it('omits the hero divider when heroDivider is false', () => {
-      const { container } = render(<ReviewLayout {...makeProps({ heroDivider: false })} />);
-      expect(container.querySelector('.bg-primary-500')).not.toBeInTheDocument();
-    });
+  it('draws no bar between the hero and the rows, whatever the flow', () => {
+    for (const accent of ['brand', 'send', 'receive', 'earn', 'swap'] as const) {
+      const { container, unmount } = render(<ReviewLayout {...makeProps({ accent })} />);
+      expect(container.querySelector('.h-2.rounded-full')).not.toBeInTheDocument();
+      unmount();
+    }
   });
 
   describe('dividers branch', () => {

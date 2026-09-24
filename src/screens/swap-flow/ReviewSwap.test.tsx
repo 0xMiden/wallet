@@ -140,8 +140,8 @@ describe('ReviewSwap', () => {
 
     it('owns its own dividers, so ReviewLayout adds neither the orange hero bar nor an outer row-list divide-y', () => {
       const { container } = renderComponent();
-      // heroDivider={false}: the swap hero draws its own pair of horizontal rules around the
-      // arrow glyph instead of the orange bar the layout can render under the hero.
+      // The swap hero draws its own pair of horizontal rules around the arrow glyph; the layout
+      // adds no bar under it.
       expect(container.querySelector('.bg-primary-500.h-2')).not.toBeInTheDocument();
       // dividers={false}: the rows' hairlines come from the DetailCard itself, so ReviewLayout's
       // outer children wrapper carries no divide-y.
