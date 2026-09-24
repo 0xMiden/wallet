@@ -215,8 +215,10 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
 
   const change = priceChange(priceInfo.change24h);
   // Three decimals is the price line's own shape (`toAdaptiveFixed(price, 3)`), pinned to the
-  // destination so a count does not change how many it shows on the way.
-  const formatPrice = (value: number) => `$${adaptiveFormatterFor(priceInfo.price, 3)(value)}`;
+  // destination so a count does not change how many it shows on the way. Built once per render,
+  // not per frame; the format closure below only calls it.
+  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, 3);
+  const formatPrice = (value: number) => `$${formatAdaptivePrice(value)}`;
 
   // Sits on `page`, not a `Card`: a status pill's ink only clears 4.5:1 on `page` (see `Pill`), and
   // the chart reads better at the full content width than inset in a card.

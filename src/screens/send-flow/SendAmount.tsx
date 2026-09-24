@@ -66,6 +66,9 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // an unknown-scale token can't be sent (see SelectAmount).
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount;
+  // Built once per render, not per frame; harmless when `token` is undefined since it is only
+  // read from the `{token && ...}` branch below.
+  const formatAvailableBalance = balanceFormatterFor(token?.balance ?? 0);
 
   // The missing-fee shortfall is about the account, not the typed number, so it
   // gets a notice with a way out instead of turning the amount red. An empty
@@ -134,7 +137,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                     <AnimatedNumber
                       key={token.id}
                       value={token.balance}
-                      format={value => `${t('available')} ${balanceFormatterFor(token.balance)(value)}`}
+                      format={value => `${t('available')} ${formatAvailableBalance(value)}`}
                     />
                   ) : (
                     t('unknownTokenScale')

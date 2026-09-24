@@ -203,8 +203,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     </div>
   );
 
-  const helper =
-    token && showBalanceHelper ? (
+  let helper: React.ReactNode = null;
+  if (token && showBalanceHelper) {
+    // Built once per render, not per frame: `token` is only known here, inside the branch.
+    const formatAvailableBalance = balanceFormatterFor(token.balance);
+    helper = (
       <>
         <span className="font-heading text-gray text-base font-bold">
           {/* Same guessed scale as the amount above — quoting a spendable
@@ -216,7 +219,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             <AnimatedNumber
               key={token.id}
               value={token.balance}
-              format={value => `${t('available')} ${balanceFormatterFor(token.balance)(value)} ${token.name}`}
+              format={value => `${t('available')} ${formatAvailableBalance(value)} ${token.name}`}
             />
           ) : (
             t('unknownTokenScale')
@@ -233,7 +236,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           />
         )}
       </>
-    ) : null;
+    );
+  }
 
   const amountField = (
     <AmountInput
