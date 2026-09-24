@@ -46,8 +46,8 @@ it("insets the rule with the row: the caller's margin holds both", () => {
 it('draws back as a 24px ink arrow on a fill circle and close as a 24px ink glyph', () => {
   render(<PageHeader title="New contact" onBack={jest.fn()} onClose={jest.fn()} />);
 
-  // `ink` lives on the IconButton itself (a `bare` IconButton's default color); the glyph
-  // inherits it through `fill="currentColor"`, the same pattern TabHeaderAction uses.
+  // `ink` lives on the IconButton itself (the `filled` appearance: an `ink` glyph on a `fill`
+  // circle); the glyph inherits it through `fill="currentColor"`, the same pattern TabHeaderAction uses.
   const backButton = screen.getByTestId('page-back');
   expect(backButton).toHaveClass('text-ink');
   const back = screen.getByTestId('icon-arrow-left');

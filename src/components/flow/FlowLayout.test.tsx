@@ -33,8 +33,8 @@ describe('FlowLayout', () => {
   });
 
   it('styles back as an ink arrow on the fill circle, never the flow accent', () => {
-    // Flow accents are under 3:1 on white, so the spec keeps them off text and the back chevron.
-    // The color lives on the IconButton itself (a `bare` IconButton is always `ink`) and the
+    // Flow accents are under 3:1 on white, so the spec keeps them off text and the back button.
+    // The color lives on the IconButton itself (a `filled` IconButton is always `ink`) and the
     // glyph inherits it through `fill="currentColor"` — same pattern PageHeader.test.tsx checks.
     render(
       <SendStepLayout title="Title" onBack={jest.fn()} footer={<button>cta</button>}>

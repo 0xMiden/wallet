@@ -87,7 +87,7 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
 };
 
 /**
- * Every step's header: the shared `PageHeader` row with the back chevron on the left and the flow's
+ * Every step's header: the shared `PageHeader` row with the back button on the left and the flow's
  * progress centred in it. Back is the onboarding state machine's own step back (`onAction('back')`,
  * the same one the mobile back gesture takes), never the router's history.
  */
