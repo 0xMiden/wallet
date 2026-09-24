@@ -954,6 +954,18 @@ describe('Meet your Guardian copy survives machine translation', () => {
     );
   });
 
+  it('keeps en/messages.json on the same English as en.json for every new key', () => {
+    // The generator re-translates from en/messages.json's englishSource; a key reworded in one file only
+    // ships one English and queues every locale against the other.
+    for (const key of NEW_KEYS) {
+      expect({ key, message: message(key) }).toEqual({ key, message: enJson[key] });
+      expect({ key, englishSource: (messages[key] as Entry & { englishSource?: string }).englishSource }).toEqual({
+        key,
+        englishSource: enJson[key]
+      });
+    }
+  });
+
   it.each(EXPECTED_LOCALES)('%s: the operator bios carry no placeholder', locale => {
     const offenders = BIO_KEYS.filter(key => current(locale, key)?.includes('$'));
     expect(offenders).toEqual([]);
