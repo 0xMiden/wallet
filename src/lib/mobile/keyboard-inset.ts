@@ -7,7 +7,10 @@ import { holdNavbarHidden } from './useHideNavbarWhileOpen';
 /**
  * Keyboard inset for mobile.
  *
- * iOS ONLY. Capacitor's Keyboard resize mode is 'none' (capacitor.config.ts),
+ * The `--keyboard-height` mirror is iOS only; the keyboardWillShow/keyboardWillHide
+ * listeners and the bottom-nav hold they take run on iOS and Android.
+ *
+ * Capacitor's Keyboard resize mode is 'none' (capacitor.config.ts),
  * but that only overlays the keyboard on iOS: the WKWebView keeps its full
  * height, so the soft keyboard hides bottom-of-layout inputs/CTAs. This module
  * mirrors the keyboard height into the `--keyboard-height` CSS var on <html>;
@@ -23,13 +26,14 @@ import { holdNavbarHidden } from './useHideNavbarWhileOpen';
  * padding is deliberately NOT transitioned: padding is a layout property, and
  * animating it made WebKit reflow the page tree on every frame of the slide.
  *
- * Android is DELIBERATELY excluded from this compensation: `resize: 'none'` is
+ * Android is DELIBERATELY excluded from the height mirror: `resize: 'none'` is
  * only a JS-layer setting there — the native window stays ADJUST_RESIZE
  * (see AndroidManifest's MainActivity), so the system already resizes the
  * WebView to sit above the keyboard. Adding the CSS inset on top of that
  * double-counts the keyboard height: the layout collapses into a thin strip at
  * the top with an empty gap above the keyboard. So `--keyboard-height` is left
- * at 0 on Android and the native resize does the work.
+ * at 0 on Android and the native resize does the work. The listeners still
+ * register there, so the navbar is held hidden while the keyboard is up.
  */
 export async function initKeyboardInset(): Promise<void> {
   if (!isMobile()) return;
