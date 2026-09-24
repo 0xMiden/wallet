@@ -320,6 +320,28 @@ describe('keyboard-inset', () => {
       expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('0px');
     });
 
+    it('takes no hold for a WillShow delivered while the rollback removes the show listener', async () => {
+      isMobileMock.mockReturnValue(true);
+      const pending = pendingRegistrations();
+
+      const init = initKeyboardInset();
+      await flush();
+      const removal = deferred<void>();
+      const showHandle = { remove: jest.fn(() => removal.promise) };
+      pending['keyboardWillShow']!.resolve(showHandle);
+      await flush();
+      pending['keyboardWillHide']!.reject(new Error('registration failed'));
+      await flush();
+      expect(showHandle.remove).toHaveBeenCalled();
+
+      listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+      removal.resolve();
+      await init;
+
+      expect(document.body).not.toHaveAttribute('data-hide-navbar');
+      expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('0px');
+    });
+
     it('removes the hide listener when the show registration fails', async () => {
       isMobileMock.mockReturnValue(true);
       const pending = pendingRegistrations();

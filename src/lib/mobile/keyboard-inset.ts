@@ -53,6 +53,8 @@ export async function initKeyboardInset(): Promise<void> {
   // (before this listener runs), so mirroring it would double-count, and the CTA takes two slides.
   const ios = isIOS();
   let releaseNavbar: (() => void) | undefined;
+  // A surviving listener can still fire until its remove() settles.
+  let active = true;
   const hide = () => {
     if (ios) root.style.setProperty('--keyboard-height', '0px');
     releaseNavbar?.();
@@ -62,6 +64,7 @@ export async function initKeyboardInset(): Promise<void> {
   // WillShow without its WillHide would take a navbar hold nothing releases.
   const registrations = await Promise.allSettled([
     Keyboard.addListener('keyboardWillShow', info => {
+      if (!active) return;
       if (ios) root.style.setProperty('--keyboard-height', `${info.keyboardHeight || 0}px`);
       // A keyboard type change reports WillShow again without a hide: one hold, not two.
       releaseNavbar ??= holdNavbarHidden();
@@ -71,6 +74,7 @@ export async function initKeyboardInset(): Promise<void> {
   if (registrations.some(result => result.status === 'rejected')) {
     // Keyboard plugin has no web implementation - run without insets rather
     // than failing mobile app init.
+    active = false;
     hide();
     await Promise.allSettled(
       registrations.flatMap(result => (result.status === 'fulfilled' ? [result.value.remove()] : []))
