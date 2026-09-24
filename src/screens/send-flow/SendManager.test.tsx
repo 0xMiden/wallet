@@ -129,6 +129,7 @@ jest.mock('./SendAmount', () => ({
   SendAmount: (props: any) => (
     <div data-testid="select-amount">
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
+      <span data-testid="sa-token-id">{props.token ? props.token.id : ''}</span>
       <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
       <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
       <span data-testid="sa-decimals">{props.token ? String(props.token.decimals) : ''}</span>
@@ -1284,6 +1285,67 @@ describe('token preselection', () => {
       useAllBalancesMock.mockReturnValue({ data: threeTokens() });
       rerender(<SendFlow isLoading={false} />);
       expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+    });
+
+    it('keeps the picked token when a preselected token that was absent appears', () => {
+      mockSearch = '?tokenId=T1';
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      useAllBalancesMock.mockReturnValue({ data: threeTokens().filter(t => t.tokenId !== 'T1') });
+      const { rerender } = renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      useAllBalancesMock.mockReturnValue({ data: threeTokens() });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+    });
+
+    it('keeps a picked token that leaves the balances at a zero balance the amount step cannot confirm', () => {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      walletStoreState.tokenPrices = { TK2: { price: 5 } };
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 5, scaleIsKnown: false };
+      useAllBalancesMock.mockReturnValue({
+        data: [{ tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 2, scaleIsUnknown: true }, balance: 7 }]
+      });
+      const { rerender } = renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      act(() => {
+        fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+      });
+      expect(screen.getByTestId('sa-valid')).toHaveTextContent('true');
+
+      useAllBalancesMock.mockReturnValue({ data: threeTokens().filter(t => t.tokenId !== 'T2') });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent(/^TK2$/);
+      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^T2$/);
+      expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^0$/);
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^2$/);
+      expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^5$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent(/^false$/);
+      expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+      expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    });
+
+    it('keeps the balance of a picked token a still-loading snapshot does not list', () => {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      mockBalancesLoading = true;
+      useAllBalancesMock.mockReturnValue({
+        data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0 }]
+      });
+      const { rerender } = renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      useAllBalancesMock.mockReturnValue({
+        data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 1 }]
+      });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^7$/);
     });
   });
 

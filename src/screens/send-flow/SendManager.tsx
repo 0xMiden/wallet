@@ -44,7 +44,8 @@ import {
   SendFlowAction,
   SendFlowActionId,
   SendFlowForm,
-  SendFlowStep
+  SendFlowStep,
+  UIToken
 } from './types';
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
@@ -370,12 +371,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
     }
     const current = getValues('token');
-    const held = current && balanceData.find(t => t.tokenId === current.id);
-    if (!current || !held) return;
-    const refreshed = uiTokenFromBalance(held, tokenPrices);
+    if (!current) return;
+    const held = balanceData.find(t => t.tokenId === current.id);
+    // A token that left a loaded snapshot has nothing to send; its old balance would still confirm.
+    if (!held && balancesLoading) return;
+    const refreshed = held ? uiTokenFromBalance(held, tokenPrices) : { ...current, balance: 0 };
     if (sameUIToken(refreshed, current)) return;
     setValue('token', refreshed);
-  }, [preselectedTokenId, balanceData, tokenPrices, setValue, getValues]);
+  }, [preselectedTokenId, balanceData, balancesLoading, tokenPrices, setValue, getValues]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -464,6 +467,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
     },
     [navigateTo, goBack, onClose, setValue, trigger]
+  );
+
+  // A pick in the drawer settles any pending preselection, so a preselected token that
+  // appears later cannot replace it.
+  const onSelectToken = useCallback(
+    (selectedToken: UIToken) => {
+      appliedPreselectionRef.current = preselectedTokenId ?? null;
+      onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
+    },
+    [preselectedTokenId, onAction]
   );
 
   // Hand off to the full-screen review page, which owns the transaction
@@ -835,11 +848,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         <Navigator renderRoute={renderStep} />
       </div>
 
-      <SelectTokenDrawer
-        open={showTokenDrawer}
-        onOpenChange={setShowTokenDrawer}
-        onSelect={selectedToken => onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } })}
-      />
+      <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
 
       <AccountsListDrawer
         open={showContactsDrawer}
