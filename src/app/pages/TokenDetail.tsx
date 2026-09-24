@@ -79,8 +79,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const token = balances?.find(b => b.tokenId === tokenId);
   const metadata = token?.metadata || allTokensMetadata[tokenId];
   const symbol = metadata?.symbol || t('unknown');
-  // No figure until the balances have been read: a stand-in 0 is a value AnimatedNumber would count
-  // up from when the real one arrives. Once read, a token with no entry holds nothing.
+  // No figure until the balances have been read: the page shows the placeholder, not a made-up
+  // 0.00. Once read, a token with no entry holds nothing.
   const balance = balances ? (token?.balance ?? 0) : null;
   const priceInfo = getTokenPrice(tokenPrices, symbol);
   const fiatValue = balance === null ? null : balance * priceInfo.price;

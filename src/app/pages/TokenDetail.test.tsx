@@ -436,7 +436,7 @@ describe('TokenDetail', () => {
       Reflect.deleteProperty(window, 'matchMedia');
     });
 
-    it('lands on the first balance and its fiat value instead of counting up from zero', () => {
+    it('shows the placeholder while balances load, then lands on the first balance and its fiat value', () => {
       configure({ metadata: { [TOKEN_ID]: { symbol: 'ETH', name: 'Ether', decimals: 18 } } });
       mockUseAllBalances.mockReturnValue({ data: undefined });
       const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
