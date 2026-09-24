@@ -356,24 +356,50 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
     });
 
-    // F-060: callers reach the cache with both the bare dApp id and the stored
-    // composite, so a clear by one spelling must drop the entries under the other.
-    it('clearGuardianServiceFor drops the account cached under every spelling', async () => {
+    // F-067: callers reach the cache with both the bare dApp id and the stored
+    // composite, and both must land on one init and one cached service.
+    it('coalesces concurrent lookups under both spellings onto one init', async () => {
+      const provider = makeProvider([{ ...guardianAccount, publicKey: 'acc-1_suffix' }]);
+      let resolveInit!: (value: unknown) => void;
+      mockMultisigServiceInit.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveInit = resolve;
+        })
+      );
+
+      const bare = getOrCreateMultisigService('acc-1', provider);
+      const stored = getOrCreateMultisigService('acc-1_suffix', provider);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const service = { guardianEndpoint: 'https://default.guardian.test', id: 'one' };
+      resolveInit(service);
+
+      await expect(Promise.all([bare, stored])).resolves.toEqual([service, service]);
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses the service cached under the other spelling', async () => {
+      const provider = makeProvider([{ ...guardianAccount, publicKey: 'acc-1_suffix' }]);
+      const service = { guardianEndpoint: 'https://default.guardian.test', id: 'one' };
+      mockMultisigServiceInit.mockResolvedValueOnce(service);
+
+      await getOrCreateMultisigService('acc-1', provider);
+      expect(await getOrCreateMultisigService('acc-1_suffix', provider)).toBe(service);
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['the same spelling', 'acc-1'],
+      ['the other spelling', 'acc-1_suffix']
+    ])('clearGuardianServiceFor under %s drops the cached service', async (_label, clearId) => {
       const provider = makeProvider([{ ...guardianAccount, publicKey: 'acc-1_suffix' }]);
       mockMultisigServiceInit
-        .mockResolvedValueOnce({ guardianEndpoint: 'https://default.guardian.test', id: 'bare' })
-        .mockResolvedValueOnce({ guardianEndpoint: 'https://default.guardian.test', id: 'stored' });
+        .mockResolvedValueOnce({ guardianEndpoint: 'https://default.guardian.test', id: 'first' })
+        .mockResolvedValueOnce({ guardianEndpoint: 'https://default.guardian.test', id: 'second' });
       await getOrCreateMultisigService('acc-1', provider);
-      await getOrCreateMultisigService('acc-1_suffix', provider);
 
-      clearGuardianServiceFor('acc-1_suffix');
+      clearGuardianServiceFor(clearId);
 
-      mockMultisigServiceInit.mockClear();
-      mockMultisigServiceInit
-        .mockResolvedValueOnce({ guardianEndpoint: 'https://default.guardian.test', id: 'bare2' })
-        .mockResolvedValueOnce({ guardianEndpoint: 'https://default.guardian.test', id: 'stored2' });
-      expect(await getOrCreateMultisigService('acc-1', provider)).toMatchObject({ id: 'bare2' });
-      expect(await getOrCreateMultisigService('acc-1_suffix', provider)).toMatchObject({ id: 'stored2' });
+      expect(await getOrCreateMultisigService('acc-1', provider)).toMatchObject({ id: 'second' });
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 

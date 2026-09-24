@@ -551,8 +551,9 @@ export const completeUpdateProcedureThresholdTransaction = async (
     completedAt: Math.floor(Date.now() / 1000),
     resultBytes: result.serialize()
   });
-  // The cached service's procedureThresholds are now stale — drop it.
-  clearGuardianServiceFor(await storedAccountIdFor(guardianProvider, tx.accountId));
+  // The cached service's procedureThresholds are now stale - drop it. The cache is
+  // keyed canonically, so the queued id needs no account-list read first.
+  clearGuardianServiceFor(tx.accountId);
 
   // Same gap as replace-hot-key: the OZ lib submitted `update_procedure_threshold`
   // on-chain but never re-registered the new state on the guardian. Push it so the

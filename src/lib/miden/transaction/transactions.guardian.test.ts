@@ -6616,12 +6616,32 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     );
 
     expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
-    // Queued as 'acc-1', stored as 'acc-1_suffix': the cache is keyed by the stored id.
-    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1_suffix');
-    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
+    // The cache is keyed canonically, so the queued spelling clears it directly.
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Account secured');
+  });
+
+  it('clears the cache and re-registers without waiting on the account list', async () => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+
+    const completion = completeUpdateProcedureThresholdTransaction(
+      tx,
+      makeResult() as never,
+      { ...makeGuardianProvider(true), getAccounts: () => new Promise(() => {}) } as never,
+      { reRegisterCurrentStateOnGuardian } as never
+    );
+    const settled = await Promise.race([
+      completion.then(() => 'done'),
+      new Promise(resolve => setTimeout(() => resolve('hung'), 50))
+    ]);
+
+    expect(settled).toBe('done');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
   });
 
   it('still completes (best-effort) when the guardian re-registration fails', async () => {
