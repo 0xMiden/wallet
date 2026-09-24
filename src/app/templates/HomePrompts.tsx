@@ -148,12 +148,12 @@ const clearOwnFundingMarker = (address: string, requestedAt: number) =>
 // completes — long enough to read the two-line lockup.
 const FAUCET_FUNDED_BEAT_MS = 2400;
 
-// E2E hooks, kebab-case like every other testid in the tree. Only prompts worth
-// driving from a spec get one — deriving an id for the whole enum would leave
-// four that nothing reads. Pending notes keeps its id as the pending indicator's
-// handle: it is the only notice a user gets for a transfer that never accepts
-// itself, so a spec that wants to enter the Pending list the way a user does
-// still has something to click.
+// E2E hooks, kebab-case like every other testid in the tree. Only prompts a
+// spec actually reads get one - deriving an id for the whole enum would leave
+// four that nothing reads. Pending notes is read by
+// playwright/e2e/helpers/home-prompts.ts: it is the only notice a user gets for
+// a transfer that never accepts itself, so the multi-claim journeys check that
+// it is the slide actually on screen.
 const WALLET_PROMPT_TEST_IDS: Partial<Record<WalletPromptType, string>> = {
   [WalletPromptType.PendingNotes]: 'pending-notes-prompt'
 };
