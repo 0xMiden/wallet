@@ -339,6 +339,141 @@ describe('the CLI gh adapter', () => {
     expect(res.stdout).toBe('');
     expect(res.stderr).toMatch(/^badge-source-run: .*Server Error/);
   });
+
+  it('exits 1 with the message when gh fails with no HTTP status in its stderr', () => {
+    const res = checkSource({ stdout: '', stderr: 'gh: socket hang up', exit: 1 });
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toMatch(/^badge-source-run: .*socket hang up/);
+  });
+
+  it('exits 3 when gh succeeds but the response is not valid JSON', () => {
+    const res = checkSource({ stdout: 'not json' });
+
+    expect(res.status).toBe(3);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toMatch(/^badge-source-run: /);
+  });
+});
+
+// The CLI's gh adapter in lookup mode (no --check-source), against a sequenced fake `gh`: call N of the
+// process reads its answer from FAKE_GH_STDOUT_N / _STDERR_N / _EXIT_N, so the up-to-three list calls
+// (pulls, runs, artifacts) can each be scripted, and the fake records every call it received.
+describe('the lookup CLI gh adapter', () => {
+  const PR_NUMBER = 42;
+  const RUN_ID = 555;
+  const HEAD_SHA = 'headshaXYZ';
+
+  const mergedPr = {
+    number: PR_NUMBER,
+    merged_at: '2026-09-24T00:00:00Z',
+    base: { ref: 'main' },
+    head: { sha: HEAD_SHA, ref: HEAD_REF, repo: { full_name: HEAD_REPO } }
+  };
+  const badgeRun = {
+    id: RUN_ID,
+    event: 'pull_request',
+    created_at: '2026-09-24T00:00:01Z',
+    pull_requests: [{ number: PR_NUMBER }]
+  };
+
+  function sequencedFakeGh(): string {
+    const dir = tempDir();
+    const gh = join(dir, 'gh');
+    writeFileSync(
+      gh,
+      [
+        '#!/bin/sh',
+        'printf \'%s\\n\' "$*" >> "$FAKE_GH_LOG"',
+        // macOS wc -l pads its count with spaces, which would break the variable name below.
+        'n=$(wc -l < "$FAKE_GH_LOG" | tr -d \' \')',
+        'eval "out=\\$FAKE_GH_STDOUT_$n"',
+        'eval "err=\\$FAKE_GH_STDERR_$n"',
+        'eval "ec=\\$FAKE_GH_EXIT_$n"',
+        'printf \'%s\' "$out"',
+        '[ -n "$err" ] && printf \'%s\\n\' "$err" >&2',
+        '[ -z "$ec" ] && ec=0',
+        'exit "$ec"',
+        ''
+      ].join('\n')
+    );
+    chmodSync(gh, 0o755);
+    return dir;
+  }
+
+  function lookup(responses: Array<{ stdout: string; stderr?: string; exit?: number }>) {
+    const dir = sequencedFakeGh();
+    const log = join(dir, 'calls.log');
+    writeFileSync(log, '');
+    const env: Record<string, string> = {
+      PATH: `${dir}:${dirname(process.execPath)}:/usr/bin:/bin`,
+      FAKE_GH_LOG: log
+    };
+    responses.forEach((r, i) => {
+      env[`FAKE_GH_STDOUT_${i + 1}`] = r.stdout;
+      env[`FAKE_GH_STDERR_${i + 1}`] = r.stderr ?? '';
+      env[`FAKE_GH_EXIT_${i + 1}`] = String(r.exit ?? 0);
+    });
+    const res = spawnSync(process.execPath, [script, REPO, NEW], { encoding: 'utf8', env });
+    const calls = readFileSync(log, 'utf8').split('\n').filter(Boolean);
+    return { ...res, calls };
+  }
+
+  it('paginates every list call and prints the run and PR it finds', () => {
+    const res = lookup([
+      { stdout: JSON.stringify([[mergedPr]]) },
+      { stdout: JSON.stringify([{ workflow_runs: [badgeRun] }]) },
+      { stdout: JSON.stringify([{ artifacts: [badge] }]) }
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe(`run=${RUN_ID}\npr=${PR_NUMBER}\nreason=\n`);
+    expect(res.calls).toHaveLength(3);
+    for (const call of res.calls) expect(call).toMatch(/^api --paginate --slurp /);
+  });
+
+  it('prints reason=no-pr when the commit came from no merged pull request', () => {
+    const res = lookup([{ stdout: JSON.stringify([[]]) }]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe('run=\npr=\nreason=no-pr\n');
+  });
+
+  it('prints reason=no-artifact when no run carries the badge data', () => {
+    const res = lookup([
+      { stdout: JSON.stringify([[mergedPr]]) },
+      { stdout: JSON.stringify([{ workflow_runs: [badgeRun] }]) },
+      { stdout: JSON.stringify([{ artifacts: [] }]) }
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe(`run=\npr=${PR_NUMBER}\nreason=no-artifact\n`);
+  });
+
+  it('exits 1 with the message when gh fails with no HTTP status in its stderr', () => {
+    const res = lookup([{ stdout: '', stderr: 'gh: socket hang up', exit: 1 }]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toMatch(/^badge-source-run: .*socket hang up/);
+  });
+
+  it('exits 1 with the message on an HTTP 500', () => {
+    const res = lookup([{ stdout: '{"message":"Server Error"}', stderr: 'gh: Server Error (HTTP 500)', exit: 1 }]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toMatch(/^badge-source-run: .*Server Error/);
+  });
+
+  it('exits 3 when gh succeeds but the pulls response is not the expected shape', () => {
+    const res = lookup([{ stdout: '{}' }]);
+
+    expect(res.status).toBe(3);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toMatch(/^badge-source-run: /);
+  });
 });
 
 describe('parseArgs', () => {

@@ -14,7 +14,9 @@
  * source.json, {"sha": "<main commit the badges came from>"}; `status` is `none`
  * when it is missing, holds no valid sha, or names a commit GitHub cannot find.
  * Every key is printed, so the output can go straight into $GITHUB_OUTPUT. Any
- * other API failure exits 1 with nothing on stdout.
+ * gh API failure exits 1 with nothing on stdout; any other thrown error (a bug
+ * in this script, or gh reporting success with a response it cannot use) exits
+ * 3, so the workflow fails the job instead of quietly leaving the badges alone.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -24,7 +26,8 @@ import { fileURLToPath } from 'node:url';
 export const BADGE_ARTIFACT = 'coverage-badge-data';
 
 // ghApi(path, { paginate }) resolves to the response's pages, as `gh api --paginate --slurp` gives them; unpaginated
-// it is one page. A failure rejects with the HTTP status on `status` when there is one.
+// it is one page. A failure rejects with the HTTP status on `status` when there is one, and `ghApiFailure: true`
+// always, so main() can tell a real gh failure (exit 1) from a bug in this script (exit 3).
 function items(pages, key) {
   return pages.flatMap(page => (key ? (page?.[key] ?? []) : (page ?? [])));
 }
@@ -116,7 +119,7 @@ function ghApiCli(path, { paginate = true } = {}) {
     } catch {
       // not a JSON body; keep gh's own message
     }
-    return Promise.reject(Object.assign(new Error(`gh api ${path}: ${message}`), { status }));
+    return Promise.reject(Object.assign(new Error(`gh api ${path}: ${message}`), { status, ghApiFailure: true }));
   }
   const body = JSON.parse(out);
   return Promise.resolve(paginate ? body : [body]);
@@ -160,6 +163,6 @@ const invokedPath = process.argv[1] ? resolve(process.argv[1]) : '';
 if (invokedPath === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).catch(err => {
     console.error(`badge-source-run: ${err.message}`);
-    process.exit(1);
+    process.exit(err?.ghApiFailure ? 1 : 3);
   });
 }
