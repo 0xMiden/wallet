@@ -1,7 +1,7 @@
 /**
- * Guardian endpoint liveness probe for the guardian picker.
+ * Guardian endpoint liveness and latency probe for the guardian screens.
  *
- * Answers one question — "is this operator responding right now?" — via the
+ * Answers "is this operator responding right now, and how fast?" via the
  * same unauthenticated `GET /pubkey` the operator reverse-map uses (see
  * `operator-map.ts`): no account data, no signer, and a real proof the
  * guardian service itself (not just some host at that URL) is up, since only
@@ -10,8 +10,8 @@
  * Deliberately tiny and dependency-light: plain HTTP only, no WASM, no
  * intercom — it runs from onboarding screens where none of that is loaded.
  * A ping that fails for ANY reason (network error, timeout, non-guardian
- * response) reports offline, and the picker then disables that operator's
- * card until a later round reports it online.
+ * response) reports offline: the picker disables that operator's card until a
+ * later round reports it online, and onboarding never picks it.
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
@@ -24,17 +24,6 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
  * guardian client exposes no abort, so a late response is simply dropped.
  */
 export const GUARDIAN_PING_TIMEOUT_MS = 5_000;
-
-/**
- * `true` iff the guardian at `endpoint` answers `GET /pubkey` with a key
- * commitment within `timeoutMs`. Never throws.
- */
-export async function pingGuardianEndpoint(
-  endpoint: string,
-  timeoutMs: number = GUARDIAN_PING_TIMEOUT_MS
-): Promise<boolean> {
-  return (await pingGuardianEndpointLatency(endpoint, timeoutMs)) !== null;
-}
 
 /**
  * The round trip of one `GET /pubkey`, in milliseconds, when the guardian at

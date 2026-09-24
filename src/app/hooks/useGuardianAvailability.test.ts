@@ -85,7 +85,7 @@ describe('useGuardianAvailability', () => {
     });
   });
 
-  // `pingGuardianEndpoint` documents never-throws, but it calls
+  // `pingGuardianEndpointLatency` documents never-throws, but it calls
   // `registerGuardianOrigin` OUTSIDE its own try — the rejection arm is what
   // turns a hostile/malformed endpoint into 'offline' rather than an
   // unhandled rejection per endpoint per round. Deleting that arm used to
