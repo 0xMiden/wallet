@@ -15,11 +15,7 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 const ANCHOR_RECT = { top: 10, bottom: 54, left: 300, right: 344, width: 44, height: 44, x: 300, y: 10 };
 
 /** A header-like anchor with a real rect, and a panel holding two focusable rows. */
-const Harness: React.FC<{ align?: 'start' | 'end'; empty?: boolean; onClose?: () => void }> = ({
-  align,
-  empty,
-  onClose
-}) => {
+const Harness: React.FC<{ empty?: boolean; onClose?: () => void }> = ({ empty, onClose }) => {
   const anchorRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const close = () => {
@@ -35,7 +31,7 @@ const Harness: React.FC<{ align?: 'start' | 'end'; empty?: boolean; onClose?: ()
         open={open}
         onClose={close}
         anchorRef={anchorRef}
-        align={align}
+        align="end"
         aria-label="view options"
         data-testid="menu"
       >
@@ -54,6 +50,13 @@ const Harness: React.FC<{ align?: 'start' | 'end'; empty?: boolean; onClose?: ()
 
 const openMenu = () => fireEvent.click(screen.getByRole('button', { name: 'options' }));
 const panel = () => screen.getByTestId('menu');
+/** FloatingFocusManager's guards: the focusable spans either side of the panel that Tab lands on. */
+const focusGuard = (side: 'before' | 'after') => {
+  const guards = [...document.querySelectorAll<HTMLElement>('[data-floating-ui-focus-guard]')];
+  const guard = side === 'before' ? guards[0] : guards[guards.length - 1];
+  if (!guard || guards.length < 2) throw new Error('no focus guards around the panel');
+  return guard;
+};
 
 describe('Popover', () => {
   beforeEach(() => {
@@ -84,47 +87,19 @@ describe('Popover', () => {
     expect(screen.getByRole('button', { name: 'first' })).toBeTruthy();
   });
 
-  it('hangs under the anchor, lined up with the edge `align` names', () => {
-    const { unmount } = render(<Harness align="end" />);
-    openMenu();
-
-    // 8px under the anchor's bottom, right edges flush: 344 − 288.
-    expect(panel().style.top).toBe('62px');
-    expect(panel().style.left).toBe('56px');
-    expect(panel().style.transformOrigin).toBe('top right');
-    unmount();
-
-    // Wide enough for the panel to actually start at the anchor's left edge; the narrow case is
-    // the clamp, covered below.
-    window.innerWidth = 700;
-    render(<Harness align="start" />);
-    openMenu();
-    expect(panel().style.left).toBe('300px');
-    expect(panel().style.transformOrigin).toBe('top left');
-  });
-
-  it('keeps the panel inside the page margin and lets it scroll rather than run off the bottom', () => {
-    window.innerWidth = 320;
-    window.innerHeight = 300;
-    render(<Harness align="end" />);
-    openMenu();
-
-    // 344 − 288 = 56 would put the right edge past a 320px viewport; clamped to 320 − 288 − 16.
-    expect(panel().style.left).toBe('16px');
-    expect(panel().style.maxHeight).toBe('222px');
-  });
-
-  it('re-measures when the page scrolls under it', () => {
+  it('is placed by floating-ui rather than measured by hand', async () => {
     render(<Harness />);
     openMenu();
-    expect(panel().style.top).toBe('62px');
 
-    ANCHOR_RECT.bottom = 20;
-    act(() => {
-      fireEvent.scroll(window);
+    // floatingStyles set the strategy inline; the old measure() left it to the class and pinned a
+    // 288px width. No jsdom pixel value is asserted: layout is floating-ui's to compute.
+    await waitFor(() => {
+      expect(panel().style.position).toBe('fixed');
+      expect(panel().style.top).toMatch(/px$/);
+      expect(panel().style.left).toMatch(/px$/);
     });
-    expect(panel().style.top).toBe('28px');
-    ANCHOR_RECT.bottom = 54;
+    expect(panel().style.width).toBe('');
+    expect(panel().style.transformOrigin).toBe('top right');
   });
 
   it('closes on Escape', async () => {
@@ -147,43 +122,43 @@ describe('Popover', () => {
     fireEvent.pointerDown(screen.getByRole('button', { name: 'first' }));
     expect(onClose).not.toHaveBeenCalled();
 
-    fireEvent.pointerDown(screen.getByTestId('menu-backdrop'));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByTestId('menu')).toBeNull());
   });
 
-  it('moves focus to the first choice and back to the anchor on close', () => {
+  it('moves focus to the first choice and back to the anchor on close', async () => {
     render(<Harness />);
     const anchor = screen.getByRole('button', { name: 'options' });
     openMenu();
 
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'first' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'first' })));
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(document.activeElement).toBe(anchor);
+    await waitFor(() => expect(document.activeElement).toBe(anchor));
   });
 
-  it('cycles Tab inside the panel instead of letting focus escape behind it', () => {
+  // A synthetic Tab keydown moves nothing in jsdom; what a real Tab off either end reaches is the
+  // focus manager's guard on that side, so focusing the guard is the wrap.
+  it('cycles Tab inside the panel instead of letting focus escape behind it', async () => {
     render(<Harness />);
     openMenu();
     const first = screen.getByRole('button', { name: 'first' });
     const last = screen.getByRole('button', { name: 'last' });
+    await waitFor(() => expect(document.activeElement).toBe(first));
 
-    last.focus();
-    fireEvent.keyDown(panel(), { key: 'Tab' });
-    expect(document.activeElement).toBe(first);
+    act(() => focusGuard('after').focus());
+    await waitFor(() => expect(document.activeElement).toBe(first));
 
-    fireEvent.keyDown(panel(), { key: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(last);
+    act(() => focusGuard('before').focus());
+    await waitFor(() => expect(document.activeElement).toBe(last));
   });
 
-  it('holds focus on a panel with nothing focusable in it', () => {
+  it('moves focus onto a panel with nothing focusable in it', async () => {
     render(<Harness empty />);
     openMenu();
 
-    expect(document.activeElement).toBe(panel());
-    fireEvent.keyDown(panel(), { key: 'Tab' });
-    expect(document.activeElement).toBe(panel());
+    await waitFor(() => expect(document.activeElement).toBe(panel()));
   });
 
   it('leaves other keys alone', () => {

@@ -445,7 +445,7 @@ describe('AllHistory', () => {
       expect(screen.getByTestId('history')).toBeTruthy();
 
       openMenu();
-      fireEvent.pointerDown(screen.getByTestId('activity-view-menu-backdrop'));
+      fireEvent.pointerDown(screen.getByTestId('history'));
       await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
       expect(screen.getByTestId('history')).toBeTruthy();
     });
