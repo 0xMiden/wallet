@@ -61,6 +61,24 @@ it('reports a storage read failure and never overwrites the list it could not re
   log.mockRestore();
 });
 
+it('reads the list again on the next mount after a failed read', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  // Not a once-queue: a second read this case never makes must not leak into the next case.
+  let reads = 0;
+  read.mockImplementation(() =>
+    ++reads === 1 ? Promise.reject(new Error('Read unavailable')) : Promise.resolve(['a'])
+  );
+  const first = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(first.result.current.failed).toBe(true));
+  first.unmount();
+
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+  expect([...result.current.ids]).toEqual(['a']);
+  expect(result.current.failed).toBe(false);
+  log.mockRestore();
+});
+
 it('accepts only string ids from an array and treats other payloads as empty', async () => {
   read.mockResolvedValueOnce(JSON.parse('["kept", 7, null]'));
   const { result, rerender } = renderHook(({ address }) => useActivityHiddenNotes(address), {

@@ -47,27 +47,28 @@ function setEntry(key: string, entry: HiddenNotesEntry): void {
 }
 
 /**
- * Reads one account's set, once per account.
+ * Reads one account's set, once per account unless the read fails.
  *
  * A read for an address the app has moved past settles into that address's OWN entry, so it
- * cannot replace the current one. It also never overwrites an entry that has left `loading`:
- * past that point a save has written the list, and what the read is holding is what that save
- * stored.
+ * cannot replace the current one. It lands only on a `loading` or `unreadable` entry: a `ready`
+ * one has been written by a save, and what the read is holding is what that save stored. A failed
+ * read is not cached, so the next mount reads again instead of staying unreadable until restart.
  */
 function load(key: string): Promise<void> {
   const inFlight = loads.get(key);
   if (inFlight) return inFlight;
   const run = fetchFromStorage<string[]>(key)
     .then(stored => {
-      if (getEntry(key).status !== 'loading') return;
+      if (getEntry(key).status === 'ready') return;
       const ids = new Set(Array.isArray(stored) ? stored.filter(id => typeof id === 'string') : []);
       setEntry(key, { ids, status: 'ready', saveFailed: false });
     })
     .catch(error => {
       console.warn('[activity] Could not load hidden notes', error);
-      if (getEntry(key).status === 'loading') {
+      if (getEntry(key).status !== 'ready') {
         setEntry(key, { ids: EMPTY_IDS, status: 'unreadable', saveFailed: false });
       }
+      if (loads.get(key) === run) loads.delete(key);
     });
   loads.set(key, run);
   return run;
