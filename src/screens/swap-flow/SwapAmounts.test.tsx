@@ -385,17 +385,24 @@ describe('SwapAmounts — CTA', () => {
   });
 
   it('asks for an amount first, waits on the quote, then offers the review', () => {
-    renderComponent({ offerAmount: '', requestLoading: false });
-    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveTextContent('enterAmount');
+    const cta = () => screen.getByTestId('swap-review-submit');
+    const quoteStatus = () => screen.queryByRole('status', { name: 'calculatingQuote' });
 
-    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveAccessibleName('enterAmount');
+    const awaiting = renderComponent({ offerAmount: '', requestLoading: false });
+    expect(cta()).toHaveTextContent('enterAmount');
+    expect(cta()).toHaveAccessibleName('enterAmount');
+    expect(quoteStatus()).toBeNull();
+    awaiting.unmount();
 
-    renderComponent({ offerAmount: '10', requestLoading: true });
-    expect(screen.getAllByRole('status', { name: 'calculatingQuote' }).at(-1)).toBeInTheDocument();
+    const loading = renderComponent({ offerAmount: '10', requestLoading: true });
+    expect(quoteStatus()).toBeInTheDocument();
     // The dots replace the label, not the button's name: it still says what it does.
-    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveAccessibleName('reviewSwap');
+    expect(cta()).not.toHaveTextContent('reviewSwap');
+    expect(cta()).toHaveAccessibleName('reviewSwap');
+    loading.unmount();
 
     renderComponent({ offerAmount: '10', requestLoading: false });
-    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveTextContent('reviewSwap');
+    expect(cta()).toHaveTextContent('reviewSwap');
+    expect(quoteStatus()).toBeNull();
   });
 });
