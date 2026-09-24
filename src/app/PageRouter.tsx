@@ -15,6 +15,7 @@ import Welcome from 'app/pages/Welcome';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
+import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
 import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
 import { NewContactPage } from 'screens/contacts/NewContactPage';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
@@ -54,6 +55,17 @@ interface RouteContext {
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
+
+// A hand-typed or truncated link can carry a stray `%`, and a URIError thrown here would take down the
+// whole route rather than send the user somewhere sensible.
+function decodeParam(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
 
 const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
@@ -164,7 +176,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     '/activity/group/:kind/:id?',
     onlyReady(({ kind, id }) => (
       <FullScreenPage key={`activity-group-${kind}-${id ?? ''}`} entrance="slide">
-        <ActivityGroupPage kind={kind ?? undefined} id={id ? decodeURIComponent(id) : undefined} />
+        <ActivityGroupPage kind={kind ?? undefined} id={decodeParam(id)} />
       </FullScreenPage>
     ))
   ],
@@ -284,11 +296,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/contacts/:address',
-    onlyReady(({ address }) => (
-      <FullScreenPage key={`contact-${address}`} entrance="slide">
-        <ContactDetailPage address={decodeURIComponent(address!)} />
-      </FullScreenPage>
-    ))
+    onlyReady(({ address }) => {
+      const decoded = decodeParam(address);
+      if (decoded === undefined) return <Woozie.Redirect to={ADDRESS_BOOK_PATH} />;
+      return (
+        <FullScreenPage key={`contact-${address}`} entrance="slide">
+          <ContactDetailPage address={decoded} />
+        </FullScreenPage>
+      );
+    })
   ],
   [
     '/token-detail/:tokenId',
