@@ -43,8 +43,8 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 // Probes for the two shared widgets this screen consumes: the summary hero, whose own coverage
-// lives in `components.test.tsx`, and the provider logo, which imports `aave.svg?url` — a `?url`
-// query jest's `\.svg$` mapper does NOT match (the suffix defeats the `$` anchor).
+// lives in `components.test.tsx`, and the provider logo, whose own coverage lives in
+// `ProviderLogo.test.tsx`.
 jest.mock('./components', () => ({
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewards: string }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId}>

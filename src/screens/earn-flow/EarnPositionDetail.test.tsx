@@ -81,9 +81,8 @@ jest.mock('lib/woozie', () => ({
 }));
 
 // Stub the shared earn widgets to prop probes. This keeps the test focused on
-// `EarnPositionDetail`'s own JSX/branches and sidesteps `components.tsx`'s
-// `aave.svg?url` logo import + `TokenLogo` chrome (mirrors how the sibling
-// `EarnDepositAmount.test.tsx` stubs `./components`).
+// `EarnPositionDetail`'s own JSX/branches and sidesteps `TokenLogo` chrome
+// (mirrors how the sibling `EarnDepositAmount.test.tsx` stubs `./components`).
 jest.mock('./components', () => {
   const R = require('react');
   return {

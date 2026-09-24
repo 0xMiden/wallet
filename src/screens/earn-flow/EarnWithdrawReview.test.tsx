@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -81,43 +81,6 @@ jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo">{symbol}</span>
 }));
 
-// `./components` imports the Aave logo as `...aave.svg?url`, a webpack query jest's `\.svg$` mapper
-// does not match. Stub the shared earn widgets this page uses to probes that keep their wiring
-// assertable (mirrors the sibling earn-flow tests).
-jest.mock('./components', () => {
-  const R = require('react');
-  return {
-    __esModule: true,
-    earnSubjectTitle: ({ protocol, asset }: { protocol: string; asset: string }) => `${protocol} \u2022 ${asset}`,
-    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
-      R.createElement(
-        'span',
-        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
-        'earnAssetOnNetwork'
-      ),
-    EarnAmountUnit: ({ symbol }: { symbol: string }) =>
-      R.createElement('span', { 'data-testid': 'token-logo' }, symbol),
-    EarnHero: ({
-      labelId,
-      value,
-      unit,
-      label
-    }: {
-      labelId: string;
-      value: string;
-      unit?: React.ReactNode;
-      label: string;
-    }) =>
-      R.createElement(
-        'section',
-        { 'data-testid': 'earn-hero', id: labelId },
-        R.createElement('span', null, value),
-        unit,
-        R.createElement('span', null, label)
-      )
-  };
-});
-
 const position: EarnPosition = {
   id: 'position-1',
   vaultId: 'vault-1',
@@ -164,12 +127,14 @@ describe('EarnWithdrawReview', () => {
     expect(screen.getByRole('heading')).toHaveTextContent('Aave • USDC');
     // The asset and its network ride the header as the shared mark, the same one the vault and
     // deposit pages carry, rather than a page-local pill.
-    const mark = screen.getByTestId('earn-asset-mark');
-    expect(mark).toHaveAttribute('data-asset', 'USDC');
-    expect(mark).toHaveAttribute('data-network', 'Sepolia');
-    expect(screen.getByRole('banner')).toContainElement(mark);
-    expect(screen.getByText('42.25')).toBeInTheDocument();
-    expect(screen.getByTestId('token-logo')).toHaveTextContent('USDC');
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getByText('earnAssetOnNetwork')).toHaveClass('sr-only');
+    expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
+    // The hero's figure carries the withdrawn token as its unit.
+    const hero = screen.getByRole('region', { name: 'earnWithdrawAmount' });
+    expect(within(hero).getByText('42.25')).toBeInTheDocument();
+    expect(within(hero).getByText('USDC', { selector: '.text-entry-unit' })).toBeInTheDocument();
+    expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
     expect(screen.getByText('earnFullPositionGasless')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();

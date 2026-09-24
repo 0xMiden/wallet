@@ -163,8 +163,7 @@ jest.mock('components/Button', () => ({
 }));
 
 // --- Shared header: expose the vault it received so we can assert vault lookup.
-// `./components` imports the Aave logo as `...aave.svg?url`, a webpack query jest's `\.svg$` mapper
-// does not match. Stub the shared earn widgets to probes that keep their wiring assertable.
+// Stub the shared earn widgets to probes that keep their wiring assertable.
 jest.mock('./components', () => {
   const R = require('react');
   return {

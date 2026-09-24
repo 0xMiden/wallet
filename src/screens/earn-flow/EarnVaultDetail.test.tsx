@@ -12,10 +12,7 @@ import EarnVaultDetail from './EarnVaultDetail';
 // Mocks
 // ---------------------------------------------------------------------------
 
-// `./components` re-exports `MetricCard` alongside a module-level
-// `import aaveLogoUrl from '...aave.svg?url'` (a webpack `?url` query that
-// jest's `\.svg$` mapper does not match). Stub the module so we only pull in a
-// light `MetricCard` and never touch that asset import. The stub echoes its
+// Stub `./components` so we only pull in a light `MetricCard`. The stub echoes its
 // props via data-* attributes so we can assert what `EarnVaultDetail` passed
 // (label / value / valueClassName), which is where the audited-branch styling
 // lives.
