@@ -192,16 +192,6 @@ const Welcome: FC = () => {
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
-  // A flow's state belongs to one attempt: a create starts, and a cancel back to Welcome ends, with nothing
-  // an abandoned import or an earlier create left behind (a seed, key, password or staged wallet file would
-  // otherwise pass for this flow's own). Setters only, so the identity is stable.
-  const resetFlowState = useCallback(() => {
-    setSeedPhrase(null);
-    setKeyPairPayload(null);
-    setPassword(null);
-    setWalletFilePayload(null);
-    setImportType(null);
-  }, []);
   // The guardian operator endpoint the user picked (choose-guardian) or that the
   // import recovery-method screen resolved. Threaded explicitly into
   // registerWallet (stage 1 of #408) so a new Guardian account binds to it,
@@ -265,6 +255,20 @@ const Welcome: FC = () => {
   // under E2E and on non-Chrome — those keep the classic click-to-create flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
+  // A flow's state belongs to one attempt: a create starts, and leaving for Welcome ends, with nothing an
+  // abandoned import or an earlier attempt left behind. A seed, key, password or staged wallet file would pass
+  // for this flow's own, and a failed confirmation's attempts and error would greet the next one. Setters only,
+  // so the identity is stable.
+  const resetFlowState = useCallback(() => {
+    setSeedPhrase(null);
+    setKeyPairPayload(null);
+    setPassword(null);
+    setWalletFilePayload(null);
+    setImportType(null);
+    setBiometricAttempts(0);
+    setBiometricError(null);
+    setConfirmPhase('idle');
+  }, []);
 
   // Telemetry for the onboarding flow the user is currently walking through.
   // Held in a ref rather than state because settling it must never re-render.
@@ -1030,14 +1034,27 @@ const Welcome: FC = () => {
     }
   }, [hash, password, onboardingType, resetGuardianProbe]);
 
-  // Entering a screen a create begins at resets the flow state. Its own effect, keyed on the hash alone: in
-  // the routing effect above it would re-run on every password or type change while the hash stays here and
-  // wipe what the next action just set.
+  // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
+  // password or type change, and a reset there would wipe what the next action just set.
+  const previousHashRef = useRef<string | null>(null);
   useEffect(() => {
-    if (hash === '#select-wallet-type' || hash === '#choose-protection' || hash === '#setup-biometric') {
+    const previous = previousHashRef.current;
+    previousHashRef.current = hash;
+    if (previous === hash) return;
+    // A running confirmation attempt holds the flow (the routing effect sends the hash back), and a retry needs
+    // everything it had.
+    if (attemptInFlightRef.current) return;
+    if (hash === '') {
+      // Arriving at Welcome from inside the flow (history, an edited URL, a guard's redirect) ends the attempt.
+      // The first render is not an arrival: a fresh load, or the E2E bypass seeding the flow on mount.
+      if (previous !== null) cancelOnLeavingOnboarding('/');
+    } else if (hash === '#select-wallet-type' || hash === '#choose-protection') {
+      resetFlowState();
+    } else if (hash === '#setup-biometric' && onboardingType !== OnboardingType.Create) {
+      // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.
       resetFlowState();
     }
-  }, [hash, resetFlowState]);
+  }, [hash, onboardingType, resetFlowState, cancelOnLeavingOnboarding]);
 
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.

@@ -606,6 +606,89 @@ describe('Welcome — hash → step routing', () => {
   );
 
   it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome after the user went back to Welcome by history',
+    async hash => {
+      mockIsMobileFn.mockReturnValue(false);
+      await renderWelcome();
+      await dispatch({ id: 'choose-protection' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#meet-guardian');
+      // Browser back to Welcome: arriving there from inside the flow ends the attempt.
+      await setHash('');
+      expect(mockFlowProps.current.seedPhrase).toBeNull();
+      expect(mockFlowProps.current.password).toBeNull();
+      mockNavigate.mockClear();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    }
+  );
+
+  it('keeps a biometric create when Meet your Guardian goes back to its biometric step', async () => {
+    mockIsMobileFn.mockReturnValue(true);
+    await renderWelcome();
+    await dispatch({ id: 'setup-biometric-submit' });
+    const seed = mockFlowProps.current.seedPhrase;
+    expect(seed).not.toBeNull();
+    await setHash('#meet-guardian');
+    expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
+    await setHash('#setup-biometric');
+    expect(mockFlowProps.current.seedPhrase).toBe(seed);
+    await setHash('#meet-guardian');
+    expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
+  });
+
+  it.each(['#select-wallet-type', '#choose-protection', '#setup-biometric'])(
+    'leaves a running confirmation attempt its credentials when the hash changes to %s',
+    async entry => {
+      mockIsMobileFn.mockReturnValue(false);
+      let failRegistration: (error: Error) => void = () => undefined;
+      mockRegisterWallet.mockReturnValueOnce(
+        new Promise<void>((_resolve, reject) => {
+          failRegistration = reject;
+        })
+      );
+      await renderWelcome();
+      await dispatch({ id: 'choose-protection' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await setHash('#meet-guardian');
+      await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g1', guardianEndpoint: 'https://g1' } });
+      await setHash('#confirmation');
+      let attempt: Promise<void> | undefined;
+      await act(async () => {
+        attempt = mockFlowProps.current.onAction({ id: 'confirmation' });
+      });
+
+      await setHash(entry);
+      expect(mockFlowProps.current.password).toBe('pw');
+      expect(mockFlowProps.current.seedPhrase).not.toBeNull();
+
+      await act(async () => {
+        failRegistration(new Error('boom'));
+        await attempt;
+      });
+      await setHash('#confirmation');
+      await dispatch({ id: 'confirmation' });
+      expect(mockRegisterWallet.mock.calls.at(-1)?.[1]).toBe('pw');
+    }
+  );
+
+  it('does not carry a failed biometric attempt into the next one', async () => {
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
+    mockRegisterWallet.mockRejectedValue(new Error('face not recognised'));
+    await renderWelcome();
+    await dispatch({ id: 'setup-biometric-submit' });
+    await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockFlowProps.current.biometricAttempts).toBe(1);
+
+    await setHash('');
+    expect(mockFlowProps.current.biometricAttempts).toBe(0);
+    expect(mockFlowProps.current.biometricError).toBeNull();
+  });
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
     'redirects %s back to Welcome when the only seed is left over from an import',
     async hash => {
       mockIsMobileFn.mockReturnValue(false);
@@ -2538,6 +2621,33 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockFlowProps.current.confirmCreating).toBe(true);
+  });
+
+  it('auto-creates again for a new attempt after a failed one was abandoned', async () => {
+    mockCanHandoff = true;
+    mockRegisterWallet.mockRejectedValueOnce(new Error('creation failed'));
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+
+    // Back to Welcome, then a new create: its Confirmation auto-creates like the first one did.
+    await setHash('');
+    await dispatch({ id: 'setup-passcode-submit', payload: '654321' });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
   it('falls back to the classic flow when the auto-create fails', async () => {
