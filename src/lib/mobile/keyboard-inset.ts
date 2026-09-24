@@ -53,21 +53,28 @@ export async function initKeyboardInset(): Promise<void> {
   // (before this listener runs), so mirroring it would double-count, and the CTA takes two slides.
   const ios = isIOS();
   let releaseNavbar: (() => void) | undefined;
-  try {
-    await Keyboard.addListener('keyboardWillShow', info => {
+  const hide = () => {
+    if (ios) root.style.setProperty('--keyboard-height', '0px');
+    releaseNavbar?.();
+    releaseNavbar = undefined;
+  };
+  // Registered in one tick so no WillHide lands between the two, and kept only as a pair: a
+  // WillShow without its WillHide would take a navbar hold nothing releases.
+  const registrations = await Promise.allSettled([
+    Keyboard.addListener('keyboardWillShow', info => {
       if (ios) root.style.setProperty('--keyboard-height', `${info.keyboardHeight || 0}px`);
       // A keyboard type change reports WillShow again without a hide: one hold, not two.
       releaseNavbar ??= holdNavbarHidden();
-    });
-
-    await Keyboard.addListener('keyboardWillHide', () => {
-      if (ios) root.style.setProperty('--keyboard-height', '0px');
-      releaseNavbar?.();
-      releaseNavbar = undefined;
-    });
-  } catch {
-    // Keyboard plugin has no web implementation — run without insets rather
+    }),
+    Keyboard.addListener('keyboardWillHide', hide)
+  ]);
+  if (registrations.some(result => result.status === 'rejected')) {
+    // Keyboard plugin has no web implementation - run without insets rather
     // than failing mobile app init.
+    hide();
+    await Promise.allSettled(
+      registrations.flatMap(result => (result.status === 'fulfilled' ? [result.value.remove()] : []))
+    );
   }
 
   // Mid-layout inputs can still sit below the fold after the layout shrinks;

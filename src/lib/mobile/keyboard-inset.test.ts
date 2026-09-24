@@ -248,6 +248,93 @@ describe('keyboard-inset', () => {
     await expect(initKeyboardInset()).resolves.toBeUndefined();
   });
 
+  describe('listener installation is all or nothing', () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (error: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    function pendingRegistrations() {
+      const pending: Record<string, ReturnType<typeof deferred<{ remove: jest.Mock }>>> = {};
+      addListenerMock.mockImplementation((event: string, cb: (info?: { keyboardHeight?: number }) => void) => {
+        listeners[event] = cb;
+        pending[event] = deferred<{ remove: jest.Mock }>();
+        return pending[event]!.promise;
+      });
+      return pending;
+    }
+
+    // Lets initKeyboardInset run past the accessory-bar await to its registrations.
+    const flush = () => new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    it('starts both registrations before either resolves', async () => {
+      isMobileMock.mockReturnValue(true);
+      const pending = pendingRegistrations();
+
+      const init = initKeyboardInset();
+      await flush();
+
+      // A WillHide between two sequential registrations would be missed.
+      expect(addListenerMock).toHaveBeenCalledWith('keyboardWillShow', expect.any(Function));
+      expect(addListenerMock).toHaveBeenCalledWith('keyboardWillHide', expect.any(Function));
+
+      pending['keyboardWillShow']!.resolve({ remove: jest.fn() });
+      pending['keyboardWillHide']!.resolve({ remove: jest.fn() });
+      await init;
+    });
+
+    it('removes the show listener when the hide registration fails', async () => {
+      isMobileMock.mockReturnValue(true);
+      const pending = pendingRegistrations();
+
+      const init = initKeyboardInset();
+      await flush();
+      const showHandle = { remove: jest.fn() };
+      pending['keyboardWillShow']!.resolve(showHandle);
+      await flush();
+      pending['keyboardWillHide']!.reject(new Error('registration failed'));
+      await init;
+
+      expect(showHandle.remove).toHaveBeenCalled();
+    });
+
+    it('undoes a WillShow that fired before the hide registration failed', async () => {
+      isMobileMock.mockReturnValue(true);
+      const pending = pendingRegistrations();
+
+      const init = initKeyboardInset();
+      await flush();
+      listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+      expect(document.body).toHaveAttribute('data-hide-navbar');
+      pending['keyboardWillShow']!.resolve({ remove: jest.fn() });
+      await flush();
+      pending['keyboardWillHide']!.reject(new Error('registration failed'));
+      await init;
+
+      expect(document.body).not.toHaveAttribute('data-hide-navbar');
+      expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('0px');
+    });
+
+    it('removes the hide listener when the show registration fails', async () => {
+      isMobileMock.mockReturnValue(true);
+      const pending = pendingRegistrations();
+
+      const init = initKeyboardInset();
+      await flush();
+      const hideHandle = { remove: jest.fn() };
+      pending['keyboardWillShow']!.reject(new Error('registration failed'));
+      pending['keyboardWillHide']?.resolve(hideHandle);
+      await init;
+
+      expect(hideHandle.remove).toHaveBeenCalled();
+    });
+  });
+
   it('enables the iOS keyboard accessory bar (Done key) on mobile', async () => {
     isMobileMock.mockReturnValue(true);
 
