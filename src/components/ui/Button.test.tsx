@@ -79,7 +79,7 @@ describe('Button', () => {
   });
 
   describe('anatomy', () => {
-    it('is a 52px full-width pill with the 19px extra-bold Nunito label by default', () => {
+    it('is a 48px full-width pill with the 19px extra-bold Nunito label by default', () => {
       render(<Button />);
 
       expect(screen.getByRole('button')).toHaveClass('h-12', 'rounded-full', 'w-full', 'text-cta');

@@ -53,7 +53,7 @@ describe('GuardianNeedsUrlBanner', () => {
     expect(screen.getByText('guardianChangedBody')).toBeInTheDocument();
   });
 
-  it('renders the submit action as the compact in-card sm button, not a full 52px CTA', () => {
+  it('renders the submit action as the compact in-card sm button, not a full 48px CTA', () => {
     render(<GuardianNeedsUrlBanner />);
     // sm is `h-9`; the default lg CTA is `h-12` — assert the compact size landed.
     expect(getSubmitButton()).toHaveClass('h-9');

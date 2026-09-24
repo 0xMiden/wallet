@@ -22,7 +22,7 @@ export enum ButtonVariant {
   Ghost = 'ghost'
 }
 
-/** `lg` is the 52px CTA; `sm` the 36px compact button. */
+/** `lg` is the 48px CTA; `sm` the 36px compact button. */
 export type ButtonSize = 'lg' | 'sm';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

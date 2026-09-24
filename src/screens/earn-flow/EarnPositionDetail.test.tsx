@@ -283,7 +283,7 @@ describe('EarnPositionDetail', () => {
     expect(withdraw).toHaveClass('max-w-none');
     expect(withdraw.className).not.toMatch(/h-14|\btext-base\b|\bfont-bold\b/);
 
-    // The spec's 10px gap between the two side-by-side 52px CTAs.
+    // The spec's 10px gap between the two side-by-side 48px CTAs.
     expect(depositMore.parentElement).toBe(withdraw.parentElement);
     expect(depositMore.parentElement).toHaveClass('gap-2.5');
     expect(depositMore.parentElement).not.toHaveClass('gap-3');
