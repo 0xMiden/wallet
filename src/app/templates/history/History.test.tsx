@@ -1453,8 +1453,8 @@ it('offers no more pages while its page is off screen', async () => {
 });
 
 describe('History narrowed and re-rendered by its caller', () => {
-  it('applies `predicate` after the search and the filter, never before', async () => {
-    // "sent" leaves the two send rows; the predicate then keeps one of them.
+  it('narrows the filtered, searched list by `predicate`', async () => {
+    // "sent" leaves the two send rows; the predicate keeps one of them.
     await renderHistory({ filter: 'sent', predicate: (entry: any) => entry.secondaryAddress === '0xEEE' });
 
     expect(entryKeys()).toEqual(['completed-SD']);

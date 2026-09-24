@@ -81,8 +81,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // Block screenshots / screen recordings while raw key material is on screen
   // (#417) — the same protection `RevealSeedPhrase` already has, for material of
   // equal sensitivity: a private key, a Guardian COLD private key (the account's
-  // recovery material) or a hot key all confer spending authority. `FormField`'s
-  // `secret` prop only blurs the value while the field is unfocused; once tapped
+  // recovery material) or a hot key all confer spending authority. `TextField`'s
+  // `secret` mode only covers the value while the field is unfocused; once tapped
   // the plaintext sits in an ordinary DOM textarea, which is exactly what a
   // screenshot, an Android task-switcher thumbnail or a live screen recording
   // captures. The hook withholds `true` until the native guard is actually
