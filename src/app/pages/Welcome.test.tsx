@@ -1459,6 +1459,40 @@ describe('Welcome — confirmation / register', () => {
     );
   });
 
+  it('drops a pasted-key submission whose hardware check answers after the user moved on to a create', async () => {
+    mockIsDesktopFn.mockReturnValue(true);
+    mockTestNetworkKey = null;
+    await renderWelcome();
+    let answerHardwareCheck: (available: boolean) => void = () => undefined;
+    mockDesktopHW.mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        answerHardwareCheck = resolve;
+      })
+    );
+
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-key');
+    let staleKey: Promise<void> | undefined;
+    await act(async () => {
+      staleKey = mockFlowProps.current.onAction({ id: 'import-hot-key-submit', payload: 'deadbeef' });
+    });
+
+    // While it waits, the user backs out and starts a create with a password.
+    await dispatch({ id: 'back' });
+    await setHash('');
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    mockNavigate.mockClear();
+
+    await act(async () => {
+      answerHardwareCheck(true);
+      await staleKey;
+    });
+    expect(mockFlowProps.current.password).toBe('pw');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#import-select-recovery-method');
+  });
+
   it('drops a seed submission whose hardware check answers after the user confirmed a different wallet', async () => {
     mockIsDesktopFn.mockReturnValue(true);
     mockTestNetworkKey = null;

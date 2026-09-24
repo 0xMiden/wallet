@@ -671,6 +671,7 @@ const Welcome: FC = () => {
         // Same hardware/password branch as import-seed-phrase-submit.
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (transitionGenerationRef.current !== generation) break;
           if (hardwareAvailable) {
             setPassword('__HARDWARE_ONLY__');
             navigate('/#import-select-recovery-method');
