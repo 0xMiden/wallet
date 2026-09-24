@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 
 import { getCardColor, setCardColor, useCardColor } from './card-color';
 import { CARD_COLOR_STORAGE_KEY, CARD_COLORS, DEFAULT_CARD_COLOR } from './constants';
+import { createPersistedSetting } from './persisted-setting';
 
 describe('card color setting', () => {
   beforeEach(() => {
@@ -110,6 +111,37 @@ describe('card color setting', () => {
       });
       expect(result.current).toBe('blue');
       expect(getCardColor()).toBe('orange');
+    });
+  });
+
+  describe('createPersistedSetting', () => {
+    const KEY = 'persisted_setting_test';
+    const make = () => createPersistedSetting(KEY, ['a', 'b'] as const, 'a');
+
+    it('reads the fallback, writes through storage, and re-renders subscribers', () => {
+      const setting = make();
+      expect(setting.get()).toBe('a');
+
+      const { result, unmount } = renderHook(() => setting.useValue());
+      expect(result.current).toBe('a');
+
+      act(() => {
+        setting.set('b');
+      });
+      expect(localStorage.getItem(KEY)).toBe('b');
+      expect(setting.get()).toBe('b');
+      expect(result.current).toBe('b');
+
+      unmount();
+      act(() => {
+        setting.set('a');
+      });
+      expect(result.current).toBe('b');
+    });
+
+    it('falls back when the stored value is outside the allow-list', () => {
+      localStorage.setItem(KEY, 'c');
+      expect(make().get()).toBe('a');
     });
   });
 });
