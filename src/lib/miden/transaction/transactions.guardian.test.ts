@@ -83,6 +83,13 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
+// The legacy global guardian key is read through storage; drive it per test (undefined by default).
+const mockFetchFromStorage = jest.fn(async (_key: string): Promise<unknown> => undefined);
+jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
+  fetchFromStorage: (key: string) => mockFetchFromStorage(key)
+}));
+
 jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
@@ -5026,6 +5033,8 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     const coldService = {
+      // A guardian switch completed after initiation: the service is built under the new endpoint.
+      guardianEndpoint: 'https://new.guardian',
       createReplaceHotKeyProposal: jest.fn(async () => ({
         proposal: { id: 'prop-replace' },
         newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
@@ -5077,10 +5086,76 @@ describe('generateTransaction — Guardian routing', () => {
     expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace', undefined);
     // Persist newHotPublicKey on the transaction row so complete can find it.
     expect((submittedRow.extraInputs as { newHotPublicKey?: string }).newHotPublicKey).toBe('new-hot-pub');
-    // ...beside the guardian stamped at initiation, which the merge keeps.
-    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://old.guardian');
+    // ...beside the guardian the rotation actually ran under, re-stamped from the built service.
+    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://new.guardian');
     // Replace-hot-key shares the confirming wait with switch-guardian.
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+  });
+
+  it('Guardian replace-hot-key: stamps the endpoint it runs under before a proposal failure', async () => {
+    const txId = 'replace-hot-fail';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'replace-hot-key',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
+    });
+
+    const multisigService = {
+      // Hot service unused in replace-hot-key; signingService flips to cold.
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const coldService = {
+      // A guardian switch completed after initiation: the service is built under the new endpoint.
+      guardianEndpoint: 'https://new.guardian',
+      createReplaceHotKeyProposal: jest.fn(async () => {
+        throw new Error('guardian unreachable');
+      }),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      }))
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+    const persistNewHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey,
+      swapHotKey: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result)
+    });
+
+    const submittedRow = txStore.find(r => r.id === txId)!;
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    ).catch(() => undefined);
+
+    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://new.guardian');
   });
 
   it('Guardian update-procedure-threshold: cold-signs the threshold update', async () => {
@@ -5228,6 +5303,7 @@ describe('generateTransaction — Guardian routing', () => {
   // but never fails the on-chain-successful rotation.
   const runReplaceHotKeyReRegister = async (txId: string, reRegister: () => Promise<void>) => {
     const coldService = {
+      guardianEndpoint: 'https://old.guardian',
       createReplaceHotKeyProposal: jest.fn(async () => ({
         proposal: { id: 'prop-replace' },
         newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
@@ -5903,6 +5979,49 @@ describe('initiateReplaceHotKeyTransaction', () => {
     expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
       guardianEndpoint: getEffectiveDefaultGuardianEndpoint()
     });
+  });
+
+  it("records a legacy account's global guardian key when it names none of its own", async () => {
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockFetchFromStorage.mockImplementation(async key =>
+      key === 'guardian_url_setting' ? 'https://custom.guardian' : undefined
+    );
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    try {
+      await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+      expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+        guardianEndpoint: 'https://custom.guardian'
+      });
+    } finally {
+      mockFetchFromStorage.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('queues the rotation unstamped when the guardian read fails: the stamp is display only', async () => {
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockFetchFromStorage.mockImplementation(async () => {
+      throw new Error('storage unavailable');
+    });
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    try {
+      await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).resolves.toBeDefined();
+      expect(txStore).toHaveLength(1);
+      expect(
+        (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
+      ).toBeUndefined();
+    } finally {
+      mockFetchFromStorage.mockImplementation(async () => undefined);
+    }
   });
 
   it('records no guardian when the provider has no such account', async () => {

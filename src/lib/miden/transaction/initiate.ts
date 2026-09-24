@@ -717,7 +717,11 @@ export const initiateReplaceHotKeyTransaction = async (
   const account = (await guardianProvider.getAccounts()).find(candidate =>
     sameWalletAccountId(candidate.publicKey, accountId)
   );
-  if (account) dbTransaction.extraInputs = { guardianEndpoint: await resolveGuardianEndpoint(account) };
+  if (account) {
+    // Display only: a failed read leaves the row unstamped rather than refusing the rotation.
+    const guardianEndpoint = await resolveGuardianEndpoint(account).catch(() => undefined);
+    if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  }
   return queueRecoveryChange(dbTransaction);
 };
 

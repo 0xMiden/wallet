@@ -2308,6 +2308,13 @@ const generateGuardianTransaction = async (
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
       service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      // Stamp the guardian this rotation runs under before anything below can fail: a switch that
+      // completed after initiation moved the account's endpoint, and the row must name this one.
+      const rTx = transaction as ReplaceHotKeyTransaction;
+      rTx.extraInputs = { ...(rTx.extraInputs ?? {}), guardianEndpoint: service.guardianEndpoint };
+      await Repo.transactions.where({ id: transaction.id }).modify(t => {
+        t.extraInputs = rTx.extraInputs;
+      });
       // NOT retry-wrapped — createReplaceHotKeyProposal mints a hot key.
       const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);
       if (!guardianProvider.persistNewHotKey) {
@@ -2327,7 +2334,6 @@ const generateGuardianTransaction = async (
       await guardianProvider.persistNewHotKey(newHot.publicKeyHex, newHot.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
-      const rTx = transaction as ReplaceHotKeyTransaction;
       rTx.extraInputs = { ...(rTx.extraInputs ?? {}), newHotPublicKey: newHot.publicKeyHex };
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
