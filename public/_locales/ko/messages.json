@@ -407,8 +407,8 @@
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnVaultLoadError": {
-    "message": "Couldn't load this vault. Check your connection and try again.",
-    "englishSource": "(untranslated)"
+    "message": "이 볼트를 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -427,17 +427,17 @@
     "message": "입금액",
     "englishSource": "Deposit Amount"
   },
-  "earnNoActivePositionsTitle": {
-    "message": "No active positions",
-    "englishSource": "(untranslated)"
-  },
-  "earnNoActivePositionsBody": {
-    "message": "Deposit into a vault below to start earning rewards.",
-    "englishSource": "(untranslated)"
-  },
   "earnSeeAll": {
     "message": "모두 보기",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "활성 포지션 없음",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "아래 금고에 입금하여 보상을 받기 시작하세요.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "추천 금고",
@@ -3917,21 +3917,21 @@
     "message": "네트워크",
     "englishSource": "Network"
   },
-  "tokenActivityEmptyTitle": {
-    "message": "No activity yet",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityEmptyBody": {
-    "message": "Transactions with this token will appear here.",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityLoadError": {
-    "message": "Couldn't load this activity.",
-    "englishSource": "(untranslated)"
-  },
   "recentActivity": {
     "message": "최근 활동",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "아직 활동이 없습니다",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "이 토큰과 관련된 거래 내역은 이곳에 표시됩니다.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "이 활동을 불러올 수 없습니다.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "유형",

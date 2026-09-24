@@ -407,8 +407,8 @@
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnVaultLoadError": {
-    "message": "Couldn't load this vault. Check your connection and try again.",
-    "englishSource": "(untranslated)"
+    "message": "Не удалось загрузить это хранилище. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -427,17 +427,17 @@
     "message": "Сумма депозита",
     "englishSource": "Deposit Amount"
   },
-  "earnNoActivePositionsTitle": {
-    "message": "No active positions",
-    "englishSource": "(untranslated)"
-  },
-  "earnNoActivePositionsBody": {
-    "message": "Deposit into a vault below to start earning rewards.",
-    "englishSource": "(untranslated)"
-  },
   "earnSeeAll": {
     "message": "Показать всё",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Нет открытых позиций",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Пополните хранилище ниже, чтобы начать получать вознаграждения.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Избранные хранилища",
@@ -3917,21 +3917,21 @@
     "message": "Сеть",
     "englishSource": "Network"
   },
-  "tokenActivityEmptyTitle": {
-    "message": "No activity yet",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityEmptyBody": {
-    "message": "Transactions with this token will appear here.",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityLoadError": {
-    "message": "Couldn't load this activity.",
-    "englishSource": "(untranslated)"
-  },
   "recentActivity": {
     "message": "Последние действия",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Пока нет активности",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Транзакции с этим токеном будут отображаться здесь.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Не удалось загрузить эту операцию.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Тип",

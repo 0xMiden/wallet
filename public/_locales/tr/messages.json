@@ -407,8 +407,8 @@
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnVaultLoadError": {
-    "message": "Couldn't load this vault. Check your connection and try again.",
-    "englishSource": "(untranslated)"
+    "message": "Bu kasayı yükleyemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -427,17 +427,17 @@
     "message": "Para Yatırma Tutarı",
     "englishSource": "Deposit Amount"
   },
-  "earnNoActivePositionsTitle": {
-    "message": "No active positions",
-    "englishSource": "(untranslated)"
-  },
-  "earnNoActivePositionsBody": {
-    "message": "Deposit into a vault below to start earning rewards.",
-    "englishSource": "(untranslated)"
-  },
   "earnSeeAll": {
     "message": "Tümünü Göster",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Aktif pozisyon yok",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Ödüller kazanmaya başlamak için aşağıdaki kasalardan birine para yatırın.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Öne Çıkan Kasalar",
@@ -3917,21 +3917,21 @@
     "message": "Ağ",
     "englishSource": "Network"
   },
-  "tokenActivityEmptyTitle": {
-    "message": "No activity yet",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityEmptyBody": {
-    "message": "Transactions with this token will appear here.",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityLoadError": {
-    "message": "Couldn't load this activity.",
-    "englishSource": "(untranslated)"
-  },
   "recentActivity": {
     "message": "Son etkinlikler",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Henüz herhangi bir işlem yok",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Bu token ile yapılan işlemler burada görünecektir.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Bu etkinlik yüklenemedi.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Tür",

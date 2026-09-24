@@ -407,8 +407,8 @@
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnVaultLoadError": {
-    "message": "Couldn't load this vault. Check your connection and try again.",
-    "englishSource": "(untranslated)"
+    "message": "Nie udało się załadować tego sejfu. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -427,17 +427,17 @@
     "message": "Kwota wpłaty",
     "englishSource": "Deposit Amount"
   },
-  "earnNoActivePositionsTitle": {
-    "message": "No active positions",
-    "englishSource": "(untranslated)"
-  },
-  "earnNoActivePositionsBody": {
-    "message": "Deposit into a vault below to start earning rewards.",
-    "englishSource": "(untranslated)"
-  },
   "earnSeeAll": {
     "message": "Zobacz wszystko",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Brak otwartych pozycji",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Wpłać środki do skarbca poniżej, aby zacząć zdobywać nagrody.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Polecane skarbce",
@@ -3917,21 +3917,21 @@
     "message": "Sieć",
     "englishSource": "Network"
   },
-  "tokenActivityEmptyTitle": {
-    "message": "No activity yet",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityEmptyBody": {
-    "message": "Transactions with this token will appear here.",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityLoadError": {
-    "message": "Couldn't load this activity.",
-    "englishSource": "(untranslated)"
-  },
   "recentActivity": {
     "message": "Ostatnia aktywność",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Brak aktywności",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Transakcje z wykorzystaniem tego tokenu będą wyświetlane w tym miejscu.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Nie udało się załadować tej aktywności.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Typ",

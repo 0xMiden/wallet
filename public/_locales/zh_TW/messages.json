@@ -407,8 +407,8 @@
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
   "earnVaultLoadError": {
-    "message": "Couldn't load this vault. Check your connection and try again.",
-    "englishSource": "(untranslated)"
+    "message": "無法載入此金庫。請檢查您的連線並重試。",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
   },
   "earnPositionsApy": {
     "message": "$apy$ APY",
@@ -427,17 +427,17 @@
     "message": "存款金額",
     "englishSource": "Deposit Amount"
   },
-  "earnNoActivePositionsTitle": {
-    "message": "No active positions",
-    "englishSource": "(untranslated)"
-  },
-  "earnNoActivePositionsBody": {
-    "message": "Deposit into a vault below to start earning rewards.",
-    "englishSource": "(untranslated)"
-  },
   "earnSeeAll": {
     "message": "查看全部",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "無持倉",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "請將資金存入下方的金庫，即可開始賺取獎勵。",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "精選保險庫",
@@ -3917,21 +3917,21 @@
     "message": "網路",
     "englishSource": "Network"
   },
-  "tokenActivityEmptyTitle": {
-    "message": "No activity yet",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityEmptyBody": {
-    "message": "Transactions with this token will appear here.",
-    "englishSource": "(untranslated)"
-  },
-  "tokenActivityLoadError": {
-    "message": "Couldn't load this activity.",
-    "englishSource": "(untranslated)"
-  },
   "recentActivity": {
     "message": "近期活動",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "目前尚無活動",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "與此代幣相關的交易將顯示於此處。",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "無法載入此活動。",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "類型",

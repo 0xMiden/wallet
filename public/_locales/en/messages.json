@@ -427,6 +427,10 @@
     "message": "Deposit Amount",
     "englishSource": "Deposit Amount"
   },
+  "earnSeeAll": {
+    "message": "See All",
+    "englishSource": "See All"
+  },
   "earnNoActivePositionsTitle": {
     "message": "No active positions",
     "englishSource": "No active positions"
@@ -434,10 +438,6 @@
   "earnNoActivePositionsBody": {
     "message": "Deposit into a vault below to start earning rewards.",
     "englishSource": "Deposit into a vault below to start earning rewards."
-  },
-  "earnSeeAll": {
-    "message": "See All",
-    "englishSource": "See All"
   },
   "earnVaultsTitle": {
     "message": "Featured Vaults",
@@ -3917,6 +3917,10 @@
     "message": "Network",
     "englishSource": "Network"
   },
+  "recentActivity": {
+    "message": "Recent activity",
+    "englishSource": "Recent activity"
+  },
   "tokenActivityEmptyTitle": {
     "message": "No activity yet",
     "englishSource": "No activity yet"
@@ -3928,10 +3932,6 @@
   "tokenActivityLoadError": {
     "message": "Couldn't load this activity.",
     "englishSource": "Couldn't load this activity."
-  },
-  "recentActivity": {
-    "message": "Recent activity",
-    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Type",
