@@ -2144,12 +2144,12 @@
     "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
   },
   "meetGuardianSeedPhraseTitle": {
-    "message": "仅靠seed phrase是不够的",
-    "englishSource": "A seed phrase isn't enough"
+    "message": "仅凭恢复短语是不够的",
+    "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "您的助记词可恢复您的密钥，而非您的账户状态。一旦丢失设备，密钥将永久丢失。",
-    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+    "message": "您的助记词可恢复您的密钥，而非您的账户状态。一旦丢失设备，助记词即告丢失。",
+    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Guardian（资产保护协议）可为您提供保护",
@@ -2160,8 +2160,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "$operators$中速度最快的运营商",
-    "englishSource": "Fastest of $operators$ operators",
+    "message": "目前$operators$中最快的运营商",
+    "englishSource": "Fastest of $operators$ operators right now",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2172,22 +2172,17 @@
     "message": "该网络的运营商",
     "englishSource": "The operator on this network"
   },
-  "meetGuardianLatencyMs": {
-    "message": "$ms$ ms",
-    "englishSource": "$ms$ ms",
-    "placeholders": {
-      "ms": {
-        "content": "$1"
-      }
-    }
-  },
   "meetGuardianCannotMoveFunds": {
     "message": "无法自行转移您的资金",
     "englishSource": "Cannot move your funds on its own"
   },
+  "meetGuardianBacksUpState": {
+    "message": "备份您的账户状态",
+    "englishSource": "Backs up your account state"
+  },
   "meetGuardianCanSwitch": {
-    "message": "您可随时通过 seed phrase 进行切换",
-    "englishSource": "Switch any time with your seed phrase"
+    "message": "可通过您的助记词进行切换",
+    "englishSource": "Can be switched with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "正在测试哪位客服响应最快……",
@@ -2210,20 +2205,20 @@
     "englishSource": "One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin 是以太坊标准合约库背后的安全公司。它是 Miden 上 $operators$ 独立 Guardian 运营商之一。",
-    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden."
+    "message": "OpenZeppelin 是一家位于blockchain的安全公司，开发了以太坊上广泛使用的智能合约库。它是 Miden 上 $operators$ 独立 Guardian 运营商之一。",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm 为整个欧洲的网络和 Rollups 运行 blockchain 基础设施。它是 Miden 上 $operators$ 独立 Guardian 运营商之一。",
-    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden."
+    "message": "Gateway.fm 为网络和 Rollup 构建并运营 blockchain 基础设施。它是 Miden 上 $operators$ 独立 Guardian 运营商之一。",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass 是一家致力于开发零知识证明器和 blockchain 客户端的工程公司。它是 Miden 平台上 $operators$ 独立 Guardian 运营商之一。",
-    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden."
+    "message": "LambdaClass 是一家致力于构建先进密码学和 blockchain 基础设施的工程公司。它是 Miden 平台上 $operators$ 独立的 Guardian 运营商之一。",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset（Koda）是韩国一家受监管的数字资产托管机构。它是 Miden 平台上 $operators$ 独立 Guardian 运营商之一。",
-    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
+    "message": "Korea Digital Asset (KODA) 是韩国一家受监管的数字资产托管机构。它是 Miden 平台上 $operators$ 的独立 Guardian 运营商之一。",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
   },
   "learnMoreAboutGuardian": {
     "message": "了解更多关于Guardian的信息",

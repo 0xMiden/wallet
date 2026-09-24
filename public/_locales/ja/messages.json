@@ -2144,12 +2144,12 @@
     "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
   },
   "meetGuardianSeedPhraseTitle": {
-    "message": "seed phraseだけでは不十分です",
-    "englishSource": "A seed phrase isn't enough"
+    "message": "リカバリーフレーズだけでは不十分です",
+    "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "シードは鍵を復元するものであり、状態を復元するものではありません。デバイスを紛失すれば、鍵は失われます。",
-    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+    "message": "リカバリーフレーズは鍵を復元するものであり、状態を復元するものではありません。デバイスを紛失すれば、鍵は失われます。",
+    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Guardianはあなたを守ることができます",
@@ -2160,8 +2160,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "$operators$のオペレーターの中で最速",
-    "englishSource": "Fastest of $operators$ operators",
+    "message": "現在、$operators$のオペレーターの中で最速",
+    "englishSource": "Fastest of $operators$ operators right now",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2172,22 +2172,17 @@
     "message": "このネットワークの運営者",
     "englishSource": "The operator on this network"
   },
-  "meetGuardianLatencyMs": {
-    "message": "$ms$ ms",
-    "englishSource": "$ms$ ms",
-    "placeholders": {
-      "ms": {
-        "content": "$1"
-      }
-    }
-  },
   "meetGuardianCannotMoveFunds": {
     "message": "自身では資金を移動させることはできません",
     "englishSource": "Cannot move your funds on its own"
   },
+  "meetGuardianBacksUpState": {
+    "message": "アカウントの状態をバックアップします",
+    "englishSource": "Backs up your account state"
+  },
   "meetGuardianCanSwitch": {
-    "message": "seed phrase を使って、いつでも切り替えることができます。",
-    "englishSource": "Switch any time with your seed phrase"
+    "message": "リカバリーフレーズで切り替え可能です",
+    "englishSource": "Can be switched with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
@@ -2210,20 +2205,20 @@
     "englishSource": "One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelinは、イーサリアムの標準契約ライブラリを支えるセキュリティ企業です。Midenにおける$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden."
+    "message": "OpenZeppelinは、イーサリアムで広く利用されているスマートコントラクトライブラリを開発しているblockchainのセキュリティ企業です。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fmは、ヨーロッパ全域のネットワークおよびロールアップ向けにblockchainインフラを運用しています。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden."
+    "message": "Gateway.fmは、ネットワークおよびロールアップ向けのblockchainインフラを構築・運用しています。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClassは、ゼロ知識証明プロバーおよびblockchainクライアントを開発するエンジニアリング企業です。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden."
+    "message": "LambdaClassは、高度な暗号技術およびblockchainインフラを構築するエンジニアリング企業です。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset（Koda）は、韓国で規制対象となっているデジタル資産カストディアンです。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
-    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
+    "message": "Korea Digital Asset (KODA) は、韓国で規制を受けたデジタル資産カストディアンです。Miden上の$operators$の独立したGuardianオペレーターの一つです。",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardianの詳細はこちら",

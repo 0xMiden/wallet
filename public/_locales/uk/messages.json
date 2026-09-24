@@ -2144,12 +2144,12 @@
     "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
   },
   "meetGuardianSeedPhraseTitle": {
-    "message": "Один «seed phrase» недостатньо",
-    "englishSource": "A seed phrase isn't enough"
+    "message": "Фрази відновлення недостатньо",
+    "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "Ваше насіння відновлює ваші ключі, а не стан вашого облікового запису. Якщо ви втратите пристрій, ключі будуть втрачені назавжди.",
-    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+    "message": "Ваша фраза відновлення відновлює ваші ключі, а не стан вашого облікового запису. Якщо ви втратите пристрій, ключі будуть втрачені.",
+    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "«Guardian» може захистити вас",
@@ -2160,8 +2160,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "Найшвидший серед операторів $operators$",
-    "englishSource": "Fastest of $operators$ operators",
+    "message": "Наразі найшвидший оператор серед «$operators$»",
+    "englishSource": "Fastest of $operators$ operators right now",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2172,22 +2172,17 @@
     "message": "Оператор цієї мережі",
     "englishSource": "The operator on this network"
   },
-  "meetGuardianLatencyMs": {
-    "message": "$ms$ ms",
-    "englishSource": "$ms$ ms",
-    "placeholders": {
-      "ms": {
-        "content": "$1"
-      }
-    }
-  },
   "meetGuardianCannotMoveFunds": {
     "message": "Неможливо самостійно переміщувати ваші кошти",
     "englishSource": "Cannot move your funds on its own"
   },
+  "meetGuardianBacksUpState": {
+    "message": "Створює резервну копію стану вашого рахунку",
+    "englishSource": "Backs up your account state"
+  },
   "meetGuardianCanSwitch": {
-    "message": "Переключайтеся в будь-який час за допомогою вашого seed phrase",
-    "englishSource": "Switch any time with your seed phrase"
+    "message": "Можна змінити за допомогою вашої фрази відновлення",
+    "englishSource": "Can be switched with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "Перевіряємо, який оператор відповідає найшвидше…",
@@ -2210,20 +2205,20 @@
     "englishSource": "One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin — це компанія з безпеки, що стоїть за стандартними бібліотеками контрактів Ethereum. Один із незалежних операторів $operators$ Guardian на Miden.",
-    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden."
+    "message": "OpenZeppelin — це компанія з безпеки, що працює за принципом «blockchain» та стоїть за широко використовуваними бібліотеками смарт-контрактів для Ethereum. Один із незалежних операторів $operators$ Guardian на платформі Miden.",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm управляє інфраструктурою blockchain для мереж та рол-апів по всій Європі. Один із незалежних операторів Guardian на платформі $operators$, що працює на Miden.",
-    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden."
+    "message": "Gateway.fm створює та експлуатує інфраструктуру blockchain для мереж та рол-апів. Один із незалежних операторів Guardian на платформі Miden, що належить до мережі $operators$.",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass — це інженерна компанія, що розробляє доказові схеми з нульовим розкриттям інформації та клієнти blockchain. Один із незалежних операторів Guardian на платформі Miden, що входить до мережі $operators$.",
-    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden."
+    "message": "LambdaClass — це інженерна компанія, що створює передову інфраструктуру для криптографії та blockchain. Один із $operators$ незалежних Guardian операторів на Miden.",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden."
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset (Koda) — це регульований зберігач цифрових активів у Південній Кореї. Один із незалежних операторів «Guardian» від $operators$ на платформі Miden.",
-    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
+    "message": "Korea Digital Asset (KODA) — це регульований зберігач цифрових активів у Південній Кореї. Один із незалежних операторів $operators$ Guardian на платформі Miden.",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
   },
   "learnMoreAboutGuardian": {
     "message": "Дізнайтеся більше про «Guardian»",

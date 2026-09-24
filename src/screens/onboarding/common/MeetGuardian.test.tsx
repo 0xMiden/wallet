@@ -123,11 +123,18 @@ describe('MeetGuardianScreen', () => {
       [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
     });
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    expect(screen.getByTestId('meet-guardian-latency')).toHaveTextContent('meetGuardianLatencyMs:42');
+    // No status and no number while it is up: the ranking is one moment's measurement.
+    expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
+    expect(screen.queryByText(/42/)).toBeNull();
     expect(screen.getByText('meetGuardianFastestOf:2')).toBeInTheDocument();
     expect(screen.getByText('guardianBioGateway')).toBeInTheDocument();
     expect(screen.getByText('meetGuardianCannotMoveFunds')).toBeInTheDocument();
+    expect(screen.getByText('meetGuardianBacksUpState')).toBeInTheDocument();
     expect(screen.getByText('meetGuardianCanSwitch')).toBeInTheDocument();
+    // Every guarantee is drawn with the same check, none with a cross.
+    const card = screen.getByTestId('meet-guardian-card');
+    expect(card.querySelectorAll('li')).toHaveLength(3);
+    expect(card.querySelectorAll('li .text-positive-ink')).toHaveLength(3);
 
     const button = screen.getByTestId('meet-guardian-continue');
     expect(button).toBeEnabled();
@@ -149,7 +156,7 @@ describe('MeetGuardianScreen', () => {
       [GATEWAY.endpoint]: { status: 'online', latencyMs: 90 }
     });
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    expect(screen.getByTestId('meet-guardian-latency')).toHaveTextContent('meetGuardianLatencyMs:90');
+    expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
 
     view.setVerdicts({
       [OZ.endpoint]: { status: 'online', latencyMs: 10 },
