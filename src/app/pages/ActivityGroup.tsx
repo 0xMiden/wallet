@@ -3,7 +3,6 @@ import React, { FC, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { ACTIVITY_PATH } from 'app/pages/activity-paths';
 import { ACTIVITY_GROUP_LABELS, activityGroupMatcher, isActivityGroupKind } from 'app/templates/history/activityGroups';
 import History from 'app/templates/history/History';
 import { shortAddr } from 'app/templates/history/HistoryView';
@@ -12,6 +11,9 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { Redirect } from 'lib/woozie';
+
+// Where the page goes back to when there is no history to pop, and where an unknown group redirects.
+const ACTIVITY_PATH = '/history';
 
 export interface ActivityGroupPageProps {
   /** `:kind` from the route. Anything this is not sends the user back to the tab. */
