@@ -198,6 +198,8 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
     [persist]
   );
 
+  const unit = <span className="text-body text-muted">{row.asset.symbol}</span>;
+
   return (
     // One section per asset: its symbol is the section label, its name the line under it, and the
     // two fields, the reason it cannot be edited and the save action are its content.
@@ -211,7 +213,7 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
         inputMode="decimal"
         label={t('spendingLimitDaily')}
         aria-label={`${row.asset.symbol} ${t('spendingLimitDaily')}`}
-        trailing={<span className="text-body text-muted">{row.asset.symbol}</span>}
+        trailing={unit}
         value={daily}
         disabled={!row.scaleKnown || saving}
         onChange={event => {
@@ -224,7 +226,7 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
         inputMode="decimal"
         label={t('spendingLimitWeekly')}
         aria-label={`${row.asset.symbol} ${t('spendingLimitWeekly')}`}
-        trailing={<span className="text-body text-muted">{row.asset.symbol}</span>}
+        trailing={unit}
         value={weekly}
         disabled={!row.scaleKnown || saving}
         onChange={event => {
