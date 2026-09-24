@@ -10,7 +10,6 @@ import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
-import { useAnalytics } from 'lib/analytics';
 import {
   bridgeProviderOf,
   isRequeueableTransaction,
@@ -52,7 +51,6 @@ export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
-  const { pageEvent } = useAnalytics();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -71,10 +69,6 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
     navigate('/');
   }, []);
-
-  useEffect(() => {
-    pageEvent('GeneratingTransaction', '');
-  }, [pageEvent]);
 
   // Driver — unchanged from the queue-observer era. On extension the service
   // worker owns the loop and this is a no-op; on mobile/desktop the page kicks
@@ -384,7 +378,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const accent = accentForTransactionType(activeType ?? completedTransaction?.type);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-heading-gray">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
       <FlowLayout
         title={processingTitle}
         onClose={onDoneClick}
@@ -397,7 +391,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
               // every claim, send and swap lands on when it fails, so it is where the cost
               // of trying again has to be stated.
-              <div className="-mb-2 text-center text-xs text-heading-gray">
+              <div className="-mb-2 text-center text-xs text-ink">
                 {t('networkFeeMax')} · {maxNetworkFee}
               </div>
             )}
@@ -405,21 +399,23 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               <Button
                 type="button"
                 variant={ButtonVariant.Primary}
+                accent={accent}
                 isLoading={isRetrying}
                 disabled={isRetrying}
                 onClick={onRetry}
-                className="w-full max-w-none rounded-full"
+                className="w-full max-w-none"
               >
-                <span className="text-base font-semibold text-pure-white">{t('retry')}</span>
+                {t('retry')}
               </Button>
             )}
             <Button
               type="button"
               variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+              accent={accent}
               onClick={onDoneClick}
-              className="w-full max-w-none rounded-full"
+              className="w-full max-w-none"
             >
-              <span className="text-base font-semibold text-pure-white">{actionTitle}</span>
+              {actionTitle}
             </Button>
             {/* #483 — a failed tx needs a direct route to its Activity detail, like
                   SwapSuccess / GuardianSwitchSuccess (which link to the per-tx
@@ -433,9 +429,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 onClick={() =>
                   navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
                 }
-                className="w-full max-w-none rounded-full"
+                className="w-full max-w-none"
               >
-                <span className="text-base font-semibold">{t('viewInActivities')}</span>
+                {t('viewInActivities')}
               </Button>
             )}
             {retryError && (
@@ -454,9 +450,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 isLoading={isRetrying}
                 disabled={isRetrying}
                 onClick={onRetryAnyway}
-                className="w-full max-w-none rounded-full"
+                className="w-full max-w-none"
               >
-                <span className="text-base font-semibold">{t('retryAnyway')}</span>
+                {t('retryAnyway')}
               </Button>
             )}
           </div>
@@ -465,7 +461,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         <section className="flex w-full flex-col items-center pt-6">
           <TransactionHeroIcon state={heroState} accent={accent} />
 
-          <h2 className="mt-5 w-full px-1 text-center font-heading text-[1.75rem] font-bold leading-none text-heading-gray">
+          <h2 className="mt-5 w-full px-1 text-center font-heading text-[1.75rem] font-bold leading-none text-ink">
             {visibleTitle}
           </h2>
 
@@ -473,7 +469,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-4" />
           )}
 
-          <div className="mt-6 w-full overflow-hidden rounded-2xl bg-surface-interactive">
+          <div className="mt-6 w-full overflow-hidden rounded-2xl bg-fill">
             {steps.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
@@ -489,9 +485,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             })}
           </div>
           {footerDescription && (
-            <p className="w-full pt-4 text-center font-heading text-sm font-bold text-heading-gray">
-              {footerDescription}
-            </p>
+            <p className="w-full pt-4 text-center font-heading text-sm font-bold text-ink">{footerDescription}</p>
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

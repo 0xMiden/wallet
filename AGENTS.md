@@ -78,7 +78,7 @@ Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. Mobile h
 - New Swift files must be registered in four `project.pbxproj` sections (`PBXBuildFile`, `PBXFileReference`, App `PBXGroup`, `PBXSourcesBuildPhase`) — the App target does not auto-discover them.
 - Custom Capacitor plugins (iOS) use **manual** registration: also call `bridge?.registerPluginInstance(MyPlugin())` in `capacitorDidLoad()` (`AppViewController.swift`), or JS calls return `{"code":"UNIMPLEMENTED"}`.
 - New Capacitor plugins: `yarn add @capacitor/<name> && yarn mobile:sync`, plus a ProGuard `-keep` rule in `android/app/proguard-rules.pro`.
-- Mobile bottom nav is a native overlay (iOS `UIWindow`, Android `NavbarOverlayManager`), wired in `src/app/providers/DappBrowserProvider.tsx`.
+- Persistent bottom navigation is the shared React `BottomNav` rendered by `TabLayout` on extension, mobile, and desktop; `DappBrowserProvider` owns embedded dApp WebViews, not wallet navigation. See `skills/miden-wallet-frontend/references/platform-accessibility-verification.md` for the full ownership contract.
 - Desktop (Tauri): clear state with `rm -rf ~/Library/WebKit/{com.miden.wallet,miden-wallet}`; dApp requests round-trip via base64-encoded `https://miden-wallet-request/{payload}` URL interception.
 
 ## Testing Guidelines
@@ -96,6 +96,10 @@ E2E: `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` and `window.__TEST_IN
 ## Coding Style & Naming Conventions
 
 TypeScript is strict. No `any`, no `as` — use explicit domain types, and preserve the configured absolute imports (`app/...`, `lib/...`, `shared/...`). Prettier: 120-column width, two-space indentation, single quotes, semicolons, trailing commas. ESLint enforces formatting and ordered imports. Name React components and files in `PascalCase`, hooks as `useSomething`, and utilities in `camelCase` or established kebab-case modules. `yarn format` to fix.
+
+## UI: Shared Components and Layouts
+
+Pages supply content; the design system supplies the rest. Reuse the shared component before writing styles — a page-local frame, row, field, error line, empty state or icon circle is a defect, and the fix is to extend the shared one (a prop or variant), never to fork it. Take the shared frame too: `SubPageLayout` for pushed pages, `FlowLayout` + `FlowFooter` for flow steps, one shell for the home-group panes, so titles, gutters, section gaps and pinned actions sit in the same place everywhere. Spacing, type and colour come from the named type styles and semantic tokens; a literal padding or hex means a token is missing, so add it. See `skills/miden-wallet-frontend/SKILL.md` and its `references/design-system.md`.
 
 ## Commit & Pull Request Guidelines
 

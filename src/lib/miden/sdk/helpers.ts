@@ -115,6 +115,28 @@ export function accountRefToSdk(accountRef: string): AccountId {
 }
 
 /**
+ * Canonicalize a faucet id - hex, bech32, or a composite `<address>_<suffix>` - to the bare
+ * bech32 form the token-metadata cache and `fetchTokenMetadata`'s RPC parse (`Address.fromBech32`)
+ * both key on, the same form `getBech32AddressFromAccountId` already produces for every OTHER
+ * faucet id this codebase caches under (`app/confirm/decode.ts`'s `toAmounts`,
+ * `completeConsumeTransaction`).
+ *
+ * A caller that already folded several spellings of one faucet into a single canonical key -
+ * `netOutflowByFaucet`, keyed by this file's own `canonicalWalletAccountId` (hex) - hands that hex
+ * string straight to a spends list otherwise, and `fetchTokenMetadata` only ever checks a
+ * bech32-keyed cache and parses with `Address.fromBech32`: a miss on both. Falls back to the raw
+ * id when it can't be parsed, so an id `fetchTokenMetadata` itself cannot resolve either surfaces
+ * as its own lookup failure rather than a swallowed one here.
+ */
+export function canonicalFaucetBech32Id(faucetId: string): string {
+  try {
+    return getBech32AddressFromAccountId(accountRefToSdk(faucetId));
+  } catch {
+    return faucetId;
+  }
+}
+
+/**
  * Builds the fungible asset for an outgoing note from the sender's held vault
  * key, falling back to a freshly constructed asset when the faucet isn't in
  * the vault (surfacing the missing-asset error during execution).

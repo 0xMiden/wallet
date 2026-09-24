@@ -5,10 +5,37 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import ActivityRowDefault, { ActivityRow } from './ActivityRow';
+import { Card } from './Card';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
+
+// The row's projection must never SCALE: a full `layout` distorts the plain
+// rounded avatar and status dot, whose radius is a class Framer cannot read.
+// Surface the prop so a revert to bare `layout` fails here.
+// Spread the real module rather than listing exports: the row reaches
+// `useReducedMotion` indirectly through `useMotion(springs.settle)`, and a
+// hand-listed factory that misses one such export throws on every render.
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => false,
+    motion: {
+      div: ReactActual.forwardRef(
+        (
+          { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLDivElement>
+        ) => (
+          <div ref={ref} data-layout={String(layout)} {...rest}>
+            {children}
+          </div>
+        )
+      )
+    }
+  };
+});
 
 // i18n: echo the key plus its interpolated values, so the overflow count can be
 // asserted as data rather than as whatever copy `andMoreAssets` currently holds.
@@ -18,7 +45,7 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-const baseStatus = { label: 'Confirmed', tone: 'confirmed' as const };
+const baseStatus = 'confirmed' as const;
 
 const renderRow = (props: Partial<React.ComponentProps<typeof ActivityRow>> = {}) =>
   render(<ActivityRow icon={<svg data-testid="glyph" />} title="Sent MIDEN" status={baseStatus} {...props} />);
@@ -32,21 +59,66 @@ describe('ActivityRow', () => {
     expect(ActivityRowDefault).toBe(ActivityRow);
   });
 
+  it('animates position only, so a size change cannot scale the round avatar into an oval', () => {
+    const { container } = renderRow();
+
+    // Exact value on purpose, both here and on revert: bare `layout` is
+    // `layout={true}` and stringifies to 'true', so a mock reading the wrong
+    // prop would fail a plain not-'position' check either way and prove nothing.
+    expect(container.firstElementChild).toHaveAttribute('data-layout', 'position');
+  });
+
   it('renders the icon, title, and default neutral icon background', () => {
     const { container } = renderRow();
 
     expect(screen.getByTestId('glyph')).toBeTruthy();
     expect(screen.getByText('Sent MIDEN')).toBeTruthy();
-    // default iconBg = 'bg-gray-50'
-    expect(container.querySelector('.bg-gray-50')).not.toBeNull();
+    // default iconBg = 'bg-fill'
+    expect(container.querySelector('.bg-fill')).not.toBeNull();
+  });
+
+  it('renders the icon tile round, not the retired square token', () => {
+    const { container } = renderRow();
+
+    expect(container.querySelector('.bg-fill')?.className).toContain('rounded-full');
+    expect(container.querySelector('.rounded-10')).toBeNull();
+  });
+
+  it('renders the subtitle in the muted token rather than opacity-50', () => {
+    render(<ActivityRow icon={<svg />} title="Sent MIDEN" subtitle="to mtst1aqg...940z" status={baseStatus} />);
+
+    const subtitle = screen.getByText('to mtst1aqg...940z');
+    expect(subtitle.className).toContain('text-muted');
+    expect(subtitle.className).not.toContain('opacity-50');
+  });
+
+  it('renders the timestamp as a muted caption, not a raw hex literal', () => {
+    render(<ActivityRow icon={<svg />} title="Sent MIDEN" timestamp="Just now" />);
+
+    const timestamp = screen.getByText('Just now');
+    expect(timestamp).toHaveClass('text-caption', 'text-muted');
+    expect(timestamp.className).not.toContain('text-[#8E8E93]');
   });
 
   it('applies a custom iconBg and outer className', () => {
     const { container } = renderRow({ iconBg: 'bg-receive-green', className: 'my-extra-class' });
 
     expect(container.querySelector('.bg-receive-green')).not.toBeNull();
-    expect(container.querySelector('.bg-gray-50')).toBeNull();
+    expect(container.querySelector('.bg-fill')).toBeNull();
     expect(container.querySelector('.my-extra-class')).not.toBeNull();
+  });
+
+  it('takes a row card surface from Card, whose padding replaces its own', () => {
+    render(
+      <Card asChild padding="row">
+        <ActivityRow icon={<svg />} title="Sent MIDEN" status={baseStatus} testId="row" />
+      </Card>
+    );
+
+    const row = screen.getByTestId('row');
+    expect(row).toHaveClass('bg-fill', 'rounded-2xl', 'px-4', 'py-3');
+    expect(row).not.toHaveClass('py-4');
+    expect(row.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
   });
 
   it('renders the subtitle when provided and omits it when absent', () => {
@@ -62,7 +134,7 @@ describe('ActivityRow', () => {
   it('omits the amount block entirely when no amount is passed', () => {
     renderRow();
     // No amount span present; only the status label text
-    expect(screen.getByText('Confirmed')).toBeTruthy();
+    expect(screen.getByText('confirmed')).toBeTruthy();
     expect(screen.queryByText('0')).toBeNull();
   });
 
@@ -107,24 +179,27 @@ describe('ActivityRow', () => {
       expect(screen.queryByText('MIDEN')).toBeNull();
     });
 
-    it('applies the positive amount color', () => {
+    it('applies the positive amount color, never the raw status fill', () => {
       renderRow({ amount: { value: '+5', direction: 'positive' } });
-      expect(screen.getByText('+5').className).toContain('text-status-positive');
+      // #90BA89, the old fill, was 2.19:1 on white.
+      expect(screen.getByText('+5').className).toContain('text-positive-tint-ink');
+      expect(screen.getByText('+5').className).not.toMatch(/text-status-/);
     });
 
-    it('applies the negative amount color', () => {
+    it('applies the negative amount color, never the raw status fill', () => {
       renderRow({ amount: { value: '-5', direction: 'negative' } });
-      expect(screen.getByText('-5').className).toContain('text-status-negative');
+      expect(screen.getByText('-5').className).toContain('text-negative-tint-ink');
+      expect(screen.getByText('-5').className).not.toMatch(/text-status-/);
     });
 
     it('applies the explicit neutral amount color', () => {
       renderRow({ amount: { value: '5', direction: 'neutral' } });
-      expect(screen.getByText('5').className).toContain('text-text-primary-token');
+      expect(screen.getByText('5').className).toContain('text-ink');
     });
 
     it('defaults to the neutral amount color when direction is undefined', () => {
       renderRow({ amount: { value: '7' } });
-      expect(screen.getByText('7').className).toContain('text-text-primary-token');
+      expect(screen.getByText('7').className).toContain('text-ink');
     });
   });
 
@@ -146,7 +221,7 @@ describe('ActivityRow', () => {
       expect(amount.textContent).toBe('+20 AAA, +1 T0, +2 T1');
       // Extras inherit the primary's direction colour — a claim's secondary
       // assets arrived too, so rendering them neutral would read as "unchanged".
-      expect(screen.getByText('+1').className).toContain('text-status-positive');
+      expect(screen.getByText('+1').className).toContain('text-positive-tint-ink');
       expect(screen.queryByTestId('row-amount-extra-overflow')).toBeNull();
     });
 
@@ -215,30 +290,32 @@ describe('ActivityRow', () => {
     });
   });
 
-  describe('status tone styling', () => {
+  describe('status badge', () => {
     it.each([
-      ['confirmed', 'bg-status-positive', 'text-status-positive'],
-      ['pending', 'bg-status-pending', 'text-status-pending'],
-      ['failed', 'bg-status-negative', 'text-status-negative']
-    ] as const)('renders the %s tone dot and text classes', (tone, dotClass, textClass) => {
-      const { container } = renderRow({ status: { label: tone, tone } });
+      ['confirmed', 'bg-positive-tint', 'text-positive-tint-ink'],
+      ['pending', 'bg-pending-tint', 'text-pending-tint-ink'],
+      ['failed', 'bg-negative-tint', 'text-negative-tint-ink'],
+      ['cancelled', 'bg-fill-pressed', 'text-ink'],
+      ['reclaimed', 'bg-fill-pressed', 'text-ink']
+    ] as const)('draws %s as the compact StatusBadge on its own tint', (status, tint, ink) => {
+      renderRow({ status, testId: 'row' });
 
-      expect(container.querySelector(`.${dotClass}`)).not.toBeNull();
-      // status label span carries the text tone class
-      expect(screen.getByText(tone).className).toContain(textClass);
+      const badge = screen.getByTestId('row-status');
+      expect(badge).toHaveTextContent(status);
+      // The 20px `sm` badge, never bare colored text on the row's `fill`.
+      expect(badge).toHaveClass('h-5', 'rounded-full', tint, ink);
+      expect(badge.className).not.toMatch(/text-status-/);
     });
 
-    it('greys out a cancelled row', () => {
-      const { container } = renderRow({ status: { label: 'Cancelled', tone: 'cancelled' } });
-
-      expect(container.querySelector('.bg-gray-400')).not.toBeNull();
-      expect(screen.getByText('Cancelled').className).toContain('text-gray-500');
+    it('is not a live region: a list of rows must not announce every change', () => {
+      renderRow({ status: 'pending', testId: 'row' });
+      expect(screen.queryByRole('status')).toBeNull();
     });
 
-    it('omits the status line entirely when no status is passed', () => {
-      render(<ActivityRow icon={<svg />} title="Sent MIDEN" />);
+    it('omits the status badge entirely when no status is passed', () => {
+      render(<ActivityRow icon={<svg />} title="Sent MIDEN" testId="row" />);
 
-      expect(screen.queryByText('Confirmed')).toBeNull();
+      expect(screen.queryByTestId('row-status')).toBeNull();
     });
   });
 
@@ -272,4 +349,29 @@ describe('ActivityRow', () => {
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
     });
   });
+
+  it('holds every row to one height: the title and subtitle each keep a single line', () => {
+    render(
+      <ActivityRow
+        testId="row"
+        icon={<svg />}
+        title="Guardian switched"
+        subtitle="OpenZeppelin → Gateway Operator, a subtitle long enough to wrap on a phone"
+        status="confirmed"
+      />
+    );
+
+    expect(screen.getByTestId('row-title')).toHaveClass('truncate');
+    expect(screen.getByTestId('row-subtitle')).toHaveClass('truncate');
+  });
+});
+
+// The same guard through a real row: this suite renders the real ActivityRow and the real badge,
+// which the history list suites cannot (they stub the components/ui barrel).
+it('renders a status it does not know as the neutral badge, and the row survives', () => {
+  renderRow({ status: 'refunded' as never, testId: 'row' });
+
+  const badge = screen.getByTestId('row-status');
+  expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
+  expect(screen.getByText('Sent MIDEN')).toBeInTheDocument();
 });

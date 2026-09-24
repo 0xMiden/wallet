@@ -98,10 +98,10 @@ describe('SeedLengthSelect', () => {
     const [twelve, twentyFour] = getItems(container);
 
     // selectedOption === option → highlighted; otherwise the plain/white style.
-    expect(twentyFour).toHaveClass('bg-gray-25');
+    expect(twentyFour).toHaveClass('bg-fill');
     expect(twentyFour).not.toHaveClass('bg-white');
-    expect(twelve).toHaveClass('bg-white', 'hover:bg-gray-100');
-    expect(twelve).not.toHaveClass('bg-gray-25');
+    expect(twelve).toHaveClass('bg-white', 'hover:bg-fill-pressed');
+    expect(twelve).not.toHaveClass('bg-fill');
   });
 
   it('selects an option: closes the list, reveals the seed, updates label and fires onChange', () => {

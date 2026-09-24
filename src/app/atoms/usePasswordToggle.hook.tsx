@@ -13,7 +13,7 @@ const usePasswordToggle = (): [string, JSX.Element] => {
     <button
       type="button"
       tabIndex={1}
-      className={classNames('absolute inset-y-0 right-3 text-heading-gray')}
+      className={classNames('absolute inset-y-0 right-3 text-ink')}
       onClick={() => setVisibility(!visible)}
     >
       {visible ? <EyeClosedBold style={iconStyle} /> : <EyeOpenBold style={iconStyle} />}

@@ -15,7 +15,7 @@ import {
  * logic — no docker stack, no browser, no extension build. Complements the live
  * seam smoke spec (_seam.smoke.spec.ts), which proves the Playwright
  * `context.route` wiring actually reaches SW-originated node/prover/transport
- * traffic. Mirrors guardian-fault-policy.spec.ts.
+ * traffic. Mirrors playwright/e2e/harness/guardian-fault.test.ts.
  */
 
 const O = LOCAL_NETWORK_ORIGINS;

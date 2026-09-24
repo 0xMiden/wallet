@@ -4,21 +4,13 @@ import React, {
   ReactNode,
   TextareaHTMLAttributes,
   useCallback,
-  useEffect,
-  useMemo,
-  useRef,
   useState
 } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
 import CleanButton from 'app/atoms/CleanButton';
-import CopyButton from 'app/atoms/CopyButton';
-import { ReactComponent as CopyIcon } from 'app/icons/copy.svg';
-import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed-bold.svg';
 import { blurHandler, checkedHandler, focusHandler } from 'lib/ui/inputHandlers';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
 import usePasswordToggle from './usePasswordToggle.hook';
 
@@ -35,7 +27,6 @@ interface FormFieldProps extends FormFieldAttrs {
   containerClassName?: string;
   containerStyle?: React.CSSProperties;
   textarea?: boolean;
-  secret?: boolean;
   cleanable?: boolean;
   extraButton?: ReactNode;
   extraInner?: ReactNode;
@@ -44,7 +35,6 @@ interface FormFieldProps extends FormFieldAttrs {
   fieldWrapperBottomMargin?: boolean;
   labelPaddingClassName?: string;
   dropdownInner?: ReactNode;
-  copyable?: boolean;
   labelClassName?: string;
   labelDescriptionClassName?: string;
 }
@@ -60,7 +50,6 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
       errorCaption,
       containerClassName,
       textarea,
-      secret: secretProp,
       cleanable,
       extraButton = null,
       extraInner = null,
@@ -76,27 +65,25 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
       onClean,
       className,
       spellCheck = false,
-      autoComplete = 'off',
+      // `off` is overridden by browsers on password-TYPE inputs, which are exactly the fields this
+      // default exists to protect, so a password field needs `new-password` specifically. Same
+      // rule and same shape in `TextField`, which replaces this component.
+      autoComplete = type === 'password' ? 'new-password' : 'off',
       fieldWrapperBottomMargin = true,
       labelPaddingClassName = '',
-      copyable,
       labelClassName,
       labelDescriptionClassName,
       ...rest
     },
     ref
   ) => {
-    const secret = secretProp && textarea;
     const Field = textarea ? 'textarea' : 'input';
 
     const [passwordInputType, TogglePasswordIcon] = usePasswordToggle();
     const isPasswordInput = type === 'password';
     const inputType = isPasswordInput ? passwordInputType : type;
 
-    const { copy } = useCopyToClipboard();
-
     const [localValue, setLocalValue] = useState(value ?? defaultValue ?? '');
-    const [focused, setFocused] = useState(false);
 
     const handleChange = useCallback(
       (e: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -106,48 +93,13 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
     );
 
     const handleFocus = useCallback(
-      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) =>
-        focusHandler(e, onFocus!, setFocused),
-      [onFocus, setFocused]
+      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) => focusHandler(e, onFocus!),
+      [onFocus]
     );
     const handleBlur = useCallback(
-      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) =>
-        blurHandler(e, onBlur!, setFocused),
-      [onBlur, setFocused]
+      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) => blurHandler(e, onBlur!),
+      [onBlur]
     );
-
-    const getFieldEl = useCallback(() => {
-      const selector = 'input, textarea';
-      return rootRef.current?.querySelector<HTMLFormElement>(selector);
-    }, []);
-
-    useEffect(() => {
-      if (secret && focused) {
-        const handleLocalBlur = () => {
-          getFieldEl()?.blur();
-        };
-        const t = setTimeout(() => {
-          handleLocalBlur();
-        }, 30_000);
-        window.addEventListener('blur', handleLocalBlur);
-        return () => {
-          clearTimeout(t);
-          window.removeEventListener('blur', handleLocalBlur);
-        };
-      }
-      return undefined;
-    }, [secret, focused, getFieldEl]);
-
-    const secretBannerDisplayed = useMemo(
-      () => Boolean(secret && localValue !== '' && !focused),
-      [secret, localValue, focused]
-    );
-
-    const rootRef = useRef<HTMLDivElement>(null);
-
-    const handleSecretBannerClick = useCallback(() => {
-      getFieldEl()?.focus();
-    }, [getFieldEl]);
 
     const handleCleanClick = useCallback(() => {
       if (onClean) {
@@ -156,7 +108,7 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
     }, [onClean]);
 
     return (
-      <div ref={rootRef} className={classNames('w-full flex flex-col', containerClassName)} style={containerStyle}>
+      <div className={classNames('w-full flex flex-col', containerClassName)} style={containerStyle}>
         <LabelComponent
           label={label}
           warning={labelWarning}
@@ -178,13 +130,13 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               'py-2 pl-4',
               getInnerClassName(isPasswordInput, extraInner),
               errorCaption ? 'border-red-500' : 'border-gray-100',
-              secretBannerDisplayed ? 'border border-border-light' : 'border',
-              'bg-gray-25 focus:bg-transparent',
-              // text-black maps to --color-text-primary → black in light,
+              'border',
+              'bg-fill focus:bg-transparent',
+              // text-ink maps to --ds-ink → #3f3f3f in light,
               // white in dark. Without this the <input> inherits the browser
               // default (pure black), which renders the masked password dots
               // invisible against the dark field background.
-              'text-black',
+              'text-ink',
               'outline-none',
               'transition ease-in-out duration-200',
               'leading-tight',
@@ -218,13 +170,7 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
 
           {extraButton}
 
-          <SecretBanner
-            handleSecretBannerClick={handleSecretBannerClick}
-            secretBannerDisplayed={secretBannerDisplayed}
-          />
-
           <Cleanable cleanable={cleanable} handleCleanClick={handleCleanClick} />
-          <Copyable value={value} copy={copy} cleanable={cleanable} copyable={copyable} />
         </div>
         <ErrorCaption errorCaption={errorCaption} />
       </div>
@@ -248,41 +194,10 @@ const ExtraInner: React.FC<ExtraInnerProps> = ({ useDefaultInnerWrapper, innerCo
           'pointer-events-none'
         )}
       >
-        <span className="mx-4 text-xs font-medium text-black">{innerComponent}</span>
+        <span className="mx-4 text-xs font-medium text-ink">{innerComponent}</span>
       </div>
     );
   return <>{innerComponent}</>;
-};
-
-interface SecretBannerProps {
-  handleSecretBannerClick: () => void;
-  secretBannerDisplayed: boolean;
-}
-
-const SecretBanner: React.FC<SecretBannerProps> = ({ secretBannerDisplayed, handleSecretBannerClick }) => {
-  const { t } = useTranslation();
-
-  if (!secretBannerDisplayed) return null;
-
-  return (
-    <div
-      className={classNames(
-        'absolute inset-0.5 rounded-5',
-        'flex items-center justify-center',
-        'cursor-text',
-        'bg-pure-white/60 dark:bg-pure-black/60 backdrop-blur-sm'
-      )}
-      onClick={handleSecretBannerClick}
-    >
-      <div className="rounded-lg flex flex-col items-center">
-        <EyeClosedIcon className="m-auto h-5 w-5 text-heading-gray opacity-60" />
-
-        <p className="mt-1 flex items-center text-sm text-text-muted">
-          <span>{t('clickToRevealField')}</span>
-        </p>
-      </div>
-    </div>
-  );
 };
 
 interface CleanableProps {
@@ -292,32 +207,6 @@ interface CleanableProps {
 
 const Cleanable: React.FC<CleanableProps> = ({ cleanable, handleCleanClick }) =>
   cleanable ? <CleanButton onClick={handleCleanClick} /> : null;
-
-interface CopyableProps {
-  value: React.ReactNode;
-  copy: () => void;
-  cleanable: React.ReactNode;
-  copyable: React.ReactNode;
-}
-
-const Copyable: React.FC<CopyableProps> = ({ copy, cleanable, value, copyable }) =>
-  copyable ? (
-    <CopyButton
-      style={{
-        position: 'absolute',
-        bottom: cleanable ? '3px' : '0px',
-        right: cleanable ? '30px' : '5px'
-      }}
-      text={value as string}
-      type="link"
-    >
-      <CopyIcon
-        style={{ verticalAlign: 'inherit' }}
-        className={classNames('h-4 ml-1 w-auto inline', 'stroke-orange stroke-2')}
-        onClick={() => copy()}
-      />
-    </CopyButton>
-  ) : null;
 
 interface ErrorCaptionProps {
   errorCaption: React.ReactNode;
@@ -350,10 +239,10 @@ const LabelComponent: React.FC<LabelComponentProps> = ({
 }) =>
   label ? (
     <label className={classNames('leading-tight', 'flex flex-col', 'mb-4')} htmlFor={id}>
-      <span className={classNames('text-heading-gray font-medium text-[20px]', className)}>{label}</span>
+      <span className={classNames('text-ink font-medium text-[20px]', className)}>{label}</span>
 
       {description && (
-        <span className={classNames('mt-2', 'text-sm text-black leading-4', descriptionClassName)}>{description}</span>
+        <span className={classNames('mt-2', 'text-sm text-ink leading-4', descriptionClassName)}>{description}</span>
       )}
 
       {warning && <span className={classNames('mt-1', 'text-xs font-medium text-red-600')}>{warning}</span>}

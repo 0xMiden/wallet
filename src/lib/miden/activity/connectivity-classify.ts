@@ -69,13 +69,23 @@ const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 404]);
  * literal string is in the shipped wasm — and prover-style "status code: N")
  * and answers true only for the statuses that cannot heal on retry.
  *
- * Used by the note-import queue's BUDGET SELECTION only. Everything else keeps
- * the broad predicate deliberately: the queue-admission gates still admit a
- * permanent rejection (the bounded poison cap in `activity/notes.ts` is what
- * bounds it, and refusing at the door would drop bytes that can be a note's
- * only copy), and the
- * connectivity banner and the seed-restore fund-loss guard want over-inclusion
- * — narrowing them would change banner behaviour far outside the import path.
+ * TWO consumers, with OPPOSITE cost matrices - weigh both before changing the
+ * set above. (1) The note-import queue's BUDGET SELECTION: over-inclusion costs
+ * lock-held retries, under-inclusion costs a false give-up on bytes that can be
+ * a note's only copy. (2) The transaction loop's pre-send-sync requeue arm
+ * (`transaction/index.ts`), where a "permanent" verdict skips the requeue and
+ * lets the row fail on its first cycle: over-inclusion there fails a user's
+ * transaction that a later attempt would have carried, under-inclusion spends
+ * the whole MAX_QUEUED_AGE budget on syncs that cannot succeed. That arm is not
+ * a regression risk against the pre-#822 baseline, which failed every sync
+ * error immediately - but it is the reason 401/403 must stay out of the set.
+ *
+ * Everything else keeps the broad predicate deliberately: the queue-admission
+ * gates still admit a permanent rejection (the bounded poison cap in
+ * `activity/notes.ts` is what bounds it, and refusing at the door would drop
+ * bytes that can be a note's only copy), and the connectivity banner and the
+ * seed-restore fund-loss guard want over-inclusion — narrowing them would
+ * change banner behaviour far outside the import path.
  */
 export function isPermanentHttpRejection(err: unknown): boolean {
   const message = (err as { message?: string } | null | undefined)?.message ?? String(err ?? '');

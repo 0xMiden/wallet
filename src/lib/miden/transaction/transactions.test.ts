@@ -520,10 +520,11 @@ describe('transactions utilities', () => {
 
   describe('spending-limit queue routing', () => {
     const authorization: SpendingLimitAuthorization = {
+      kind: 'usd',
       id: 'authorization-1',
       accountId: 'account-a',
-      faucetId: 'faucet-a',
-      amount: 10n,
+      usdAmount: 10n,
+      spendsDigest: 'digest-1',
       revision: 'revision-1',
       issuedAt: 1,
       expiresAt: 2
@@ -1500,8 +1501,8 @@ describe('transactions utilities', () => {
  * Integration test: full network outage recovery flow.
  * Uses jest.isolateModules with a stateful in-memory DB to simulate:
  *   1. Network up → transaction succeeds
- *   2. Network down → syncState fails → transaction cancelled
- *   3. Network back up → new transaction succeeds
+ *   2. Network down → syncState fails → transaction requeued
+ *   3. Network back up → the same transaction succeeds
  */
 describe('Transaction resilience: network outage recovery (isolated)', () => {
   beforeEach(() => {
@@ -1603,12 +1604,22 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       logger: { warning: jest.fn(), error: jest.fn() }
     }));
 
+    jest.doMock('./cancel', () => {
+      const actual = jest.requireActual('./cancel');
+      return {
+        ...actual,
+        cancelTransactionAfterPipelineStopped: jest.fn(actual.cancelTransactionAfterPipelineStopped)
+      };
+    });
+
     let ITransactionStatus: any;
     let generateTransactionsLoop: any;
+    let mockCancelTransactionAfterPipelineStopped: jest.Mock | undefined;
 
     jest.isolateModules(() => {
       ({ ITransactionStatus } = require('../db/types'));
       ({ generateTransactionsLoop } = require('./index'));
+      ({ cancelTransactionAfterPipelineStopped: mockCancelTransactionAfterPipelineStopped } = require('./cancel'));
     });
 
     const signCallback = jest.fn(async () => new Uint8Array());
@@ -1641,9 +1652,11 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx1.transactionId).toBe('mock-tx-hash');
     expect(mockSyncState).toHaveBeenCalled();
 
-    // ---- Phase 2: Network down, new transaction gets cancelled ----
+    // ---- Phase 2: Network down, the transaction returns to the queue ----
     networkUp = false;
     mockSyncState.mockClear();
+    mockNewTransaction.mockClear();
+    const requeueStartedAt = Math.floor(Date.now() / 1000);
 
     txStore.push({
       id: 'tx-2',
@@ -1651,6 +1664,8 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       accountId: 'acc-1',
       status: ITransactionStatus.Queued,
       initiatedAt: Date.now(),
+      processingStartedAt: requeueStartedAt - 5,
+      stageTimestamps: { syncing: requeueStartedAt - 5 },
       displayIcon: 'DEFAULT',
       displayMessage: 'Executing',
       requestBytes: new Uint8Array([2])
@@ -1658,34 +1673,39 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
 
     const result2 = await generateTransactionsLoop(signCallback, false, guardianProvider);
 
-    // generateTransactionsLoop catches the error and cancels the tx
     expect(result2).toBe(false);
     const tx2 = txStore.find((t: any) => t.id === 'tx-2');
-    expect(tx2.status).toBe(ITransactionStatus.Failed);
-    expect(tx2.displayMessage).toBe('Failed');
-    expect(tx2.displayIcon).toBe('FAILED');
+    const requeueFinishedAt = Math.floor(Date.now() / 1000);
+    expect(tx2.status).toBe(ITransactionStatus.Queued);
+    expect(tx2.stage).toBe('syncing');
+    expect(tx2.processingStartedAt).toBeUndefined();
+    expect(tx2.stageTimestamps).toBeUndefined();
+    expect(tx2.nextEligibleAt).toBeGreaterThanOrEqual(requeueStartedAt + 30);
+    expect(tx2.nextEligibleAt).toBeLessThanOrEqual(requeueFinishedAt + 30);
+    expect(tx2.error).toBeUndefined();
+    expect(mockCancelTransactionAfterPipelineStopped).not.toHaveBeenCalled();
+    expect(mockNewTransaction).not.toHaveBeenCalled();
 
-    // ---- Phase 3: Network back up, new transaction succeeds ----
+    // ---- Phase 3: Network back up, the same transaction succeeds ----
     networkUp = true;
     mockSyncState.mockClear();
+    mockNewTransaction.mockClear();
 
-    txStore.push({
-      id: 'tx-3',
-      type: 'execute',
-      accountId: 'acc-1',
-      status: ITransactionStatus.Queued,
-      initiatedAt: Date.now(),
-      displayIcon: 'DEFAULT',
-      displayMessage: 'Executing',
-      requestBytes: new Uint8Array([3])
-    });
+    const cooldownResult = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(cooldownResult).toBeUndefined();
+    expect(tx2.status).toBe(ITransactionStatus.Queued);
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockNewTransaction).not.toHaveBeenCalled();
+
+    tx2.nextEligibleAt = Math.floor(Date.now() / 1000) - 1;
 
     const result3 = await generateTransactionsLoop(signCallback, false, guardianProvider);
 
     expect(result3).toBe(true);
-    const tx3 = txStore.find((t: any) => t.id === 'tx-3');
-    expect(tx3.status).toBe(ITransactionStatus.Completed);
-    expect(tx3.transactionId).toBe('mock-tx-hash');
+    expect(tx2.status).toBe(ITransactionStatus.Completed);
+    expect(tx2.transactionId).toBe('mock-tx-hash');
+    expect(txStore.filter((tx: any) => tx.id === 'tx-2')).toHaveLength(1);
     expect(mockSyncState).toHaveBeenCalled();
 
     // ---- Phase 4: the pre-flight sync is EVICTED by the watchdog (#777) ----
@@ -1723,6 +1743,120 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     // And therefore no permanent crossing, so Retry stays available.
     expect(tx4.mayHaveSubmitted).toBeFalsy();
     expect(tx4.processingStartedAt).toBeFalsy();
+    expect(tx4.nextEligibleAt).toBeUndefined();
+    expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(1);
+
+    // ---- Phase 5: an offscreen abort at the same pre-write boundary stays terminal ----
+    const { OperationAbortedError } = require('lib/miden/back/offscreen-codec');
+    mockSyncState.mockRejectedValueOnce(new OperationAbortedError('op-sync', 'deadline'));
+
+    txStore.push({
+      id: 'tx-5',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Sending',
+      requestBytes: undefined
+    });
+
+    const result5 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result5).toBe(false);
+    const tx5 = txStore.find((t: any) => t.id === 'tx-5');
+    expect(tx5.status).toBe(ITransactionStatus.Failed);
+    expect(tx5.stage).toBe('syncing');
+    expect(tx5.nextEligibleAt).toBeUndefined();
+    expect(tx5.mayHaveSubmitted).toBeFalsy();
+    expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(2);
+
+    // ---- Phase 6: a locked sync keeps the existing unlock-retry cooldown ----
+    const lockedError = Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+    mockSyncState.mockRejectedValueOnce(lockedError);
+    const lockedRequeueStartedAt = Math.floor(Date.now() / 1000);
+
+    txStore.push({
+      id: 'tx-6',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([6])
+    });
+
+    const result6 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result6).toBe(false);
+    const tx6 = txStore.find((t: any) => t.id === 'tx-6');
+    const lockedRequeueFinishedAt = Math.floor(Date.now() / 1000);
+    expect(tx6.status).toBe(ITransactionStatus.Queued);
+    expect(tx6.stage).toBe('syncing');
+    expect(tx6.processingStartedAt).toBeUndefined();
+    expect(tx6.stageTimestamps).toBeUndefined();
+    expect(tx6.nextEligibleAt).toBeGreaterThanOrEqual(lockedRequeueStartedAt + 15);
+    expect(tx6.nextEligibleAt).toBeLessThanOrEqual(lockedRequeueFinishedAt + 15);
+    expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(2);
+
+    // ---- Phase 7: a PERMANENT node rejection is not deferred ----
+    // A 400 cannot succeed on retry, so requeueing it would spend the whole 30-minute
+    // MAX_QUEUED_AGE budget on lock-held syncs and then report the generic expiry instead of the
+    // node's own answer. The thrown text is checked on the error handed to
+    // `cancelTransactionAfterPipelineStopped`, not on the row's persisted `error`: the terminal
+    // path rewrites that field through `resolveTransactionErrorMessage`.
+    networkUp = true;
+    mockSyncState.mockRejectedValueOnce(new Error('grpc-status header missing, mapped from HTTP status code 400'));
+    txStore.push({
+      id: 'tx-7',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([7])
+    });
+
+    const result7 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result7).toBe(false);
+    const tx7 = txStore.find((t: any) => t.id === 'tx-7');
+    expect(tx7.status).not.toBe(ITransactionStatus.Queued);
+    expect(tx7.nextEligibleAt).toBeUndefined();
+    expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(3);
+    const permanentCall = mockCancelTransactionAfterPipelineStopped?.mock.calls[2];
+    expect(String(permanentCall?.[1])).toContain('400');
+
+    // ---- Phase 8: an ordinary failure AFTER the flip is not deferred ----
+    // The guard's whole safety argument is that it cannot fire once the row has been picked up.
+    // Every phase above injects at the pre-flight sync, so without this case deleting the
+    // `status === Queued && stage === 'syncing'` pair leaves the suite green. This case kills the
+    // CONJUNCTION only, and that is the honest ceiling: neither conjunct is separately killable,
+    // because every path that reaches this catch with the row still Queued has already been
+    // stamped 'syncing' by the loop's own first step, and the status flip and stage write land in
+    // one Dexie modify. Each conjunct is defended by reachability, not by a test - a seeded row at
+    // another stage does not work, because the stamp overwrites it before the guard runs.
+    mockNewTransaction.mockRejectedValueOnce(new Error('execution failed'));
+    txStore.push({
+      id: 'tx-8',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([8])
+    });
+
+    const result8 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result8).toBe(false);
+    const tx8 = txStore.find((t: any) => t.id === 'tx-8');
+    expect(tx8.status).not.toBe(ITransactionStatus.Queued);
+    expect(tx8.nextEligibleAt).toBeUndefined();
+    expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(4);
   });
 });
 

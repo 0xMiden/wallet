@@ -1,4 +1,4 @@
-import type { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
+import type { ImportedAccountBackup, KeyDerivation, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 // This module parses the plaintext produced only after authenticated
@@ -75,6 +75,8 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isAuthScheme = (value: unknown): value is ImportedAccountBackup['authScheme'] =>
   value === 'falcon' || value === 'ecdsa';
 
+const isKeyDerivation = (value: unknown): value is KeyDerivation => value === 'legacy' || value === 'v1';
+
 const isWalletType = (value: unknown): value is WalletType =>
   value === WalletType.OffChain || value === WalletType.OnChain || value === WalletType.Guardian;
 
@@ -101,7 +103,8 @@ export const isWalletAccount = (value: unknown): value is WalletAccount => {
     typeof value.isPublic === 'boolean' &&
     isWalletType(value.type) &&
     Number.isSafeInteger(value.hdIndex) &&
-    (value.authScheme === undefined || isAuthScheme(value.authScheme))
+    (value.authScheme === undefined || isAuthScheme(value.authScheme)) &&
+    (value.keyDerivation === undefined || isKeyDerivation(value.keyDerivation))
   );
 };
 

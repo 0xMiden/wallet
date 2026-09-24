@@ -22,22 +22,16 @@ jest.mock('lodash', () => ({
   shuffle: (arr: unknown[]) => [...arr]
 }));
 
-// Haptics touch native Capacitor plugins; stub to a spy.
+// Haptics touch native Capacitor plugins; stub to a spy. The word chips are `Pill`s, which fire
+// the light tap haptic and nothing else.
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-// Mock the child components so this unit test stays scoped to the screen's own
-// logic (the real Toggle pulls in framer-motion). Each mock surfaces just the
-// props the screen wires through.
-jest.mock('components/Chip', () => ({
-  Chip: ({ label, selected }: { label: string; selected?: boolean }) => (
-    <span data-testid="chip" data-selected={String(!!selected)}>
-      {label}
-    </span>
-  )
-}));
-
+// The word chips use the real `Pill` (not a stub): selecting a word is a Pill
+// tap, and Pill owns the tap haptic itself (default `haptic="light"`) — this
+// suite asserts against that real behavior rather than reimplementing it in a
+// mock.
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, disabled }: { title: string; onClick?: () => void; disabled?: boolean }) => (
     <button data-testid="continue" disabled={disabled} onClick={onClick}>
@@ -56,14 +50,11 @@ jest.mock('components/Toggle', () => ({
 
 const SEED = Array.from({ length: 12 }, (_, i) => `w${i}`);
 
-// The wrapping <button> owns the onSelectWord handler; click by locating the
-// chip label and walking up to its button.
-const clickWord = (index: number) => {
-  const chip = screen.getByText(`w${index}`);
-  fireEvent.click(chip.closest('button') as HTMLButtonElement);
-};
+const wordChip = (index: number) => screen.getByTestId(`verify-quiz-word-${index}`);
 
-const wordButtonSelected = (index: number) => screen.getByText(`w${index}`).getAttribute('data-selected');
+const clickWord = (index: number) => fireEvent.click(wordChip(index));
+
+const wordButtonSelected = (index: number) => wordChip(index).getAttribute('aria-pressed');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -122,14 +113,25 @@ describe('VerifySeedPhraseScreen', () => {
   });
 
   describe('rendering', () => {
-    it('renders one chip per seed word and forwards root props / className', () => {
-      render(<VerifySeedPhraseScreen seedPhrase={SEED} id="my-root" className="extra-class" />);
+    it('renders one chip per seed word on the step layout, Continue pinned in its footer', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
 
-      expect(screen.getAllByTestId('chip')).toHaveLength(12);
+      expect(screen.getAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(12);
+      expect(screen.getByTestId('verify-seed-phrase')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'verifySeedPhrase' })).toBeInTheDocument();
+      expect(screen.getByTestId('continue').closest('[data-slot="footer"]')).not.toBeNull();
+    });
 
-      const root = screen.getByTestId('verify-seed-phrase');
-      expect(root).toHaveAttribute('id', 'my-root');
-      expect(root).toHaveClass('extra-class');
+    it('embeds without a frame or heading when the host draws the page (showIntro false)', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} showIntro={false} data-testid="embedded" />);
+      expect(screen.getByTestId('embedded')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+      expect(screen.getByTestId('continue').closest('[data-slot="footer"]')).toBeNull();
+    });
+
+    it('colours the step prompt with the status inks', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveClass('text-ink');
     });
 
     it('starts with no words selected and the continue button disabled', () => {

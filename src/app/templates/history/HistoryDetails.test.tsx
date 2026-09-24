@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
@@ -22,6 +22,7 @@ import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
+import { TRANSACTION_COLORS } from './transactionUtils';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
@@ -36,8 +37,13 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 // ---------------------------------------------------------------------------
-let mockAccount: { publicKey?: string; name?: string } | undefined = { publicKey: 'acct-A', name: 'Mine' };
-let mockAllAccounts: Array<{ publicKey: string; name: string }> = [{ publicKey: 'acct-B', name: 'Other' }];
+let mockAccount: { publicKey?: string; name?: string; guardianEndpoint?: string } | undefined = {
+  publicKey: 'acct-A',
+  name: 'Mine'
+};
+let mockAllAccounts: Array<{ publicKey: string; name: string; guardianEndpoint?: string }> = [
+  { publicKey: 'acct-B', name: 'Other' }
+];
 interface MetadataStore {
   tokenPrices: Record<string, { price: number }>;
   assetsMetadata: Record<string, AssetMetadata>;
@@ -78,11 +84,16 @@ const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
+// useBackWithFallback reads live history at call time, so the position is a knob, not a constant.
+// Defaults to a page reached by navigation; the cold-open case sets it to 0 explicitly.
+let mockHistoryPosition = 1;
 const mockCancelTransactionById = jest.fn();
 const mockRequeueFailedTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockIsRequeueableTransaction = jest.fn();
 const mockIsUnverifiableSendRetryError = jest.fn((..._args: unknown[]) => false);
+const mockCancelSwapOrder = jest.fn();
+const mockConfirm = jest.fn();
 
 const mockT = (key: string, opts?: Record<string, string | number | boolean | undefined>) => {
   const values = opts ? Object.values(opts) : [];
@@ -150,7 +161,17 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 jest.mock('lib/woozie', () => ({
   goBack: () => mockGoBack(),
-  navigate: (...args: unknown[]) => mockNavigate(...args)
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  // useBackWithFallback reads live history at call time, and useOncePerLocation calls listen() in a
+  // mount effect, so without these the whole suite throws on render, not just the back-button cases.
+  createLocationState: () => ({
+    historyPosition: mockHistoryPosition,
+    href: 'http://localhost/#/history-details/tx-1'
+  }),
+  listen: () => () => undefined,
+  // The real values, unlike the two sibling suites that mock 'push'/'replace': asserting a literal
+  // production never emits would pin the mock rather than the behaviour.
+  HistoryAction: { Pop: 'popstate', Push: 'pushstate', Replace: 'replacestate' }
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
@@ -161,12 +182,20 @@ jest.mock('./useSwapSettlementNotes', () => ({
   useSwapSettlementNotes: (swapTxId: string | undefined) => (swapTxId ? mockSettlementNotes : null)
 }));
 
+jest.mock('lib/miden/swap/cancel-order', () => ({
+  cancelSwapOrder: (...args: unknown[]) => mockCancelSwapOrder(...args)
+}));
+
+// The destructive confirmation sheet, answered by the test. `useConfirm` is
+// context-backed, so without this the hook has no provider to read from.
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
+
 // ---------------------------------------------------------------------------
 // Presentational dependency mocks - light DOM so the test stays focused on
 // HistoryDetails' own branches (mirrors how sibling tests stub sub-components).
 // ---------------------------------------------------------------------------
-jest.mock('app/atoms/ActivitySpinner', () => ({
-  ActivitySpinner: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({
@@ -174,35 +203,23 @@ jest.mock('app/layouts/PageLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="page-layout">{children}</div>
 }));
 
-jest.mock('components/GuardianTransitionHero', () => ({
-  GuardianTransitionHero: ({
-    previousEndpoint,
-    newEndpoint,
-    previousLabel,
-    newLabel
-  }: {
-    previousEndpoint?: string;
-    newEndpoint?: string;
-    previousLabel: string;
-    newLabel: string;
-  }) => (
-    <div
-      data-testid="guardian-transition-hero"
-      data-previous={previousEndpoint ?? 'unknown'}
-      data-new={newEndpoint ?? 'unknown'}
-      data-previous-label={previousLabel}
-      data-new-label={newLabel}
-    />
-  )
-}));
-
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
+// Forwards `onClose` (rather than silently dropping it, as the old mock did)
+// so a regression that reintroduces a header close control is caught here
+// rather than only in the real PageHeader's own suite.
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack, onClose }: { title: string; onBack: () => void; onClose?: () => void }) => (
     <div data-testid="screen-header">
       <span data-testid="header-title">{title}</span>
-      <button data-testid="back-button" onClick={onBack}>
-        back
-      </button>
+      {onBack && (
+        <button data-testid="back-button" onClick={onBack}>
+          back
+        </button>
+      )}
+      {onClose && (
+        <button data-testid="header-close" onClick={onClose}>
+          close
+        </button>
+      )}
     </div>
   )
 }));
@@ -221,17 +238,23 @@ jest.mock('../HashChip', () => ({
   default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
 }));
 
-jest.mock('./DetailCard', () => ({
-  DetailCard: ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <section data-testid="detail-card" data-title={title}>
-      {children}
-    </section>
-  ),
-  DetailRow: ({ label, isLast, children }: { label: string; isLast?: boolean; children: React.ReactNode }) => (
-    <div data-testid="detail-row" data-label={label} data-islast={String(!!isLast)}>
+jest.mock('components/ui/DetailCard', () => ({
+  DetailRow: ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div data-testid="detail-row" data-label={label}>
       {children}
     </div>
-  ),
+  )
+}));
+
+jest.mock('./DetailSection', () => ({
+  DetailSection: ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <section data-testid="detail-section" data-title={title}>
+      {children}
+    </section>
+  )
+}));
+
+jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ displayValue, href }: { displayValue: React.ReactNode; href: string }) => (
     <a data-testid="external-link" href={href}>
       {displayValue}
@@ -272,7 +295,10 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
-  getTransactionIconBackgroundColor: () => '#91ACC1'
+  // Reads the shared constant so a future move of the activity hues carries this mock with it;
+  // it was left on the retired literal when they last moved.
+  getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send,
+  isGuardianOp: jest.requireActual('./TransactionIcon').isGuardianOp
 }));
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
@@ -374,8 +400,14 @@ const rowByLabel = (label: string) =>
     el => el.getAttribute('data-label') === label
   );
 
+const sectionByTitle = (title: string) =>
+  Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+    el => el.getAttribute('data-title') === title
+  );
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockHistoryPosition = 1;
   // Keep IndexedDB/Dexie's scheduling primitives real so the global database
   // cleanup hook can complete; only timer-based order polling needs faking.
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
@@ -407,6 +439,8 @@ beforeEach(() => {
   mockIsUnverifiableSendRetryError.mockReturnValue(false);
   mockCancelTransactionById.mockResolvedValue(undefined);
   mockRequeueFailedTransaction.mockResolvedValue(undefined);
+  mockCancelSwapOrder.mockResolvedValue(undefined);
+  mockConfirm.mockResolvedValue(true);
 
   // Reset the deterministic formatAmount default (a test may override it).
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -718,8 +752,11 @@ describe('HistoryDetails', () => {
     });
   });
 
-  describe('Guardian switch details', () => {
-    it('renders the From/To hero, status, generic details, and no wallet destination rows', async () => {
+  describe('Guardian change details', () => {
+    const LAMBDA = 'https://miden-guardian.lambdaclass.com';
+    const OZ = 'https://guardian.openzeppelin.com';
+
+    it('renders both providers on brand tiles, old to new, with status and no wallet destination rows', async () => {
       setMockRow({
         ...baseSendTx,
         type: 'switch-guardian',
@@ -730,20 +767,24 @@ describe('HistoryDetails', () => {
         faucetId: undefined,
         outputNoteIds: undefined,
         extraInputs: {
-          previousGuardianEndpoint: 'https://old.example',
-          newGuardianEndpoint: 'https://new.example'
+          previousGuardianEndpoint: LAMBDA,
+          newGuardianEndpoint: OZ
         }
       });
       await renderAndLoad();
 
-      const hero = screen.getByTestId('guardian-transition-hero');
-      expect(hero).toHaveAttribute('data-previous', 'https://old.example');
-      expect(hero).toHaveAttribute('data-new', 'https://new.example');
-      expect(hero).toHaveAttribute('data-previous-label', 'from');
-      expect(hero).toHaveAttribute('data-new-label', 'to');
+      const summary = screen.getByTestId('guardian-change-summary');
+      expect(summary).toHaveAttribute('data-kind', 'switch');
+      // A logo tile per side, each resolved from its own endpoint.
+      expect(screen.getAllByTestId('guardian-logo-tile')).toHaveLength(2);
+      expect(within(summary).getByText('LambdaClass')).toBeInTheDocument();
+      expect(within(summary).getByText('OpenZeppelin')).toBeInTheDocument();
+      expect(within(summary).getByText('from')).toBeInTheDocument();
+      expect(within(summary).getByText('to')).toBeInTheDocument();
+
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
       expect(screen.queryByTestId('tx-icon')).toBeNull();
-      expect(screen.getByTestId('detail-card')).toHaveAttribute('data-title', 'details');
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
       expect(rowByLabel('date')).toBeDefined();
       expect(rowByLabel('txIdLabel')).toBeDefined();
       expect(rowByLabel('from')).toBeUndefined();
@@ -758,13 +799,84 @@ describe('HistoryDetails', () => {
         amount: undefined,
         faucetId: undefined,
         outputNoteIds: undefined,
-        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+        extraInputs: { newGuardianEndpoint: OZ }
       });
       await renderAndLoad();
 
-      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-previous', 'unknown');
-      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-new', 'https://new.example');
+      const summary = screen.getByTestId('guardian-change-summary');
+      // The unknown side keeps the generic avatar rather than borrowing a brand.
+      expect(within(summary).getByText('unknown')).toBeInTheDocument();
+      expect(within(summary).getByText('OpenZeppelin')).toBeInTheDocument();
+      expect(within(summary).getAllByTestId('guardian-avatar')).toHaveLength(1);
       expect(rowByLabel('txIdLabel')?.textContent).toContain('tx-1');
+    });
+
+    it('draws the guardian the rotation ran under once, and puts the new key in the details', async () => {
+      // The account has since moved to another guardian; the row keeps the one it recorded.
+      mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: OZ };
+      setMockRow({
+        ...baseSendTx,
+        type: 'replace-hot-key',
+        displayMessage: 'Device key rotated',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newHotPublicKey: '0xnewhotkey', guardianEndpoint: LAMBDA }
+      });
+      await renderAndLoad();
+
+      const summary = screen.getByTestId('guardian-change-summary');
+      expect(summary).toHaveAttribute('data-kind', 'single');
+      // No provider changed, so one tile, one name and no arrow.
+      expect(screen.getAllByTestId('guardian-logo-tile')).toHaveLength(1);
+      expect(within(summary).getByText('LambdaClass')).toBeInTheDocument();
+      expect(within(summary).queryByText('OpenZeppelin')).toBeNull();
+      expect(within(summary).getByText('guardianBadge')).toBeInTheDocument();
+      expect(screen.queryByTestId('guardian-change-arrow')).toBeNull();
+
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('newDeviceKey')?.textContent).toContain('0xnewhotkey');
+      // A rotation moves no value: the wallet From/To rows stay off.
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('gives a threshold update the details section and no wallet From/To rows', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'update-procedure-threshold',
+        displayMessage: 'Account secured',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { procedure: 'update_guardian', threshold: 2 }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('names no guardian for a rotation recorded without one, rather than guessing the current one', async () => {
+      mockAccount = { publicKey: 'acct-A', name: 'Mine', guardianEndpoint: OZ };
+      setMockRow({
+        ...baseSendTx,
+        type: 'replace-hot-key',
+        displayMessage: 'Device key rotated',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newHotPublicKey: '0xnewhotkey' }
+      });
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('guardian-change-summary')).toBeNull();
+      expect(screen.queryByText('OpenZeppelin')).toBeNull();
+      expect(rowByLabel('newDeviceKey')?.textContent).toContain('0xnewhotkey');
     });
   });
 
@@ -808,6 +920,60 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
       fireEvent.click(screen.getByTestId('back-button'));
       expect(mockGoBack).toHaveBeenCalledTimes(1);
+    });
+
+    // `/history-details/:transactionId` is its own route, so a reload or a deep link opens it with
+    // no history behind it, and `goBack()` is `history.go(-1)`, which does nothing there. This
+    // page draws its own header instead of PageLayout's toolbar, so nothing else covers it.
+    it('falls back to home when the back button is pressed on a cold-opened page', async () => {
+      mockHistoryPosition = 0;
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+      fireEvent.click(screen.getByTestId('back-button'));
+      expect(mockNavigate).toHaveBeenCalledWith('/', 'replacestate');
+      expect(mockGoBack).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('header close control', () => {
+    // The header used to carry a close X for swap rows (a shortcut straight
+    // home) alongside the back button. It is gone: the back button is the
+    // only way off this page now, for every transaction type.
+    it('renders no close X for an ordinary transaction', async () => {
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+      expect(screen.queryByTestId('header-close')).not.toBeInTheDocument();
+    });
+
+    it('renders no close X for a swap row either', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: undefined,
+        faucetId: 'faucet-1',
+        outputNoteIds: undefined,
+        transactionId: undefined,
+        extraInputs: { orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }
+      });
+      await renderAndLoad();
+      expect(screen.queryByTestId('header-close')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('pending-cancel action', () => {
+    const STATUS_QUEUED = 0;
+
+    it('still renders the cancel button for a queued transaction and cancels on click', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, displayMessage: 'Sending' });
+      await renderAndLoad();
+
+      const cancelButton = screen.getByTestId('history-cancel-button');
+      expect(cancelButton).toBeInTheDocument();
+
+      fireEvent.click(cancelButton);
+      await flush();
+
+      expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
     });
   });
 
@@ -861,7 +1027,7 @@ describe('HistoryDetails', () => {
       // Transfer details and Notes are separated using the transaction icon accent.
       const dividers = screen.getAllByTestId('history-section-divider');
       expect(dividers).toHaveLength(2);
-      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: '#91ACC1' }));
+      dividers.forEach(divider => expect(divider).toHaveStyle({ backgroundColor: TRANSACTION_COLORS.send }));
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
@@ -965,6 +1131,174 @@ describe('HistoryDetails', () => {
       );
       // 'acct-A' now matches no account → shown raw.
       expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-displayname', '');
+    });
+  });
+
+  // The faucet behind the asset a row moved: documented in the FAQ, shown
+  // nowhere in the app until now (Ivan had to pull the FAQ entry because of it).
+  describe('faucet id row', () => {
+    it("shows a send's faucet as a copyable chip over the account explorer", async () => {
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+
+      const row = rowByLabel('faucetId')!;
+      expect(row.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-1');
+      // A faucet IS an account, so the link is the account explorer, built from
+      // the same override-aware helper the From/To rows use.
+      expect(row.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+        'href',
+        'https://custom-explorer.test/account/faucet-1'
+      );
+    });
+
+    it("shows the claimed asset's faucet on a receive", async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        faucetId: 'faucet-claimed',
+        noteId: 'note-1',
+        noteIds: ['note-1'],
+        outputNoteIds: undefined
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-claimed');
+    });
+
+    it('shows the faucet an outbound bridge moved', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'bridged-send',
+        faucetId: 'faucet-bridged',
+        extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', destinationNetwork: 'sepolia' }
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-bridged');
+    });
+
+    it('shows the faucet a lending deposit moved', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'earn-deposit',
+        faucetId: 'faucet-deposited',
+        displayMessage: 'Deposited to lending',
+        extraInputs: {
+          evmRecipient: '0x2222222222222222222222222222222222222222',
+          marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
+          sourceFaucetId: 'faucet-deposited'
+        }
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-deposited');
+    });
+
+    // A guardian switch, a key rotation and a dApp `execute` move no asset and
+    // carry no `faucetId`, so they get no row rather than an empty one.
+    it('renders no row for a transaction with no faucet', async () => {
+      setMockRow({ ...baseSendTx, type: 'execute', faucetId: undefined, amount: undefined });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')).toBeUndefined();
+      // Neither shape: no single row, and no per-asset card either.
+      expect(sectionByTitle('faucetIds')).toBeUndefined();
+    });
+
+    // Accept All consumes every waiting transfer in ONE `consume`, and those
+    // notes can come from different faucets. `tx.faucetId` is only the FIRST of
+    // them, so the single row above named one faucet and said nothing about the
+    // rest - the batch's other assets were attributed to it silently.
+    describe('multi-faucet breakdown', () => {
+      const batchClaim = (overrides: Tx = {}): Tx => ({
+        ...baseSendTx,
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        outputNoteIds: undefined,
+        noteId: 'note-1',
+        noteIds: ['note-1', 'note-2', 'note-3'],
+        amount: 20n,
+        faucetId: 'faucet-1',
+        assetTotals: [
+          { faucetId: 'faucet-1', amount: 20n },
+          { faucetId: 'faucet-2', amount: 10n },
+          { faucetId: 'faucet-3', amount: 5n }
+        ],
+        ...overrides
+      });
+
+      const seedThreeFaucets = () =>
+        act(() =>
+          mockWalletStore.setState({
+            assetsMetadata: {
+              'faucet-1': { name: 'Alpha', symbol: 'ALPHA', decimals: 6 },
+              'faucet-2': { name: 'Beta', symbol: 'BETA', decimals: 6 },
+              'faucet-3': { name: 'Gamma', symbol: 'GAMMA', decimals: 6 }
+            }
+          })
+        );
+
+      it('names every faucet a batch accept swept up, each beside its own asset', async () => {
+        seedThreeFaucets();
+        setMockRow(batchClaim());
+        await renderAndLoad();
+
+        const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
+        // Which faucet gave the reader what: the asset and quantity it
+        // contributed, not three bare ids under a hero that names one of them.
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', '10 BETA', '5 GAMMA']);
+        expect(rows.map(row => row.querySelector('[data-testid="hash-chip"]')?.textContent)).toEqual([
+          'faucet-1',
+          'faucet-2',
+          'faucet-3'
+        ]);
+        // Three DISTINCT account-explorer links, built from the same
+        // override-aware helper the From/To and single-faucet rows use.
+        expect(rows.map(row => row.querySelector('a[data-testid="external-link"]')?.getAttribute('href'))).toEqual([
+          'https://custom-explorer.test/account/faucet-1',
+          'https://custom-explorer.test/account/faucet-2',
+          'https://custom-explorer.test/account/faucet-3'
+        ]);
+        // The row that named `tx.faucetId` alone is gone - it IS the bug here.
+        expect(rowByLabel('faucetId')).toBeUndefined();
+      });
+
+      it('keeps the single row for a claim whose notes all share one faucet', async () => {
+        seedThreeFaucets();
+        setMockRow(batchClaim({ assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] }));
+        await renderAndLoad();
+
+        expect(sectionByTitle('faucetIds')).toBeUndefined();
+        expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-1');
+        expect(rowByLabel('faucetId')?.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+          'href',
+          'https://custom-explorer.test/account/faucet-1'
+        );
+      });
+
+      // An unresolved faucet has no trustworthy scale, so the same rule the
+      // badge and the receipt follow applies: name the asset, withhold the
+      // quantity, rather than render an 18-decimal token at the placeholder's 6.
+      it('names an unresolved faucet without inventing its quantity', async () => {
+        act(() =>
+          mockWalletStore.setState({ assetsMetadata: { 'faucet-1': { name: 'Alpha', symbol: 'ALPHA', decimals: 6 } } })
+        );
+        setMockRow(
+          batchClaim({
+            assetTotals: [
+              { faucetId: 'faucet-1', amount: 20n },
+              { faucetId: 'faucet-2', amount: 10n }
+            ]
+          })
+        );
+        await renderAndLoad();
+
+        const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', 'Unknown']);
+      });
     });
   });
 
@@ -1164,11 +1498,9 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
     });
 
-    it('keeps a way off the screen once the order is filled', async () => {
-      // Close is a dismiss, not a cancellation, so no order state can take it
-      // away. Deriving it from the order state left a filled receipt with only
-      // the header controls, and slid it into the primary slot the instant a
-      // fill landed - under a finger already travelling toward the other button.
+    it('keeps a way off the screen once the order is filled, via the header back button only', async () => {
+      // The receipt no longer owns its own dismiss control; the only way off
+      // this screen in any order state is the page's own back button.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '42',
@@ -1183,7 +1515,8 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
-      expect(screen.getByText('close')).toBeInTheDocument();
+      expect(screen.queryByText('close')).not.toBeInTheDocument();
+      expect(screen.getByTestId('back-button')).toBeInTheDocument();
     });
 
     it('calls a partly-matched open order partially filled, not open', async () => {
@@ -1627,7 +1960,7 @@ describe('HistoryDetails', () => {
       // `reconcileSwapOrderNotes` only bundles an 'active' order's notes once it
       // expires - so this order is never auto-settled, no matter that
       // `autoConsume` is absent and therefore read as enabled. Trusting that
-      // flag alone hid "Go to Pending Notes" from precisely the orders whose
+      // flag alone hid "Go to pending transfers" from precisely the orders whose
       // funds nothing else will ever collect.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
@@ -2079,7 +2412,7 @@ describe('HistoryDetails', () => {
       setMockRow(failedSendTx());
       await renderAndLoad();
 
-      const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+      const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
         el => el.getAttribute('data-title') === 'error'
       )!;
       expect(errorCard).toBeTruthy();
@@ -2208,7 +2541,7 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
       // The failure card is titled "cancelled" and retry is suppressed.
-      const cancelledCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+      const cancelledCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
         el => el.getAttribute('data-title') === 'cancelled'
       );
       expect(cancelledCard).toBeTruthy();
@@ -2230,6 +2563,17 @@ describe('HistoryDetails', () => {
       await flush();
 
       expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
+    });
+
+    it('renders the cancel button as the canonical Destructive variant, not a faked-red Primary', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      await renderAndLoad();
+
+      const cancelButton = screen.getByText('cancel').closest('button');
+      // The variant prop paints the negative state; no stray bg-status-negative
+      // className should be fighting it.
+      expect(cancelButton).toHaveClass('text-negative-ink');
+      expect(cancelButton).not.toHaveClass('bg-status-negative');
     });
 
     it('shows the cancel failure inline when cancelling throws', async () => {
@@ -2410,7 +2754,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByText('bridgeFailed')).toBeInTheDocument();
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('failed');
       expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
     });
   });
@@ -2660,8 +3004,14 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(rowByLabel('depositIntentLabel')).toBeUndefined();
     expect(rowByLabel('txIdLabel')).toBeUndefined();
-    // Position owner is then the card's last row.
-    expect(rowByLabel('positionOwnerLabel')).toHaveAttribute('data-islast', 'true');
+    // Position owner is then the card's last (and only) row — the card relies on
+    // `divide-y` for its hairlines, so being last in render order is what keeps
+    // it undivided from below, with no `isLast` flag to assert on directly.
+    const earnDepositCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+      el => el.getAttribute('data-title') === 'earnDepositDetailsTitle'
+    )!;
+    const rows = Array.from(earnDepositCard.querySelectorAll('[data-testid="detail-row"]'));
+    expect(rows[rows.length - 1]).toHaveAttribute('data-label', 'positionOwnerLabel');
   });
 
   // The generic StatusPill would read "Completed" the moment the Miden note
@@ -2679,11 +3029,182 @@ describe('HistoryDetails earn-deposit', () => {
     expect(document.body.textContent).toContain(label);
   });
 
+  it('draws the lending leg as the live md StatusBadge in the detail header', async () => {
+    setMockRow(earnDepositTx({ epochStatus: 'failed' }));
+    await renderAndLoad();
+
+    const badge = screen.getByTestId('history-status-pill');
+    expect(badge).toHaveTextContent('failed');
+    expect(badge).toHaveAttribute('role', 'status');
+    expect(badge).toHaveClass('h-6', 'bg-negative-tint', 'text-negative-tint-ink');
+  });
+
   it('falls back to the Miden status pill until the collateral note lands', async () => {
     // Status 1 === GeneratingTransaction: the deposit hasn't reached Miden yet.
     setMockRow(earnDepositTx({ epochStatus: 'pending' }, { status: 1 }));
     await renderAndLoad();
 
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', '1');
+  });
+});
+
+describe('HistoryDetails swap order actions', () => {
+  const OPEN_ORDER_EXPIRY = Math.floor(Date.now() / 1000) + 600;
+
+  const openSwapTx = (extra: Record<string, unknown> = {}): Tx => ({
+    ...baseSendTx,
+    type: 'swap',
+    amount: undefined,
+    faucetId: 'faucet-1',
+    outputNoteIds: undefined,
+    transactionId: undefined,
+    extraInputs: {
+      orderId: 42n,
+      requestedFaucetId: 'req-faucet',
+      requestedAmount: 1000n,
+      expiresAt: OPEN_ORDER_EXPIRY,
+      ...extra
+    }
+  });
+
+  const openOrder = async (extra: Record<string, unknown> = {}) => {
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+    seedTracking({
+      orderId: '42',
+      state: 'active',
+      currentDepth: 0,
+      remainingOffered: 1000n,
+      remainingRequested: 1000n
+    });
+    setMockRow(openSwapTx(extra));
+    await renderAndLoad();
+  };
+
+  it('confirms before taking a live order back, then brings its expiry forward', async () => {
+    await openOrder();
+
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await flush();
+
+    // Destructive and irreversible from here, so it goes through the app's
+    // confirmation sheet rather than acting on the tap.
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ destructive: true, confirmLabel: 'swapCancelOrder' })
+    );
+    expect(mockCancelSwapOrder).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('does nothing at all when the confirmation is declined', async () => {
+    mockConfirm.mockResolvedValue(false);
+    await openOrder();
+
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await flush();
+
+    expect(mockCancelSwapOrder).not.toHaveBeenCalled();
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+  });
+
+  it('surfaces a refused cancel as a notice on the card', async () => {
+    mockCancelSwapOrder.mockRejectedValue(new Error('settles manually'));
+    await openOrder();
+
+    fireEvent.click(screen.getByTestId('swap-cancel-order-button'));
+    await flush();
+
+    expect(screen.getByTestId('swap-cancel-order-error')).toHaveTextContent('settles manually');
+  });
+
+  it('offers no cancel on an order the wallet was told not to settle', async () => {
+    // `reconcileSwapOrderNotes` skips a manual-consume order outright, so the
+    // stamp the cancel writes would never be acted on - the claim route is that
+    // order's only real exit, and it is what the card offers instead.
+    await openOrder({ autoConsume: false });
+
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+    expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+  });
+
+  it('offers no cancel once the order is no longer open', async () => {
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+    seedTracking({
+      orderId: '42',
+      state: 'filled',
+      currentDepth: 2,
+      remainingOffered: 0n,
+      remainingRequested: 0n
+    });
+    setMockRow(openSwapTx());
+    await renderAndLoad();
+
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('shows the reclaim notice, and no button, once the expiry has lapsed', async () => {
+    await openOrder({ expiresAt: Math.floor(Date.now() / 1000) - 5 });
+
+    expect(screen.getByTestId('swap-cancel-order-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  // A row is Queued OR its order is open, never both: an order only exists once
+  // the place-order transaction completed. So the page's own Cancel and the
+  // card's Cancel swap can never appear together, in either direction.
+  it('draws no queued-transaction Cancel beside an open order', async () => {
+    await openOrder();
+
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+    expect(screen.queryByTestId('history-cancel-button')).not.toBeInTheDocument();
+  });
+
+  it('draws no order cancel on a swap that has not been submitted yet', async () => {
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+    setMockRow({ ...openSwapTx(), status: 0, displayMessage: 'Swapping' });
+    await renderAndLoad();
+
+    expect(screen.getByTestId('history-cancel-button')).toBeInTheDocument();
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('offers Retry on a failed swap, and re-queues it through the shared handler', async () => {
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+    setMockRow({ ...openSwapTx(), status: 3, error: 'prover unavailable' });
+    await renderAndLoad();
+
+    // A swap is a re-queueable type: its request is replayed byte-identically,
+    // and whether THIS failure is safe to replay is decided by
+    // `requeueFailedTransaction` at press time, not guessed at here.
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+  });
+
+  it('offers no Retry on a swap the user cancelled themselves', async () => {
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+    setMockRow({ ...openSwapTx(), status: 3, error: USER_CANCELLED_TRANSACTION_REASON });
+    await renderAndLoad();
+
+    expect(screen.queryByTestId('history-retry-button')).not.toBeInTheDocument();
+  });
+
+  it('surfaces an unverifiable-retry refusal and the acknowledged retry beneath it', async () => {
+    mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+    mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have landed'));
+    mockIsUnverifiableSendRetryError.mockReturnValue(true);
+    setMockRow({ ...openSwapTx(), status: 3, error: 'aborted' });
+    await renderAndLoad();
+
+    fireEvent.click(screen.getByTestId('history-retry-button'));
+    await flush();
+
+    expect(screen.getByTestId('history-retry-error')).toHaveTextContent('may already have landed');
+
+    mockRequeueFailedTransaction.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
+    await flush();
+
+    expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
   });
 });

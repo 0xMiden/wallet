@@ -1,7 +1,8 @@
 name: Warm E2E node-build cache
 
 # The pr-e2e-* workflows build the local 0.16 node from source and cache it under the
-# key `local-node-install-<rev>` (see .github/actions/run-local-node). A `pull_request`
+# architecture-safe key (see .github/actions/run-local-node). The x64 key keeps its
+# old name so current base-branch caches remain usable. A `pull_request`
 # run only ever SAVES to that PR branch's cache scope, never to `next` — so every brand
 # new PR's first run misses the cache, recompiles the node (~28 min), and the full
 # local-e2e suite then trips its timeout before it can finish.
@@ -15,7 +16,7 @@ name: Warm E2E node-build cache
 # LIMIT, while the linked-Protocol-PR pinning is in place: this job runs on `push`, and a
 # push carries no PR body, so inject-linked-web-sdk-pr never runs and
 # MIDEN_LINKED_PROTOCOL_REV is never set. run-local-node therefore takes its UNPINNED path
-# and warms `local-node-install-<rev>-fee<fee>-rust<v>`. A PR that declares a Protocol PR
+# and warms the matching stock node key. A PR that declares a Protocol PR
 # restores `...-fee<fee>-proto<sha>-rust<v>` instead — a key this job cannot produce — so
 # such a PR is cold no matter how warm the base branch is, and goes cold again on every new
 # commit to the linked protocol PR (the rev is that PR's head sha). Scaffolding: it ends
@@ -41,12 +42,18 @@ jobs:
     name: warm-node-cache
     # Pure compile — it runs no specs and waits on nothing — so a bigger runner buys
     # the most time here: measured ubuntu-latest = 4 cores / 15 GB against
-    # warp-ubuntu-latest-x64-8x = 8 cores / 31 GB, on a cold node build documented at
+    # WarpBuild 8x = 8 cores / 31 GB, on a cold node build documented at
     # ~36 min against a 60 min timeout. The pr-e2e-* callers of run-local-node moved to
     # the same label afterwards; they spend most of their wall clock waiting on the
     # chain and on Playwright, so the cores buy them far less than they buy this job.
     # The label has to stay available to this repo for the workflow to be schedulable.
-    runs-on: warp-ubuntu-latest-x64-8x
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - warp-ubuntu-latest-arm64-8x
+          - warp-ubuntu-latest-x64-8x
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

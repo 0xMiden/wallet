@@ -46,6 +46,9 @@ const derive = (over: Partial<SwapReceiptInputs> = {}) =>
     settlement: null,
     autoConsume: true,
     expiresAt: 1_700_000_120,
+    // Pinned, so the cancel/reclaim boundary is a fact about the inputs rather
+    // than about when the suite happened to run.
+    nowSeconds: 1_700_000_000,
     ...over
   });
 
@@ -143,7 +146,9 @@ describe('deriveSwapReceipt', () => {
       filledAmount: undefined,
       isPartialFill: false,
       settlementFound: false,
-      offerClaimRoute: false
+      offerClaimRoute: false,
+      offerCancel: false,
+      reclaimPending: false
     });
   });
 
@@ -296,6 +301,55 @@ describe('deriveSwapReceipt', () => {
 
     it('is offered for an unresolvable lineage, because stranding funds is worse', () => {
       expect(derive({ autoConsume: false, tracking: null }).offerClaimRoute).toBe(true);
+    });
+  });
+
+  describe('cancelling a live order', () => {
+    it('is offered while the order is open and the wallet is the one that will reclaim it', () => {
+      const view = derive({ tracking: tracking({ state: 'active' }) });
+
+      expect(view.offerCancel).toBe(true);
+      expect(view.reclaimPending).toBe(false);
+    });
+
+    it('is withheld from an order that is no longer open', () => {
+      // Nothing is left on offer, so bringing the expiry forward would reclaim
+      // nothing while reading as though it had undone the swap.
+      expect(derive({ tracking: tracking({ state: 'filled', remainingRequested: 0n }) }).offerCancel).toBe(false);
+      expect(derive({ tracking: tracking({ state: 'reclaimed' }) }).offerCancel).toBe(false);
+    });
+
+    it('is withheld while the lineage cannot say whether the order is still open', () => {
+      // An unresolvable lineage cannot tell an open order from one that settled
+      // while the wallet was away.
+      expect(derive({ tracking: null }).offerCancel).toBe(false);
+    });
+
+    it('is withheld from an order the wallet was told to leave alone', () => {
+      // `reconcileSwapOrderNotes` skips a manual-consume order before it reads
+      // the expiry at all, so the stamp a Cancel writes would never be acted on.
+      const view = derive({ autoConsume: false, tracking: tracking({ state: 'active' }) });
+
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(false);
+    });
+
+    it('becomes the reclaim notice once the expiry has lapsed', () => {
+      // The state a successful Cancel lands in, and the state a natural expiry
+      // lands in: one fact about the row, so one rendering.
+      const view = derive({ tracking: tracking({ state: 'active' }), nowSeconds: 1_700_000_120 });
+
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(true);
+    });
+
+    it('is offered for an order carrying no expiry at all', () => {
+      // Nothing will ever deem it expired, so it waits forever; the stamp the
+      // Cancel writes is the only thing that can end it.
+      const view = derive({ tracking: tracking({ state: 'active' }), expiresAt: null });
+
+      expect(view.offerCancel).toBe(true);
+      expect(view.reclaimPending).toBe(false);
     });
   });
 });

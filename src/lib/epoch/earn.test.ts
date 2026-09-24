@@ -495,10 +495,11 @@ describe('openEarnPosition guards', () => {
 
   it('threads the exact authorization through intent preparation and preserves final rejection', async () => {
     const spendingLimitAuthorization = {
+      kind: 'usd' as const,
       id: 'authorization-1',
       accountId: 'mtst1sender',
-      faucetId: '0x2458e5446128e6b150b75b8ebd9ce1',
-      amount: 1_000_000n,
+      usdAmount: 1_000_000n,
+      spendsDigest: 'digest-1',
       revision: 'revision-1',
       issuedAt: 100,
       expiresAt: 220
@@ -507,11 +508,10 @@ describe('openEarnPosition guards', () => {
       code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
       assessment: {
         accountId: 'mtst1sender',
-        faucetId: '0x2458e5446128e6b150b75b8ebd9ce1',
-        amount: 1_000_000n,
+        usdAmount: 1_000_000n,
         revision: 'revision-2',
         assessedAt: 240,
-        breaches: [{ period: '7d', spent: 1n, proposedTotal: 1_000_001n, limit: 2n, overBy: 999_999n, resetAt: null }]
+        breach: { spent: 1n, proposedTotal: 1_000_001n, limit: 2n, overBy: 999_999n, resetAt: null }
       }
     };
     mockCreateEarnP2IDENote.mockRejectedValue(error);

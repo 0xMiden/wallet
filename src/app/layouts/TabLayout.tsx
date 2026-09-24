@@ -14,17 +14,15 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
+import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
+import { PageActiveContext, usePageActive, usePageOnScreen } from 'app/layouts/page-active';
+import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
-import { useMotion } from 'lib/animation';
-import { pageAppearance } from 'lib/animation/page-appearance';
+import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
-import { useKeyboardVisible } from 'lib/mobile/useKeyboardVisible';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -167,40 +165,48 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         scrollHidden && 'translate-y-full'
       )}
     >
-      <BottomNav items={items} activeId={activeId} onChange={onChange} docked={isMobile()} />
+      {/* The test network is named on a ribbon across the bar's lower-right corner, drawn over the
+          tabs, rather than in a banner above every page. */}
+      <BottomNav
+        items={items}
+        activeId={activeId}
+        onChange={onChange}
+        docked={isMobile()}
+        corner={<NetworkModeRibbon docked={isMobile()} />}
+      />
     </div>
   );
 });
+
+// A pushed page can mount its own TabLayout over a covered one, so the body mark is counted, not toggled.
+let mountedTabBars = 0;
 
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
-  const hasUnclaimedNotes = useHasUnclaimedNotes();
+  const hasUnreadActivity = useHasUnreadActivity();
   // Content of each tab that has been shown. The active tab's entry is
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
 
-  // Hide the floating BottomNav whenever the mobile soft keyboard is up —
-  // the keyboard inset (mobile.html) shrinks the layout, and the navbar
-  // hovering right above the keyboard looks odd. Refcounted with the other
-  // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
-  useHideNavbarWhileOpen(useKeyboardVisible());
+  // The BottomNav hides while the soft keyboard is up, but that hold is taken by the native keyboard
+  // listener (lib/mobile/keyboard-inset), in the same task as the inset, not here a render later.
 
   const dockedBar = useRef<DockedNavBarHandle>(null);
 
-  // The fade plays once, when the layout mounts. A tab change swaps panes
-  // with no animation, like a native tab bar.
+  // The `fade` preset plays once, when the layout mounts. A tab change swaps
+  // panes with no animation, like a native tab bar.
   const reduce = useReducedMotion();
-  const appearance = useMotion(pageAppearance);
+  const fade = usePreset('fade');
   const appear = !reduce && !isReturningFromWebview();
-  const initial = appear ? { opacity: 0 } : false;
+  const initial = appear ? (fade.initial ?? false) : false;
 
   const tabs = [
     {
       id: 'home',
       label: t('home'),
-      icon: <Icon name={IconName.Home} className="w-8 h-8" fill="currentColor" />
+      icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
     // Explore tab is a dApp browser surface — extension popup has no use
     // for it (browser-the-product is already the host), so drop it there.
@@ -210,50 +216,51 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           {
             id: 'explore',
             label: t('explore'),
-            icon: <Icon name={IconName.Explore} className="w-8 h-8" />
+            icon: <Icon name={IconName.Explore} className="w-6 h-6" />
           }
         ]),
     {
       id: 'activity',
       label: t('activity'),
-      icon: <Icon name={IconName.Activity} className="w-8 h-8" />,
-      showDot: hasUnclaimedNotes
+      icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
+      unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
       id: 'settings',
       label: t('settings'),
-      icon: <Icon name={IconName.Settings} className="w-8 h-8" fill="currentColor" />
+      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
     }
   ];
 
+  // Each action's icon is its action colour, the same token its flow's accent aliases (main.css).
   const actionItems = [
     {
       id: 'overview',
-      label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-heading-gray" />
+      label: t('home'),
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-action-overview" />
     },
     {
       id: 'send',
-      label: 'Send',
-      icon: <Icon name={IconName.Send} className="w-5 h-5" />
+      label: t('send'),
+      icon: <Icon name={IconName.Send} className="w-5 h-5 text-action-send" />
     },
     {
       id: 'receive',
-      label: 'Receive',
-      icon: <Icon name={IconName.Receive} className="w-5 h-5" />
+      label: t('receive'),
+      icon: <Icon name={IconName.Receive} className="w-5 h-5 text-action-receive" />
     },
     {
       id: 'earn',
-      label: 'Earn',
-      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+      label: t('earn'),
+      icon: <Icon name={IconName.Earn} className="w-5 h-5 text-action-earn" />
     },
     // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
     ...(isSwapEnabled()
       ? [
           {
             id: 'swap',
-            label: 'Swap',
-            icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+            label: t('swap'),
+            icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap" />
           }
         ]
       : [])
@@ -262,6 +269,32 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeTab = activeTabFromPath(pathname);
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
+  const onScreen = usePageOnScreen();
+
+  // Mobile, Home only: the body paints the status-bar safe area above the
+  // app, so the action bar's band is drawn up there by a fixed pseudo-element
+  // on body (main.css), keyed off this attribute — the panes clip their
+  // overflow, so nothing inside the layout can reach that strip. A slide page
+  // keeps this layer mounted underneath with its own frozen location, so the
+  // band also waits for the layer to be fully on screen: off as a push starts
+  // covering it, back once a pop's slide page has finished sliding off. A layout effect, so the
+  // strip is right in the very frame that changes it.
+  useLayoutEffect(() => {
+    if (!isMobile()) return;
+    document.body.toggleAttribute('data-home-band', showActionBar && onScreen);
+    return () => document.body.removeAttribute('data-home-band');
+  }, [showActionBar, onScreen]);
+
+  // Flow footers reserve the bar's room only while one is mounted (main.css). A layout effect, so a
+  // footer's first painted frame already has the right cushion.
+  useLayoutEffect(() => {
+    mountedTabBars += 1;
+    document.body.setAttribute('data-navbar-mounted', '');
+    return () => {
+      mountedTabBars -= 1;
+      if (mountedTabBars === 0) document.body.removeAttribute('data-navbar-mounted');
+    };
+  }, []);
 
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the
@@ -275,7 +308,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   // SegmentedActionBar already no-ops re-taps on the active segment and
-  // fires the selection haptic itself.
+  // fires the selection haptic itself; a swipe buzzes in HomeSwipeContainer.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
     if (to && to !== pathname) navigate(to);
@@ -293,9 +326,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ? { height: '100%', width: '100%' }
         : fullPage
           ? { height: '640px', width: '600px' }
-          : // Popup: the body is a fixed 600px, and the router's network banner
-            // (#875) now takes part of it, so fill what remains instead of
-            // hard-coding 600px and clipping the bottom nav.
+          : // Popup: fill the body's fixed 600px from the router's container
+            // rather than hard-coding it.
             { height: '100%', width: '360px' };
 
   // The action bar lives inside the Home pane. A tab change swaps whole
@@ -308,7 +340,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           items={actionItems}
           activeId={activeAction}
           onChange={handleActionChange}
-          layoutId="tab-layout-action-fill"
+          // Mobile only: the band continues up through the status bar (see data-home-band above).
+          className={isMobile() ? 'bg-action-bar' : undefined}
         />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
@@ -341,8 +374,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       <motion.div
         className="flex-1 min-h-0 relative"
         initial={initial}
-        animate={{ opacity: 1 }}
-        transition={appearance}
+        animate={fade.animate}
+        transition={fade.transition}
       >
         {panes.map(id => (
           <TabPane key={id} id={id} active={id === activeTab}>

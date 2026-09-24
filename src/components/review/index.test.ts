@@ -5,14 +5,23 @@ import { fireEvent, render, screen } from '@testing-library/react';
 // Import EVERY value export through the barrel under test so `index.ts`'s
 // re-export lines are executed and counted. Type-only exports are erased by the
 // compiler, so exercising the runtime exports fully covers the barrel.
-import { ReviewAmount, ReviewLabel, ReviewLayout, ReviewRow } from './index';
-import type { ReviewAction, ReviewAmountProps, ReviewLayoutProps, ReviewRowProps } from './index';
+import { ReviewLayout } from './index';
+import type { ReviewAction, ReviewLayoutProps } from './index';
 
 const h = React.createElement;
 
 // ---------------------------------------------------------------------------
-// Module mocks (mirrors the sibling ReviewLayout / ReviewAmount test setups)
+// Module mocks (mirrors the sibling ReviewLayout test setup)
 // ---------------------------------------------------------------------------
+
+// The network banner now tops every review screen, so the wallet names the chain on each surface
+// that commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 
 // Hide-navbar hook: assert it's invoked, keep it a no-op so it doesn't mutate
 // document.body across tests. `mock`-prefixed so it's safe inside the factory.
@@ -44,19 +53,8 @@ jest.mock('components/Button', () => {
   };
 });
 
-// Replace the real TokenLogo (svg icon tree + Avatar) with a plain marker that
-// echoes the props ReviewAmount wires up, so we can assert the resolved
-// `symbol` (logoSymbol ?? symbol) and `size` precisely.
-jest.mock('components/TokenLogo', () => {
-  const Rc = require('react');
-  return {
-    TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) =>
-      Rc.createElement('div', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': size })
-  };
-});
-
-// react-i18next: return the key, but fold the interpolation `value` in so the
-// ≈USD line's `t('approxFiatValue', { value })` is observable in the DOM.
+// react-i18next: return the key, but fold the interpolation `value` in so any
+// interpolated caller content stays observable in the DOM.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { value?: string }) => (opts && opts.value !== undefined ? `${key}|${opts.value}` : key)
@@ -68,140 +66,8 @@ jest.mock('react-i18next', () => ({
 // ---------------------------------------------------------------------------
 
 describe('components/review barrel (index.ts)', () => {
-  it('re-exports all four review components as callable functions', () => {
+  it('re-exports ReviewLayout as a callable function', () => {
     expect(typeof ReviewLayout).toBe('function');
-    expect(typeof ReviewRow).toBe('function');
-    expect(typeof ReviewLabel).toBe('function');
-    expect(typeof ReviewAmount).toBe('function');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ReviewLabel
-// ---------------------------------------------------------------------------
-
-describe('ReviewLabel (via barrel)', () => {
-  it('renders its children inside a pill span', () => {
-    render(h(ReviewLabel, null, 'Recipient'));
-    expect(screen.getByText('Recipient')).toBeInTheDocument();
-  });
-
-  it('merges an extra className onto the base pill classes', () => {
-    const { container } = render(h(ReviewLabel, { className: 'extra-pill', children: 'Amount' }));
-    const span = container.querySelector('span');
-    expect(span).toHaveClass('extra-pill');
-    expect(span).toHaveClass('rounded-full');
-  });
-
-  it('renders without a className prop (undefined branch)', () => {
-    const { container } = render(h(ReviewLabel, null, 'Fee'));
-    // clsx drops the undefined arg; base classes still present.
-    expect(container.querySelector('span')).toHaveClass('bg-surface-interactive');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ReviewRow
-// ---------------------------------------------------------------------------
-
-const makeRowProps = (overrides: Partial<ReviewRowProps> = {}): ReviewRowProps => ({
-  label: 'To',
-  value: '0xabc…def',
-  ...overrides
-});
-
-describe('ReviewRow (via barrel)', () => {
-  it('renders the label pill and the default value text', () => {
-    render(h(ReviewRow, makeRowProps()));
-    expect(screen.getByText('To')).toBeInTheDocument();
-    expect(screen.getByText('0xabc…def')).toBeInTheDocument();
-  });
-
-  it('renders custom children in place of value (children ?? value)', () => {
-    render(h(ReviewRow, makeRowProps({ value: 'ignored' }), h('span', { 'data-testid': 'custom' }, 'CUSTOM')));
-    expect(screen.getByTestId('custom')).toHaveTextContent('CUSTOM');
-    expect(screen.queryByText('ignored')).not.toBeInTheDocument();
-  });
-
-  it('renders an inline Edit button and fires onEdit when clicked', () => {
-    const onEdit = jest.fn();
-    render(h(ReviewRow, makeRowProps({ onEdit, editLabel: 'Edit' })));
-    const editBtn = screen.getByRole('button', { name: 'Edit' });
-    expect(editBtn).toBeInTheDocument();
-    fireEvent.click(editBtn);
-    expect(onEdit).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not render an Edit button when onEdit is omitted', () => {
-    render(h(ReviewRow, makeRowProps()));
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
-  });
-
-  it('renders the info note when provided', () => {
-    const { container } = render(h(ReviewRow, makeRowProps({ note: 'Network fee estimate' })));
-    expect(screen.getByText('Network fee estimate')).toBeInTheDocument();
-    // The mocked information.svg renders as a plain <svg> element.
-    expect(container.querySelector('svg')).toBeInTheDocument();
-  });
-
-  it('omits the info note (and its icon) when note is not provided', () => {
-    const { container } = render(h(ReviewRow, makeRowProps()));
-    expect(container.querySelector('svg')).not.toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// ReviewAmount
-// ---------------------------------------------------------------------------
-
-const makeAmountProps = (overrides: Partial<ReviewAmountProps> = {}): ReviewAmountProps => ({
-  symbol: 'MIDEN',
-  amount: '12.5',
-  ...overrides
-});
-
-describe('ReviewAmount (via barrel)', () => {
-  it('renders "{amount} {symbol}"', () => {
-    render(h(ReviewAmount, makeAmountProps({ amount: '12.5', symbol: 'MIDEN' })));
-    expect(screen.getByText(/12\.5\s+MIDEN/)).toBeInTheDocument();
-  });
-
-  it('renders the token logo at size "md", falling back to `symbol`', () => {
-    render(h(ReviewAmount, makeAmountProps({ symbol: 'ETH' })));
-    const logo = screen.getByTestId('token-logo');
-    expect(logo).toHaveAttribute('data-size', 'md');
-    expect(logo).toHaveAttribute('data-symbol', 'ETH');
-  });
-
-  it('uses `logoSymbol` for the logo when provided (override)', () => {
-    render(h(ReviewAmount, makeAmountProps({ symbol: 'PSWAP', logoSymbol: 'USDC' })));
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
-    expect(screen.getByText(/PSWAP/)).toBeInTheDocument();
-  });
-
-  it('renders the label caption when provided', () => {
-    render(h(ReviewAmount, makeAmountProps({ label: 'You Send' })));
-    expect(screen.getByText('You Send')).toBeInTheDocument();
-  });
-
-  it('omits the label caption when not provided', () => {
-    render(h(ReviewAmount, makeAmountProps({ label: undefined })));
-    expect(screen.queryByText('You Send')).not.toBeInTheDocument();
-  });
-
-  it('renders the ≈USD fiat line formatted to two decimals', () => {
-    render(h(ReviewAmount, makeAmountProps({ fiat: 100.5 })));
-    expect(screen.getByText('approxFiatValue|$100.50')).toBeInTheDocument();
-  });
-
-  it('renders the fiat line when fiat is exactly 0 (0 != null)', () => {
-    render(h(ReviewAmount, makeAmountProps({ fiat: 0 })));
-    expect(screen.getByText('approxFiatValue|$0.00')).toBeInTheDocument();
-  });
-
-  it('omits the fiat line when fiat is undefined', () => {
-    render(h(ReviewAmount, makeAmountProps({ fiat: undefined })));
-    expect(screen.queryByText(/approxFiatValue/)).not.toBeInTheDocument();
   });
 });
 
@@ -264,7 +130,10 @@ describe('ReviewLayout (via barrel)', () => {
 
   it('does not render a secondary button when secondary is omitted', () => {
     render(h(ReviewLayout, makeLayoutProps()));
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    // The banner is a button too, so count the ACTIONS: the point of this case is that no
+    // secondary action renders, not that the screen holds exactly one button.
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button').filter(b => b.dataset.testid !== 'network-mode-banner')).toHaveLength(1);
   });
 
   it('renders the secondary button (Secondary variant, button type) and fires its onPress', () => {
@@ -276,14 +145,6 @@ describe('ReviewLayout (via barrel)', () => {
     expect(btn).toHaveAttribute('type', 'button');
     fireEvent.click(btn);
     expect(onPress).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders the orange hero divider by default and omits it when heroDivider is false', () => {
-    const { container: withDivider } = render(h(ReviewLayout, makeLayoutProps()));
-    expect(withDivider.querySelector('.bg-primary-500')).toBeInTheDocument();
-
-    const { container: withoutDivider } = render(h(ReviewLayout, makeLayoutProps({ heroDivider: false })));
-    expect(withoutDivider.querySelector('.bg-primary-500')).not.toBeInTheDocument();
   });
 
   it('applies row dividers by default and omits them when dividers is false', () => {

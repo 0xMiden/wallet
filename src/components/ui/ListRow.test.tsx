@@ -1,0 +1,248 @@
+import React from 'react';
+
+import { fireEvent, render, screen } from '@testing-library/react';
+
+import { hapticLight } from 'lib/mobile/haptics';
+
+import { ListRow } from './ListRow';
+
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/woozie', () => ({
+  Link: ({ to, testID, children, ...rest }: any) => (
+    <a href={`#${to}`} data-to={to} data-analytics={testID} {...rest}>
+      {children}
+    </a>
+  )
+}));
+
+beforeEach(() => jest.clearAllMocks());
+
+it('renders a static row as a div with a title over a muted subtitle', () => {
+  render(<ListRow title="Account 1" subtitle="Private · mtst1…wr6w" data-testid="row" />);
+
+  const row = screen.getByTestId('row');
+  expect(row.tagName).toBe('DIV');
+  expect(screen.getByText('Account 1')).toHaveClass('text-ink', 'text-row-title');
+  // The e2e helpers read a row's name off this slot.
+  expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('Account 1');
+  expect(screen.getByText('Private · mtst1…wr6w')).toHaveClass('text-muted', 'text-caption');
+  expect(row).toHaveClass('min-h-16');
+  expect(row.querySelector('[data-slot="chevron"]')).toBeNull();
+});
+
+it('is 56px without a subtitle', () => {
+  render(<ListRow title="Language" data-testid="row" />);
+  expect(screen.getByTestId('row')).toHaveClass('min-h-14');
+  expect(screen.getByTestId('row')).not.toHaveClass('min-h-16');
+});
+
+it('becomes a button with a tap haptic when it takes onClick', () => {
+  const onClick = jest.fn();
+  render(<ListRow title="Paul G" onClick={onClick} data-testid="row" />);
+
+  const row = screen.getByTestId('row');
+  expect(row.tagName).toBe('BUTTON');
+  expect(row).toHaveAttribute('type', 'button');
+  fireEvent.click(row);
+  expect(onClick).toHaveBeenCalledTimes(1);
+  expect(hapticLight).toHaveBeenCalledTimes(1);
+});
+
+it('shows a chevron on a row that navigates', () => {
+  const { rerender } = render(<ListRow title="Paul G" onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row').querySelector('[data-slot="chevron"]')).toBeNull();
+
+  rerender(<ListRow title="Paul G" onClick={jest.fn()} chevron data-testid="row" />);
+  expect(screen.getByTestId('row').querySelector('[data-slot="chevron"]')).not.toBeNull();
+});
+
+it('routes through the wallet Link when given `to`, with a chevron and the testid for analytics', () => {
+  render(<ListRow title="Address Book" to="/settings/address-book" data-testid="row" />);
+
+  const row = screen.getByTestId('row');
+  expect(row.tagName).toBe('A');
+  expect(row).toHaveAttribute('data-to', '/settings/address-book');
+  expect(row).toHaveAttribute('data-analytics', 'row');
+  expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
+});
+
+it('opens an external link in a new tab with a haptic', () => {
+  render(<ListRow title="Privacy policy" href="https://example.com/privacy" data-testid="row" />);
+
+  const row = screen.getByTestId('row');
+  expect(row.tagName).toBe('A');
+  expect(row).toHaveAttribute('href', 'https://example.com/privacy');
+  expect(row).toHaveAttribute('target', '_blank');
+  expect(row).toHaveAttribute('rel', 'noreferrer');
+  fireEvent.click(row);
+  expect(hapticLight).toHaveBeenCalledTimes(1);
+  expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
+});
+
+it('draws a hairline above every row but the first, inset past the leading visual', () => {
+  render(
+    <>
+      <ListRow title="A" avatar={<span />} data-testid="avatar-row" />
+      <ListRow title="B" icon={<svg />} data-testid="icon-row" />
+      <ListRow title="C" data-testid="plain-row" />
+    </>
+  );
+
+  for (const id of ['avatar-row', 'icon-row', 'plain-row']) {
+    expect(screen.getByTestId(id)).toHaveClass('before:bg-hairline', 'before:h-px', 'first:before:hidden');
+  }
+  // 16px padding + 40px avatar + 12px gap; + 30px icon circle; the padding alone.
+  expect(screen.getByTestId('avatar-row')).toHaveClass('before:left-[68px]');
+  expect(screen.getByTestId('icon-row')).toHaveClass('before:left-[58px]');
+  expect(screen.getByTestId('plain-row')).toHaveClass('before:left-4');
+});
+
+it('puts an icon in a 30px circle and an avatar in a 40px slot', () => {
+  render(
+    <>
+      <ListRow title="A" avatar={<span data-testid="avatar" />} />
+      <ListRow title="B" icon={<svg data-testid="glyph" />} />
+    </>
+  );
+
+  expect(screen.getByTestId('avatar').parentElement).toHaveClass('h-10', 'w-10');
+  expect(screen.getByTestId('glyph').parentElement).toHaveClass('h-[30px]', 'w-[30px]', 'rounded-full');
+});
+
+it('renders a trailing value, a custom trailing control and a check', () => {
+  render(
+    <>
+      <ListRow title="Language" value="English" to="/settings/language" data-testid="value-row" />
+      <ListRow title="Haptics" trailing={<input type="checkbox" data-testid="toggle" />} data-testid="toggle-row" />
+      <ListRow title="Testnet" checked onClick={jest.fn()} data-testid="checked-row" />
+      <ListRow title="Devnet" checked={false} onClick={jest.fn()} data-testid="unchecked-row" />
+    </>
+  );
+
+  expect(screen.getByText('English')).toHaveClass('text-muted');
+  expect(screen.getByTestId('value-row').querySelector('[data-slot="chevron"]')).not.toBeNull();
+  expect(screen.getByTestId('toggle')).toBeInTheDocument();
+  expect(screen.getByTestId('checked-row').querySelector('[data-slot="check"]')).not.toBeNull();
+  expect(screen.getByTestId('checked-row').querySelector('[data-slot="check"] svg')).toHaveClass(
+    'fill-accent-brand-on'
+  );
+  expect(screen.getByTestId('checked-row')).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('unchecked-row').querySelector('[data-slot="check"]')).toBeNull();
+  expect(screen.getByTestId('unchecked-row')).toHaveAttribute('aria-pressed', 'false');
+});
+
+it('presses to the pressed fill when tappable, and not when static', () => {
+  render(
+    <>
+      <ListRow title="A" onClick={jest.fn()} data-testid="tappable" />
+      <ListRow title="B" data-testid="static" />
+    </>
+  );
+  expect(screen.getByTestId('tappable')).toHaveClass('active:bg-fill-pressed');
+  expect(screen.getByTestId('static')).not.toHaveClass('active:bg-fill-pressed');
+});
+
+it('does not fire a disabled row', () => {
+  const onClick = jest.fn();
+  render(<ListRow title="A" onClick={onClick} disabled data-testid="row" />);
+  fireEvent.click(screen.getByTestId('row'));
+  expect(onClick).not.toHaveBeenCalled();
+  expect(hapticLight).not.toHaveBeenCalled();
+});
+
+it('labels its trailing switch with `htmlFor`, so a tap anywhere on the row flips it', () => {
+  const onChange = jest.fn();
+  render(
+    <ListRow
+      title="Haptic feedback"
+      htmlFor="haptic"
+      trailing={<input id="haptic" type="checkbox" onChange={onChange} />}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByTestId('row');
+  expect(row.tagName).toBe('LABEL');
+  expect(row).toHaveAttribute('for', 'haptic');
+  expect(row).toHaveClass('cursor-pointer', 'active:bg-fill-pressed');
+  fireEvent.click(screen.getByText('Haptic feedback'));
+  expect(onChange).toHaveBeenCalledTimes(1);
+  // The switch brings its own haptic; the row adds none.
+  expect(hapticLight).not.toHaveBeenCalled();
+});
+
+it('announces a radio choice as a radio, forwards focus handling, and can leave the haptic to its caller', () => {
+  const ref = React.createRef<HTMLButtonElement>();
+  const onKeyDown = jest.fn();
+  const onClick = jest.fn();
+  render(
+    <ListRow
+      ref={ref}
+      title="English"
+      radio
+      checked
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      haptic={false}
+      onClick={onClick}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByRole('radio', { checked: true });
+  expect(row).toBe(ref.current);
+  expect(row).not.toHaveAttribute('aria-pressed');
+  expect(row).toHaveAttribute('tabindex', '0');
+  fireEvent.keyDown(row, { key: 'ArrowDown' });
+  expect(onKeyDown).toHaveBeenCalledTimes(1);
+  fireEvent.click(row);
+  expect(onClick).toHaveBeenCalledTimes(1);
+  expect(hapticLight).not.toHaveBeenCalled();
+});
+
+it('paints its glyph, chevron, check and hairline in a flow accent, leaving the text neutral', () => {
+  render(
+    <ListRow
+      title="Cross-chain"
+      subtitle="From Sepolia"
+      icon={<svg data-testid="glyph" />}
+      chevron
+      checked
+      accent="receive"
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByTestId('row');
+  const circle = row.querySelector('[data-slot="icon"]')!;
+  expect(circle).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
+  expect(circle).not.toHaveClass('bg-page', 'text-ink');
+  expect(row.querySelector('[data-slot="chevron"]')).toHaveClass('stroke-accent-receive');
+  expect(row.querySelector('[data-slot="chevron"]')).not.toHaveClass('stroke-muted');
+  expect(row).toHaveClass('before:bg-accent-receive/25');
+  expect(row).not.toHaveClass('before:bg-hairline');
+  // A selected state is the flow's own colour too, not the brand fill.
+  expect(row.querySelector('[data-slot="check"]')).toHaveClass('bg-accent-receive');
+  expect(row.querySelector('[data-slot="check"]')).not.toHaveClass('bg-accent-primary');
+  expect(row.querySelector('[data-slot="check"] svg')).toHaveClass('fill-accent-receive-on');
+  expect(row.querySelector('[data-slot="check"] svg')).not.toHaveClass('fill-pure-white');
+  // The accent never reaches the copy: it is under 4.5:1 as text.
+  expect(row.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
+  expect(screen.getByText('From Sepolia')).toHaveClass('text-muted');
+});
+
+it('keeps the neutral chrome without an accent', () => {
+  render(<ListRow title="Language" icon={<svg />} chevron accent={undefined} data-testid="row" />);
+
+  const row = screen.getByTestId('row');
+  expect(row.querySelector('[data-slot="icon"]')).toHaveClass('bg-page', 'text-ink');
+  expect(row.querySelector('[data-slot="chevron"]')).toHaveClass('stroke-muted');
+  expect(row).toHaveClass('before:bg-hairline');
+});
+
+it('keeps the brand fill on the check of a row with no accent', () => {
+  render(<ListRow title="Testnet" checked onClick={jest.fn()} data-testid="row" />);
+
+  expect(screen.getByTestId('row').querySelector('[data-slot="check"]')).toHaveClass('bg-accent-primary');
+});

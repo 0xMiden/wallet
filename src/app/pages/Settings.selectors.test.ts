@@ -8,7 +8,7 @@ import { SettingsSelectors } from './Settings.selectors';
 // numeric reverse-mapping keys). This covers every line the enum emits.
 
 describe('SettingsSelectors', () => {
-  // Verbatim expected mapping, one entry per source member (all 21).
+  // Verbatim expected mapping, one entry per source member (all 22).
   const EXPECTED: Record<string, string> = {
     GeneralButton: 'Settings/GeneralButton',
     LanguageButton: 'Settings/LanguageButton',
@@ -20,7 +20,7 @@ describe('SettingsSelectors', () => {
     KeysButton: 'Settings/KeysButton',
     SpendingLimitsButton: 'Settings/SpendingLimitsButton',
     GuardianSettingsButton: 'Settings/GuardianSettingsButton',
-    RevealSeedPhraseButton: 'Settings/RevealSeedPhraseButton',
+    RecoveryPhraseButton: 'Settings/RecoveryPhraseButton',
     DAppsButton: 'Settings/DAppsButton',
     NetworksButton: 'Settings/NetworksButton',
     ActivateAccountButton: 'Settings/ActivateAccountButton',
@@ -30,7 +30,8 @@ describe('SettingsSelectors', () => {
     AdvancedSettingsButton: 'Settings/AdvancedSettingsButton',
     EditMidenFaucetButton: 'Settings/EditMidenFaucetButton',
     EncryptedWalletFile: 'Settings/EncryptedWalletFile',
-    SendFeedbackButton: 'Settings/SendFeedbackButton'
+    SendFeedbackButton: 'Settings/SendFeedbackButton',
+    SupportButton: 'Settings/SupportButton'
   };
 
   it('maps every member to its exact stable selector string', () => {
@@ -43,7 +44,7 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.RevealHotKeyButton).toBe('Settings/RevealHotKeyButton');
     expect(SettingsSelectors.KeysButton).toBe('Settings/KeysButton');
     expect(SettingsSelectors.SpendingLimitsButton).toBe('Settings/SpendingLimitsButton');
-    expect(SettingsSelectors.RevealSeedPhraseButton).toBe('Settings/RevealSeedPhraseButton');
+    expect(SettingsSelectors.RecoveryPhraseButton).toBe('Settings/RecoveryPhraseButton');
     expect(SettingsSelectors.DAppsButton).toBe('Settings/DAppsButton');
     expect(SettingsSelectors.NetworksButton).toBe('Settings/NetworksButton');
     expect(SettingsSelectors.ActivateAccountButton).toBe('Settings/ActivateAccountButton');
@@ -54,6 +55,7 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.EditMidenFaucetButton).toBe('Settings/EditMidenFaucetButton');
     expect(SettingsSelectors.EncryptedWalletFile).toBe('Settings/EncryptedWalletFile');
     expect(SettingsSelectors.SendFeedbackButton).toBe('Settings/SendFeedbackButton');
+    expect(SettingsSelectors.SupportButton).toBe('Settings/SupportButton');
   });
 
   it('exposes exactly the expected members in declaration order', () => {
@@ -85,10 +87,5 @@ describe('SettingsSelectors', () => {
   it('has unique selector values across all members', () => {
     const values = Object.values(SettingsSelectors);
     expect(new Set(values).size).toBe(values.length);
-  });
-
-  it('is consistent across repeated accesses', () => {
-    // Two reads of the same member must yield the identical string.
-    expect(SettingsSelectors.EncryptedWalletFile).toBe(SettingsSelectors.EncryptedWalletFile);
   });
 });

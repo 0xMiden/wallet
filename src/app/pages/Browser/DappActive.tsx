@@ -310,7 +310,7 @@ export const DappActive: FC = () => {
         )}
         {error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-solid px-6 text-center">
-            <div className="mb-2 text-lg font-semibold text-black">{t('dappLoadFailed')}</div>
+            <div className="mb-2 text-lg font-semibold text-ink">{t('dappLoadFailed')}</div>
             <div className="mb-6 text-sm text-text-muted">{t('dappLoadFailedHint')}</div>
             <button
               type="button"
