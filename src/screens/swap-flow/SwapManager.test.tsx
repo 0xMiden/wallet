@@ -476,6 +476,49 @@ describe('SwapFlow / SwapManager', () => {
     expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('5');
   });
 
+  describe('after a flip, before the new pair is quoted', () => {
+    // useSwapEta answers { loading: true } for a pair it has no quote for yet, so the
+    // AAA->BBB rate must not price the BBB->AAA order.
+    beforeEach(() => {
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice?: string) =>
+        Number(offerAmount) > 0 && marketPrice !== undefined ? '5' : ''
+      );
+      mockUseSwapEta.mockImplementation(({ offerToken }: { offerToken: typeof mockTokenA }) =>
+        offerToken.faucetId === mockTokenA.faucetId ? mockSwapEtaResult : { loading: true }
+      );
+    });
+
+    const flip = () => {
+      setOffer('10');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('5');
+      fireEvent.click(screen.getByTestId('sa-swap-direction'));
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
+    };
+
+    it('empties the receive field, disables Continue and shows the calculating state', () => {
+      renderFlow();
+      flip();
+
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('');
+      expect(screen.getByTestId('rs-market-price')).toHaveTextContent('undefined');
+    });
+
+    it('never submits an amount priced off the previous pair', async () => {
+      renderFlow();
+      flip();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+  });
+
   describe('token drawer', () => {
     it('opens keyed to the offer side and forwards close events', () => {
       renderFlow();

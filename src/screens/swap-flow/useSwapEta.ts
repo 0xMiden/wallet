@@ -23,6 +23,12 @@ export interface UseSwapEtaOpts {
 }
 
 const IDLE: SwapEtaState = { loading: false };
+const PENDING: SwapEtaState = { loading: true };
+
+/** Every non-idle state records the pair it was fetched for, as `offer|request` faucet ids. */
+type PairedState = SwapEtaState & { pair?: string };
+
+const pairOf = (offerFaucetId: string, requestFaucetId: string) => `${offerFaucetId}|${requestFaucetId}`;
 
 /**
  * Debounced quote for the current swap pair via the DEX `swap-eta` endpoint.
@@ -36,6 +42,10 @@ const IDLE: SwapEtaState = { loading: false };
  * placeholder — the oracle `marketPrice` is amount-independent, so it comes back
  * correct and the caller can use it to seed the receive field; the next call
  * then carries the real receive amount for the fill signals.
+ *
+ * A quote or error is returned only for the pair it was fetched for. A flip or a
+ * token change reads as `{ loading: true }` until the new pair's own answer lands,
+ * so the old pair's rate can never price (or its error block) the new order.
  */
 export function useSwapEta({
   offerToken,
@@ -62,7 +72,7 @@ export function useSwapEta({
       })
     : '';
   const [debouncedKey] = useDebounce(key, 500);
-  const [state, setState] = useState<SwapEtaState>(IDLE);
+  const [state, setState] = useState<PairedState>(IDLE);
   const reqId = useRef(0);
 
   useEffect(() => {
@@ -71,21 +81,27 @@ export function useSwapEta({
       setState(IDLE);
       return;
     }
-    const { oa, ra }: { of: string; oa: string; rf: string; ra: string } = JSON.parse(debouncedKey);
+    const { of, oa, rf, ra }: { of: string; oa: string; rf: string; ra: string } = JSON.parse(debouncedKey);
+    const pair = pairOf(of, rf);
     const id = ++reqId.current;
-    setState(prev => ({ loading: true, eta: prev.eta }));
+    // Only a same-pair amount change keeps the previous quote on screen while it reloads.
+    setState(prev => ({ loading: true, pair, eta: prev.pair === pair ? prev.eta : undefined }));
     getSwapEta(offerToken, BigInt(oa), requestToken, BigInt(ra))
       .then(eta => {
         if (id !== reqId.current) return;
-        setState({ loading: false, eta });
+        setState({ loading: false, pair, eta });
       })
       .catch((err: unknown) => {
         if (id !== reqId.current) return;
-        setState({ loading: false, error: err instanceof Error ? err.message : 'Quote failed' });
+        setState({ loading: false, pair, error: err instanceof Error ? err.message : 'Quote failed' });
       });
     // offerToken/requestToken are captured in `debouncedKey`; re-run only on it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedKey]);
 
-  return state;
+  // The debounce lags the pair by 500 ms plus the fetch, so compare against the live tokens.
+  if (state.pair === undefined) return state;
+  if (state.pair !== pairOf(offerToken.faucetId, requestToken.faucetId)) return PENDING;
+  const { loading, eta, error } = state;
+  return { loading, eta, error };
 }
