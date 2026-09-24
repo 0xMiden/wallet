@@ -260,7 +260,7 @@ export const earnMarketLabel = (marketUid: string): string | undefined => {
  *   send          →  {amount} {symbol}        ->  {recipient}
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
- *   consume       →  {amount} {symbol}        ->  Consumed
+ *   consume       →  {amount} {symbol}        ->  Accepted
  *
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
@@ -282,7 +282,7 @@ export const useTransactionSummaryBadgeContent = (
 
       return {
         lhs: parts.join(', '),
-        rhs: t('consumed', { defaultValue: 'Consumed' }),
+        rhs: t('accepted', { defaultValue: 'Accepted' }),
         // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
         // dusty rose on this very page, and the arrow used to sit green underneath it.
         fillForArrow: claimAccentColor(transaction, nativeFaucetId)
