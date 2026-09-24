@@ -517,8 +517,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
         )
       ) : (
         // Settings root is a primary tab destination, so it wears the same
-        // header as Activity and Explore: a plain title, no back chevron.
-        // Sub-pages above keep PageHeader — that back arrow is their only
+        // header as Activity and Explore: a plain title, no back button.
+        // Sub-pages above keep PageHeader - that back button is their only
         // way out.
         <TabHeader title={t('settings')} />
       )}

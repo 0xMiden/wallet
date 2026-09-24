@@ -104,7 +104,7 @@ const Header: React.FC<{
       <ProgressIndicator
         currentStep={currentStep ?? 1}
         steps={totalSteps}
-        // Centred on the row whether or not the chevron is there; decorative, the step's title says where you are.
+        // Centred on the row whether or not the back button is there; decorative, the step's title says where you are.
         aria-hidden="true"
         className={cn('pointer-events-none absolute left-1/2 -translate-x-1/2', !currentStep && 'opacity-0')}
       />
