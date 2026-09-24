@@ -104,6 +104,18 @@ describe('useEarnPositions', () => {
     expect(result.current).toHaveProperty('loadError', undefined);
   });
 
+  it('reports a read with no vaults and only owner failures as a failed load', () => {
+    mockUseRetryableSWR.mockReturnValue({
+      data: { ...liveResult, positions: [], vaults: [], totalDepositsUSD: 0, owners: [] },
+      isLoading: false
+    });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.loadError).toBe('owner unavailable');
+    expect(result.current.error).toBe('owner unavailable');
+  });
+
   it('reports a request failure as both loadError and error', () => {
     mockUseRetryableSWR.mockReturnValue({ data: undefined, isLoading: false, error: new Error('owner lookup failed') });
 

@@ -37,7 +37,10 @@ export function useEarnPositions(): {
   isLoading: boolean;
   /** Any failure: the request's, or one owner's positions. What the positions surfaces report. */
   error?: string;
-  /** The request's failure only. A vault read can succeed while one owner's positions fail. */
+  /**
+   * The vault read's failure: the request's, or every owner failing so no vault loaded. A read with any
+   * vault is not failed, though one owner's positions may be.
+   */
   loadError?: string;
   /** Force an immediate re-fetch (backs the error-state Retry). */
   refetch: () => void;
@@ -61,7 +64,10 @@ export function useEarnPositions(): {
   );
 
   return useMemo(() => {
-    const loadError = swrError ? (swrError instanceof Error ? swrError.message : String(swrError)) : undefined;
+    // Owner queries never reject: a full outage resolves with only errors and no vaults, which is a failed
+    // vault load too. Any vault makes the per-owner errors positions-only.
+    const outage = data && data.vaults.length === 0 ? data.errors[0]?.error : undefined;
+    const loadError = swrError ? (swrError instanceof Error ? swrError.message : String(swrError)) : outage;
     return {
       positions: (data?.positions ?? []).map(mapEarnPosition),
       vaults: (data?.vaults ?? []).map(mapEarnVault),
