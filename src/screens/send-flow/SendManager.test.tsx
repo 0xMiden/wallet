@@ -193,8 +193,13 @@ jest.mock('./bridge-networks', () => ({
   getBridgeNetwork: jest.fn()
 }));
 
+let mockEpochAmount: string | undefined;
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => ({ amount: undefined, loading: false })
+  useEpochQuote: () => ({ amount: mockEpochAmount, loading: false })
+}));
+
+jest.mock('./SendRoute', () => ({
+  SendRoute: (props: any) => <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -274,6 +279,7 @@ beforeEach(() => {
   mockSearch = '';
   mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
   mockRenderRouteName = undefined;
+  mockEpochAmount = undefined;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
@@ -1291,5 +1297,31 @@ describe('token preselection', () => {
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fast-route fee: only a priced token of known scale has a dollar input.
+// ---------------------------------------------------------------------------
+describe('fast-route fee', () => {
+  const renderRouteStep = (metadata: Record<string, unknown>) => {
+    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId: 'T1' });
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    mockEpochAmount = '4';
+    useAllBalancesMock.mockReturnValue({ data: [{ tokenId: 'T1', metadata, balance: 42, fiatPrice: 0 }] });
+    renderFlow();
+    return screen.getByTestId('route-fee');
+  };
+
+  it('is the dollar input less the quoted USDC for a priced token', () => {
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 })).toHaveTextContent(/^11$/);
+  });
+
+  it('is absent for a token the feed does not price, not $0', () => {
+    expect(renderRouteStep({ symbol: 'UNLISTED', decimals: 2 })).toHaveTextContent(/^undefined$/);
+  });
+
+  it('is absent for a priced token whose scale is unknown', () => {
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2, scaleIsUnknown: true })).toHaveTextContent(/^undefined$/);
   });
 });
