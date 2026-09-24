@@ -50,12 +50,12 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
-      <DrawerContent className="max-h-[78vh] overflow-hidden">
+      <DrawerContent className="max-h-[78vh]">
         <DrawerHeader>
           <DrawerTitle>{t('whatIsAGuardian')}</DrawerTitle>
         </DrawerHeader>
 
-        <div className="no-scrollbar flex flex-col gap-5 overflow-y-auto px-4 pb-4">
+        <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4">
           <WhatIsGuardianHero className="mx-auto h-[111px] w-[125px] shrink-0" />
 
           <p className="text-body text-ink">

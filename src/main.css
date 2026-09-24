@@ -65,17 +65,22 @@ button:disabled,
  * too would animate every pointer move.
  *
  * An overshoot on the way in lifts the sheet past its resting edge for a frame; vaul's own
- * `::after` skirt (200% tall, `background: inherit`) is what fills the gap under it. */
-[data-vaul-drawer],
-[data-vaul-overlay] {
+ * `::after` skirt (200% tall, `background: inherit`) is what fills the gap under it, which is why no
+ * sheet may clip itself (`overflow-hidden` on DrawerContent would cut the skirt off).
+ *
+ * vaul inserts its own stylesheet at runtime, AFTER this one, so a tie in specificity goes to vaul:
+ * each selector here carries one attribute more than the vaul rule it overrides
+ * (`[data-vaul-drawer]`, `[data-vaul-overlay][data-vaul-snap-points=false]`). */
+[data-vaul-drawer][data-vaul-drawer-direction],
+[data-vaul-overlay][data-vaul-snap-points][data-state] {
   animation-duration: var(--sheet-open-duration, 0.5s);
   animation-timing-function: var(--sheet-open-easing, cubic-bezier(0.32, 0.72, 0, 1));
   transition-duration: var(--sheet-open-duration, 0.5s) !important;
   transition-timing-function: var(--sheet-open-easing, cubic-bezier(0.32, 0.72, 0, 1)) !important;
 }
 
-[data-vaul-drawer][data-state='closed'],
-[data-vaul-overlay][data-state='closed'] {
+[data-vaul-drawer][data-vaul-drawer-direction][data-state='closed'],
+[data-vaul-overlay][data-vaul-snap-points][data-state='closed'] {
   animation-duration: var(--sheet-close-duration, 0.5s);
   animation-timing-function: var(--sheet-close-easing, cubic-bezier(0.32, 0.72, 0, 1));
 }
@@ -108,8 +113,8 @@ button:disabled,
  * [data-vaul-drawer-wrapper] (App.tsx), so the wrapper is clamped here too and
  * the scale lands at once under reduced motion. */
 @media (prefers-reduced-motion: reduce) {
-  [data-vaul-drawer],
-  [data-vaul-overlay],
+  [data-vaul-drawer][data-vaul-drawer-direction][data-state],
+  [data-vaul-overlay][data-vaul-snap-points][data-state],
   [data-vaul-drawer-wrapper] {
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;

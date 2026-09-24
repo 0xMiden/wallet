@@ -67,6 +67,11 @@ function Drawer({ open = false, onOpenChange, children, screenKey, dismissible, 
   );
 }
 
+/**
+ * The sheet itself. It must never clip (`overflow-hidden` on it): the open spring overshoots, and
+ * vaul's `::after` skirt under the sheet fills the gap only while the sheet does not cut it off. A
+ * sheet whose content outgrows the cap scrolls an inner `min-h-0` column instead.
+ */
 interface DrawerContentProps extends Omit<
   React.ComponentPropsWithoutRef<typeof VaulDrawer.Content>,
   'children' | 'className'

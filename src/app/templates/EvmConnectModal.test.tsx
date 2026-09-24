@@ -96,7 +96,9 @@ describe('EvmConnectModal (#875)', () => {
     const openWallet = screen.getByTestId('evm-connect-open-wallet');
     expect(body).not.toContainElement(openWallet);
     expect(openWallet.closest('[data-slot="drawer-footer"]')).not.toBeNull();
-    expect(screen.getByTestId('drawer-content')).toHaveClass('overflow-hidden');
+    // The sheet itself never clips: vaul's ::after skirt fills the gap under the sheet at the open
+    // spring's overshoot, and overflow-hidden on the sheet would clip it. The scroll column shrinks.
+    expect(screen.getByTestId('drawer-content')).not.toHaveClass('overflow-hidden');
   });
 
   it('stretches "Open wallet" across the footer instead of the 370px CTA cap', () => {

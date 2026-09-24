@@ -36,7 +36,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-connect">
       {/* The body scrolls and "Open wallet" stays pinned: in landscape 80vh is
           short enough for the warning to push the button out of view. */}
-      <DrawerContent className="overflow-hidden pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+      <DrawerContent className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="evm-connect-body">
             <DrawerHeader>

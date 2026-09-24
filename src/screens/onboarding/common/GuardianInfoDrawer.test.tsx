@@ -167,6 +167,13 @@ describe('GuardianInfoDrawer', () => {
     expect(container.innerHTML).not.toMatch(/#[0-9A-Fa-f]{6}/);
   });
 
+  it('never clips the sheet, so the skirt under an overshoot shows; its body shrinks to scroll instead', () => {
+    renderDrawer();
+
+    expect(screen.getByTestId('drawer-content').getAttribute('data-class') ?? '').not.toMatch(/overflow-hidden/);
+    expect(screen.getByText('guardianInfoWhatItDoesTitle').closest('.overflow-y-auto')).toHaveClass('min-h-0');
+  });
+
   it('dims the page behind with the shared sheet scrim, like every other sheet', () => {
     renderDrawer();
 
