@@ -50,6 +50,18 @@ describe('FlowLayout', () => {
     expect(glyph).toHaveAttribute('data-name', 'arrow-left');
   });
 
+  it("starts a tab-root step's content where a pushed step's starts: 36px above a 36px title", () => {
+    // A pushed step's content starts under the 60px PageHeader row, its 4px rule and pt-2: 72px.
+    render(
+      <FlowLayout title="Send" tabRoot footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+    const body = screen.getByRole('heading', { level: 1 }).closest('header')!.parentElement!;
+    expect(body).toHaveClass('pt-9');
+    expect(body).not.toHaveClass('pt-6');
+  });
+
   it('keeps the 60px header row without a back button so content lines up across steps', () => {
     render(
       <FlowLayout title="Title" footer={<button>cta</button>}>
