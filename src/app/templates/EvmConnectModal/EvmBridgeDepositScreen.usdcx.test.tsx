@@ -3,7 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
-import { USDCX_FAUCET_ID_HEX, USDCX_STANDIN_RECIPIENT } from 'lib/usdcx/constant';
+import { USDCX_FAUCET_ID_BECH32, USDCX_STANDIN_RECIPIENT } from 'lib/usdcx/constant';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
@@ -245,7 +245,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'usdcx',
-        faucetId: USDCX_FAUCET_ID_HEX,
+        faucetId: USDCX_FAUCET_ID_BECH32,
         amount: 1_500_000n,
         sourceAmount: '1.5',
         sourceSymbol: 'USDC',

@@ -112,6 +112,9 @@ function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status !== ITransactionStatus.Completed) return true;
 
   const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+  if (inputs.provider === 'usdcx') {
+    return !!inputs.usdcxBurn && inputs.usdcxBurn.phase !== 'confirmed' && inputs.usdcxBurn.phase !== 'discarded';
+  }
   return inputs.provider === 'epoch'
     ? inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed'
     : inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
@@ -127,6 +130,12 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
 async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (tx.type !== 'bridged-send' || tx.status !== ITransactionStatus.Completed) return;
   const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+
+  if (inputs.provider === 'usdcx') {
+    const { pollUsdcxBurn } = await import('lib/usdcx/burn-status');
+    await pollUsdcxBurn(tx);
+    return;
+  }
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;

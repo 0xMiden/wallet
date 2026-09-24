@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button } from 'components/ui/Button';
 import { DetailRow } from 'components/ui/DetailCard';
+import { StatusBadge } from 'components/ui/StatusBadge';
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
 import {
@@ -24,7 +25,7 @@ import HashChip from '../HashChip';
 import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
 import { ExternalLinkValue } from './TransactionStatus';
-import { BridgeStatus } from './transactionUtils';
+import { bridgeBadgeStatusOf, BridgeStatus } from './transactionUtils';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -76,6 +77,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
 
   const isAgglayer = entry.bridgeProvider === 'agglayer';
   const isEpoch = entry.bridgeProvider === 'epoch';
+  const isUsdcx = entry.bridgeProvider === 'usdcx';
   const destination = entry.bridgeDestinationAddress ?? '';
   const [status, setStatus] = useState<IBridgeClaimStatus>(entry.bridgeClaimStatus ?? 'not-applicable');
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
@@ -226,7 +228,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     <div className="mt-6 mb-4">
       <DetailSection title={t('bridgeDetails')}>
         <DetailRow label={t('route')}>
-          {entry.bridgeProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
+          {isUsdcx ? t('usdcxRouteLabel') : isEpoch ? t('fastRouteLabel') : t('slowRouteLabel')}
         </DetailRow>
         {destination && (
           <DetailRow label={t('to')}>
@@ -238,13 +240,33 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         )}
         {/* eslint-disable-next-line i18next/no-literal-string -- network's proper name, not translatable copy */}
         <DetailRow label={t('destinationNetwork')}>Sepolia</DetailRow>
-        <DetailRow label={isEpoch ? t('status') : t('claimStatus')}>
-          {transactionFailed
-            ? t('bridgeFailed')
-            : isEpoch
-              ? t(EPOCH_STATUS_LABEL[epochStatus])
-              : t(CLAIM_STATUS_LABEL[status])}
+        <DetailRow label={isEpoch || isUsdcx ? t('status') : t('claimStatus')}>
+          {isUsdcx ? (
+            <StatusBadge status={bridgeBadgeStatusOf(entry)} live />
+          ) : transactionFailed ? (
+            t('bridgeFailed')
+          ) : isEpoch ? (
+            t(EPOCH_STATUS_LABEL[epochStatus])
+          ) : (
+            t(CLAIM_STATUS_LABEL[status])
+          )}
         </DetailRow>
+        {isUsdcx && entry.usdcxBurn && (
+          <>
+            <DetailRow label={t('usdcxBurnNoteId')}>
+              <HashChip hash={entry.usdcxBurn.noteId} trimHash />
+            </DetailRow>
+            <DetailRow label={t('usdcxDestinationDomain')}>{entry.usdcxBurn.destinationDomain}</DetailRow>
+            {entry.usdcxBurn.attemptCount !== undefined && (
+              <DetailRow label={t('usdcxProcessingAttempts')}>{entry.usdcxBurn.attemptCount}</DetailRow>
+            )}
+            {entry.usdcxBurn.lastError && (
+              <DetailRow label={t('usdcxLastProcessingError')} stacked>
+                <span className="break-all text-body-sm text-muted">{entry.usdcxBurn.lastError}</span>
+              </DetailRow>
+            )}
+          </>
+        )}
         {isEpoch && fillTxHash && (
           <DetailRow label={t('receivingTx')}>
             <ExternalLinkValue
@@ -254,6 +276,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           </DetailRow>
         )}
       </DetailSection>
+      {isUsdcx && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxBurnTestNotice')}</p>}
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&

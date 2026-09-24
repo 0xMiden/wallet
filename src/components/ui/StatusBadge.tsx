@@ -13,6 +13,10 @@ export type Status =
   | 'pending'
   | 'inProgress'
   | 'confirmed'
+  | 'burnPending'
+  | 'burnConsuming'
+  | 'burnConfirmed'
+  | 'burnDiscarded'
   | 'failed'
   | 'cancelled'
   | 'reclaimed'
@@ -63,6 +67,10 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   pending: { labelKey: 'pending', tone: 'pending' },
   inProgress: { labelKey: 'inProgress', tone: 'pending' },
   confirmed: { labelKey: 'confirmed', tone: 'positive' },
+  burnPending: { labelKey: 'usdcxBurnPending', tone: 'pending' },
+  burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
+  burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
+  burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },
