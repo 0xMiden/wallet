@@ -27,7 +27,7 @@ interface ActivityGroupedHistoryProps {
  * groups, as actionable here as in the List view.
  */
 export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ search, programId }) => {
-  const { account, listItems, renderPendingItem } = useActivityClaimList(search, 'all');
+  const { account, representedItems, listItems, renderPendingItem } = useActivityClaimList(search, 'all');
   const { allContacts } = useFilteredContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +61,7 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
           fullHistory
           centerEmptyState
           scrollParentRef={scrollRef}
-          pendingItems={listItems}
+          pendingItems={representedItems}
           renderEntries={view => (
             <ActivityGroupList
               entries={view.entries}

@@ -20,10 +20,8 @@ interface ActivityPendingHistoryProps {
 
 export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
-  const { items, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden } = useActivityClaimList(
-    search,
-    filter
-  );
+  const { items, representedItems, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden } =
+    useActivityClaimList(search, filter);
   const reducedMotion = useReducedMotion();
   const loadingTransition = useMotion({
     duration: durations.extraSlow * 2,
@@ -97,7 +95,8 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             scrollParentRef={scrollRef}
             searchQuery={search}
             filter={filter}
-            pendingItems={listItems}
+            pendingItems={representedItems}
+            drawnPendingItems={listItems}
             renderPendingItem={renderPendingItem}
           />
         </div>

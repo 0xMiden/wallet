@@ -49,7 +49,10 @@ type HistoryProps = {
   centerEmptyState?: boolean;
   /** Passed to `HistoryView`: replaces the default empty card's surface, title and body. */
   emptyState?: { surface?: 'fill' | 'dashed'; title?: string; description?: string };
+  /** The claims a card stands for; the consume row each would repeat is hidden. */
   pendingItems?: PendingActivityItem[];
+  /** The cards drawn in the timeline, when fewer than `pendingItems` (a search); defaults to `pendingItems`. */
+  drawnPendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   tokenId?: string;
   searchQuery?: string;
@@ -110,6 +113,7 @@ const History = memo<HistoryProps>(
     predicate,
     renderEntries,
     pendingItems,
+    drawnPendingItems,
     renderPendingItem
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
@@ -332,7 +336,7 @@ const History = memo<HistoryProps>(
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
         emptyState={emptyState}
-        pendingItems={pendingItems}
+        pendingItems={drawnPendingItems ?? pendingItems}
         renderPendingItem={renderPendingItem}
         className={className}
       />

@@ -176,6 +176,21 @@ describe('ActivityGroupedHistory', () => {
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-keys', 'send-1');
   });
 
+  it("keeps a claimed note's consume row out of the groups while a search hides its card", () => {
+    mockRealHistory = true;
+    const claimed = claim('note-claimed', 'claimed');
+    mockClaims.items = [claimed];
+    mockLatest.push(
+      entry({ key: 'consume-claimed', txType: 'consume', consumedNoteIds: ['note-claimed'] }),
+      entry({ key: 'send-1' })
+    );
+    render(<ActivityGroupedHistory search="zzzz-nothing" />);
+
+    expect(historyProps.pendingItems).toEqual([claimed]);
+    expect(screen.queryByTestId('activity-group-claims')).toBeNull();
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-keys', 'send-1');
+  });
+
   it('rolls up the loaded entries and searches the groups rather than the entries', () => {
     loaded.push(entry(), entry({ key: 'entry-2' }));
     render(<ActivityGroupedHistory search="usdc" programId="prog-1" />);

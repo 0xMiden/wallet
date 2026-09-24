@@ -31,20 +31,28 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const query = search.trim().toLowerCase();
   // Memoized with the card renderer below, so a render that changes no pending item keeps
   // History's props identical and the timeline does not re-render.
-  const listItems = useMemo(
+  // Unsearched: History hides the consume row of each of these, and a search that drops a card
+  // must not bring that row back.
+  const representedItems = useMemo(
     () =>
       items.filter(item => {
         if (!isShown(item, hidden.ids)) return false;
         if (filter === 'sent' || filter === 'faucet') return false;
-        if (filter === 'pending' && item.status === 'claimed') return false;
-        return (
-          !query ||
-          [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>
-            value?.toLowerCase().includes(query)
-          )
-        );
+        return !(filter === 'pending' && item.status === 'claimed');
       }),
-    [items, hidden.ids, filter, query]
+    [items, hidden.ids, filter]
+  );
+  // The cards drawn.
+  const listItems = useMemo(
+    () =>
+      query
+        ? representedItems.filter(item =>
+            [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>
+              value?.toLowerCase().includes(query)
+            )
+          )
+        : representedItems,
+    [representedItems, query]
   );
 
   const reject = async (note: NoteWithMetadata) => {
@@ -75,5 +83,5 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     [hiddenLoaded]
   );
 
-  return { items, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden };
+  return { items, representedItems, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden };
 }

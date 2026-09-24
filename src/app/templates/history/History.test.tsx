@@ -1292,6 +1292,28 @@ it('suppresses legacy single-note consume rows behind a claimed card, keeps rows
   expect(entryKeys()).toEqual([]);
 });
 
+it('hides the consume row of every represented claim while drawing only the cards it is told to', async () => {
+  mockGetCompletedTransactions.mockResolvedValue([]);
+  mockGetUncompletedTransactions.mockResolvedValue([
+    { id: 'single', status: STATUS.Queued, type: 'consume', noteIds: ['note-one'], initiatedAt: 500 }
+  ]);
+  const item: PendingActivityItem = {
+    note: {
+      id: 'note-one',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'claimed'
+  };
+  await renderHistory({ pendingItems: [item], drawnPendingItems: [] });
+  expect(entryKeys()).toEqual([]);
+  expect(mockHistoryViewProps.pendingItems).toEqual([]);
+});
+
 it('hides a failed consume row while its failed card offers the retry, and shows it again once no card does', async () => {
   mockGetCompletedTransactions.mockResolvedValue([
     {
