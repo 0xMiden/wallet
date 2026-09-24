@@ -14,6 +14,7 @@ import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
+import { MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
 import { SetupBiometricScreen } from './common/SetupBiometric';
@@ -71,6 +72,8 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.ChooseProtection]: 1,
   [OnboardingStep.SetupPasscode]: 2,
   [OnboardingStep.SetupBiometric]: 2,
+  // One decision, two screens: the picker is a detail of the guardian step, not a step after it.
+  [OnboardingStep.MeetGuardian]: 3,
   [OnboardingStep.ChooseGuardian]: 3,
   [OnboardingStep.SelectImportType]: 1,
   // This change inserts the import-type choice at tier 1, so seed entry moves to
@@ -246,6 +249,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.SetupBiometric:
         return (
           <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
+        );
+      case OnboardingStep.MeetGuardian:
+        return (
+          <MeetGuardianScreen
+            onSubmit={onChooseGuardianSubmit}
+            onChooseDifferent={() => onForwardAction?.({ id: 'choose-guardian' })}
+            showNoGuardianOption={getEffectiveAllowNoGuardian()}
+          />
         );
       case OnboardingStep.ChooseGuardian:
         return (

@@ -36,6 +36,8 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
   footer?: React.ReactNode;
   /** `stack` puts the footer's buttons one above the other, for labels too long to share a row. */
   footerLayout?: 'row' | 'stack';
+  /** Layout only, on the scrolling body: an extra inset on top of the 16px page margin. */
+  bodyClassName?: string;
   'data-testid'?: string;
 }
 
@@ -56,6 +58,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   footer,
   footerLayout = 'row',
   onClose,
+  bodyClassName,
   'data-testid': dataTestId,
   ...header
 }) => {
@@ -76,7 +79,10 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
         />
       )}
 
-      <div data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pt-2 pb-4">
+      <div
+        data-slot="body"
+        className={cn('flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pt-2 pb-4', bodyClassName)}
+      >
         {children}
       </div>
 

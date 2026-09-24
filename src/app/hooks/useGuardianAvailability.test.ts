@@ -8,9 +8,12 @@ import { act, renderHook } from '@testing-library/react';
 
 import { GUARDIAN_AVAILABILITY_REPROBE_MS, useGuardianAvailability } from './useGuardianAvailability';
 
+// The hook reads the latency probe; these tests speak in the boolean the picker
+// sees, so a `true` becomes a 0 ms round trip and a `false` no round trip at all.
 const mockPing = jest.fn();
 jest.mock('lib/miden/guardian/availability', () => ({
-  pingGuardianEndpoint: (...args: unknown[]) => mockPing(...args)
+  pingGuardianEndpointLatency: (...args: unknown[]) =>
+    Promise.resolve(mockPing(...args)).then((online: boolean) => (online ? 0 : null))
 }));
 
 /** One controllable ping per endpoint, resolved manually by tests. */

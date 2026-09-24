@@ -110,6 +110,7 @@ jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => 
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
 jest.mock('./common/SetupPasscode', () => ({ SetupPasscodeScreen: (p: any) => mockScreen('setup-passcode')(p) }));
 jest.mock('./common/ChooseGuardian', () => ({ ChooseGuardianScreen: (p: any) => mockScreen('choose-guardian')(p) }));
+jest.mock('./common/MeetGuardian', () => ({ MeetGuardianScreen: (p: any) => mockScreen('meet-guardian')(p) }));
 jest.mock('./create-wallet-flow/BackUpSeedPhrase', () => ({
   BackUpSeedPhraseScreen: (p: any) => mockScreen('backup-seed')(p)
 }));
@@ -175,6 +176,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     [OnboardingStep.ChooseProtection, 'screen-choose-protection'],
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
     [OnboardingStep.SetupBiometric, 'screen-setup-biometric'],
+    [OnboardingStep.MeetGuardian, 'screen-meet-guardian'],
     [OnboardingStep.ChooseGuardian, 'screen-choose-guardian'],
     [OnboardingStep.BackupSeedPhrase, 'screen-backup-seed'],
     [OnboardingStep.VerifySeedPhrase, 'screen-verify-seed'],
@@ -299,6 +301,28 @@ describe('OnboardingFlow — action wiring per screen', () => {
     mockAllowNoGuardian = false;
     renderFlow({ step: OnboardingStep.ChooseGuardian });
     expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(false);
+  });
+
+  it('MeetGuardian: submits the picked guardian, opens the picker, and carries the dev flag', () => {
+    const onAction = jest.fn();
+    mockAllowNoGuardian = true;
+    renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
+    expect(mockCaptured['meet-guardian'].showNoGuardianOption).toBe(true);
+
+    const payload = { guardianId: 'g1', guardianEndpoint: 'https://guardian.example' };
+    act(() => mockCaptured['meet-guardian'].onSubmit(payload));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload });
+
+    act(() => mockCaptured['meet-guardian'].onChooseDifferent());
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian' });
+  });
+
+  it('MeetGuardian and ChooseGuardian sit at the same progress position', () => {
+    const { unmount } = renderFlow({ step: OnboardingStep.MeetGuardian, onboardingType: OnboardingType.Create });
+    const meetProgress = screen.getByTestId('progress').getAttribute('data-current');
+    unmount();
+    renderFlow({ step: OnboardingStep.ChooseGuardian, onboardingType: OnboardingType.Create });
+    expect(screen.getByTestId('progress').getAttribute('data-current')).toBe(meetProgress);
   });
 
   it('BackupSeedPhrase: passes the seed phrase through and submits verify', () => {

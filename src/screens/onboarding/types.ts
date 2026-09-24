@@ -49,6 +49,12 @@ export enum OnboardingStep {
   ImportFromFile = 'import-from-file',
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
+  /**
+   * The create flow's guardian step: three facts to acknowledge, then the
+   * fastest reachable operator, picked for the user. "Choose a different
+   * Guardian" pushes the full picker, `ChooseGuardian`.
+   */
+  MeetGuardian = 'meet-guardian',
   ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
@@ -146,9 +152,9 @@ export type SelectRecoveryMethodAction = {
   payload: WalletType;
 };
 
+/** Open the full operator picker from the Meet your Guardian step. */
 export type ChooseGuardianAction = {
   id: 'choose-guardian';
-  payload: { guardianId: string; guardianEndpoint: string };
 };
 
 export type ImportSelectRecoveryMethodAction = {

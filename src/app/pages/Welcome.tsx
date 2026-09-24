@@ -158,6 +158,8 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
   [OnboardingStep.SetupBiometric]: 'setup_biometric',
   [OnboardingStep.CreatePassword]: 'set_password',
   [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
+  // One decision on two screens: the picker is a detail of the guardian step, so both report it.
+  [OnboardingStep.MeetGuardian]: 'choose_guardian',
   [OnboardingStep.ChooseGuardian]: 'choose_guardian',
   [OnboardingStep.ImportFromSeed]: 'enter_phrase',
   // Account creation is running; a failure here is ours, not a change of mind.
@@ -579,7 +581,7 @@ const Welcome: FC = () => {
         setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        navigate('/#choose-guardian');
+        navigate('/#meet-guardian');
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -597,6 +599,10 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
+        navigate('/#meet-guardian');
+        break;
+      case 'choose-guardian':
+        // "Choose a different Guardian" on the Meet your Guardian step: the full picker.
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
@@ -715,7 +721,7 @@ const Welcome: FC = () => {
           // mnemonic here, exactly like setup-passcode-submit does.
           setSeedPhrase(generateMnemonic().split(' '));
           setProtectionMethod('password');
-          navigate('/#choose-guardian');
+          navigate('/#meet-guardian');
         } else if (onboardingType === OnboardingType.Import) {
           navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
         } else {
@@ -825,6 +831,9 @@ const Welcome: FC = () => {
             navigate(target);
           }
         } else if (step === OnboardingStep.ChooseGuardian) {
+          // The picker was pushed from the Meet your Guardian step; back returns there.
+          navigate('/#meet-guardian');
+        } else if (step === OnboardingStep.MeetGuardian) {
           if (protectionMethod === 'biometric') {
             navigate('/#setup-biometric');
           } else if (protectionMethod === 'password') {
@@ -836,8 +845,8 @@ const Welcome: FC = () => {
           if (onboardingType === OnboardingType.Create) {
             // Extension/desktop: the password screen is the first protection
             // step, so back returns to Welcome. On mobile the
-            // biometric-without-hardware path lands here from choose-guardian.
-            const target = isMobile() ? '/#choose-guardian' : '/';
+            // biometric-without-hardware path lands here from the guardian step.
+            const target = isMobile() ? '/#meet-guardian' : '/';
             cancelOnLeavingOnboarding(target);
             navigate(target);
           } else {
@@ -939,6 +948,10 @@ const Welcome: FC = () => {
       case '#setup-biometric':
         setOnboardingType(OnboardingType.Create);
         setStep(OnboardingStep.SetupBiometric);
+        break;
+      case '#meet-guardian':
+        setOnboardingType(OnboardingType.Create);
+        setStep(OnboardingStep.MeetGuardian);
         break;
       case '#choose-guardian':
         setOnboardingType(OnboardingType.Create);

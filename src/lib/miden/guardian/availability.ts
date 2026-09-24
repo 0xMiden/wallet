@@ -33,9 +33,23 @@ export async function pingGuardianEndpoint(
   endpoint: string,
   timeoutMs: number = GUARDIAN_PING_TIMEOUT_MS
 ): Promise<boolean> {
+  return (await pingGuardianEndpointLatency(endpoint, timeoutMs)) !== null;
+}
+
+/**
+ * The round trip of one `GET /pubkey`, in milliseconds, when the guardian at
+ * `endpoint` answers with a key commitment within `timeoutMs`; `null` when it
+ * does not. The onboarding step that picks a guardian for the user ranks the
+ * operators by this number. Never throws.
+ */
+export async function pingGuardianEndpointLatency(
+  endpoint: string,
+  timeoutMs: number = GUARDIAN_PING_TIMEOUT_MS
+): Promise<number | null> {
   // Built-ins are pre-seeded for the mobile CORS bypass; register defensively
   // so a custom/overridden endpoint also routes through native HTTP.
   registerGuardianOrigin(endpoint);
+  const startedAt = performance.now();
   try {
     const result = await new Promise<{ commitment?: string }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`guardian ping to ${endpoint} timed out`)), timeoutMs);
@@ -56,8 +70,9 @@ export async function pingGuardianEndpoint(
     // the same unvalidated value `fetchOperatorCommitment` refuses, on the same
     // endpoint, for the same reason. Fails toward "offline", which is what every
     // other non-guardian response already reports.
-    return typeof result?.commitment === 'string' && result.commitment.length > 0;
+    const isGuardian = typeof result?.commitment === 'string' && result.commitment.length > 0;
+    return isGuardian ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
   } catch {
-    return false;
+    return null;
   }
 }
