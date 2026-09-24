@@ -475,7 +475,6 @@
   "meetGuardianOnlyOperator": "El operador de esta red",
   "meetGuardianLatencyMs": "$ms$ ms",
   "meetGuardianCannotMoveFunds": "No puede mover tus fondos por su cuenta",
-  "meetGuardianCannotSeeState": "No se pueden ver tus saldos ni tu estado privado",
   "meetGuardianCanSwitch": "Cambia en cualquier momento con tu seed phrase",
   "meetGuardianChecking": "Comprobando qué operador responde más rápido…",
   "meetGuardianNoneReachable": "En este momento no hay ningún operador de Guardian disponible. Comprueba tu conexión o elige otro para volver a intentarlo.",

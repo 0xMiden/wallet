@@ -2185,10 +2185,6 @@
     "message": "Kann Ihre Gelder nicht eigenständig bewegen",
     "englishSource": "Cannot move your funds on its own"
   },
-  "meetGuardianCannotSeeState": {
-    "message": "Ihre Guthaben oder privaten Daten sind nicht einsehbar",
-    "englishSource": "Cannot see your balances or private state"
-  },
   "meetGuardianCanSwitch": {
     "message": "Wechseln Sie jederzeit mit Ihrem „seed phrase“",
     "englishSource": "Switch any time with your seed phrase"

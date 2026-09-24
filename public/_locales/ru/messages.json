@@ -2185,10 +2185,6 @@
     "message": "Невозможно самостоятельно перемещать свои средства",
     "englishSource": "Cannot move your funds on its own"
   },
-  "meetGuardianCannotSeeState": {
-    "message": "Невозможно просматривать ваши остатки или личные данные",
-    "englishSource": "Cannot see your balances or private state"
-  },
   "meetGuardianCanSwitch": {
     "message": "Вы можете переключаться в любое время с помощью своего seed phrase",
     "englishSource": "Switch any time with your seed phrase"

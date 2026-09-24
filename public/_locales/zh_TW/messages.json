@@ -2185,10 +2185,6 @@
     "message": "無法自行移動您的資金",
     "englishSource": "Cannot move your funds on its own"
   },
-  "meetGuardianCannotSeeState": {
-    "message": "無法查看您的餘額或私有狀態",
-    "englishSource": "Cannot see your balances or private state"
-  },
   "meetGuardianCanSwitch": {
     "message": "您可隨時透過 seed phrase 進行切換",
     "englishSource": "Switch any time with your seed phrase"

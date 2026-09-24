@@ -475,7 +475,6 @@
   "meetGuardianOnlyOperator": "このネットワークの運営者",
   "meetGuardianLatencyMs": "$ms$ ms",
   "meetGuardianCannotMoveFunds": "自身では資金を移動させることはできません",
-  "meetGuardianCannotSeeState": "残高やプライベートな状態は確認できません",
   "meetGuardianCanSwitch": "seed phrase を使って、いつでも切り替えることができます。",
   "meetGuardianChecking": "どのオペレーターが最も早く応答するか確認中……",
   "meetGuardianNoneReachable": "現在、Guardianのオペレーターには接続できません。接続状態を確認するか、別のオペレーターを選んで再試行してください。",

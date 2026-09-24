@@ -475,7 +475,6 @@
   "meetGuardianOnlyOperator": "Operator tej sieci",
   "meetGuardianLatencyMs": "$ms$ ms",
   "meetGuardianCannotMoveFunds": "Nie można samodzielnie przenosić swoich środków",
-  "meetGuardianCannotSeeState": "Nie można wyświetlić stanów konta ani informacji prywatnych",
   "meetGuardianCanSwitch": "Możesz dokonać zmiany w dowolnym momencie za pomocą seed phrase",
   "meetGuardianChecking": "Sprawdzam, który operator odpowiada najszybciej…",
   "meetGuardianNoneReachable": "W tej chwili nie można skontaktować się z żadnym operatorem serwisu Guardian. Sprawdź połączenie lub wybierz innego operatora i spróbuj ponownie.",

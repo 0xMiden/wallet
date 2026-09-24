@@ -2185,10 +2185,6 @@
     "message": "Неможливо самостійно переміщувати ваші кошти",
     "englishSource": "Cannot move your funds on its own"
   },
-  "meetGuardianCannotSeeState": {
-    "message": "Немає доступу до ваших залишків або приватних даних",
-    "englishSource": "Cannot see your balances or private state"
-  },
   "meetGuardianCanSwitch": {
     "message": "Переключайтеся в будь-який час за допомогою вашого seed phrase",
     "englishSource": "Switch any time with your seed phrase"
@@ -2208,6 +2204,15 @@
   "chooseDifferentGuardian": {
     "message": "Оберіть інший Guardian",
     "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioGeneric": {
+    "message": "Один із незалежних операторів Guardian на платформі Miden, що працює за принципом «$operators$».",
+    "englishSource": "One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
   },
   "guardianBioOpenZeppelin": {
     "message": "OpenZeppelin — це компанія з безпеки, що стоїть за стандартними бібліотеками контрактів Ethereum. Один із незалежних операторів $operators$ Guardian на Miden.",

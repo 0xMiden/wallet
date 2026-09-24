@@ -475,7 +475,6 @@
   "meetGuardianOnlyOperator": "Der Betreiber dieses Netzwerks",
   "meetGuardianLatencyMs": "$ms$ ms",
   "meetGuardianCannotMoveFunds": "Kann Ihre Gelder nicht eigenständig bewegen",
-  "meetGuardianCannotSeeState": "Ihre Guthaben oder privaten Daten sind nicht einsehbar",
   "meetGuardianCanSwitch": "Wechseln Sie jederzeit mit Ihrem „seed phrase“",
   "meetGuardianChecking": "Mal sehen, welcher Betreiber am schnellsten antwortet…",
   "meetGuardianNoneReachable": "Derzeit ist kein Betreiber von Guardian erreichbar. Überprüfen Sie Ihre Verbindung oder wählen Sie einen anderen Betreiber aus, um es erneut zu versuchen.",

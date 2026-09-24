@@ -475,7 +475,6 @@
   "meetGuardianOnlyOperator": "Оператор этой сети",
   "meetGuardianLatencyMs": "$ms$ ms",
   "meetGuardianCannotMoveFunds": "Невозможно самостоятельно перемещать свои средства",
-  "meetGuardianCannotSeeState": "Невозможно просматривать ваши остатки или личные данные",
   "meetGuardianCanSwitch": "Вы можете переключаться в любое время с помощью своего seed phrase",
   "meetGuardianChecking": "Проверяю, какой оператор отвечает быстрее всего…",
   "meetGuardianNoneReachable": "В данный момент ни один оператор Guardian недоступен. Проверьте соединение или выберите другого оператора, чтобы повторить попытку.",

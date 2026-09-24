@@ -2185,10 +2185,6 @@
     "message": "Cannot move your funds on its own",
     "englishSource": "Cannot move your funds on its own"
   },
-  "meetGuardianCannotSeeState": {
-    "message": "Cannot see your balances or private state",
-    "englishSource": "Cannot see your balances or private state"
-  },
   "meetGuardianCanSwitch": {
     "message": "Switch any time with your seed phrase",
     "englishSource": "Switch any time with your seed phrase"

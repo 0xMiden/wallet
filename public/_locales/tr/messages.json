@@ -2185,10 +2185,6 @@
     "message": "Fonlarınızı kendi başına taşıyamaz",
     "englishSource": "Cannot move your funds on its own"
   },
-  "meetGuardianCannotSeeState": {
-    "message": "Bakiyelerinizi veya özel durumunuzu göremezsiniz",
-    "englishSource": "Cannot see your balances or private state"
-  },
   "meetGuardianCanSwitch": {
     "message": "seed phrase'ınızla istediğiniz zaman geçiş yapabilirsiniz",
     "englishSource": "Switch any time with your seed phrase"

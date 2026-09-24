@@ -475,7 +475,6 @@
   "meetGuardianOnlyOperator": "该网络的运营商",
   "meetGuardianLatencyMs": "$ms$ ms",
   "meetGuardianCannotMoveFunds": "无法自行转移您的资金",
-  "meetGuardianCannotSeeState": "无法查看您的余额或私有状态",
   "meetGuardianCanSwitch": "您可随时通过 seed phrase 进行切换",
   "meetGuardianChecking": "正在测试哪位客服响应最快……",
   "meetGuardianNoneReachable": "目前无法联系到任何Guardian运营商。请检查您的网络连接，或选择其他运营商重试。",
