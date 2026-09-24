@@ -464,19 +464,57 @@ describe('Welcome — hash → step routing', () => {
     expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
   });
 
+  // The create seed exists only once a protection step is submitted; desktop's password submit generates it.
+  const enterCreateWithSeed = async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    expect(mockFlowProps.current.seedPhrase).not.toBeNull();
+  };
+
   it('routes #meet-guardian to MeetGuardian inside a create flow', async () => {
     await renderWelcome();
-    await setHash('#select-wallet-type');
+    await enterCreateWithSeed();
     await setHash('#meet-guardian');
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
   });
 
   it('routes #choose-guardian to ChooseGuardian inside a create flow', async () => {
     await renderWelcome();
-    await setHash('#select-wallet-type');
+    await enterCreateWithSeed();
     await setHash('#choose-guardian');
     expect(currentStep()).toBe(OnboardingStep.ChooseGuardian);
   });
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome while the create flow has no seed yet',
+    async hash => {
+      await renderWelcome();
+      await setHash('#select-wallet-type');
+      mockNavigate.mockClear();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+      expect(currentStep()).toBe(OnboardingStep.SelectWalletType);
+    }
+  );
+
+  it.each(['#meet-guardian', '#choose-guardian'])(
+    'redirects %s back to Welcome when the only seed is left over from an import',
+    async hash => {
+      mockIsMobileFn.mockReturnValue(false);
+      await renderWelcome();
+      await dispatch({ id: 'select-import-type' });
+      await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      // Back on Welcome, the user starts a create instead: it begins with no credentials.
+      await dispatch({ id: 'choose-protection' });
+      expect(mockFlowProps.current.seedPhrase).toBeNull();
+      expect(mockFlowProps.current.password).toBeNull();
+      mockNavigate.mockClear();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    }
+  );
 
   it.each(['#meet-guardian', '#choose-guardian'])(
     'redirects %s back to Welcome when onboarding state was lost',

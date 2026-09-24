@@ -181,6 +181,8 @@ const Welcome: FC = () => {
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
+  const seedPhraseRef = useRef(seedPhrase);
+  seedPhraseRef.current = seedPhrase;
   // Seed-less Guardian import: the normalized hot:EVM pair. Mutually
   // exclusive with `seedPhrase` — each submit clears the other, so register()
   // and back-navigation can branch on which credential is live.
@@ -190,6 +192,13 @@ const Welcome: FC = () => {
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
+  // A create flow starts with no credentials: a seed, key or password left by an abandoned import or an
+  // earlier create would otherwise pass for this flow's own. Setters only, so the identity is stable.
+  const clearFlowCredentials = useCallback(() => {
+    setSeedPhrase(null);
+    setKeyPairPayload(null);
+    setPassword(null);
+  }, []);
   // The guardian operator endpoint the user picked (choose-guardian) or that the
   // import recovery-method screen resolved. Threaded explicitly into
   // registerWallet (stage 1 of #408) so a new Guardian account binds to it,
@@ -533,6 +542,7 @@ const Welcome: FC = () => {
     const generation = transitionGenerationRef.current;
 
     const startCreateFlow = () => {
+      clearFlowCredentials();
       setImportType(null);
       setWalletFilePayload(null);
       setOnboardingType(OnboardingType.Create);
@@ -556,6 +566,7 @@ const Welcome: FC = () => {
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
+        clearFlowCredentials();
         // On a test network the chosen flow waits behind the network notice
         // (#875); acknowledging the notice starts it.
         if (getTestNetworkNameKey()) {
@@ -919,10 +930,12 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.NetworkNotice);
         break;
       case '#select-wallet-type':
+        clearFlowCredentials();
         setOnboardingType(OnboardingType.Create);
         setStep(OnboardingStep.SelectWalletType);
         break;
       case '#choose-protection':
+        clearFlowCredentials();
         setOnboardingType(OnboardingType.Create);
         // Never render the choose-protection screen where biometric can't work
         // (guards direct hash navigation / reload); redirect to the platform's
@@ -950,10 +963,12 @@ const Welcome: FC = () => {
         break;
       case '#meet-guardian':
       case '#choose-guardian':
-        // Both need the create flow's in-memory seed: a reload loses it (onboardingType is null), and an
-        // import must not turn into a create. Every create path generates the seed before it
-        // navigates here, so a Create type is enough; the seed stays out of this effect's deps.
-        if (onboardingType !== OnboardingType.Create) navigate('/');
+        // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
+        // a create, and a history jump can land here before any protection step generated it (a create
+        // starts with no credentials, see clearFlowCredentials). The seed is read through a ref: in the
+        // deps it would re-run the import cases, and #import-from-seed would reset the probe its submit
+        // just started.
+        if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
         else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
         else setStep(OnboardingStep.ChooseGuardian);
         break;
@@ -1011,7 +1026,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType, resetGuardianProbe]);
+  }, [hash, password, onboardingType, resetGuardianProbe, clearFlowCredentials]);
 
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.
