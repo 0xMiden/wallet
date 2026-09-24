@@ -72,7 +72,8 @@ describe('HomeGroupPaneBody', () => {
     // `PageHeader`'s own rule already ends in `mb-2` — the body adds no top offset of its own, or
     // a pushed flow step opens with 16px under the rule instead of the 8px every other pushed
     // page opens with (`PushedPageGap.test.tsx`).
-    expect(body(container)).not.toHaveClass('pt-2', 'pt-6');
+    expect(body(container)).not.toHaveClass('pt-2');
+    expect(body(container)).not.toHaveClass('pt-6');
   });
 
   it('draws the pane title, so all four sit at the same height', () => {
