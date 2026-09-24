@@ -10,7 +10,7 @@ import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { durations, useMotion } from 'lib/animation';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/adaptive-precision';
 import { formatUsd } from 'lib/i18n/numbers';
-import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { markActivityRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
 import { useConfirm } from 'lib/ui/dialog';
@@ -115,7 +115,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
         ? t('activityPendingWaitingHidden', { count: waitingCount, hidden: hiddenCount })
         : t('activityPendingWaiting', { count: waitingCount });
 
-  const reject = async (note: NoteWithMetadata) => {
+  const reject = async (note: ClaimableNoteWithMetadata) => {
     const accepted = await confirm({
       title: t('activityRejectTransfer'),
       children: t('activityRejectExplanation'),

@@ -5,7 +5,7 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import { getFailedTransactions, verifyStuckTransactionsFromNode } from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
-import { NoteWithMetadata, useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { ClaimableNoteWithMetadata, useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -15,9 +15,9 @@ import { getIntercom } from 'lib/store';
 export interface ClaimNotesState {
   account: WalletAccount;
   isFetchingNotes: boolean;
-  safeClaimableNotes: NoteWithMetadata[];
+  safeClaimableNotes: ClaimableNoteWithMetadata[];
   isDelegatedProvingEnabled: boolean;
-  /** Notes that failed but where a retry can still help (local failed consume / claim error). */
+  /** Notes that failed but where a retry can still help (a locally failed consume). */
   retriableNoteIds: Set<string>;
   /** Notes the node/client reports as terminally Invalid — a retry cannot help. */
   invalidNoteIds: Set<string>;
@@ -81,13 +81,6 @@ export function useClaimNotes(): ClaimNotesState {
   const [retriableNoteIds, setRetriableNoteIds] = useState<Set<string>>(new Set());
   const [invalidNoteIds, setInvalidNoteIds] = useState<Set<string>>(new Set());
   const [checkingNoteIds, setCheckingNoteIds] = useState<Set<string>>(new Set());
-  // Ids that failed synchronously at claim-queue time. `initiateConsumeNotesTransaction`
-  // queues inside a Dexie rw-transaction, so a throw rolls back without persisting a
-  // Failed row — `getFailedTransactions` can never re-surface them. Held additively in
-  // memory so the REPLACE-based recheck below doesn't wipe them on a tab-return, which
-  // would silently revert the note to a neutral Claim button (#456). Pruned to
-  // still-claimable, non-terminal ids on every check so recovered/removed notes clear.
-  const locallyFailedNoteIdsRef = useRef<Set<string>>(new Set());
 
   // Poll for stuck transactions and verify their state from the node.
   // On extension, skip — the SW handles stuck transaction cleanup via generateTransactionsLoop.
@@ -132,7 +125,6 @@ export function useClaimNotes(): ClaimNotesState {
     latestRun.set(accountId, run);
     if (notes.length === 0) {
       // Nothing claimable: drop any stale flags so old badges don't linger.
-      locallyFailedNoteIdsRef.current = new Set();
       setRetriableNoteIds(new Set());
       setInvalidNoteIds(new Set());
       publishInvalid(accountId, run, EMPTY_IDS);
@@ -193,14 +185,6 @@ export function useClaimNotes(): ClaimNotesState {
       } catch (err) {
         console.error('[useClaimNotes] Error checking node state for notes:', err);
       }
-
-      // Fold in ids that failed synchronously at queue time (never persisted as a
-      // Failed tx). Prune the memory-only set to still-claimable, non-terminal ids
-      // first so recovered/removed/now-Invalid notes clear, then union what remains.
-      locallyFailedNoteIdsRef.current = new Set(
-        [...locallyFailedNoteIdsRef.current].filter(id => claimableNoteIds.has(id) && !invalidIds.has(id))
-      );
-      for (const id of locallyFailedNoteIdsRef.current) retriableIds.add(id);
 
       // REPLACE (not union), scoped to the ids still claimable right now. A note
       // reported Invalid is terminal and takes precedence over a retriable flag.

@@ -1,10 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 
-import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { useActivityClaims } from './useActivityClaims';
 
-const note: NoteWithMetadata = {
+const note: ClaimableNoteWithMetadata = {
   id: 'note-one',
   faucetId: 'faucet',
   amount: '1000000',

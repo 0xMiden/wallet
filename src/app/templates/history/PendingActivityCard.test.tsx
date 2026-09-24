@@ -2,17 +2,10 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
-import {
-  CLOSED_DISCLOSURE,
-  disclosureAnimates,
-  PendingActivityCard,
-  toggleDisclosure,
-  type PendingActivityItem,
-  type PendingActivityStatus
-} from './PendingActivityCard';
+import { PendingActivityCard, type PendingActivityItem, type PendingActivityStatus } from './PendingActivityCard';
 
 const mockNavigate = jest.fn();
 
@@ -57,7 +50,7 @@ jest.mock('app/icons/v2', () => ({
 }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
 
-const note: NoteWithMetadata = {
+const note: ClaimableNoteWithMetadata = {
   id: 'note-1',
   faucetId: 'faucet',
   amount: '1000000',
@@ -70,7 +63,7 @@ const note: NoteWithMetadata = {
 const renderCard = (
   status: PendingActivityStatus,
   over: Partial<PendingActivityItem> = {},
-  onAccept: (note: NoteWithMetadata) => void = jest.fn()
+  onAccept: (note: ClaimableNoteWithMetadata) => void = jest.fn()
 ) => {
   const item: PendingActivityItem = { note, status, ...over };
   return render(<PendingActivityCard item={item} onAccept={onAccept} onReject={jest.fn()} />);
@@ -85,35 +78,6 @@ describe('PendingActivityCard', () => {
     jest.clearAllMocks();
     localStorage.clear();
     resetActivityReadState();
-  });
-
-  // The rule the disclosure's motion turns on, tested as a rule. It cannot be reached through the
-  // rendered card from both sides: `expanded` starts false and only the toggle ever changes it, so
-  // there is no way to render a card whose section is open without a tap — which is precisely the
-  // property being claimed. Asserting it here states it once, in the terms the component uses.
-  describe('what earns the disclosure its motion', () => {
-    it('is a tap, and nothing else', () => {
-      // The value a fresh mount starts on — a card the Activity filter has just rebuilt included.
-      expect(CLOSED_DISCLOSURE).toEqual({ open: false, byTap: false });
-      expect(disclosureAnimates(CLOSED_DISCLOSURE, false)).toBe(false);
-
-      const opened = toggleDisclosure(CLOSED_DISCLOSURE);
-      expect(opened).toEqual({ open: true, byTap: true });
-      expect(disclosureAnimates(opened, false)).toBe(true);
-
-      // Closing is a tap too: the fold away animates like the unfold.
-      const closed = toggleDisclosure(opened);
-      expect(closed).toEqual({ open: false, byTap: true });
-      expect(disclosureAnimates(closed, false)).toBe(true);
-
-      // An open section reached any other way — a remount, a future programmatic expand — is not
-      // a tap, so it draws instantly.
-      expect(disclosureAnimates({ open: true, byTap: false }, false)).toBe(false);
-    });
-
-    it('is withdrawn again while a claim is in flight', () => {
-      expect(disclosureAnimates(toggleDisclosure(CLOSED_DISCLOSURE), true)).toBe(false);
-    });
   });
 
   it('keeps the row a named control whatever its status', () => {
@@ -167,8 +131,8 @@ describe('PendingActivityCard', () => {
       // Switching the Activity filter renders a different list, so a card comes back as a FRESH
       // mount — the case `AnimatePresence initial={false}` could not cover, because it suppresses
       // the entry animation only for children present when it first mounts. The gate is per-mount
-      // state instead: a rebuilt card gets `{ open: false, byTap: false }`, so it draws no section
-      // at all and cannot inherit the tap that opened the card it replaced.
+      // state instead: a rebuilt card starts closed, so it draws no section at all and cannot
+      // inherit the tap that opened the card it replaced.
       const first = renderCard('pending');
       fireEvent.click(screen.getByRole('button', { expanded: false }));
       expect(mockDisclosure.props?.transition).toEqual(MOCK_REVEAL_TRANSITION);

@@ -1,9 +1,7 @@
 import React from 'react';
 
 import { cva } from 'class-variance-authority';
-import { motion } from 'framer-motion';
 
-import { usePreset } from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
 /**
@@ -30,10 +28,7 @@ const dotVariants = cva('pointer-events-none block rounded-full bg-notification'
 });
 
 export interface UnreadDotProps {
-  /**
-   * Nothing renders when false. That is the contract that keeps a looping `pulse` from running
-   * against an indicator nobody can see: the element is gone, not hidden.
-   */
+  /** Nothing renders when false: the element is gone, not hidden. */
   unread: boolean;
   placement?: UnreadDotPlacement;
   /**
@@ -42,11 +37,6 @@ export interface UnreadDotProps {
    * There is no live region: a list that refreshes must not announce anything.
    */
   label: string;
-  /**
-   * Breathe slowly while unread. For the one indicator that has to be noticed without the user
-   * looking for it (the tab icon); a list of dots does not pulse. Ignored under reduced motion.
-   */
-  pulse?: boolean;
   /** Layout only. */
   className?: string;
   'data-testid'?: string;
@@ -64,23 +54,14 @@ export const UnreadDot: React.FC<UnreadDotProps> = ({
   unread,
   placement = 'row',
   label,
-  pulse = false,
   className,
   'data-testid': dataTestId
 }) => {
-  const pulsePreset = usePreset('pulse');
-
   if (!unread) return null;
 
   return (
-    <motion.span
-      data-testid={dataTestId}
-      data-placement={placement}
-      className={cn(dotVariants({ placement }), className)}
-      animate={pulse ? pulsePreset.animate : undefined}
-      transition={pulse ? pulsePreset.transition : undefined}
-    >
+    <span data-testid={dataTestId} data-placement={placement} className={cn(dotVariants({ placement }), className)}>
       <span className="sr-only">{label}</span>
-    </motion.span>
+    </span>
   );
 };

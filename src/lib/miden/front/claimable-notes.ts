@@ -263,13 +263,6 @@ async function fetchNotesFromLocalClient(
 /** One claimable note as the local hook returns it: the note plus its token metadata. */
 export type ClaimableNoteWithMetadata = ConsumableNote & { metadata: AssetMetadata };
 
-/**
- * The same thing under the name every reader calls it. It used to be declared by the retired
- * `Receive/PendingTab` screen, which meant half the wallet imported a type from a page; it lives
- * here now, beside the hook that produces it.
- */
-export type NoteWithMetadata = ClaimableNoteWithMetadata;
-
 // Storage key style copied from `lib/miden-chain/native-asset.ts` (`<name>:<version>:<scope>`)
 // and written through the same platform key-value helpers, so mobile, desktop and the
 // extension all use one storage layer. The scope is the endpoint the notes were read from plus

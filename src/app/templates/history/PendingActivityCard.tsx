@@ -11,7 +11,7 @@ import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
 import { formatBigInt } from 'lib/i18n/numbers';
-import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
@@ -22,7 +22,7 @@ import { pendingNoteUnreadKey } from './activityUnread';
 export type PendingActivityStatus = 'pending' | 'checking' | 'claiming' | 'claimed' | 'failed' | 'unavailable';
 
 export interface PendingActivityItem {
-  note: NoteWithMetadata;
+  note: ClaimableNoteWithMetadata;
   status: PendingActivityStatus;
   txId?: string;
   claimedAt?: number;
@@ -30,8 +30,8 @@ export interface PendingActivityItem {
 
 interface PendingActivityCardProps {
   item: PendingActivityItem;
-  onAccept: (note: NoteWithMetadata) => void;
-  onReject?: (note: NoteWithMetadata) => void;
+  onAccept: (note: ClaimableNoteWithMetadata) => void;
+  onReject?: (note: ClaimableNoteWithMetadata) => void;
 }
 
 function formatDateTime(unixSeconds: number): string {
@@ -42,42 +42,6 @@ function formatDateTime(unixSeconds: number): string {
     hour: '2-digit',
     minute: '2-digit'
   });
-}
-
-/**
- * The disclosure's state: whether it is open, and whether the TOGGLE BEING PRESSED is what last set
- * that. The two travel together because the motion belongs to the tap, not to the open state.
- */
-export interface PendingDisclosure {
-  open: boolean;
-  byTap: boolean;
-}
-
-/**
- * What a card starts in — including a card the Activity list has just rebuilt after a filter
- * change. Shut, and not by a tap, so it cannot draw a disclosure at all, let alone an animating
- * one. This is why the gate is state rather than `AnimatePresence initial={false}`: that prop
- * suppresses the entry animation only for children present when the `AnimatePresence` FIRST mounts,
- * and a filter change renders a different list, so the card mounts anew with the suppression spent.
- * State cannot be inherited across a remount — a new mount gets this value, every time.
- */
-export const CLOSED_DISCLOSURE: PendingDisclosure = { open: false, byTap: false };
-
-/** The toggle being pressed: flip it, and record that the user is what flipped it. */
-export function toggleDisclosure(state: PendingDisclosure): PendingDisclosure {
-  return { open: !state.open, byTap: true };
-}
-
-/**
- * Whether the disclosure may animate. Only a tap earns the motion: any other route to an open
- * section — a rebuilt card, a future programmatic or deep-linked expand — renders instantly, which
- * is what belongs to a state change the user did not ask for. `busy` withdraws it again: a claim in
- * flight re-renders this card as its status walks checking → claiming → gone, and a height tween
- * across that is the flicker. Read on every render rather than latched when an animation starts, so
- * a claim landing mid-tween drops the rest of it instead of riding it out under a changing card.
- */
-export function disclosureAnimates(state: PendingDisclosure, busy: boolean): boolean {
-  return state.byTap && !busy;
 }
 
 // One card per incoming transfer that is still waiting on a decision.
@@ -104,15 +68,17 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
   const unreadKey = pendingNoteUnreadKey(note.id);
   const unread = !isActivityRead(readState, unreadKey, note.receivedAt ?? Number.NaN);
   const detailsId = useId();
-  const [disclosure, setDisclosure] = useState(CLOSED_DISCLOSURE);
-  const expanded = disclosure.open;
+  const [expanded, setExpanded] = useState(false);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
   const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
   const amountLabel = amount === undefined ? note.metadata.symbol : `${amount} ${note.metadata.symbol}`;
   // A note served from the cache waits for the live read before it can be accepted.
   const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
   const busy = status === 'claiming' || status === 'checking';
-  const disclosureTransition = disclosureAnimates(disclosure, busy) ? reveal.transition : reducedMotionTransition;
+  // The section renders only after a tap, so it always moves on the preset except while a claim is
+  // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
+  // flicker. Read on every render, so a claim landing mid-tween drops the rest of it.
+  const disclosureTransition = busy ? reducedMotionTransition : reveal.transition;
 
   let actionLabel = t('activityAcceptTransfer');
   switch (status) {
@@ -179,9 +145,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
           aria-controls={detailsId}
           onClick={() => {
             hapticLight();
-            // The ONLY route to `byTap: true`. Every other way the disclosure could come to be open
-            // goes through a state value that renders instantly.
-            setDisclosure(toggleDisclosure);
+            setExpanded(open => !open);
           }}
         >
           {header}
@@ -200,16 +164,11 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
           </motion.span>
         </button>
 
-        {/* The disclosure unfolds and folds away on the design system's `reveal` preset — the one
-            written for exactly this (height 0 ↔ auto plus opacity, `springs.standard`), reduced-
-            motion aware through `usePreset`, so no duration is spelled out here.
-            WHICH transition is the whole point, and `disclosureAnimates` above decides it: the
-            preset's spring for a tap, `reducedMotionTransition` — the instant tween the rest of
-            `lib/animation` collapses to — for everything else.
-            A rebuilt card is covered twice over. It mounts on `CLOSED_DISCLOSURE`, so `byTap` is
-            false; and it renders no section at all, so there is nothing for an entry animation to
-            act on even if it were. What the gate additionally buys is the other half of the card's
-            life: a re-render while the section is open, and the close that follows it. */}
+        {/* The disclosure unfolds and folds away on the design system's `reveal` preset, the one
+            written for exactly this (height 0 <-> auto plus opacity, `springs.standard`), reduced-
+            motion aware through `usePreset`, so no duration is spelled out here. A card rebuilt by
+            a filter change mounts closed and renders no section, so there is nothing for an entry
+            animation to act on. */}
         <AnimatePresence>
           {expanded && (
             <motion.div

@@ -13,7 +13,7 @@ import {
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
-import type { NoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { isExtension } from 'lib/platform';
@@ -93,7 +93,7 @@ export function useActivityClaims() {
     return [...result.values()];
   }, [claim.safeClaimableNotes, claim.checkingNoteIds, claim.invalidNoteIds, claim.retriableNoteIds, attempts]);
 
-  const accept = async (note: NoteWithMetadata) => {
+  const accept = async (note: ClaimableNoteWithMetadata) => {
     // A cache-first entry is displayed before any live read has confirmed it, so it
     // cannot start a claim. The live read replaces it within one poll lap.
     if (note.fromCache) return;
@@ -127,7 +127,7 @@ export function useActivityClaims() {
 
   // Queues a claim for many notes at once. Every note shows as `claiming`
   // before the first queue call, so the list reacts on tap on all platforms.
-  const acceptMany = async (notes: readonly NoteWithMetadata[]) => {
+  const acceptMany = async (notes: readonly ClaimableNoteWithMetadata[]) => {
     const accepted = notes.filter(note => {
       // Same gate as `accept`: unconfirmed cache entries are never claimed.
       if (note.fromCache) return false;
