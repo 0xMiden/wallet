@@ -12,8 +12,18 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button data-testid="done-button" onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    title,
+    accent
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    title?: string;
+    accent?: string;
+  }) => (
+    <button data-testid="done-button" data-title={title} data-accent={accent} onClick={onClick}>
       {children}
     </button>
   ),
@@ -380,6 +390,32 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).not.toContain('Via Epoch');
     expect(container.textContent).not.toContain('Fast');
     expect(container.textContent).not.toContain('Slow');
+    act(() => root.unmount());
+  });
+
+  it.each([
+    ['consume', baseTransaction({ type: 'consume' }), 'receive'],
+    ['send', baseTransaction({ type: 'send' }), 'send'],
+    [
+      'bridged-send',
+      baseTransaction({
+        type: 'bridged-send',
+        extraInputs: { destinationAddress: '0xethdest1234', destinationNetwork: 1, provider: 'agglayer' }
+      }),
+      'send'
+    ],
+    ['earn-deposit', baseTransaction({ type: 'earn-deposit' }), 'earn'],
+    ['swap', baseTransaction({ type: 'swap' }), 'swap'],
+    ['switch-guardian', baseTransaction({ type: 'switch-guardian' }), 'brand']
+  ])("draws the %s receipt's Done in its flow colour", async (_type, transaction, accent) => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={transaction} onDoneClick={() => {}} />
+    );
+
+    expect(container.querySelector('[data-testid="done-button"][data-title="done"]')).toHaveAttribute(
+      'data-accent',
+      accent
+    );
     act(() => root.unmount());
   });
 

@@ -25,14 +25,16 @@ jest.mock('components/Button', () => ({
     children,
     onClick,
     variant,
+    accent,
     className
   }: {
     children?: React.ReactNode;
     onClick?: () => void;
     variant?: string;
+    accent?: string;
     className?: string;
   }) => (
-    <button type="button" data-variant={variant} className={className} onClick={onClick}>
+    <button type="button" data-variant={variant} data-accent={accent} className={className} onClick={onClick}>
       {children}
     </button>
   ),
@@ -412,6 +414,40 @@ describe('GeneratingTransactionPage container effects', () => {
     expect(
       Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway'))
     ).toBeUndefined();
+    act(() => root.unmount());
+  });
+
+  const buttonLabelled = (container: HTMLElement, label: string) =>
+    Array.from(container.querySelectorAll('button')).find(b => b.textContent === label);
+
+  // Only the types isRequeueableTransaction accepts ever reach Retry; execute has no flow of its own.
+  it.each([
+    ['send', 'send'],
+    ['consume', 'receive'],
+    ['swap', 'swap'],
+    ['bridged-send', 'send'],
+    ['execute', 'brand']
+  ])('draws Retry and Done on a failed %s row in its flow colour', async (type, accent) => {
+    mockRowState = { row: makeTx({ status: 3, type }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(buttonLabelled(container, 'retry')).toHaveAttribute('data-accent', accent);
+    expect(buttonLabelled(container, 'done')).toHaveAttribute('data-accent', accent);
+    act(() => root.unmount());
+  });
+
+  it.each([
+    ['send', 'send'],
+    ['swap', 'swap'],
+    ['earn-deposit', 'earn'],
+    ['consume', 'receive']
+  ])('draws Done on a completed %s row in its flow colour', async (type, accent) => {
+    mockRowState = { row: makeTx({ status: 2, type }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(buttonLabelled(container, 'done')).toHaveAttribute('data-accent', accent);
     act(() => root.unmount());
   });
 

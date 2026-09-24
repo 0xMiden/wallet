@@ -41,13 +41,15 @@ jest.mock('components/Button', () => ({
   Button: ({
     children,
     onClick,
-    title
+    title,
+    accent
   }: {
     children?: React.ReactNode;
     onClick?: React.MouseEventHandler<HTMLButtonElement>;
     title?: string;
+    accent?: string;
   }) => (
-    <button type="button" onClick={onClick}>
+    <button type="button" data-accent={accent} onClick={onClick}>
       {children ?? title}
     </button>
   ),
@@ -159,6 +161,7 @@ describe('EarnWithdrawStatus', () => {
     // takes in Activity — not the badge's default, which is the Send flow's blue.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', 'var(--tx-earn)');
 
+    expect(screen.getByRole('button', { name: 'hide' })).toHaveAttribute('data-accent', 'earn');
     fireEvent.click(screen.getByRole('button', { name: 'hide' }));
     expect(navigate).toHaveBeenCalledWith('/');
   });
@@ -174,6 +177,7 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByText('solver rejected the intent')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('failed');
 
+    expect(screen.getByRole('button', { name: 'done' })).toHaveAttribute('data-accent', 'earn');
     fireEvent.click(screen.getByRole('button', { name: 'done' }));
     expect(navigate).toHaveBeenCalledWith('/');
   });

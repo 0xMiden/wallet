@@ -41,8 +41,18 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="confirm-btn" onClick={onClick} disabled={disabled}>
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    accent
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    accent?: string;
+  }) => (
+    <button data-testid="confirm-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
       {title}
     </button>
   ),
@@ -216,6 +226,11 @@ describe('SelectAmount', () => {
     it('uses the confirmTitle override for the CTA', () => {
       renderComponent({ confirmTitle: 'Swap Now' });
       expect(screen.getByTestId('confirm-btn')).toHaveTextContent('Swap Now');
+    });
+
+    it('draws the confirm CTA in the accent it is given', () => {
+      renderComponent({ accent: 'earn' });
+      expect(screen.getByTestId('confirm-btn')).toHaveAttribute('data-accent', 'earn');
     });
 
     // 12px text needs 4.5:1, which white on the light fills never reaches: the flow's ink on its tint.
