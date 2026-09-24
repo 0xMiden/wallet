@@ -937,6 +937,25 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockNav.goBack).toHaveBeenCalled();
     });
 
+    it('goes nowhere while a submission is in flight at Review', async () => {
+      mockWalletState.assessSpendingLimit.mockReturnValue(new Promise(() => undefined));
+      mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      let handled: boolean | undefined;
+      act(() => {
+        handled = mockBackHandler!();
+      });
+
+      expect(handled).toBe(true);
+      expect(mockNav.goBack).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
     it('closes the flow when the drawer is shut and the stack is at the root', () => {
       renderFlow();
 

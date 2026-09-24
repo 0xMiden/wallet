@@ -296,6 +296,24 @@ describe('ReviewSwap', () => {
       expect(screen.getByTestId('swap-submit')).toHaveAttribute('data-loading', 'true');
     });
 
+    it('holds the rest of the intent still too: auto-consume and Back', () => {
+      const onAutoConsumeChange = jest.fn();
+      const onGoBack = jest.fn();
+      const { unmount } = renderComponent({ submitting: true, onAutoConsumeChange, onGoBack });
+
+      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+      fireEvent.click(screen.getByRole('button', { name: 'back' }));
+      expect(onAutoConsumeChange).not.toHaveBeenCalled();
+      expect(onGoBack).not.toHaveBeenCalled();
+      unmount();
+
+      renderComponent({ onAutoConsumeChange, onGoBack });
+      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+      fireEvent.click(screen.getByRole('button', { name: 'back' }));
+      expect(onAutoConsumeChange).toHaveBeenCalledTimes(1);
+      expect(onGoBack).toHaveBeenCalledTimes(1);
+    });
+
     it('forwards an edit as SECONDS, whatever unit is showing', () => {
       const { props } = renderComponent();
 

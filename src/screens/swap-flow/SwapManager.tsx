@@ -71,6 +71,9 @@ const SwapManager: React.FC = () => {
   // Handle mobile hardware/swipe back: close the token drawer first, then step
   // back inside the flow, else close it.
   useMobileBackHandler(() => {
+    // A submission in flight holds the whole intent still (ReviewSwap disables its controls and Back);
+    // a hardware or swipe back is consumed, not followed.
+    if (submitting) return true;
     if (spendingLimitAssessment !== undefined) {
       setSpendingLimitAssessment(undefined);
       return true;
@@ -85,7 +88,7 @@ const SwapManager: React.FC = () => {
     }
     onClose();
     return true;
-  }, [spendingLimitAssessment, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [submitting, spendingLimitAssessment, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on flow entry (see SendManager for the
   // full rationale — entering a swap is a clear "starting a new tx" signal).

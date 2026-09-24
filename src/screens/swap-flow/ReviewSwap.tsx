@@ -196,7 +196,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         loading: submitting,
         'data-testid': 'swap-submit'
       }}
-      secondary={{ label: t('back'), onPress: onGoBack }}
+      secondary={{ label: t('back'), onPress: onGoBack, disabled: submitting }}
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
@@ -275,6 +275,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             accent="swap"
             value={autoConsume}
             onChangeValue={onAutoConsumeChange}
+            disabled={submitting}
             aria-label={t('swapAutoConsume')}
             className="!h-8 !w-16 !px-1.5 [&>div]:!h-5 [&>div]:!w-5"
           />
