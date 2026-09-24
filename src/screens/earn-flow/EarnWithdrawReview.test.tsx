@@ -255,6 +255,15 @@ describe('EarnWithdrawReview after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the failure said while a retry is loading, and names nothing in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom' };
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
+  });
+
   it('keeps a position it already has, under the notice', () => {
     mockLoadState = { isLoading: false, error: 'boom' };
     render(<EarnWithdrawReview positionId="position-1" />);

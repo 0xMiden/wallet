@@ -315,8 +315,18 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
   });
 
-  it('says nothing while the load is still in flight', () => {
+  it('keeps the failure said while a retry is loading, and names nothing in the header', () => {
     mockLoadState = { isLoading: true, error: 'boom' };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('— • —')).toBeNull();
+    expect(screen.queryByText('earnAssetOnNetwork')).toBeNull();
+    expect(screen.getByLabelText('back')).toBeInTheDocument();
+  });
+
+  it('says nothing during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
     expect(screen.queryByRole('alert')).toBeNull();

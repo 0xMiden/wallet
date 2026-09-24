@@ -50,10 +50,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { search } = useLocation();
   const amount = useMemo(() => new URLSearchParams(search).get('amount') ?? '0', [search]);
   const amountValue = parseAmount(amount);
-  const { vaults, error, isLoading, refetch } = useEarnPositions();
+  const { vaults, error, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const loadFailed = Boolean(error) && !isLoading;
+  const loadFailed = Boolean(error);
 
   const { t } = useTranslation();
   const account = useAccount();
@@ -150,7 +150,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-review-page">
-      <EarnFlowHeader vault={vault} />
+      <EarnFlowHeader vault={found} />
 
       {loadFailed && !found ? (
         <EarnLoadError onRetry={refetch} className="mt-10 px-6" />

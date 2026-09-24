@@ -128,18 +128,15 @@ describe('Earn page', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('shows neither the empty card nor the error while a retry is still loading', () => {
-    mockUseEarnPositions.mockReturnValue({
-      summary,
-      positions: [],
-      vaults,
-      isLoading: true,
-      error: 'boom',
-      refetch: jest.fn()
-    });
+  it('keeps the failure said, and the summary gone, while a retry is loading', () => {
+    // SWR keeps the error until a load succeeds and reports the retry as isLoading: the failed state
+    // must not lift and flash "$0" back.
+    const refetch = jest.fn();
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch });
     render(<Earn />);
     expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
-    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
   });
 
   it('keeps last-good positions on screen through a failed refresh, under a retryable notice', () => {
@@ -167,15 +164,8 @@ describe('Earn page', () => {
     expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
   });
 
-  it('keeps the summary while the first load is in flight and once it has settled', () => {
-    mockUseEarnPositions.mockReturnValue({
-      summary,
-      positions: [],
-      vaults,
-      isLoading: true,
-      error: 'boom',
-      refetch: jest.fn()
-    });
+  it('keeps the summary while a first load (no error yet) is in flight and once it has settled', () => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, refetch: jest.fn() });
     const { unmount } = render(<Earn />);
     expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
     unmount();

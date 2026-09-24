@@ -15,7 +15,9 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 const Earn: FC = () => {
   const { t } = useTranslation();
   const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
-  const loadFailed = Boolean(error) && !isLoading;
+  // SWR keeps the error until a load succeeds, and a first load has none: a retry (which SWR reports
+  // as isLoading) must not lift the failure and flash the empty state back.
+  const loadFailed = Boolean(error);
 
   return (
     <div className="h-full overflow-hidden bg-page" data-testid="earn-page">
@@ -39,9 +41,9 @@ const Earn: FC = () => {
             {/* Only a load that settled with nothing says "no positions": while the first load is in
                 flight the slot stays empty, and a failed load says so and retries - in place of the
                 list when there is nothing to show, above the last-good cards when there is. */}
-            {positions.length === 0 && isLoading ? null : positions.length === 0 && loadFailed ? (
+            {positions.length === 0 && loadFailed ? (
               <EarnLoadError onRetry={refetch} />
-            ) : positions.length === 0 ? (
+            ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
               <EmptyState
                 surface="dashed"
                 icon={IconName.Earn}

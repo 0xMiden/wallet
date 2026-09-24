@@ -15,16 +15,20 @@ import { EarnSummary, EarnVault } from './types';
  *  title and the "{asset} on {network}" pill. Used by the deposit-amount and deposit-review pages
  *  so their headers stay identical, and shaped like the vault and withdraw-review headers. Both
  *  pages are unpadded, so the header brings the 16px page margin itself. */
-export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => {
+export const EarnFlowHeader: FC<{ vault?: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
+  // No vault (a failed load of one that is not cached): the header names nothing rather than a
+  // placeholder, and back is still there.
   return (
     <PageHeader
       className="shrink-0 px-4"
-      title={`${vault.protocol} • ${vault.asset}`}
+      title={vault ? `${vault.protocol} • ${vault.asset}` : undefined}
       onBack={goBack}
       actions={
-        <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+        vault && (
+          <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+        )
       }
     />
   );

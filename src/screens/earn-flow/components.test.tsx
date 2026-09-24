@@ -90,6 +90,14 @@ beforeEach(() => {
 });
 
 describe('EarnFlowHeader', () => {
+  it('names nothing without a vault: the back button stays, no title and no pill', () => {
+    render(<EarnFlowHeader />);
+
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.queryByText('earnAssetOnNetwork')).toBeNull();
+  });
+
   it('renders the protocol • asset title and the "asset on network" pill', () => {
     render(<EarnFlowHeader vault={VAULT} />);
 

@@ -34,16 +34,20 @@ interface EarnPositionDetailProps {
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
   const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
-  const { summary, positions, error, isLoading, refetch } = useEarnPositions();
+  const { summary, positions, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
-  const loadFailed = Boolean(error) && !isLoading;
+  const loadFailed = Boolean(error);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
       <PageHeader
         className="shrink-0 px-4"
-        title={t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
+        title={
+          loadFailed && !found
+            ? undefined
+            : t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })
+        }
         onBack={goBack}
       />
 

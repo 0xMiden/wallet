@@ -14,12 +14,12 @@ import { useEarnPositions } from './useEarnPositions';
 
 const EarnPositions: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, error, isLoading, refetch } = useEarnPositions();
+  const { summary, positions, error, refetch } = useEarnPositions();
 
   // A failed load must NOT read as "you have no positions / $0": with nothing to fall back on it
   // replaces the list; with last-good positions on screen (keepPreviousData) they stay, under a
   // notice that they may be incomplete.
-  const loadFailed = Boolean(error) && !isLoading;
+  const loadFailed = Boolean(error);
   const showLoadError = loadFailed && positions.length === 0;
 
   return (

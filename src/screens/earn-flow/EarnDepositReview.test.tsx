@@ -159,13 +159,13 @@ jest.mock('components/Button', () => ({
 
 // --- Shared header: expose the vault it received so we can assert vault lookup.
 jest.mock('./components', () => ({
-  EarnFlowHeader: ({ vault }: { vault: { id: string; asset: string; protocol: string; network: string } }) => (
+  EarnFlowHeader: ({ vault }: { vault?: { id: string; asset: string; protocol: string; network: string } }) => (
     <div
       data-testid="earn-flow-header"
-      data-vault-id={vault.id}
-      data-asset={vault.asset}
-      data-protocol={vault.protocol}
-      data-network={vault.network}
+      data-vault-id={vault?.id ?? 'none'}
+      data-asset={vault?.asset ?? 'none'}
+      data-protocol={vault?.protocol ?? 'none'}
+      data-network={vault?.network ?? 'none'}
     />
   )
 }));
@@ -209,12 +209,11 @@ describe('EarnDepositReview', () => {
       expect(screen.getAllByText('USDC').length).toBeGreaterThan(0);
     });
 
-    it('falls back to the placeholder vault when the vaultId matches nothing', () => {
+    it('names no vault in the header when the vaultId matches nothing', () => {
       renderReview('does-not-exist', '?amount=500');
 
-      const header = screen.getByTestId('earn-flow-header');
-      expect(header).toHaveAttribute('data-vault-id', '');
-      expect(header).toHaveAttribute('data-protocol', '—');
+      // The header gets the vault it found, never the "—" placeholder.
+      expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
       expect(screen.getByText('500.00')).toBeInTheDocument();
       // No vault id => nothing to deposit into => CTA disabled.
       expect(screen.getByTestId('open-position-btn')).toBeDisabled();
@@ -510,6 +509,14 @@ describe('EarnDepositReview after a failed load', () => {
     expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'retry' }));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the failure said while a retry is loading, with no vault in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom' };
+    renderReview('no-such-vault', '?amount=10');
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
   });
 
   it('keeps a vault it already has, under the notice', () => {

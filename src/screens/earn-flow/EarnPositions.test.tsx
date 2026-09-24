@@ -246,11 +246,11 @@ describe('EarnPositions', () => {
       expect(mockRefetch).toHaveBeenCalledTimes(1);
     });
 
-    it('says nothing while a retry is still loading', () => {
+    it('keeps the failure said while a retry is loading (SWR keeps the error until a load succeeds)', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
-        positions: EARN_DATA.positions,
-        vaults: EARN_DATA.vaults,
+        positions: [],
+        vaults: [],
         isLoading: true,
         error: 'positions request failed (503)',
         refetch: mockRefetch
@@ -258,7 +258,8 @@ describe('EarnPositions', () => {
 
       render(<EarnPositions />);
 
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
     });
   });
 });

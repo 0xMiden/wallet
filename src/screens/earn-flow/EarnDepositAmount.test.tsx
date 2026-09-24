@@ -29,13 +29,13 @@ jest.mock('react-i18next', () => ({
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
 // found-vault vs. default-vault branch without rendering the real header.
 jest.mock('./components', () => ({
-  EarnFlowHeader: ({ vault }: { vault: { id: string; protocol: string; asset: string; network: string } }) => (
+  EarnFlowHeader: ({ vault }: { vault?: { id: string; protocol: string; asset: string; network: string } }) => (
     <div
       data-testid="earn-flow-header"
-      data-vault-id={vault.id}
-      data-protocol={vault.protocol}
-      data-asset={vault.asset}
-      data-network={vault.network}
+      data-vault-id={vault?.id ?? 'none'}
+      data-protocol={vault?.protocol ?? 'none'}
+      data-asset={vault?.asset ?? 'none'}
+      data-network={vault?.network ?? 'none'}
     />
   )
 }));
@@ -165,15 +165,11 @@ describe('EarnDepositAmount', () => {
     expect(select).toHaveAttribute('data-footer', 'pt-4 pb-6');
   });
 
-  it('falls back to the placeholder vault when vaultId matches nothing', () => {
+  it('names no vault in the header when vaultId matches nothing', () => {
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
-    // `find` returns undefined, so `?? placeholderVault()` supplies an empty-id
-    // vault whose display fields are the "—" placeholder.
-    const header = screen.getByTestId('earn-flow-header');
-    expect(header).toHaveAttribute('data-vault-id', '');
-    expect(header).toHaveAttribute('data-protocol', '—');
-    expect(header).toHaveAttribute('data-asset', '—');
+    // The header gets the vault it found, never the "—" placeholder.
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
   });
 
   it('shows the balance helper and blocks confirm while the amount is empty', () => {
@@ -256,6 +252,14 @@ describe('EarnDepositAmount after a failed load', () => {
     expect(screen.queryByTestId('select-amount')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'retry' }));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the failure said while a retry is loading, with no vault in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom' };
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', 'none');
   });
 
   it('keeps a vault it already has, under the notice', () => {

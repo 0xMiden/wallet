@@ -32,10 +32,10 @@ interface EarnWithdrawReviewProps {
  */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { positions, error, isLoading, refetch } = useEarnPositions();
+  const { positions, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
-  const loadFailed = Boolean(error) && !isLoading;
+  const loadFailed = Boolean(error);
   const account = useAccount();
   const withdrawSymbol = 'USDC';
   const amountValue = Number(position.withdrawable) || 0;
@@ -78,12 +78,14 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-withdraw-review-page">
       <PageHeader
         className="shrink-0 px-4"
-        title={`${position.protocol} • ${position.asset}`}
+        title={loadFailed && !found ? undefined : `${position.protocol} • ${position.asset}`}
         onBack={goBack}
         actions={
-          <Pill className="shrink-0">
-            {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
-          </Pill>
+          !(loadFailed && !found) && (
+            <Pill className="shrink-0">
+              {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
+            </Pill>
+          )
         }
       />
 
