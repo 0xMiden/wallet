@@ -1,4 +1,5 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { swapOrderExpired } from 'lib/miden/swap/expiry';
 import type { SwapOrderState, SwapOrderTracking, SwapSettlementNotes } from 'lib/miden/transaction/get';
 
 type SwapSettlementTransaction = SwapSettlementNotes['settledTransactions'][number];
@@ -234,7 +235,7 @@ export const deriveSwapReceipt = ({
   // most in need of this, not the least: nothing will ever deem it expired, so it
   // waits forever, and the stamp this writes is the only thing that can end it.
   const cancellableState = orderState === 'active' && autoConsume;
-  const expiryLapsed = expiresAt != null && nowSeconds >= expiresAt;
+  const expiryLapsed = swapOrderExpired(expiresAt, nowSeconds);
 
   return {
     orderState,

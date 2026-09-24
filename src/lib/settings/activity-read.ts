@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
+import { createListenerSet } from 'lib/listener-set';
+
 import { ACTIVITY_READ_MAX_IDS, ACTIVITY_READ_STORAGE_KEY } from './constants';
 
 /**
@@ -45,8 +47,7 @@ interface StoredShape {
   ids: unknown;
 }
 
-type Listener = () => void;
-const listeners = new Set<Listener>();
+const { subscribe, notify } = createListenerSet();
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -120,7 +121,7 @@ export function markActivityRead(id: string, timestamp: number): void {
   // at a `now` the mark may already have reached — otherwise the read would be dropped on write.
   const at = Number.isFinite(timestamp) ? timestamp : Math.max(nowSeconds(), current.seenBefore + 1);
   persist(compact({ seenBefore: current.seenBefore, ids: { ...current.ids, [id]: at } }));
-  listeners.forEach(listener => listener());
+  notify();
 }
 
 /**
@@ -147,12 +148,7 @@ export function resetActivityReadState(): void {
   try {
     localStorage.removeItem(ACTIVITY_READ_STORAGE_KEY);
   } catch {}
-  listeners.forEach(listener => listener());
-}
-
-function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  notify();
 }
 
 /** Reactive read state — re-renders every Activity surface when something is marked read. */

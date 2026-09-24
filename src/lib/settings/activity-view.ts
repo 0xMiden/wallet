@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
+import { createListenerSet } from 'lib/listener-set';
+
 import { ACTIVITY_VIEW_STORAGE_KEY, ACTIVITY_VIEWS, ActivityView, DEFAULT_ACTIVITY_VIEW } from './constants';
 
 /**
@@ -11,8 +13,7 @@ import { ACTIVITY_VIEW_STORAGE_KEY, ACTIVITY_VIEWS, ActivityView, DEFAULT_ACTIVI
  * the vault-backed `WalletSettings`, which is account data that syncs with the wallet.
  */
 
-type Listener = () => void;
-const listeners = new Set<Listener>();
+const { subscribe, notify } = createListenerSet();
 
 export function getActivityView(): ActivityView {
   try {
@@ -28,12 +29,7 @@ export function setActivityView(view: ActivityView) {
   try {
     localStorage.setItem(ACTIVITY_VIEW_STORAGE_KEY, view);
   } catch {}
-  listeners.forEach(listener => listener());
-}
-
-function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  notify();
 }
 
 /** Reactive Activity view — re-renders when the header's switcher changes it. */

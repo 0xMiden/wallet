@@ -19,15 +19,17 @@ type AllHistoryProps = {
   programId?: string | null;
 };
 
-const FILTERS: ActivityFilter[] = ['all', 'pending', 'sent', 'received', 'faucet'];
-
 /**
- * The filter a link asked for, e.g. `/history?filter=pending` — which is where every
- * received-transfer notification and the home prompt now land (`ACTIVITY_PENDING_PATH`).
+ * The filter a link asked for, e.g. `/history?filter=pending` - which is where every
+ * received-transfer notification and the home prompt now land (`ACTIVITY_PENDING_PATH`). Only an
+ * id the segmented control offers is accepted.
  */
-function filterFromSearch(search: string): ActivityFilter | undefined {
+function filterFromSearch(
+  search: string,
+  filters: readonly SegmentedControlItem<ActivityFilter>[]
+): ActivityFilter | undefined {
   const asked = new URLSearchParams(search).get('filter');
-  return FILTERS.find(candidate => candidate === asked);
+  return filters.find(candidate => candidate.id === asked)?.id;
 }
 
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
@@ -35,14 +37,24 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const account = useAccount();
   const [search, setSearch] = useState('');
   const { search: locationSearch } = useLocation();
-  const [filter, setFilter] = useState<ActivityFilter>(() => filterFromSearch(locationSearch) ?? 'all');
+  const filters = useMemo<SegmentedControlItem<ActivityFilter>[]>(
+    () => [
+      { id: 'all', label: t('all') },
+      { id: 'pending', label: t('pending') },
+      { id: 'sent', label: t('sent') },
+      { id: 'received', label: t('received') },
+      { id: 'faucet', label: t('faucet') }
+    ],
+    [t]
+  );
+  const [filter, setFilter] = useState<ActivityFilter>(() => filterFromSearch(locationSearch, filters) ?? 'all');
   // `TabLayout` keeps a visited tab mounted, so a notification arriving while Activity is already
   // open does not remount this page — the initial state above would never be re-read. Following
   // the location is what makes the deep link work on the second and every later tap.
   useEffect(() => {
-    const asked = filterFromSearch(locationSearch);
+    const asked = filterFromSearch(locationSearch, filters);
     if (asked) setFilter(asked);
-  }, [locationSearch]);
+  }, [locationSearch, filters]);
   // A pick is written back to the URL, so a later link to a filter the URL no longer names is a
   // change of location the effect above sees.
   const pickFilter = (next: ActivityFilter) => {
@@ -58,17 +70,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   // left it in; `list` until they choose otherwise.
   const view = useActivityView();
   const menuAnchorRef = useRef<HTMLButtonElement>(null);
-
-  const filters = useMemo<SegmentedControlItem<ActivityFilter>[]>(
-    () => [
-      { id: 'all', label: t('all') },
-      { id: 'pending', label: t('pending') },
-      { id: 'sent', label: t('sent') },
-      { id: 'received', label: t('received') },
-      { id: 'faucet', label: t('faucet') }
-    ],
-    [t]
-  );
 
   // The search button in the header shows and hides the search field. A
   // closed field also clears the query, so the list goes back to the full set.

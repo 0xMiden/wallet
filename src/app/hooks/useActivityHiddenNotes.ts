@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
+import { createListenerSet } from 'lib/listener-set';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 /**
@@ -35,7 +36,7 @@ const LOADING: HiddenNotesEntry = { ids: EMPTY_IDS, status: 'loading', saveFaile
 const entries = new Map<string, HiddenNotesEntry>();
 const loads = new Map<string, Promise<void>>();
 const saves = new Map<string, Promise<void>>();
-const listeners = new Set<() => void>();
+const { subscribe, notify } = createListenerSet();
 
 const storageKey = (address: string) => `activity-hidden-notes:${address}`;
 
@@ -43,7 +44,7 @@ const getEntry = (key: string): HiddenNotesEntry => entries.get(key) ?? LOADING;
 
 function setEntry(key: string, entry: HiddenNotesEntry): void {
   entries.set(key, entry);
-  listeners.forEach(listener => listener());
+  notify();
 }
 
 /**
@@ -92,19 +93,12 @@ function save(key: string, change: (hidden: ReadonlySet<string>) => ReadonlySet<
   return chain;
 }
 
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
 /** Test seam: forgets every account's set, its in-flight read and its save chain. */
 export function resetActivityHiddenNotes(): void {
   entries.clear();
   loads.clear();
   saves.clear();
-  listeners.forEach(listener => listener());
+  notify();
 }
 
 export function useActivityHiddenNotes(address: string) {

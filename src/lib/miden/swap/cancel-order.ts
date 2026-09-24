@@ -1,6 +1,7 @@
 import * as Repo from 'lib/miden/repo';
 
 import { isSwapTransaction } from './classification';
+import { swapOrderExpired } from './expiry';
 import { ITransactionStatus } from '../db/types';
 
 /**
@@ -59,7 +60,7 @@ export const cancelSwapOrder = async (
     // `false`, so Dexie skips the put rather than re-writing the unchanged clone.
     if (!isSwapTransaction(dbTx)) return false;
     const expiresAt = dbTx.extraInputs?.expiresAt;
-    if (expiresAt !== undefined && expiresAt <= nowSeconds) return false;
+    if (swapOrderExpired(expiresAt, nowSeconds)) return false;
     dbTx.extraInputs = { ...dbTx.extraInputs, expiresAt: nowSeconds };
     return undefined;
   });
