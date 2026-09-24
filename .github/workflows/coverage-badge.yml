@@ -9,13 +9,15 @@ name: Badges
 # PR whose runs carry no artifact, leaves the badges as they are. No external
 # service login required - shields.io reads the JSON directly from
 # raw.githubusercontent.com. The `badges` branch is an orphan holding only the
-# endpoint JSON; nothing merges back into main.
+# endpoint JSON and source.json; nothing merges back into main.
 on:
   push:
     branches: [main]
 
-# One publish at a time, never cancelled. Each run also checks it is still for
-# the main tip right before it pushes, so a run for a superseded commit skips
+# One publish at a time, never cancelled, so reading the badges branch's
+# source.json, comparing and pushing never interleave. source.json records the
+# main commit the badges came from; a run publishes only when its commit is
+# ahead of that one, so a run for an older commit that finishes last skips
 # rather than overwriting newer badges.
 concurrency:
   group: badges
@@ -76,31 +78,34 @@ jobs:
           echo "Line coverage: ${PCT}%"
           printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$COUNT" > /tmp/tests.json
           echo "Total tests: ${COUNT}"
-      - name: Check this is still the main tip
+      - name: Publish to `badges` branch
         if: steps.source.outputs.run != ''
-        id: tip
         env:
-          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          tip=$(node scripts/badge-source-run.mjs --check-tip "$REPO" "$SHA")
-          echo "$tip" >> "$GITHUB_OUTPUT"
-          if [ "$tip" != "tip=true" ]; then
-            echo "::notice::$SHA is no longer the tip of main; the newer push publishes the badges"
-          fi
-      - name: Publish to `badges` branch
-        if: steps.source.outputs.run != '' && steps.tip.outputs.tip == 'true'
-        env:
+          GH_TOKEN: ${{ github.token }}
           PCT: ${{ steps.data.outputs.pct }}
           COUNT: ${{ steps.data.outputs.count }}
         run: |
           set -euo pipefail
+          export BADGE_SOURCE_FILE="$RUNNER_TEMP/badges-source.json"
+          rm -f "$BADGE_SOURCE_FILE"
+          has_badges=false
+          if git ls-remote --exit-code --heads origin badges > /dev/null 2>&1; then
+            has_badges=true
+            git fetch origin badges
+            git show FETCH_HEAD:source.json > "$BADGE_SOURCE_FILE" 2> /dev/null || rm -f "$BADGE_SOURCE_FILE"
+          fi
+          # Run from main's checkout: the badges branch holds no scripts.
+          check=$(node scripts/badge-source-run.mjs --check-source "$REPO" "$SHA")
+          case "$check" in
+            *publish=true*) ;;
+            *status=diverged*) echo "::notice::$SHA and the commit the badges came from have diverged; badges left unchanged"; exit 0 ;;
+            *) echo "::notice::the badges already come from $SHA or a newer main commit; left unchanged"; exit 0 ;;
+          esac
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --exit-code --heads origin badges > /dev/null 2>&1; then
-            git fetch origin badges
+          if [ "$has_badges" = true ]; then
             git checkout badges
           else
             git checkout --orphan badges
@@ -108,7 +113,8 @@ jobs:
           fi
           cp /tmp/coverage.json coverage.json
           cp /tmp/tests.json tests.json
-          git add coverage.json tests.json
+          printf '{"sha":"%s"}\n' "$SHA" > source.json
+          git add coverage.json tests.json source.json
           if git diff --cached --quiet; then
             echo "Badge JSON unchanged"
           else
