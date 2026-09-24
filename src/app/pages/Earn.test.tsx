@@ -155,13 +155,27 @@ describe('Earn page', () => {
   });
 
   it('draws no summary over a failed first load, so it never reads as $0', () => {
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch: jest.fn() });
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults,
+      isLoading: false,
+      error: 'boom',
+      refetch: jest.fn()
+    });
     render(<Earn />);
     expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
   });
 
   it('keeps the summary while the first load is in flight and once it has settled', () => {
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch: jest.fn() });
+    mockUseEarnPositions.mockReturnValue({
+      summary,
+      positions: [],
+      vaults,
+      isLoading: true,
+      error: 'boom',
+      refetch: jest.fn()
+    });
     const { unmount } = render(<Earn />);
     expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
     unmount();
