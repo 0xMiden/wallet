@@ -160,6 +160,7 @@ describe('EarnWithdrawReview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
     // No haptic of its own: the shared `Button` fires the tap haptic, and a second call buzzed twice.
+    // `Button` is mocked here, so this pins only that the screen adds no call; Button's own tests pin its haptic.
     expect(hapticLight).not.toHaveBeenCalled();
     await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1));
     expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledWith({

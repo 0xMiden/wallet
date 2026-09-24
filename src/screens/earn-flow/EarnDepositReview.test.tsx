@@ -286,7 +286,7 @@ describe('EarnDepositReview', () => {
       await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
     });
 
-    it('fires haptics and opens the Epoch position with the scaled amount + account owner', async () => {
+    it('adds no haptic of its own and opens the Epoch position with the scaled amount + account owner', async () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       const cta = screen.getByTestId('open-position-btn');
@@ -296,6 +296,7 @@ describe('EarnDepositReview', () => {
       fireEvent.click(cta);
 
       // No haptic of its own: the shared `Button` fires the tap haptic, and a second call buzzed twice.
+      // `Button` is mocked here, so this pins only that the screen adds no call; Button's own tests pin its haptic.
       expect(hapticLight).not.toHaveBeenCalled();
       await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
 
