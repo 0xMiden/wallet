@@ -7,15 +7,11 @@ const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
 const flat = css.replace(/\s+/g, ' ');
 
 describe('scroll bars', () => {
-  it('hides the indicator on every element, in both engines', () => {
-    expect(flat).toContain('*, *::before, *::after { scrollbar-width: none; -ms-overflow-style: none; }');
-    expect(flat).toContain('*::-webkit-scrollbar { display: none; }');
-  });
-
-  it('keeps scrolling itself alone: nothing sets overflow on the universal selector', () => {
-    const universal = flat.match(/\*, \*::before, \*::after \{([^}]*)\}/)?.[1] ?? '';
-    // `-ms-overflow-style` is the indicator; a plain `overflow` would change scrolling itself.
-    expect(universal).not.toMatch(/(^|[ ;])overflow:/);
+  it('hides the indicator only where a surface opts in: no universal rule hides every bar', () => {
+    // On desktop and in the extension a visible, draggable bar is a real affordance, so it stays
+    // unless a surface asks for it to go.
+    expect(flat).not.toMatch(/\*, \*::before, \*::after \{[^}]*scrollbar-width: none/);
+    expect(flat).not.toContain('*::-webkit-scrollbar { display: none; }');
   });
 
   it('keeps the .no-scrollbar utility for callers that say so', () => {

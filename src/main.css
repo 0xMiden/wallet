@@ -341,22 +341,7 @@ button,
 
 /**
  * Scroll bar utils
- *
- * The wallet never shows a scroll bar: a phone-shaped surface draws none, and in the extension and
- * the desktop window an overlay bar lands on top of pinned CTAs and card edges. Scrolling itself is
- * untouched — only the indicator is hidden — so `.no-scrollbar` stays for callers that say so
- * explicitly and for anything rendered outside this stylesheet's reach.
  */
-
-*,
-*::before,
-*::after {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-*::-webkit-scrollbar {
-  display: none;
-}
 
 .no-scrollbar {
   scrollbar-width: none;
