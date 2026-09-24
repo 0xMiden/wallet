@@ -126,4 +126,46 @@ describe('useSwapEta', () => {
     await settle(1, 'resolve', etaWith('0.00031'));
     expect(result.current).toEqual({ loading: false, eta: etaWith('0.00031') });
   });
+
+  describe('when the debounce fires in the same render as a flip', () => {
+    const doubled = opts({ offerAmount: '200' });
+    const answerByPair = () =>
+      mockGetSwapEta.mock.calls.forEach(([offer, , request], i) =>
+        pending[i]!.resolve(etaWith(`${offer.symbol}->${request.symbol}`))
+      );
+    const mountThenFlipAsDebounceFires = async () => {
+      const hook = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+      await settle(0, 'resolve', etaWith('USDC->ETH'));
+      hook.rerender(doubled);
+      act(() => {
+        jest.advanceTimersByTime(500);
+        hook.rerender(flipped);
+      });
+      return hook;
+    };
+
+    it('never requests a quote from tokens other than the debounced pair', async () => {
+      await mountThenFlipAsDebounceFires();
+      expect(mockGetSwapEta.mock.calls).toEqual([[USDC, 100000000n, ETH, 30000n]]);
+    });
+
+    it('never exposes the flipped pair quote as the original pair eta after flipping back', async () => {
+      const { result, rerender } = await mountThenFlipAsDebounceFires();
+      await act(async () => answerByPair());
+      rerender(doubled);
+      expect(result.current.eta?.marketPrice ?? 'USDC->ETH').toBe('USDC->ETH');
+      pastDebounce();
+      await act(async () => answerByPair());
+      expect(result.current.eta?.marketPrice ?? 'USDC->ETH').toBe('USDC->ETH');
+    });
+
+    it('still quotes the debounced pair once the flip is undone inside the debounce window', async () => {
+      const { result, rerender } = await mountThenFlipAsDebounceFires();
+      rerender(doubled);
+      pastDebounce();
+      expect(mockGetSwapEta).toHaveBeenLastCalledWith(USDC, 200000000n, ETH, 30000n);
+      await act(async () => answerByPair());
+      expect(result.current).toEqual({ loading: false, eta: etaWith('USDC->ETH') });
+    });
+  });
 });

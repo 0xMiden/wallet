@@ -74,6 +74,7 @@ export function useSwapEta({
   const [debouncedKey] = useDebounce(key, 500);
   const [state, setState] = useState<PairedState>(IDLE);
   const reqId = useRef(0);
+  const livePair = pairOf(offerToken.faucetId, requestToken.faucetId);
 
   useEffect(() => {
     if (!debouncedKey) {
@@ -86,6 +87,9 @@ export function useSwapEta({
     const id = ++reqId.current;
     // Only a same-pair amount change keeps the previous quote on screen while it reloads.
     setState(prev => ({ loading: true, pair, eta: prev.pair === pair ? prev.eta : undefined }));
+    // The debounce delivers the live key 500 ms late, so a flip in this render would build the request from the
+    // other pair's tokens; wait for it instead. livePair re-runs this when the flip is undone inside the window.
+    if (pair !== livePair) return;
     getSwapEta(offerToken, BigInt(oa), requestToken, BigInt(ra))
       .then(eta => {
         if (id !== reqId.current) return;
@@ -95,13 +99,13 @@ export function useSwapEta({
         if (id !== reqId.current) return;
         setState({ loading: false, pair, error: err instanceof Error ? err.message : 'Quote failed' });
       });
-    // offerToken/requestToken are captured in `debouncedKey`; re-run only on it.
+    // `debouncedKey` captures the faucet ids and amounts, not the token objects, which only match it when livePair does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedKey]);
+  }, [debouncedKey, livePair]);
 
   // The debounce lags the pair by 500 ms plus the fetch, so compare against the live tokens.
   if (state.pair === undefined) return state;
-  if (state.pair !== pairOf(offerToken.faucetId, requestToken.faucetId)) return PENDING;
+  if (state.pair !== livePair) return PENDING;
   const { loading, eta, error } = state;
   return { loading, eta, error };
 }
