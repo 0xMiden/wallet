@@ -335,6 +335,28 @@ describe('QRCode', () => {
       }
     });
 
+    it('keeps the painted code when a recolour draw reports data but left its slot empty', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const draw = deferred();
+        mockGetRawData.mockImplementation((type: string) => (type === 'svg' ? draw.promise : undefined));
+        const { rerender, getByTestId } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
+        const painted = mockInstances[0]!;
+        rerender(<QRCode address={ADDRESS} size={200} palette="purple" />);
+        const staged = mockInstances[1]!;
+        // A usable draw, but nothing in the staged container: only the container check can refuse it.
+        staged.container!.innerHTML = '';
+
+        await act(async () => draw.resolve(drawnSvg()));
+        expect(isShown(painted.container)).toBe(true);
+        expect(showsCode(painted)).toBe(true);
+        expect(isShown(staged.container)).toBe(false);
+        expect(getByTestId('qr-code')).toHaveAttribute('data-qr-palette', 'green');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
     it('exports the code that is on screen after a colour change', async () => {
       const draw = deferred();
       mockGetRawData.mockImplementation((type: string) =>
