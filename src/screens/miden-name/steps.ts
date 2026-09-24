@@ -1,14 +1,16 @@
 /**
  * Pure derivation of the four steps that the Miden Name status page shows.
  *
- * The data is the `register-name` row and, when it exists, the consume row that
- * claims the delivery note. This file has no React and no I/O.
+ * The data is the `register-name` row, the consume row that claims the delivery
+ * note, the newest `publish-name-record` row of the same label, and the state
+ * of the registry record on chain. This file has no React and no I/O.
  */
 
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { phaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
+import { phaseOf, publishPhaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
+import type { MidenNameRecordState } from 'lib/miden/name/useMidenNameRecord';
 
-export type MidenNameStepState = 'complete' | 'active' | 'pending' | 'disabled' | 'failed';
+export type MidenNameStepState = 'complete' | 'active' | 'pending' | 'failed';
 
 export type MidenNameStepId = 'request-sent' | 'issued' | 'adding' | 'publishing';
 
@@ -125,11 +127,58 @@ function durationsOf(row: ITransaction, claimRow?: ITransaction): [number?, numb
   ];
 }
 
+/** What the status page knows about the publish of the name to the registry. */
+export interface MidenNamePublishView {
+  /** The newest `publish-name-record` row of the label, when there is one. */
+  row?: ITransaction;
+  /** The registry record of the label, read from the chain. */
+  record: MidenNameRecordState;
+}
+
+/**
+ * The state of the publishing step of an owned name.
+ *
+ * A publish in flight is `active`. A record that points to the account is
+ * `complete`, also when the wallet has no publish row (published from an
+ * other device). A failed publish with no record is `failed`. With no publish
+ * at all the step waits for the user: `pending`.
+ */
+export function publishStepState(publish: MidenNamePublishView | undefined): MidenNameStepState {
+  if (!publish) return 'pending';
+  const phase = publish.row ? publishPhaseOf(publish.row) : undefined;
+  switch (phase) {
+    case 'requested':
+    case 'submitted':
+    case 'recorded':
+    case 'returning':
+      return 'active';
+    case 'done':
+      return 'complete';
+    case 'failed':
+      return publish.record === 'here' ? 'complete' : 'failed';
+    default:
+      return publish.record === 'here' ? 'complete' : 'pending';
+  }
+}
+
+/** True when the user can start (or start again) the publish of the name. */
+export function canPublish(row: ITransaction, publish: MidenNamePublishView | undefined): boolean {
+  if (phaseOf(row) !== 'owned' || !publish) return false;
+  switch (publishStepState(publish)) {
+    case 'pending':
+    case 'failed':
+      // A tap before the registry answered could publish twice.
+      return publish.record !== 'checking';
+    default:
+      return false;
+  }
+}
+
 /**
  * The four steps of a registration. Step 4 (publishing to the registry) is
- * always `disabled`: the wallet cannot publish a registry record yet.
+ * `pending` until the name is owned; then `publishStepState` decides.
  */
-export function stepsFor(row: ITransaction, claimRow?: ITransaction): MidenNameStep[] {
+export function stepsFor(row: ITransaction, claimRow?: ITransaction, publish?: MidenNamePublishView): MidenNameStep[] {
   const states = stepStatesOf(row, claimRow);
   const durations = durationsOf(row, claimRow);
   const ids: readonly MidenNameStepId[] = ['request-sent', 'issued', 'adding'];
@@ -138,6 +187,7 @@ export function stepsFor(row: ITransaction, claimRow?: ITransaction): MidenNameS
     const durationSec = state === 'complete' ? durations[index] : undefined;
     return { id, labelKey: STEP_LABEL_KEYS[id], state, ...(durationSec !== undefined ? { durationSec } : {}) };
   });
-  steps.push({ id: 'publishing', labelKey: STEP_LABEL_KEYS.publishing, state: 'disabled' });
+  const publishing = phaseOf(row) === 'owned' ? publishStepState(publish) : 'pending';
+  steps.push({ id: 'publishing', labelKey: STEP_LABEL_KEYS.publishing, state: publishing });
   return steps;
 }

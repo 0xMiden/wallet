@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] The Miden Name status page no longer shows "Publishing to the registry" as "Coming soon": the fourth step now follows the real publish (waiting, in progress, done or failed, and done when the record already points to the account from another device), offers a Publish button once the name is owned, and both it and the in-progress publish page explain that publishing makes it public that the account owns the name, while an unpublished name stays private.
 - [FIX][all] Keep recipient names prominent in Send and show verified Miden usernames or saved contact names in activity. Fold successful name-NFA receipts into their registration/publication entries, track the full name operation's status, and remove the misleading Unknown token amount on publications.
 - [FIX][all] Guardian account imports and sync use the transaction write client, preventing inconsistent account storage after publishing a name and receiving its NFA return. Remove the unused React SDK provider, which created another client and ran a startup sync on the same store.
 
