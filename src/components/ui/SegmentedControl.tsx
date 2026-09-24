@@ -33,22 +33,35 @@ export interface SegmentedControlProps<T extends string = string> {
   onChange: (id: T) => void;
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
+  /**
+   * `bubble` (default): the tab bars' raised white bubble under the selection, `ink` on `muted`.
+   * `pills`: every item is a pill. The selection is an `accent-tint` pill with an `accent-tint-ink`
+   * label, the rest outlined by a hairline on `page` with an `ink` label (Activity's filters).
+   */
+  appearance?: SegmentedControlAppearance;
   'aria-label'?: string;
   /** Layout only (margins, padding, width); the look is the control's own. */
   className?: string;
   'data-testid'?: string;
 }
 
+export type SegmentedControlAppearance = 'bubble' | 'pills';
+
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
 // bubble's shadow and the focus ring, which a scrolling row would otherwise clip.
-const container = cva('flex items-center gap-1 py-1', {
+
+const container = cva('flex items-center py-1', {
   variants: {
+    appearance: {
+      bubble: 'gap-1',
+      pills: 'gap-2'
+    },
     layout: {
       scroll: 'overflow-x-auto no-scrollbar',
       fill: 'w-full'
     }
   },
-  defaultVariants: { layout: 'scroll' }
+  defaultVariants: { appearance: 'bubble', layout: 'scroll' }
 });
 
 const segment = cva(
@@ -72,11 +85,23 @@ const segment = cva(
       active: {
         true: 'text-ink',
         false: 'text-muted'
+      },
+      appearance: {
+        bubble: '',
+        pills: ''
       }
     },
-    defaultVariants: { size: 'md', layout: 'scroll', active: false }
+    compoundVariants: [
+      // A transparent 1px border on the selection keeps a pill's width the same in both states.
+      { appearance: 'pills', active: true, class: 'px-6 border border-transparent text-accent-tint-ink' },
+      { appearance: 'pills', active: false, class: 'px-6 border border-hairline bg-page text-ink' }
+    ],
+    defaultVariants: { size: 'md', layout: 'scroll', active: false, appearance: 'bubble' }
   }
 );
+
+// The pills look draws the selection as a tinted accent pill, not the raised bubble.
+const accentPillClassName = 'rounded-full bg-accent-tint';
 
 const content = cva('flex min-w-0 items-center', {
   variants: {
@@ -94,6 +119,7 @@ interface SegmentProps<T extends string> {
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
+  appearance: SegmentedControlAppearance;
   onSelect: (id: T) => void;
 }
 
@@ -102,7 +128,7 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, onSelect }: SegmentProps<T>) {
+function Segment<T extends string>({ item, active, focusable, size, layout, appearance, onSelect }: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active);
 
@@ -117,7 +143,7 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
         data-testid={item['data-testid']}
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
-        className={segment({ size, layout, active })}
+        className={segment({ size, layout, active, appearance })}
       >
         <motion.span
           data-pop={pop.phase}
@@ -138,9 +164,10 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
 
 /**
  * A single choice out of a few, drawn like the tab bars: no strip behind the items, the selected
- * one on the raised bubble that slides between them on the tab-switch spring, its content popping
- * as it lands, and a press that dips the item. One selection haptic per real change. Under reduced
- * motion the bubble moves instantly, nothing pops and a press does not scale.
+ * one on a shape that slides between them on the tab-switch spring (the raised bubble by default,
+ * a tinted pill in `pills`), its content popping as it lands, and a press that dips the item. One
+ * selection haptic per real change. Under reduced motion the selection moves instantly, nothing
+ * pops and a press does not scale.
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
  * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
@@ -152,6 +179,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   size = 'md',
   layout = 'scroll',
+  appearance = 'bubble',
   'aria-label': ariaLabel,
   className,
   'data-testid': dataTestId
@@ -235,7 +263,7 @@ export function SegmentedControl<T extends string>({
       // scrolls, so a row scrolled sideways does not throw the bubble off its item.
       layoutScroll={layout === 'scroll'}
       onKeyDown={handleKeyDown}
-      className={cn(container({ layout }), className)}
+      className={cn(container({ layout, appearance }), className)}
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
           control, so two mounted controls never trade bubbles. Controlled and click-free: `value`
@@ -246,7 +274,10 @@ export function SegmentedControl<T extends string>({
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
-        className={cn('inset-0', raisedBubbleClassName)}
+        // Unselected pills paint an opaque `page` fill, so the sliding pill is lifted above them;
+        // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
+        style={appearance === 'pills' ? { zIndex: 1 } : undefined}
+        className={cn('inset-0', appearance === 'pills' ? accentPillClassName : raisedBubbleClassName)}
       >
         {items.map((item, index) => (
           <Segment
@@ -256,6 +287,7 @@ export function SegmentedControl<T extends string>({
             focusable={index === focusIndex}
             size={size}
             layout={layout}
+            appearance={appearance}
             onSelect={select}
           />
         ))}

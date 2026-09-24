@@ -365,7 +365,12 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     // The root wears the same TabHeader as Activity and Explore — a plain
     // heading, not the sub-page PageHeader.
-    expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { level: 1, name: 'settings' });
+    expect(heading).toBeInTheDocument();
+    // ...ending in the same inset rule, not a hairline.
+    const header = heading.closest('header')!;
+    expect(header).not.toHaveClass('border-b');
+    expect(header.nextElementSibling).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
     expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
   });
@@ -402,7 +407,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.queryByTestId('row-guardianSettings')).not.toBeInTheDocument();
   });
 
-  it('draws each group as a section label over a fill group whose rows all show a chevron', () => {
+  it('draws each group as a section label over a plain group whose rows all show a chevron', () => {
     render(<Settings tabSlug={null} />);
 
     // Settings' group headers are the `lg` SectionHeader variant, not the plain
@@ -410,7 +415,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     const heading = screen.getByRole('heading', { level: 2, name: 'preferences' });
     expect(heading).toHaveClass('text-ink', 'text-title-section');
     const row = screen.getByTestId('row-generalSettings');
-    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // Plain surface: no fill, rows flush with the page margin, hairlines full width.
+    expect(row.parentElement).not.toHaveClass('bg-fill');
+    expect(row.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    // The header drops the label's 4px inset so its glyph lines up with the rows.
+    expect(heading.closest('.px-0')).not.toBeNull();
     screen.getAllByTestId(/^row-/).forEach(r => expect(r).toHaveAttribute('data-chevron', 'true'));
   });
 

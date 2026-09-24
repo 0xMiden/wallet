@@ -186,10 +186,11 @@ describe('AllHistory', () => {
     expect(screen.getByRole('radiogroup', { name: 'activityFilters' })).toHaveClass('overflow-x-auto');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
     expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'false');
-    // The selected filter sits on the raised bubble; the rest have no fill of their own.
-    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-raised', 'shadow-raised');
+    // Pills: the selection is a tinted accent pill with a tint-ink label; the rest are outlined on the page.
+    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-tint', 'rounded-full');
+    expect(getFilterButton('all')).toHaveClass('text-accent-tint-ink');
     expect(bubbleIn(getFilterButton('sent'))).toBeNull();
-    expect(getFilterButton('sent').className).not.toMatch(/(^|\s)bg-/);
+    expect(getFilterButton('sent')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
   });
 
   describe('reduced motion', () => {

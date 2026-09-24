@@ -454,7 +454,7 @@ const HistoryView = memo<HistoryViewProps>(
                 }
                 const props = buildRowProps(entry, t, tokenId);
                 return (
-                  <Card key={entry.key} asChild padding="row" pressable={Boolean(entry.txId)}>
+                  <Card key={entry.key} asChild surface="outline" padding="row" pressable={Boolean(entry.txId)}>
                     <ActivityRow
                       entryKey={entry.key}
                       testId="activity-row"

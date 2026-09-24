@@ -190,6 +190,8 @@ export default {
         page: 'var(--ds-page)',
         fill: 'var(--ds-fill)',
         'fill-pressed': 'var(--ds-fill-pressed)',
+        // The top action bar's strip, a hair off `page` so the bar reads as its own band.
+        'action-bar': 'var(--ds-action-bar)',
         hairline: 'var(--ds-hairline)',
         raised: 'var(--ds-raised)',
         ink: 'var(--ds-ink)',

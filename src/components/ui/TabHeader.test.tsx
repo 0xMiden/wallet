@@ -88,7 +88,7 @@ describe('TabHeader — structure & title', () => {
     expect(heading.className).not.toContain('dark:text-pure-white');
   });
 
-  it('renders the outer element as a <header> with the shared layout classes and no grey rule below it', () => {
+  it('renders the outer element as a <header> with the shared layout classes', () => {
     const { container } = render(<TabHeader title="Explore" />);
 
     const header = container.querySelector('header');
@@ -97,9 +97,6 @@ describe('TabHeader — structure & title', () => {
     expect(header!.className).toContain('flex');
     expect(header!.className).toContain('items-center');
     expect(header!.className).toContain('justify-between');
-
-    // The 4px grey rule under the title is gone — the header is the last thing rendered.
-    expect(header!.nextElementSibling).toBeNull();
   });
 
   it('reflects whatever title string it is given', () => {
@@ -372,5 +369,15 @@ describe('TabHeader — search swap animation', () => {
     const button = screen.getByRole('button', { name: 'Search' });
     expect(button.className).toContain('transition-colors');
     expect(button.className).toMatch(/duration-\d/);
+  });
+});
+
+describe('TabHeader divider', () => {
+  it('always ends in the inset 4px rule, never a full-bleed hairline', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+    expect(container.querySelector('header')).not.toHaveClass('border-b');
+    const rule = container.querySelector('header + div');
+    expect(rule).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
+    expect(rule).toHaveAttribute('aria-hidden', 'true');
   });
 });

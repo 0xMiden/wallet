@@ -99,7 +99,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
   }
 
   return (
-    <Card asChild padding="none">
+    <Card asChild surface="outline" padding="none">
       <article className="flex flex-col overflow-hidden" data-pending-status={status}>
         <button
           type="button"

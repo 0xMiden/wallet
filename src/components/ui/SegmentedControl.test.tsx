@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import type { SegmentedControlAppearance } from 'components/ui';
 import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 
@@ -414,5 +415,42 @@ describe('SegmentedControl — layouts', () => {
     renderControl({ layout: 'fill' });
 
     expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe('SegmentedControl pills appearance', () => {
+  // Typed through the barrel, where callers take it from.
+  const pills: SegmentedControlAppearance = 'pills';
+  const pillItems = [
+    { id: 'all', label: 'All' },
+    { id: 'sent', label: 'Sent' }
+  ];
+
+  it('draws the selection as a tinted accent pill with a tint-ink label and outlines the rest', () => {
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance={pills} />);
+    const all = screen.getByRole('radio', { name: 'All' });
+    const sent = screen.getByRole('radio', { name: 'Sent' });
+    expect(all).toHaveClass('text-accent-tint-ink', 'px-6');
+    expect(all).not.toHaveClass('text-pure-white');
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-tint', 'rounded-full');
+    expect(sent).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink', 'px-6');
+    expect(sent.querySelector('[data-slot="motion-highlight"]')).toBeNull();
+    expect(screen.getByRole('radiogroup')).toHaveClass('gap-2');
+  });
+
+  it('keeps every pill the same width whether selected or not, and slides the selection above the other pills', () => {
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} appearance={pills} />);
+    const all = screen.getByRole('radio', { name: 'All' });
+    expect(all).toHaveClass('border', 'border-transparent');
+    expect(screen.getByRole('radio', { name: 'Sent' })).toHaveClass('border');
+    // Later pills paint an opaque `page` fill, so the moving pill must sit above them.
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveStyle({ zIndex: '1' });
+  });
+
+  it('keeps the raised bubble by default', () => {
+    render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
+    const all = screen.getByRole('radio', { name: 'All' });
+    expect(all).not.toHaveClass('text-accent-tint-ink');
+    expect(all.querySelector('[data-slot="motion-highlight"]')).not.toHaveClass('bg-accent-tint');
   });
 });

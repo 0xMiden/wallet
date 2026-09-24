@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { Slot } from '@radix-ui/react-slot';
-import { cva } from 'class-variance-authority';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
 import { usePreset } from 'lib/animation';
@@ -16,8 +16,13 @@ import { cn } from 'lib/ui/util';
  */
 export type CardPadding = 'none' | 'row' | 'tile';
 
-const cardVariants = cva('rounded-2xl bg-fill text-left', {
+const cardVariants = cva('rounded-2xl text-left', {
   variants: {
+    surface: {
+      fill: 'bg-fill',
+      // On `page` with a hairline edge: Activity's rows and pending transfers.
+      outline: 'bg-page border border-hairline'
+    },
     padding: {
       none: '',
       row: 'px-4 py-3',
@@ -36,8 +41,10 @@ const cardVariants = cva('rounded-2xl bg-fill text-left', {
       false: ''
     }
   },
-  defaultVariants: { padding: 'tile', pressable: false }
+  defaultVariants: { surface: 'fill', padding: 'tile', pressable: false }
 });
+
+type CardSurface = NonNullable<VariantProps<typeof cardVariants>['surface']>;
 
 /**
  * The focusable half of the old split: real on a `button`, inert on anything that cannot focus.
@@ -52,6 +59,8 @@ export const FOCUSABLE_CLASSES = [
 
 export interface CardProps {
   children: React.ReactNode;
+  /** `fill` (default) or `outline`: a hairline edge on `page` instead of the fill. */
+  surface?: CardSurface;
   padding?: CardPadding;
   /**
    * Render the card's surface onto the single child instead of a `div`, for a child that is its
@@ -71,11 +80,13 @@ export interface CardProps {
 
 /**
  * The design system's card (skills/miden-wallet-frontend/references/design-system.md, "Card"): a
- * `fill` surface with 16px corners and no border. Cards sit on `page` and are separated by space,
- * never outlined; hairlines only divide the rows of a group inside one surface.
+ * `fill` surface with 16px corners and no border, or with `surface="outline"` a hairline edge on
+ * `page` (Activity's rows). Cards sit on `page` and are separated by space; otherwise hairlines only
+ * divide the rows of a group inside one surface.
  */
 export const Card: React.FC<CardProps> = ({
   children,
+  surface,
   padding,
   asChild = false,
   pressable = false,
@@ -86,7 +97,7 @@ export const Card: React.FC<CardProps> = ({
   const Comp = asChild ? Slot : 'div';
   return (
     <Comp
-      className={cn(cardVariants({ padding, pressable }), className)}
+      className={cn(cardVariants({ surface, padding, pressable }), className)}
       aria-label={ariaLabel}
       data-testid={dataTestId}
     >

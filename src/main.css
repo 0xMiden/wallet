@@ -641,6 +641,21 @@ body[data-hide-navbar]::after {
   pointer-events: none;
 }
 
+/* Home's top action bar band continues up through the status-bar safe area,
+ * which body paints above #root. TabLayout sets the attribute while Home is
+ * the active tab on mobile and its layer is fully on screen. */
+body[data-home-band]::before {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: env(safe-area-inset-top);
+  background-color: var(--ds-action-bar);
+  pointer-events: none;
+}
+
 @layer base {
   :root {
     --chart-1: oklch(0.646 0.222 41.116);
@@ -769,6 +784,7 @@ body[data-hide-navbar]::after {
     --ds-page: #ffffff;
     --ds-fill: #f3f0ec;
     --ds-fill-pressed: #e9e5e0;
+    --ds-action-bar: #f9f9f9;
     --ds-hairline: rgba(63, 63, 63, 0.1);
     --ds-ink: #3f3f3f;
     --ds-muted: #6b6b6b;
@@ -877,6 +893,7 @@ body[data-hide-navbar]::after {
     --ds-page: #191919;
     --ds-fill: #262422;
     --ds-fill-pressed: #33302d;
+    --ds-action-bar: #1e1e1e;
     --ds-hairline: rgba(255, 255, 255, 0.09);
     /* A drop shadow barely reads on #191919, so dark raises the bubble with the lighter fill, a
      * lit top edge and a faint ring. */

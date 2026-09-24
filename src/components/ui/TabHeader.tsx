@@ -49,8 +49,9 @@ export const TabHeaderAction: FC<{
 );
 
 /**
- * Header for top-level tab pages (Activity, Explore): page title on the
- * left, any `actions` on the right.
+ * Header for top-level tab pages (Activity, Explore, Settings): page title on
+ * the left, any `actions` on the right, then a 4px rounded rule on `fill` inset
+ * to the page margin.
  *
  * The settings gear that used to live here is gone — Settings is a primary
  * bottom-nav destination now, so a gear on the very screens that show that
@@ -68,50 +69,53 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const transition: Transition = { default: springs.snappy, opacity: fade };
 
   return (
-    <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
-      <AnimatePresence initial={false} mode="popLayout">
-        {searchOpen && search ? (
-          <motion.div
-            key="search"
-            data-testid="tab-header-search"
-            className="min-w-0 flex-1"
-            // The field grows in from just shy of full size, slightly offset toward
-            // the search icon it replaces (on the header's right edge) — closing
-            // retraces the same path back toward the icon, not a plain fade.
-            initial={{ opacity: 0, scale: 0.96, x: 6 }}
-            animate={{ opacity: 1, scale: 1, x: 0 }}
-            exit={{ opacity: 0, scale: 0.96, x: 6 }}
-            transition={transition}
-          >
-            <SearchInput
-              size="sm"
-              className="w-full"
-              value={search.value}
-              onChange={search.onChange}
-              placeholder={search.placeholder}
-              onSubmit={search.onSubmit}
-              onEscape={search.onEscape}
-              inputMode={search.inputMode}
-              data-testid={search['data-testid']}
-              autoFocus
-            />
-          </motion.div>
-        ) : (
-          <motion.h1
-            key="title"
-            data-testid="tab-header-title"
-            className="min-w-0 truncate text-title-tab text-ink"
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -6 }}
-            transition={transition}
-          >
-            {title}
-          </motion.h1>
-        )}
-      </AnimatePresence>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-    </header>
+    <>
+      <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
+        <AnimatePresence initial={false} mode="popLayout">
+          {searchOpen && search ? (
+            <motion.div
+              key="search"
+              data-testid="tab-header-search"
+              className="min-w-0 flex-1"
+              // The field grows in from just shy of full size, slightly offset toward
+              // the search icon it replaces (on the header's right edge) — closing
+              // retraces the same path back toward the icon, not a plain fade.
+              initial={{ opacity: 0, scale: 0.96, x: 6 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.96, x: 6 }}
+              transition={transition}
+            >
+              <SearchInput
+                size="sm"
+                className="w-full"
+                value={search.value}
+                onChange={search.onChange}
+                placeholder={search.placeholder}
+                onSubmit={search.onSubmit}
+                onEscape={search.onEscape}
+                inputMode={search.inputMode}
+                data-testid={search['data-testid']}
+                autoFocus
+              />
+            </motion.div>
+          ) : (
+            <motion.h1
+              key="title"
+              data-testid="tab-header-title"
+              className="min-w-0 truncate text-title-tab text-ink"
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={transition}
+            >
+              {title}
+            </motion.h1>
+          )}
+        </AnimatePresence>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      </header>
+      <div aria-hidden="true" className="mx-4 h-1 shrink-0 rounded-full bg-fill" />
+    </>
   );
 };
 

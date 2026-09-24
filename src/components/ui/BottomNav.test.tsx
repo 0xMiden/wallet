@@ -157,13 +157,13 @@ describe('BottomNav — active vs inactive rendering', () => {
     expect(getTab('Activity')).not.toHaveAttribute('aria-selected');
   });
 
-  it('inks the active icon and mutes the rest', () => {
+  it('paints the active icon in the accent and mutes the rest', () => {
     renderNav({ activeId: 'home' });
 
-    expect(getTab('Home')).toHaveClass('text-ink');
+    expect(getTab('Home')).toHaveClass('text-accent-primary');
     expect(getTab('Home')).not.toHaveClass('text-muted');
     expect(getTab('Settings')).toHaveClass('text-muted');
-    expect(getTab('Settings')).not.toHaveClass('text-ink');
+    expect(getTab('Settings')).not.toHaveClass('text-accent-primary');
   });
 
   it('renders the highlight under the active tab only, on one shared layoutId', () => {

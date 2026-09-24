@@ -579,16 +579,16 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
         ) : (
           // pb-22 reserves space at the bottom so the last row can scroll above
           // the React BottomNav.
-          <div className="flex w-full flex-col gap-5 px-4 pt-1 pb-22">
+          <div className="flex w-full flex-col gap-5 px-4 pt-3 pb-22">
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header
                     renders as h1. `lg` + the group's own coloured glyph: these are
                     page-level section titles, not the plain 13px list-group label. */}
-                <SectionHeader size="lg" icon={<group.Icon />}>
+                <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
                   {t(group.titleI18nKey)}
                 </SectionHeader>
-                <ListGroup>
+                <ListGroup surface="plain">
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
                     const isSupport = tab.slug === 'support';

@@ -30,7 +30,7 @@ export interface SectionHeaderProps extends VariantProps<typeof headingVariants>
    * glyph keeps its own colour (an SVG with its own fills) — the circle is decoration only.
    */
   icon?: React.ReactNode;
-  /** Layout only (margins). */
+  /** Layout only (margins, padding). */
   className?: string;
   'data-testid'?: string;
 }

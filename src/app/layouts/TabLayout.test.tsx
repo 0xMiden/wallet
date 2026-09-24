@@ -2,11 +2,13 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Transition } from 'framer-motion';
+import fs from 'fs';
+import path from 'path';
 
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
-import { PageActiveContext, usePageActive } from './page-active';
+import { PageActiveContext, PageOnScreenContext, usePageActive } from './page-active';
 import TabLayout from './TabLayout';
 
 // ---------------------------------------------------------------------------
@@ -153,8 +155,8 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange }: any) => (
-    <div data-testid="action-bar" data-active={activeId}>
+  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => (
+    <div data-testid="action-bar" data-active={activeId} className={className}>
       {items.map((it: any) => (
         <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
           {it.icon}
@@ -292,6 +294,18 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     expect(screen.getByTestId('action-bar').parentElement!.className).toBe('shrink-0 relative z-10');
     expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
     expect(screen.queryByTestId('child-content')).toBeNull();
+  });
+
+  it('gives the action bar its band on mobile only', () => {
+    mockLocation.pathname = '/';
+    mockPlatform.isMobile = true;
+    const { unmount } = renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveClass('bg-action-bar');
+    unmount();
+
+    mockPlatform.isMobile = false;
+    renderLayout();
+    expect(screen.getByTestId('action-bar')).not.toHaveClass('bg-action-bar');
   });
 
   it('hides the action bar and renders children for non-home routes', () => {
@@ -610,6 +624,108 @@ describe('TabLayout — docked bar hides while scrolling down on mobile', () => 
     scrollTo(0);
     scrollTo(80);
     expect(bar()).not.toHaveClass('translate-y-full');
+  });
+});
+
+describe('TabLayout — Home band through the status bar', () => {
+  afterEach(() => document.body.removeAttribute('data-home-band'));
+
+  it('flags body while Home is the active tab on mobile, and clears it on Explore', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { unmount } = renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+    unmount();
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+
+    mockLocation.pathname = '/browser';
+    renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+  });
+
+  it('follows the route on one mounted layout, across Home-group routes', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { rerender } = renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+
+    mockLocation.pathname = '/browser';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+
+    mockLocation.pathname = '/send';
+    rerender(<TabLayout>{<div />}</TabLayout>);
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+  });
+
+  it('clears the flag while a slide page covers Home, and sets it again when Home is fully on screen', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { rerender } = render(
+      <PageOnScreenContext.Provider value={false}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageOnScreenContext.Provider>
+    );
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+
+    rerender(
+      <PageOnScreenContext.Provider value={true}>
+        <TabLayout>{<div />}</TabLayout>
+      </PageOnScreenContext.Provider>
+    );
+    expect(document.body.hasAttribute('data-home-band')).toBe(true);
+  });
+
+  it('keeps the flag off while a popped slide page is still sliding off Home', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    // Home is present again (the pop has started) but not yet fully on screen.
+    render(
+      <PageActiveContext.Provider value={true}>
+        <PageOnScreenContext.Provider value={false}>
+          <TabLayout>{<div />}</TabLayout>
+        </PageOnScreenContext.Provider>
+      </PageActiveContext.Provider>
+    );
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
+  });
+
+  it('sets the flag before paint, in the same commit that shows Home', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    // A later sibling's layout effect runs after TabLayout's layout effects and before any passive
+    // effect, so it reads what the first painted frame will show.
+    let seenAtLayout: boolean | undefined;
+    function LayoutProbe() {
+      React.useLayoutEffect(() => {
+        seenAtLayout = document.body.hasAttribute('data-home-band');
+      }, []);
+      return null;
+    }
+    render(
+      <>
+        <TabLayout>{<div />}</TabLayout>
+        <LayoutProbe />
+      </>
+    );
+    expect(seenAtLayout).toBe(true);
+  });
+
+  it('paints the flagged body with the band: a fixed strip the height of the safe area, in the action-bar colour', () => {
+    // jsdom paints no pseudo-elements, so the stylesheet rule the attribute switches on is read as text.
+    const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
+    const rule = css.match(/body\[data-home-band\]::before\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/position:\s*fixed/);
+    expect(rule).toMatch(/top:\s*0/);
+    expect(rule).toMatch(/height:\s*env\(safe-area-inset-top\)/);
+    expect(rule).toMatch(/background-color:\s*var\(--ds-action-bar\)/);
+  });
+
+  it('never flags body off-mobile', () => {
+    mockPlatform.isMobile = false;
+    mockLocation.pathname = '/';
+    renderLayout();
+    expect(document.body.hasAttribute('data-home-band')).toBe(false);
   });
 });
 
