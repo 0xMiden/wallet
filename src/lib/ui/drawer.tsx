@@ -107,10 +107,11 @@ function DrawerContent({
           // keyboard padding (mobile.html) doesn't reach it — pad past the
           // Android nav bar / iOS home indicator AND the iOS soft keyboard
           // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
-          // (env() and the var are 0 on extension/Android). The transition runs
-          // in sync with the native keyboard slide.
+          // (env() and the var are 0 on extension/Android). The padding snaps:
+          // only the transform transitions, so main.css's sheet spring, which
+          // lands on every transitioned property, never animates the inset.
           'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
-          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
+          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
           className
         )}
         {...props}

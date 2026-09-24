@@ -304,6 +304,9 @@ describe('SelectAmount', () => {
       expect(def.innerHTML).toContain(defaultFooterPb);
       expect(def.querySelector('[data-navbar-cushion="true"]')).not.toBeNull();
 
+      // Keyboard padding snaps (lib/mobile/keyboard-inset.ts): animating it reflows every frame.
+      expect(def.querySelector('[data-navbar-cushion="true"]')!.className).not.toContain('transition-[padding-bottom]');
+
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();
       expect(override.innerHTML).not.toContain(defaultFooterPb);

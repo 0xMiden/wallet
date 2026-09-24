@@ -262,10 +262,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div
-        className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}
-        data-navbar-cushion="true"
-      >
+      <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true">
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}

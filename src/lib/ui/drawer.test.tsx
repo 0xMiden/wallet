@@ -123,6 +123,22 @@ describe('Drawer', () => {
     }
   });
 
+  // The spring rule's !important duration and easing reach every property the sheet transitions,
+  // and keyboard padding must snap (lib/mobile/keyboard-inset.ts).
+  it('transitions only its transform, so the keyboard inset snaps', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet">
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const sheet = screen.getByTestId('sheet');
+    expect(sheet).toHaveClass('transition-transform');
+    expect(sheet.className).not.toContain('transition-[padding-bottom]');
+  });
+
   it('keeps a sheet’s own inline style beside the motion variables', () => {
     render(
       <Drawer open>
