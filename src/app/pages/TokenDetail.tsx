@@ -311,7 +311,7 @@ const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
             className="flex w-full items-center justify-between px-4 py-3 text-left text-action text-accent-tint-ink"
           >
             {t('viewOnMidenscan')}
-            <Icon name={IconName.ArrowRightUp} className="h-4 w-4 shrink-0" />
+            <Icon name={IconName.ArrowRightUp} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
           </button>
         )}
       </DetailCard>

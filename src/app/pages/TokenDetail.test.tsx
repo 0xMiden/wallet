@@ -676,6 +676,11 @@ describe('TokenDetail', () => {
 
       const explorerRow = screen.getByTestId('token-detail-explorer');
       expect(explorerRow).toHaveTextContent('viewOnMidenscan');
+      // The arrow svg ships with fill="none", so it draws only with a fill of its own, like the glyph it
+      // replaced; it is decoration beside the label.
+      const arrow = explorerRow.querySelector('svg');
+      expect(arrow).toHaveAttribute('fill', 'currentColor');
+      expect(arrow).toHaveAttribute('aria-hidden', 'true');
 
       fireEvent.click(explorerRow);
 
