@@ -41,9 +41,9 @@ export interface SaveSpendingLimitOptions {
   makeRevision?: () => string;
 }
 
-export const listSpendingLimits = async (accountId: string): Promise<SpendingLimitConfiguration[]> => {
-  const rows = await spendingLimits.where('accountId').equals(canonicalSpendingLimitIdentity(accountId)).toArray();
-  return rows.map(parsePersistedSpendingLimit).sort((left, right) => left.faucetId.localeCompare(right.faucetId));
+export const readSpendingLimit = async (accountId: string): Promise<SpendingLimitConfiguration | undefined> => {
+  const row = await spendingLimits.get(canonicalSpendingLimitIdentity(accountId));
+  return row === undefined ? undefined : parsePersistedSpendingLimit(row);
 };
 
 export const saveSpendingLimit = async (
@@ -51,13 +51,9 @@ export const saveSpendingLimit = async (
   options: SaveSpendingLimitOptions
 ): Promise<SpendingLimitConfiguration | undefined> => {
   const parsedDraft = parseSerializedSpendingLimitDraft(toSerializedSpendingLimitDraft(draft));
-  const validatedDraft = {
-    ...parsedDraft,
-    accountId: canonicalSpendingLimitIdentity(parsedDraft.accountId),
-    faucetId: canonicalSpendingLimitIdentity(parsedDraft.faucetId)
-  };
+  const accountId = canonicalSpendingLimitIdentity(parsedDraft.accountId);
   return db.transaction('rw', spendingLimits, async () => {
-    const currentRow = await spendingLimits.get([validatedDraft.accountId, validatedDraft.faucetId]);
+    const currentRow = await spendingLimits.get(accountId);
     const current = currentRow === undefined ? undefined : parsePersistedSpendingLimit(currentRow);
     if (
       (current === undefined && options.observedRevision !== undefined) ||
@@ -66,26 +62,25 @@ export const saveSpendingLimit = async (
       throw new SpendingLimitConfigurationConflictError();
     }
     if (
-      classifySpendingLimitChange(current, validatedDraft) === 'strict-authentication' &&
+      classifySpendingLimitChange(current, { accountId, limit: parsedDraft.limit }) === 'strict-authentication' &&
       !options.strictlyAuthenticated
     ) {
       throw new SpendingLimitStrictAuthenticationRequiredError();
     }
-    if (validatedDraft.dailyLimit === undefined && validatedDraft.weeklyLimit === undefined) {
-      await spendingLimits.delete([validatedDraft.accountId, validatedDraft.faucetId]);
+    if (parsedDraft.limit === undefined) {
+      await spendingLimits.delete(accountId);
       return undefined;
     }
 
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const next: SpendingLimitConfiguration = {
-      ...validatedDraft,
+      accountId,
+      limit: parsedDraft.limit,
       revision: (options.makeRevision ?? uuid)(),
       createdAt: current?.createdAt ?? now,
       updatedAt: now
     };
-    const persisted = toPersistedSpendingLimit(next);
-    if (persisted === undefined) return undefined;
-    await spendingLimits.put(persisted);
+    await spendingLimits.put(toPersistedSpendingLimit(next));
     return next;
   });
 };

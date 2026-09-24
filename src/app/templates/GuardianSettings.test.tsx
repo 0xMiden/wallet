@@ -153,6 +153,54 @@ it('renders the configured guardian summary and live details', () => {
   expect(screen.getByText('US-EAST')).toBeInTheDocument();
 });
 
+// GUARDIAN_LOGOS['open-zeppelin'] carries a `Mark` (its standalone colour "Z"),
+// which switches the hero from the wordmark-plus-repeated-name tile to the
+// design-system Hero: the mark in a circle, the name once as the Hero title,
+// and the same status pill underneath — see GuardianSettings.tsx's `logoEntry?.Mark`
+// branch.
+it('renders the OpenZeppelin mark in the design-system Hero, the name once, and the status pill', () => {
+  mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
+  render(<GuardianSettings />);
+
+  const mark = screen.getByTestId('guardian-operator-logo');
+  expect(mark).toBeInTheDocument();
+  // The brand-kit tile: pure white in light mode, a dark neutral in dark
+  // mode with a hairline ring for definition — not the grey
+  // `bg-fill` tile every other provider still gets.
+  const tile = mark.parentElement;
+  expect(tile).toHaveClass('bg-pure-white', 'dark:bg-grey-800', 'border-hairline');
+
+  // The name is the Hero title now, not a wordmark tile PLUS a repeated name
+  // below it.
+  expect(screen.getAllByText('Guardian One')).toHaveLength(1);
+  expect(screen.getByRole('heading', { name: 'Guardian One' })).toBeInTheDocument();
+
+  // The status pill survives the layout swap unchanged.
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('online');
+});
+
+// A provider with no standalone mark (Lambda Class) gets its wordmark scaled onto the SAME brand
+// tile, so every provider's hero reads alike, as it does on the picker's cards.
+it('draws a wordmark-only provider on the same brand tile in the hero', () => {
+  mockGuardianOptionForEndpoint.mockReturnValue({
+    id: 'lambda-class',
+    name: 'Lambda One',
+    operatedBy: 'Lambda Provider',
+    location: 'EU-WEST'
+  });
+  render(<GuardianSettings />);
+
+  const logo = screen.getByTestId('guardian-operator-logo');
+  expect(logo).toHaveClass('w-full');
+  expect(logo.parentElement).toHaveClass('bg-pure-white', 'size-22', 'rounded-full');
+
+  expect(screen.getByRole('heading', { name: 'Lambda One' })).toBeInTheDocument();
+  // The pill renders in both hero branches. Adding a Mark moved the default fixture onto the
+  // Hero branch, so without this the legacy branch's copy of it was no longer covered anywhere.
+  expect(screen.getByRole('status')).toHaveTextContent('guardianCheckingLabel');
+});
+
 it('shows the offline pill while the sync loop reports a guardian outage', () => {
   mockIsGuardianSyncOutage.mockReturnValue(true);
   render(<GuardianSettings />);
@@ -357,16 +405,14 @@ it('keeps the status pill readable in both themes', () => {
   mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
   render(<GuardianSettings />);
 
-  // green-700 is the darkest shade that existed and reaches only 4.34:1 on the
-  // green-50 fill, short of AA for text this size; green-800 (#1F5C33) is 7.34:1.
-  // The palette entry is additive and this pill is its only consumer, so without
-  // this assertion dropping either the shade or the class would leave
-  // `text-green-800` compiling to nothing, with the ink silently inherited.
-  const pill = screen.getByText('online').closest('div');
-  expect(pill).toHaveClass('text-green-800', 'dark:text-green-300');
+  // The shared StatusBadge: the sage ink on its own opaque tint, 5.41:1 light
+  // and 7.36:1 dark (`lib/ui/design-tokens.test.ts`), with no per-pill palette.
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('online');
+  expect(pill).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
 });
 
-it('renders the checking pill with the auto-flipping neutral tokens, needing no dark: pairing', () => {
+it('renders the checking pill in the pending badge tone: something is in flight', () => {
   // The default mock state: no outage, no sync landed yet this session. The
   // "Last sync" row shares the same text, so the pill is identified by its
   // `role="status"` rather than by the label alone.
@@ -374,20 +420,18 @@ it('renders the checking pill with the auto-flipping neutral tokens, needing no 
 
   const pill = screen.getByRole('status');
   expect(pill).toHaveTextContent('guardianCheckingLabel');
-  expect(pill).toHaveClass('bg-gray-50', 'text-heading-gray');
+  expect(pill).toHaveClass('bg-pending-tint', 'text-pending-tint-ink');
 });
 
 it('keeps the OFFLINE pill readable in both themes', () => {
-  // Same failure mode as the online case, and the one that matters more: red-300
-  // exists only because this pill needs it (tailwind-colors.js), and
-  // `theme.colors` replaces Tailwind's palette rather than extending it — so
-  // dropping the shade leaves `dark:text-red-300` compiling to nothing and the
-  // ink inherited, on the state the user is being warned about.
+  // The state the user is being warned about: the clay ink on its own tint,
+  // 5.17:1 light and 6.55:1 dark.
   mockIsGuardianSyncOutage.mockReturnValue(true);
   render(<GuardianSettings />);
 
-  const pill = screen.getByText('guardianOfflineLabel').closest('div');
-  expect(pill).toHaveClass('text-red-700', 'dark:text-red-300');
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('guardianOfflineLabel');
+  expect(pill).toHaveClass('bg-negative-tint', 'text-negative-tint-ink');
 });
 
 // An operator that ANSWERS and still rejects this device clears the outage flag
@@ -512,11 +556,31 @@ it('says Not connected, not Checking, for an account with no activated hot key',
 it('nests the section headings under the guardian name rather than beside it', () => {
   render(<GuardianSettings />);
 
-  // The rendered outline is h1 (Settings' NavigationHeader) → h2 (guardian name)
+  // The rendered outline is h1 (Settings' PageHeader) → h2 (guardian name)
   // → h3 (these two). Promoting them to h2 put them on a level with the name they
   // sit under, which is what a screen reader's heading list shows.
   expect(screen.getByText('about').tagName).toBe('H3');
   expect(screen.getByText('details').tagName).toBe('H3');
+});
+
+it('renders through SubPageLayout: section labels, muted copy, details card, Rotate pinned in the footer', () => {
+  render(<GuardianSettings />);
+
+  const page = screen.getByTestId('guardian-settings');
+  const footer = page.querySelector('[data-slot="footer"]')!;
+  expect(footer).toContainElement(screen.getByRole('button', { name: 'rotateGuardian' }));
+  expect(page.querySelector('[data-slot="body"]')).not.toContainElement(
+    screen.getByRole('button', { name: 'rotateGuardian' })
+  );
+  // Section labels are the shared SectionHeader, not grey chips; no rule between sections.
+  // The old grey-chip assertion is gone: that token is retired, and the registry in lib/ui now
+  // forbids ANY source file from naming it - a stronger guarantee than one element's class list,
+  // and one that also refuses the name in a comment, which is why it is not repeated here.
+  expect(screen.getByText('about')).toHaveClass('text-label', 'text-muted');
+  expect(page.querySelector('hr')).toBeNull();
+  // The explanation is a muted body paragraph; the details sit in the shared DetailCard.
+  expect(screen.getByText('guardianInfoDescription').closest('.text-muted')).toHaveClass('text-body');
+  expect(screen.getByText('guardianProvider').closest('.rounded-2xl')).toHaveClass('bg-fill');
 });
 
 // Hot-key-only import: no cold key on the account. This guards the CTA's

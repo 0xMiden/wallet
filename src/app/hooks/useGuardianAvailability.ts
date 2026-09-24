@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { pingGuardianEndpoint } from 'lib/miden/guardian/availability';
+import { pingGuardianEndpointLatency } from 'lib/miden/guardian/availability';
 
 /**
  * A settled verdict for one endpoint. There is no `'checking'` member: an
@@ -10,6 +10,13 @@ import { pingGuardianEndpoint } from 'lib/miden/guardian/availability';
  * reader could reasonably believe the pending state was represented.
  */
 export type GuardianAvailability = 'online' | 'offline';
+
+/**
+ * The full verdict of one ping: an online operator carries the round trip of
+ * the `GET /pubkey` that proved it, so the Meet your Guardian step can rank the
+ * operators and show the number; an offline one carries nothing.
+ */
+export type GuardianProbeVerdict = { status: 'online'; latencyMs: number } | { status: 'offline' };
 
 /**
  * How often a mounted picker re-probes. The screen is a decision point the user
@@ -37,8 +44,8 @@ const FOLLOW_UP_COALESCE_MS = 1_000;
 type ProbeTrigger = 'reconnect' | 'other';
 
 /**
- * Probe every guardian endpoint's liveness for the picker UI, and keep the
- * verdicts current while the screen is up.
+ * Probe every guardian endpoint's liveness and latency for the guardian
+ * screens, and keep the verdicts current while the screen is up.
  *
  * Returns a map keyed by endpoint; an endpoint absent from the map has no
  * verdict yet — callers render nothing for it rather than flashing a premature
@@ -62,8 +69,8 @@ type ProbeTrigger = 'reconnect' | 'other';
  * endpoint set actually changes, so an inline (fresh-identity) array from the
  * caller cannot put the reset-state effect into a render loop.
  */
-export function useGuardianAvailability(endpoints: readonly string[]): Record<string, GuardianAvailability> {
-  const [availability, setAvailability] = useState<Record<string, GuardianAvailability>>({});
+export function useGuardianPings(endpoints: readonly string[]): Record<string, GuardianProbeVerdict> {
+  const [availability, setAvailability] = useState<Record<string, GuardianProbeVerdict>>({});
 
   // URLs cannot contain a newline, so the join round-trips losslessly.
   const endpointsKey = endpoints.join('\n');
@@ -111,20 +118,22 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
       roundStartedAt.current = Date.now();
 
       // The rejection arm is not dead code insurance for a documented
-      // never-throws contract: `pingGuardianEndpoint` calls
+      // never-throws contract: `pingGuardianEndpointLatency` calls
       // `registerGuardianOrigin` OUTSIDE its own try, so the contract currently
       // holds only because that helper swallows its own URL-parse failure. A
       // hostile or malformed endpoint reads as offline rather than becoming an
       // unhandled rejection per endpoint per round.
       const settled = targets.map(endpoint =>
-        pingGuardianEndpoint(endpoint).then(
-          online => {
+        pingGuardianEndpointLatency(endpoint).then(
+          latencyMs => {
             if (generationRef.current !== generation) return;
-            setAvailability(prev => ({ ...prev, [endpoint]: online ? 'online' : 'offline' }));
+            const verdict: GuardianProbeVerdict =
+              latencyMs === null ? { status: 'offline' } : { status: 'online', latencyMs };
+            setAvailability(prev => ({ ...prev, [endpoint]: verdict }));
           },
           () => {
             if (generationRef.current !== generation) return;
-            setAvailability(prev => ({ ...prev, [endpoint]: 'offline' }));
+            setAvailability(prev => ({ ...prev, [endpoint]: { status: 'offline' } }));
           }
         )
       );
@@ -191,4 +200,17 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
   }, [probe]);
 
   return availability;
+}
+
+/**
+ * The status half of {@link useGuardianPings}, for the picker: it disables an
+ * offline card and never shows a number. Same map, same probing, same absence
+ * for "no verdict yet".
+ */
+export function useGuardianAvailability(endpoints: readonly string[]): Record<string, GuardianAvailability> {
+  const verdicts = useGuardianPings(endpoints);
+  return useMemo(
+    () => Object.fromEntries(Object.entries(verdicts).map(([endpoint, verdict]) => [endpoint, verdict.status])),
+    [verdicts]
+  );
 }

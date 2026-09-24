@@ -8,73 +8,136 @@ export enum Table {
   SpendingLimits = 'spendingLimits'
 }
 
-export const db = new Dexie('TridentMain');
+/**
+ * The 1.7 store definitions - the last schema before the spending-limits primary-key change.
+ * Exported so the 1.7 -> 1.9 migration-proving test in repo.test.ts seeds a database in this
+ * EXACT shape rather than a hand-typed duplicate that could silently drift from what
+ * `defineSchema` below actually declares.
+ */
+export const TRANSACTIONS_V17_STORE = indexes(
+  'id',
+  'accountId',
+  'transactionId',
+  'initiatedAt',
+  'completedAt',
+  'noteId',
+  '*noteIds',
+  'noteDelivery',
+  'extraInputs.destinationAddress',
+  'extraInputs.swapOrderTxId',
+  'spendingLimitAuthorizationId'
+);
+export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision');
 
-db.version(1)
-  .stores({
-    transactionRequests: indexes('id', 'accountId', 'initiatedAt', 'completedAt')
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db.table<any, string>('transactionRequests').clear();
+/** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
+export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
+
+/**
+ * Declares every version this app has ever shipped, against whichever Dexie instance it is
+ * handed. Applied once below to build the real, shared `db` - and again by `createSchemaFor`,
+ * exported so a test can replay the EXACT same chain against an isolated database instead of a
+ * parallel hand-authored one that could drift from what production actually runs and so stop
+ * catching the defect it exists to catch.
+ */
+function defineSchema(target: Dexie): void {
+  target
+    .version(1)
+    .stores({
+      transactionRequests: indexes('id', 'accountId', 'initiatedAt', 'completedAt')
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db.table<any, string>('transactionRequests').clear();
+    });
+
+  target
+    .version(1.1)
+    .stores({
+      [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt'),
+      transactionRequests: null
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db.table<any, string>('transactionRequests').clear();
+      await tx.db.table<ITransaction, string>(Table.Transactions).clear();
+    });
+
+  target.version(1.2).stores({
+    [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt', 'noteId')
   });
 
-db.version(1.1)
-  .stores({
-    [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt'),
-    transactionRequests: null
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db.table<any, string>('transactionRequests').clear();
-    await tx.db.table<ITransaction, string>(Table.Transactions).clear();
-  });
+  // v1.3 — `bridge` → `bridged-send`. Adds an index on the EVM destination so the
+  // activity-detail claim flow can look a bridged send up by recipient, and
+  // rewrites legacy `bridge` rows into the richer `BridgedSendTransaction` shape
+  // (structured `extraInputs` with provider + claim status) so readers only ever
+  // deal with one discriminator. All legacy rows were Agglayer Miden→EVM bridges.
+  target
+    .version(1.3)
+    .stores({
+      [Table.Transactions]: indexes(
+        'id',
+        'accountId',
+        'transactionId',
+        'initiatedAt',
+        'completedAt',
+        'noteId',
+        'extraInputs.destinationAddress'
+      )
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db
+        .table<any, string>(Table.Transactions)
+        .toCollection()
+        .modify(t => {
+          if (t.type !== 'bridge') return;
+          const prev = t.extraInputs ?? {};
+          t.type = 'bridged-send';
+          t.extraInputs = {
+            provider: 'agglayer',
+            destinationAddress: prev.destinationAddress ?? '',
+            destinationNetwork: prev.destinationNetwork ?? 0,
+            sourceFaucetId: t.faucetId ?? '',
+            // ITransactionStatus.Completed === 2. A completed Miden-side bridge may
+            // still need an L1 claim; anything else never reached that point.
+            claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
+          };
+        });
+    });
 
-db.version(1.2).stores({
-  [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt', 'noteId')
-});
+  // v1.4 — batch consume. Multi-entry index on `noteIds` so the consume dedup can
+  // find a note that's part of an in-flight batch row (whose scalar `noteId` only
+  // holds the first note). Backfills `noteIds = [noteId]` on existing consume rows
+  // so readers can rely on the array shape going forward.
+  target
+    .version(1.4)
+    .stores({
+      [Table.Transactions]: indexes(
+        'id',
+        'accountId',
+        'transactionId',
+        'initiatedAt',
+        'completedAt',
+        'noteId',
+        '*noteIds',
+        'extraInputs.destinationAddress'
+      )
+    })
+    .upgrade(async (tx: Transaction) => {
+      await tx.db
+        .table<any, string>(Table.Transactions)
+        .toCollection()
+        .modify(t => {
+          if (t.type === 'consume' && t.noteId && !Array.isArray(t.noteIds)) {
+            t.noteIds = [t.noteId];
+          }
+        });
+    });
 
-// v1.3 — `bridge` → `bridged-send`. Adds an index on the EVM destination so the
-// activity-detail claim flow can look a bridged send up by recipient, and
-// rewrites legacy `bridge` rows into the richer `BridgedSendTransaction` shape
-// (structured `extraInputs` with provider + claim status) so readers only ever
-// deal with one discriminator. All legacy rows were Agglayer Miden→EVM bridges.
-db.version(1.3)
-  .stores({
-    [Table.Transactions]: indexes(
-      'id',
-      'accountId',
-      'transactionId',
-      'initiatedAt',
-      'completedAt',
-      'noteId',
-      'extraInputs.destinationAddress'
-    )
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db
-      .table<any, string>(Table.Transactions)
-      .toCollection()
-      .modify(t => {
-        if (t.type !== 'bridge') return;
-        const prev = t.extraInputs ?? {};
-        t.type = 'bridged-send';
-        t.extraInputs = {
-          provider: 'agglayer',
-          destinationAddress: prev.destinationAddress ?? '',
-          destinationNetwork: prev.destinationNetwork ?? 0,
-          sourceFaucetId: t.faucetId ?? '',
-          // ITransactionStatus.Completed === 2. A completed Miden-side bridge may
-          // still need an L1 claim; anything else never reached that point.
-          claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
-        };
-      });
-  });
-
-// v1.4 — batch consume. Multi-entry index on `noteIds` so the consume dedup can
-// find a note that's part of an in-flight batch row (whose scalar `noteId` only
-// holds the first note). Backfills `noteIds = [noteId]` on existing consume rows
-// so readers can rely on the array shape going forward.
-db.version(1.4)
-  .stores({
+  // v1.5 — private-note delivery sweep. Indexes `noteDelivery` so the sweep can ask
+  // for the handful of rows that still owe or may owe a delivery instead of scanning
+  // the whole history every cycle. No upgrade step: Dexie omits records whose index
+  // key is `undefined`, and `undefined` is exactly the "no relay applies" case (public
+  // sends, non-relaying types, and every row written before the field existed), so an
+  // un-backfilled table already yields the correct — empty — result.
+  target.version(1.5).stores({
     [Table.Transactions]: indexes(
       'id',
       'accountId',
@@ -83,76 +146,68 @@ db.version(1.4)
       'completedAt',
       'noteId',
       '*noteIds',
+      'noteDelivery',
       'extraInputs.destinationAddress'
     )
-  })
-  .upgrade(async (tx: Transaction) => {
-    await tx.db
-      .table<any, string>(Table.Transactions)
-      .toCollection()
-      .modify(t => {
-        if (t.type === 'consume' && t.noteId && !Array.isArray(t.noteIds)) {
-          t.noteIds = [t.noteId];
-        }
-      });
   });
 
-// v1.5 — private-note delivery sweep. Indexes `noteDelivery` so the sweep can ask
-// for the handful of rows that still owe or may owe a delivery instead of scanning
-// the whole history every cycle. No upgrade step: Dexie omits records whose index
-// key is `undefined`, and `undefined` is exactly the "no relay applies" case (public
-// sends, non-relaying types, and every row written before the field existed), so an
-// un-backfilled table already yields the correct — empty — result.
-db.version(1.5).stores({
-  [Table.Transactions]: indexes(
-    'id',
-    'accountId',
-    'transactionId',
-    'initiatedAt',
-    'completedAt',
-    'noteId',
-    '*noteIds',
-    'noteDelivery',
-    'extraInputs.destinationAddress'
-  )
-});
+  // v1.6 - linked swap settlement reads. The history detail live query observes
+  // only rows for its order instead of rerunning after every transaction write.
+  target.version(1.6).stores({
+    [Table.Transactions]: indexes(
+      'id',
+      'accountId',
+      'transactionId',
+      'initiatedAt',
+      'completedAt',
+      'noteId',
+      '*noteIds',
+      'noteDelivery',
+      'extraInputs.destinationAddress',
+      'extraInputs.swapOrderTxId'
+    )
+  });
 
-// v1.6 - linked swap settlement reads. The history detail live query observes
-// only rows for its order instead of rerunning after every transaction write.
-db.version(1.6).stores({
-  [Table.Transactions]: indexes(
-    'id',
-    'accountId',
-    'transactionId',
-    'initiatedAt',
-    'completedAt',
-    'noteId',
-    '*noteIds',
-    'noteDelivery',
-    'extraInputs.destinationAddress',
-    'extraInputs.swapOrderTxId'
-  )
-});
+  target.version(1.7).stores({
+    [Table.Transactions]: TRANSACTIONS_V17_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V17_STORE
+  });
 
-db.version(1.7).stores({
-  [Table.Transactions]: indexes(
-    'id',
-    'accountId',
-    'transactionId',
-    'initiatedAt',
-    'completedAt',
-    'noteId',
-    '*noteIds',
-    'noteDelivery',
-    'extraInputs.destinationAddress',
-    'extraInputs.swapOrderTxId',
-    'spendingLimitAuthorizationId'
-  ),
-  [Table.SpendingLimits]: indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision')
-});
+  // v1.8/v1.9 - one USD cap per account replaces the per-asset caps, keyed by account alone instead
+  // of `[accountId+faucetId]`. Split across two versions because Dexie has no in-place primary-key
+  // change: declaring the new key directly against the existing table throws `UpgradeError: Not yet
+  // support for changing primary key`, even when the table is empty (verified in repo.test.ts against
+  // a real 1.7 database, replaying this exact function - not a duplicate that could drift from it).
+  // Dropping the store in one version and recreating it with the new key in the next is the
+  // supported shape. A native-unit cap cannot be restated in dollars for an asset nobody prices
+  // anyway, and the feature is days old, so there is nothing to carry across - the records are
+  // dropped and the screen asks for one number instead.
+  target.version(1.8).stores({
+    [Table.SpendingLimits]: null
+  });
+
+  target.version(1.9).stores({
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+  });
+}
+
+export const db = new Dexie('TridentMain');
+defineSchema(db);
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
-export const spendingLimits = db.table<PersistedSpendingLimit, [string, string]>(Table.SpendingLimits);
+export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
+
+/**
+ * Builds an independent, uniquely-named database running the exact same version chain as the
+ * production `db` above. Exported only for the migration-proving test in repo.test.ts, which
+ * needs to exercise the REAL, current chain against an isolated instance rather than a
+ * hand-authored duplicate - see `defineSchema`'s doc comment for why that distinction matters.
+ */
+export function createSchemaFor(name: string): Dexie {
+  const target = new Dexie(name);
+  defineSchema(target);
+  return target;
+}
 
 function indexes(...items: string[]) {
   return items.join(',');
@@ -445,9 +500,10 @@ export async function importDb(dump: string): Promise<void> {
     // to restore from. Inside a transaction Dexie rolls the `clear` back with
     // the failed add, so a bad dump costs the user nothing.
     //
-    // `clear()` covers what `db.delete()` did: `transactions` is the only live
-    // table (`transactionRequests` was dropped in v1.1), and the rows are
-    // written into the current schema either way.
+    // `clear()` only needs to cover `transactions`: `transactionRequests` was dropped in v1.1,
+    // and `spendingLimits` (added in v1.7) is untouched by import - a wallet-file backup restores
+    // transaction history, not local device settings. The rows are written into the current
+    // schema either way.
     await db.transaction('rw', transactions, async () => {
       await transactions.clear();
       await transactions.bulkAdd(transactionsToImport);

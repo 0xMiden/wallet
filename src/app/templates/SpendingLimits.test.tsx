@@ -1,33 +1,18 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { SpendingLimitConfiguration } from 'lib/miden/spending-limits/types';
 
-import SpendingLimits, {
-  MAX_SPENDING_LIMIT,
-  formatSpendingLimitInput,
-  parseSpendingLimitInput
-} from './SpendingLimits';
+import SpendingLimits, { MAX_SPENDING_LIMIT, formatUsdLimitInput, parseUsdLimitInput } from './SpendingLimits';
 
-const mockListSpendingLimits = jest.fn();
+const mockReadSpendingLimit = jest.fn();
 const mockSaveSpendingLimit = jest.fn();
 let mockStrictResult: ((result: 'authenticated' | 'cancelled') => void) | undefined;
 
 const mockWalletState: any = {
   currentAccount: { publicKey: 'account-a' },
-  balances: {
-    'account-a': [
-      {
-        tokenId: 'faucet-miden',
-        tokenSlug: 'MIDEN',
-        metadata: { symbol: 'MIDEN', name: 'Miden', decimals: 6 },
-        balance: 10
-      }
-    ]
-  },
-  balancesLoading: { 'account-a': false },
-  listSpendingLimits: mockListSpendingLimits,
+  readSpendingLimit: mockReadSpendingLimit,
   saveSpendingLimit: mockSaveSpendingLimit
 };
 
@@ -70,62 +55,51 @@ jest.mock('components/StrictActionAuthentication', () => ({
   }
 }));
 
-const configured = (
-  faucetId = 'faucet-miden',
-  overrides: Partial<SpendingLimitConfiguration> = {}
-): SpendingLimitConfiguration => ({
+const configuration = (overrides: Partial<SpendingLimitConfiguration> = {}): SpendingLimitConfiguration => ({
   accountId: 'account-a',
-  faucetId,
-  dailyLimit: 20_000_000n,
-  weeklyLimit: 100_000_000n,
-  asset: { symbol: faucetId === 'faucet-miden' ? 'MIDEN' : 'ZERO', decimals: 6, name: 'Asset' },
-  revision: `revision-${faucetId}`,
+  limit: 20_000_000n,
+  revision: 'revision-1',
   createdAt: 1,
   updatedAt: 2,
   ...overrides
 });
 
-describe('parseSpendingLimitInput', () => {
-  it('converts exact decimal strings to base units without Number precision loss', () => {
-    expect(parseSpendingLimitInput('9007199254.740993', 6)).toBe(9_007_199_254_740_993n);
-    expect(parseSpendingLimitInput('0.000001', 6)).toBe(1n);
-    expect(parseSpendingLimitInput('', 6)).toBeUndefined();
+const renderScreen = () => render(<SpendingLimits />);
+
+describe('parseUsdLimitInput', () => {
+  it('converts exact decimal strings to micro-dollars without Number precision loss', () => {
+    expect(parseUsdLimitInput('9007199254.74')).toBe(9_007_199_254_740_000n);
+    expect(parseUsdLimitInput('0.01')).toBe(10_000n);
+    expect(parseUsdLimitInput('')).toBeUndefined();
   });
 
-  it.each(['0', '-1', '1.0000001', '1e2', '1,000', '.', 'NaN'])(
+  it.each(['0', '-1', '1.001', '1e2', '1,000', '.', 'NaN'])(
     'rejects an invalid or unrepresentable amount: %s',
     value => {
-      expect(() => parseSpendingLimitInput(value, 6)).toThrow();
+      expect(() => parseUsdLimitInput(value)).toThrow();
     }
   );
 
-  it('rejects values above the representable fungible-asset range', () => {
-    expect(parseSpendingLimitInput(MAX_SPENDING_LIMIT.toString(), 0)).toBe(MAX_SPENDING_LIMIT);
-    expect(() => parseSpendingLimitInput((MAX_SPENDING_LIMIT + 1n).toString(), 0)).toThrow();
+  it('rejects an amount with more than two decimal places', () => {
+    expect(() => parseUsdLimitInput('1.005')).toThrow(RangeError);
+  });
+
+  it('accepts a value at the top of the representable range and rejects one over it', () => {
+    const maxDollars = MAX_SPENDING_LIMIT / 1_000_000n;
+    expect(parseUsdLimitInput(maxDollars.toString())).toBe(maxDollars * 1_000_000n);
+    expect(() => parseUsdLimitInput(MAX_SPENDING_LIMIT.toString())).toThrow();
   });
 });
 
-describe('parseSpendingLimitInput asset scale', () => {
-  it.each([[-1], [256], [1.5]])('refuses an impossible asset scale of %p', decimals => {
-    // The scale comes from token metadata, which is not the wallet's to trust: a bad one would
-    // silently shift the limit by orders of magnitude rather than fail.
-    expect(() => parseSpendingLimitInput('1', decimals)).toThrow(RangeError);
-  });
-});
-
-describe('formatSpendingLimitInput', () => {
-  it('formats base units without precision loss and trims insignificant zeros', () => {
-    expect(formatSpendingLimitInput(20_000_000n, 6)).toBe('20');
-    expect(formatSpendingLimitInput(1n, 6)).toBe('0.000001');
-    expect(formatSpendingLimitInput(MAX_SPENDING_LIMIT, 0)).toBe(MAX_SPENDING_LIMIT.toString());
+describe('formatUsdLimitInput', () => {
+  it('formats micro-dollars as at most two decimal places, trimming insignificant zeros', () => {
+    expect(formatUsdLimitInput(20_000_000n)).toBe('20');
+    expect(formatUsdLimitInput(500_000n)).toBe('0.5');
+    expect(formatUsdLimitInput(12_340_000n)).toBe('12.34');
   });
 
-  it.each([
-    [-1n, 6],
-    [1n, -1],
-    [1n, 256]
-  ] as const)('rejects an invalid value or decimal scale', (value, decimals) => {
-    expect(() => formatSpendingLimitInput(value, decimals)).toThrow();
+  it('rejects a negative value', () => {
+    expect(() => formatUsdLimitInput(-1n)).toThrow();
   });
 });
 
@@ -134,218 +108,81 @@ describe('SpendingLimits', () => {
     jest.clearAllMocks();
     mockStrictResult = undefined;
     mockWalletState.currentAccount = { publicKey: 'account-a' };
-    mockWalletState.balances = {
-      'account-a': [
-        {
-          tokenId: 'faucet-miden',
-          tokenSlug: 'MIDEN',
-          metadata: { symbol: 'MIDEN', name: 'Miden', decimals: 6 },
-          balance: 10
-        }
-      ]
-    };
-    mockWalletState.balancesLoading = { 'account-a': false };
-    mockListSpendingLimits.mockResolvedValue([]);
+    mockReadSpendingLimit.mockResolvedValue(undefined);
     mockSaveSpendingLimit.mockImplementation(async (draft: any) => ({
-      ...draft,
+      accountId: draft.accountId,
+      limit: draft.limit,
       revision: 'saved-revision',
       createdAt: 1,
       updatedAt: 3
     }));
   });
 
-  it('reports a load failure rather than an empty list when there is no current account', async () => {
-    // The whole screen keys off the account: with none there is nothing to read limits for, and
-    // rendering "no assets" would read as "you have no limits" rather than "this did not load".
-    mockWalletState.currentAccount = null;
+  it('renders one dollar input, not a row per asset', async () => {
+    renderScreen();
 
-    render(<SpendingLimits />);
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitLoadFailed');
-    expect(mockListSpendingLimits).not.toHaveBeenCalled();
+    expect(await screen.findByLabelText('spendingLimitUsdCap')).toBeInTheDocument();
+    expect(screen.queryByText('ETH')).not.toBeInTheDocument();
   });
 
-  it('treats an account with no balances entry as having none, not as loading', async () => {
-    // The store is keyed per account and a freshly switched-to account has no entry at all yet,
-    // which is different from an entry that is empty or still loading.
-    mockWalletState.balances = {};
-    mockWalletState.balancesLoading = {};
-    mockListSpendingLimits.mockResolvedValue([]);
+  it('states that unpriced assets are not covered', async () => {
+    renderScreen();
 
-    render(<SpendingLimits />);
-
-    expect(await screen.findByText('spendingLimitNoAssets')).toBeInTheDocument();
+    expect(await screen.findByText('spendingLimitCoverage')).toBeInTheDocument();
   });
 
-  it('says there is nothing to limit when the account holds no assets', async () => {
-    // Distinct from the load failure above: the read succeeded and the answer is genuinely empty,
-    // which is what a fresh wallet sees before its first balance arrives.
-    mockWalletState.balances['account-a'] = [];
-    mockListSpendingLimits.mockResolvedValue([]);
+  it('keeps the local-only and non-enforcement disclosures permanently visible alongside coverage', async () => {
+    renderScreen();
 
-    render(<SpendingLimits />);
-
-    expect(await screen.findByText('spendingLimitNoAssets')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await screen.findByLabelText('spendingLimitUsdCap');
+    expect(screen.getByText('spendingLimitLocalDisclosure')).toBeInTheDocument();
+    expect(screen.getByText('spendingLimitNotOnChain')).toBeInTheDocument();
+    expect(screen.getByText('spendingLimitCoverage')).toBeInTheDocument();
   });
 
-  it('orders two assets sharing a symbol by faucet id', async () => {
-    // localeCompare on the symbol ties, so the faucet id is what makes the order stable. Without
-    // the tiebreak the rows could swap between renders.
-    mockWalletState.balances['account-a'] = [
-      { tokenId: 'faucet-b', metadata: { symbol: 'DUP', name: 'Dup B', decimals: 6 } },
-      { tokenId: 'faucet-a', metadata: { symbol: 'DUP', name: 'Dup A', decimals: 6 } }
-    ];
-    mockListSpendingLimits.mockResolvedValue([]);
+  it('requires strict authentication to raise the cap', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
 
-    render(<SpendingLimits />);
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '25' } });
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
 
-    const headings = await screen.findAllByRole('heading', { name: 'DUP' });
-    expect(headings).toHaveLength(2);
-  });
+    expect(await screen.findByTestId('strict-authentication')).toBeInTheDocument();
+    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
 
-  it('shows current-balance assets and configured zero-balance assets', async () => {
-    mockListSpendingLimits.mockResolvedValue([configured('faucet-zero')]);
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
 
-    render(<SpendingLimits />);
-
-    expect(await screen.findByRole('heading', { name: 'MIDEN' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'ZERO' })).toBeInTheDocument();
-    expect(screen.getByLabelText('ZERO spendingLimitDaily')).toHaveValue('20');
-    expect(screen.getByLabelText('ZERO spendingLimitWeekly')).toHaveValue('100');
-  });
-
-  it('merges equivalent stored and live faucet identities into one editable row', async () => {
-    mockWalletState.balances['account-a'][0].tokenId = 'faucet-miden_route';
-    mockListSpendingLimits.mockResolvedValue([configured('faucet-miden')]);
-
-    render(<SpendingLimits />);
-
-    expect(await screen.findAllByRole('heading', { name: 'MIDEN' })).toHaveLength(1);
-  });
-
-  it('shows loading and fails closed when configurations cannot be read', async () => {
-    let reject!: (error: Error) => void;
-    mockListSpendingLimits.mockReturnValue(
-      new Promise((_, rejectPromise) => {
-        reject = rejectPromise;
-      })
+    await waitFor(() =>
+      expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: 'account-a', limit: 25_000_000n }),
+        'revision-1',
+        true
+      )
     );
-
-    render(<SpendingLimits />);
-
-    expect(screen.getByRole('status')).toHaveTextContent('loading');
-    reject(new Error('raw storage failure'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitLoadFailed');
-    expect(screen.queryByText('raw storage failure')).not.toBeInTheDocument();
   });
 
-  it('does not allow configuration while an asset decimal scale is unresolved', async () => {
-    mockWalletState.balances['account-a'][0].metadata = {
-      symbol: 'Unknown',
-      name: 'Unknown',
-      decimals: 6,
-      scaleIsUnknown: true
-    };
+  it('saves a lowered cap without authentication', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
 
-    render(<SpendingLimits />);
-
-    const daily = await screen.findByLabelText('Unknown spendingLimitDaily');
-    expect(daily).toBeDisabled();
-    expect(screen.getByText('spendingLimitUnknownDecimals')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'spendingLimitSave' })).toBeDisabled();
-  });
-
-  it('keeps the screen loading until current balances are ready', async () => {
-    mockWalletState.balancesLoading['account-a'] = true;
-    const view = render(<SpendingLimits />);
-
-    expect(screen.getByRole('status')).toHaveTextContent('loading');
-    await waitFor(() => expect(mockListSpendingLimits).toHaveBeenCalledWith('account-a'));
-
-    mockWalletState.balancesLoading['account-a'] = false;
-    view.rerender(<SpendingLimits />);
-    expect(await screen.findByRole('heading', { name: 'MIDEN' })).toBeInTheDocument();
-  });
-
-  it('saves a pure lowering directly without strict authentication', async () => {
-    mockListSpendingLimits.mockResolvedValue([configured()]);
-    render(<SpendingLimits />);
-
-    fireEvent.change(await screen.findByLabelText('MIDEN spendingLimitDaily'), { target: { value: '10' } });
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '10' } });
     fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
 
     await waitFor(() =>
       expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
-        expect.objectContaining({ accountId: 'account-a', faucetId: 'faucet-miden', dailyLimit: 10_000_000n }),
-        'revision-faucet-miden',
+        expect.objectContaining({ accountId: 'account-a', limit: 10_000_000n }),
+        'revision-1',
         false
       )
     );
     expect(screen.queryByTestId('strict-authentication')).not.toBeInTheDocument();
   });
 
-  it('authenticates before creating, raising, removing, or disabling a limit', async () => {
-    mockListSpendingLimits.mockResolvedValue([configured()]);
-    render(<SpendingLimits />);
+  it('rejects an amount with more than two decimal places', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
 
-    const daily = await screen.findByLabelText('MIDEN spendingLimitDaily');
-    const weekly = screen.getByLabelText('MIDEN spendingLimitWeekly');
-    fireEvent.change(daily, { target: { value: '21' } });
-    fireEvent.change(weekly, { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
-
-    expect(await screen.findByTestId('strict-authentication')).toBeInTheDocument();
-    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
-
-    await waitFor(() =>
-      expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
-        expect.objectContaining({ dailyLimit: 21_000_000n, weeklyLimit: undefined }),
-        'revision-faucet-miden',
-        true
-      )
-    );
-  });
-
-  it('authenticates before creating the first limit for an asset', async () => {
-    render(<SpendingLimits />);
-
-    fireEvent.change(await screen.findByLabelText('MIDEN spendingLimitDaily'), { target: { value: '5' } });
-    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
-
-    expect(await screen.findByTestId('strict-authentication')).toBeInTheDocument();
-    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
-
-    await waitFor(() =>
-      expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
-        expect.objectContaining({ dailyLimit: 5_000_000n, weeklyLimit: undefined }),
-        undefined,
-        true
-      )
-    );
-  });
-
-  it('treats empty inputs as disabled periods and persists nothing after cancellation', async () => {
-    mockListSpendingLimits.mockResolvedValue([configured()]);
-    render(<SpendingLimits />);
-
-    fireEvent.change(await screen.findByLabelText('MIDEN spendingLimitDaily'), { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText('MIDEN spendingLimitWeekly'), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'cancel-authentication' }));
-
-    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('strict-authentication')).not.toBeInTheDocument();
-  });
-
-  it('validates the whole row before authentication or persistence', async () => {
-    mockListSpendingLimits.mockResolvedValue([configured()]);
-    render(<SpendingLimits />);
-
-    fireEvent.change(await screen.findByLabelText('MIDEN spendingLimitDaily'), { target: { value: '1.0000001' } });
-    fireEvent.change(screen.getByLabelText('MIDEN spendingLimitWeekly'), { target: { value: '101' } });
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '10.123' } });
     fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitInvalidAmount');
@@ -353,43 +190,202 @@ describe('SpendingLimits', () => {
     expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
   });
 
-  it('does not persist an authenticated draft after the account changes', async () => {
-    mockListSpendingLimits.mockResolvedValue([configured()]);
-    const view = render(<SpendingLimits />);
+  it('clears the cap when the field is emptied, behind authentication', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
 
-    fireEvent.change(await screen.findByLabelText('MIDEN spendingLimitDaily'), { target: { value: '21' } });
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
+
+    expect(await screen.findByTestId('strict-authentication')).toBeInTheDocument();
+    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
+
+    await waitFor(() =>
+      expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: 'account-a', limit: undefined }),
+        'revision-1',
+        true
+      )
+    );
+  });
+
+  it('persists nothing and hides the authentication UI when authentication is cancelled', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
+
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '25' } });
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
+    await screen.findByTestId('strict-authentication');
+
+    fireEvent.click(screen.getByRole('button', { name: 'cancel-authentication' }));
+
+    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('strict-authentication')).not.toBeInTheDocument();
+  });
+
+  it('authenticates before creating the first cap when none exists yet', async () => {
+    renderScreen();
+
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
+
+    expect(await screen.findByTestId('strict-authentication')).toBeInTheDocument();
+    expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
+
+    await waitFor(() =>
+      expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: 'account-a', limit: 5_000_000n }),
+        undefined,
+        true
+      )
+    );
+  });
+
+  it('reports a load failure rather than an empty cap when there is no current account', async () => {
+    // The whole screen keys off the account: with none there is nothing to read a cap for, and
+    // rendering an empty field would read as "no cap set" rather than "this did not load".
+    mockWalletState.currentAccount = null;
+
+    renderScreen();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitLoadFailed');
+    expect(mockReadSpendingLimit).not.toHaveBeenCalled();
+  });
+
+  it('shows loading and fails closed when the cap cannot be read', async () => {
+    let reject!: (error: Error) => void;
+    mockReadSpendingLimit.mockReturnValue(
+      new Promise((_, rejectPromise) => {
+        reject = rejectPromise;
+      })
+    );
+
+    renderScreen();
+
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+    reject(new Error('raw storage failure'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitLoadFailed');
+    expect(screen.queryByText('raw storage failure')).not.toBeInTheDocument();
+  });
+
+  it('discards a load that resolves after a newer load has already started', async () => {
+    let resolveFirst!: (value: SpendingLimitConfiguration | undefined) => void;
+    mockReadSpendingLimit.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveFirst = resolve;
+        })
+    );
+    const view = renderScreen();
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+
+    mockWalletState.currentAccount = { publicKey: 'account-b' };
+    mockReadSpendingLimit.mockResolvedValue(
+      configuration({ accountId: 'account-b', limit: 5_000_000n, revision: 'revision-b' })
+    );
+    view.rerender(<SpendingLimits />);
+    expect(await screen.findByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+
+    // The abandoned first read for account-a finally settles. Its result must not clobber the
+    // field that already reflects the account the user is now looking at. Flushed explicitly,
+    // rather than through `waitFor` - `waitFor`'s first (synchronous) poll would pass trivially
+    // before the stale `.then` has even had a chance to run, proving nothing about the guard.
+    await act(async () => {
+      resolveFirst(configuration({ limit: 20_000_000n, revision: 'revision-1' }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+  });
+
+  it('discards a load failure that arrives after a newer load has already started', async () => {
+    let rejectFirst!: (error: Error) => void;
+    mockReadSpendingLimit.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectFirst = reject;
+        })
+    );
+    const view = renderScreen();
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+
+    mockWalletState.currentAccount = { publicKey: 'account-b' };
+    mockReadSpendingLimit.mockResolvedValue(
+      configuration({ accountId: 'account-b', limit: 5_000_000n, revision: 'revision-b' })
+    );
+    view.rerender(<SpendingLimits />);
+    expect(await screen.findByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+
+    // The abandoned first read fails late. It must not retroactively mark the now-loaded screen
+    // as failed. Flushed explicitly for the same reason as the sibling success case above.
+    await act(async () => {
+      rejectFirst(new Error('stale storage failure'));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('spendingLimitUsdCap')).toHaveValue('5');
+  });
+
+  it('ignores a second save while the first is still writing', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    let resolveSave!: (value: SpendingLimitConfiguration) => void;
+    mockSaveSpendingLimit.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSave = resolve;
+        })
+    );
+    renderScreen();
+
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '10' } });
+    const saveButton = screen.getByRole('button', { name: 'spendingLimitSave' });
+    // Both clicks inside one `act` so the first click's `saving` update has not yet re-rendered
+    // (and disabled the button) by the time the second is dispatched - the actual race a fast
+    // double-tap produces, not one artificially spaced out by an intervening flush.
+    act(() => {
+      fireEvent.click(saveButton);
+      fireEvent.click(saveButton);
+    });
+
+    resolveSave(configuration({ limit: 10_000_000n }));
+    await waitFor(() => expect(mockSaveSpendingLimit).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not persist an authenticated draft after the account changes', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    const view = renderScreen();
+
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '25' } });
     fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
     await screen.findByTestId('strict-authentication');
 
     const staleResult = mockStrictResult;
     mockWalletState.currentAccount = { publicKey: 'account-b' };
-    mockWalletState.balances['account-b'] = [];
-    mockWalletState.balancesLoading['account-b'] = false;
+    mockReadSpendingLimit.mockResolvedValue(undefined);
     view.rerender(<SpendingLimits />);
     staleResult?.('authenticated');
 
-    await waitFor(() => expect(mockListSpendingLimits).toHaveBeenCalledWith('account-b'));
+    await waitFor(() => expect(mockReadSpendingLimit).toHaveBeenCalledWith('account-b'));
     expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
   });
 
   it('shows a safe error and leaves the draft available when persistence fails', async () => {
-    mockListSpendingLimits.mockResolvedValue([configured()]);
+    mockReadSpendingLimit.mockResolvedValue(configuration());
     mockSaveSpendingLimit.mockRejectedValue(new Error('raw backend detail'));
-    render(<SpendingLimits />);
+    renderScreen();
 
-    fireEvent.change(await screen.findByLabelText('MIDEN spendingLimitDaily'), { target: { value: '10' } });
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '10' } });
     fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitSaveFailed');
     expect(screen.queryByText('raw backend detail')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('MIDEN spendingLimitDaily')).toHaveValue('10');
-  });
-
-  it('keeps the local-only and non-enforcement disclosure permanently visible', async () => {
-    render(<SpendingLimits />);
-
-    await screen.findByRole('heading', { name: 'MIDEN' });
-    expect(screen.getByText('spendingLimitLocalDisclosure')).toBeInTheDocument();
-    expect(screen.getByText('spendingLimitNotOnChain')).toBeInTheDocument();
+    expect(screen.getByLabelText('spendingLimitUsdCap')).toHaveValue('10');
   });
 });

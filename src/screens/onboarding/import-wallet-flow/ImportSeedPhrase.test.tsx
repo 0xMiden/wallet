@@ -22,14 +22,14 @@ const SEED_WORD_ERROR_KEY = 'importSeedPhraseError';
 // SeedPhraseInput test — lets us invoke the exact `onChange` / `onPaste`
 // callbacks the parent wires up, indexed by the `seed-phrase-input-N` id.
 const mockInputProps: any[] = [];
-jest.mock('components/Input', () => ({
-  Input: (props: any) => {
+jest.mock('components/ui/TextField', () => ({
+  TextField: (props: any) => {
     const index = Number(String(props.id).replace('seed-phrase-input-', ''));
     mockInputProps[index] = props;
     return (
       <input
         data-testid={props.id}
-        data-prefix={props.prefix}
+        data-prefix={props.leading}
         value={props.value ?? ''}
         onChange={props.onChange}
         onPaste={props.onPaste}
@@ -134,10 +134,11 @@ describe('ImportSeedPhraseScreen', () => {
       expect(container).toBeTruthy();
     });
 
-    it('merges an extra className onto the root container', () => {
-      setup({ className: 'my-extra-class' });
-
-      expect(screen.getByTestId('import-seed-phrase')).toHaveClass('my-extra-class');
+    it('draws on the step layout: 28px title, two columns of word fields and Continue pinned', () => {
+      setup();
+      expect(screen.getByRole('heading', { level: 1, name: 'importWallet' })).toBeInTheDocument();
+      expect(screen.getByTestId('seed-phrase-input-0').parentElement).toHaveClass('grid-cols-2');
+      expect(screen.getByTestId('submit-button').closest('[data-slot="footer"]')).not.toBeNull();
     });
   });
 

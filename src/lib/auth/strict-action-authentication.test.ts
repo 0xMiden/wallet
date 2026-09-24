@@ -66,6 +66,25 @@ describe('strict action authentication controller', () => {
     await expect(password.authenticate('wrong')).resolves.toBe('cancelled');
   });
 
+  // Only the hardware method authenticates without a credential. A password or
+  // passcode challenge confirmed with nothing typed must never reach `verify`,
+  // which answers a falsy credential by unlocking with the HARDWARE protector —
+  // stepping the user up with a method this challenge did not select.
+  it.each([
+    ['no credential at all', undefined],
+    ['an empty credential', '']
+  ])('refuses a password challenge confirmed with %s, without verifying', async (_label, credential) => {
+    const verify = jest.fn().mockResolvedValue(undefined);
+    const challenge = createStrictActionAuthenticationController({
+      getPlatform: () => 'extension',
+      loadProtectors: jest.fn().mockResolvedValue({ hardware: false, password: true }),
+      verify
+    }).begin();
+
+    await expect(challenge.authenticate(credential)).resolves.toBe('cancelled');
+    expect(verify).not.toHaveBeenCalled();
+  });
+
   it('coalesces duplicate confirmation into one verification', async () => {
     const verification = deferred<void>();
     const verify = jest.fn(() => verification.promise);

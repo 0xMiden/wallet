@@ -29,6 +29,16 @@ export type ITransactionType =
   | 'swap'
   | 'update-procedure-threshold';
 
+/**
+ * Structural Guardian operations: they rewrite the account's own authorization rather
+ * than move value. Activity draws them alike, and none of them is requeueable.
+ */
+export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
+];
+
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
 
@@ -423,6 +433,15 @@ export interface ITransaction {
    * the policy counts instead.
    */
   spentAssetTotals?: IConsumedAssetTotal[];
+  /**
+   * What this row sent, in micro-dollars, as valued when it was queued.
+   *
+   * Stamped once and never revalued: the rolling window sums these, so a price move must not
+   * silently change what a past transaction consumed of the cap. Absent on rows written before
+   * USD limits existed and on rows whose assets the price feed does not cover; both contribute
+   * nothing, which is the same verdict the policy reaches for an uncovered asset today.
+   */
+  spentUsd?: bigint;
   transactionId?: string;
   spendingLimitAuthorizationId?: string;
   /**
@@ -670,6 +689,7 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
+  spentUsd?: bigint;
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
@@ -1241,7 +1261,9 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // — it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
   // it exists so telemetry/E2E can tell a fully-clean rotation from one whose
   // allowlist push needs the self-heal to catch up.
-  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean };
+  // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
+  // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
+  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean; guardianEndpoint?: string };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
@@ -1252,7 +1274,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000);
     this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
-    this.displayMessage = 'Rotating device key';
+    this.displayMessage = 'Rotating everyday key';
     this.extraInputs = {};
     this.delegateTransaction = delegateTransaction;
   }

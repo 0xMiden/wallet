@@ -11,6 +11,15 @@ import { ReviewLayout, ReviewAction } from './ReviewLayout';
 // Hook is exercised elsewhere; here we only assert it's invoked and keep it a
 // no-op so it doesn't mutate document.body across tests.
 const useHideNavbarWhileOpenMock = jest.fn();
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: (...a: any[]) => useHideNavbarWhileOpenMock(...a)
 }));
@@ -57,6 +66,14 @@ describe('ReviewLayout', () => {
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledTimes(1);
   });
 
+  // This layout hides the tab bar, and the network ribbon lives in the tab bar's footer, so these
+  // screens showed no network at all. The banner is the replacement, and it is rendered here
+  // rather than by each caller because this layout IS what the two of them share.
+  it('names the network, since hiding the navbar also hides the ribbon', () => {
+    render(<ReviewLayout {...makeProps()} />);
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
+
   it('renders the hero and children content', () => {
     render(<ReviewLayout {...makeProps()} />);
     expect(screen.getByTestId('hero')).toHaveTextContent('HERO');
@@ -69,6 +86,13 @@ describe('ReviewLayout', () => {
       const btn = screen.getByRole('button', { name: 'Confirm' });
       expect(btn).toBeInTheDocument();
       expect(btn).toHaveAttribute('data-variant', 'primary');
+    });
+
+    it('carries only layout classes (w-full, max-w-none), no restyling override', () => {
+      render(<ReviewLayout {...makeProps()} />);
+      const btn = screen.getByRole('button', { name: 'Confirm' });
+      expect(btn).toHaveClass('w-full', 'max-w-none');
+      expect(btn.className).not.toMatch(/rounded-full|text-base|font-semibold/);
     });
 
     it("defaults the primary button type to 'button' when not provided", () => {
@@ -105,7 +129,10 @@ describe('ReviewLayout', () => {
     it('does not render a secondary button when secondary is omitted', () => {
       render(<ReviewLayout {...makeProps()} />);
       expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
-      expect(screen.getAllByRole('button')).toHaveLength(1);
+      // The banner is a button too, so count the ACTIONS: the point of this case is that no
+      // secondary action renders, not that the screen holds exactly one button.
+      expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button').filter(b => b.dataset.testid !== 'network-mode-banner')).toHaveLength(1);
     });
 
     it('renders the secondary button with Secondary variant and button type', () => {
@@ -124,16 +151,12 @@ describe('ReviewLayout', () => {
     });
   });
 
-  describe('heroDivider branch', () => {
-    it('renders the orange hero divider by default', () => {
-      const { container } = render(<ReviewLayout {...makeProps()} />);
-      expect(container.querySelector('.bg-primary-500')).toBeInTheDocument();
-    });
-
-    it('omits the hero divider when heroDivider is false', () => {
-      const { container } = render(<ReviewLayout {...makeProps({ heroDivider: false })} />);
-      expect(container.querySelector('.bg-primary-500')).not.toBeInTheDocument();
-    });
+  it('draws no bar between the hero and the rows, whatever the flow', () => {
+    for (const accent of ['brand', 'send', 'receive', 'earn', 'swap'] as const) {
+      const { container, unmount } = render(<ReviewLayout {...makeProps({ accent })} />);
+      expect(container.querySelector('.h-2.rounded-full')).not.toBeInTheDocument();
+      unmount();
+    }
   });
 
   describe('dividers branch', () => {

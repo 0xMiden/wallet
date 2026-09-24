@@ -32,6 +32,7 @@ import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
+import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
 
 import {
@@ -64,7 +65,8 @@ import {
   updateTransactionStatus
 } from './helper';
 import { bridgeProviderOf } from './retry';
-import { markConnectivityIssue } from '../activity/connectivity-state';
+import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
+import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
@@ -257,6 +259,11 @@ const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 // the prover recovers. Kept a bit longer than the pending-conflict cooldown to
 // avoid hammering a downed prover; MAX_QUEUED_AGE stays the terminal cap.
 const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
+
+// Cooldown (seconds) applied after an ordinary pre-send sync failure. It matches
+// the sync circuit breaker's first backoff window: long enough not to hammer a
+// temporarily inconsistent RPC pool, while MAX_QUEUED_AGE remains the terminal cap.
+const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
 // used only when the guardian didn't send a `retry_after_secs`. The guardian
@@ -999,9 +1006,8 @@ const generateTransactionWithProvider = async (
 ) => {
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
-  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
-  // catch block which cancels the transaction — this is intentional fail-fast behavior,
-  // since the transaction can't be submitted without network anyway
+  // Errors propagate to the loop, which requeues ordinary transient failures
+  // while preserving the terminal handling for abandoned operations.
   await setTransactionStage(transaction.id, 'syncing');
   await syncUnderBoundedLock();
 
@@ -1519,11 +1525,11 @@ const buildColdServiceForAccount = async (
   accountId: string,
   guardianProvider: GuardianAccountProvider
 ): Promise<MultisigService> => {
-  const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === accountId);
+  const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount) {
     throw new Error(`Guardian account ${accountId} not found in provider`);
   }
-  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(accountId));
+  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
   if (!sdkAccount) {
     throw new Error(`Guardian account ${accountId} not found in local client`);
   }
@@ -1767,9 +1773,19 @@ const runGuardianPipeline = async (
       const localProver = isMobile()
         ? TransactionProver.newCallbackProver(buildNativeProverCallback())
         : TransactionProver.newLocalProver();
+      // Reported like every other prove. This is the one that runs on mobile,
+      // where there is no offscreen document and no delegation, so leaving it out
+      // would make mobile the platform whose proves are invisible.
       // Local proving is deliberately unbounded — pause the lock watchdog for
       // its duration, exactly like proveWithFallback's local attempts (#775).
-      provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+      const localStartedAt = performance.now();
+      try {
+        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+        reportProve({ startedAt: localStartedAt, step: 'prove_local' });
+      } catch (proveError) {
+        reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+        throw proveError;
+      }
     } else {
       // Delegated (remote) proving. The client's default prover is the remote
       // gRPC prover on every platform, and its ~10s deadline is too tight for a
@@ -1786,6 +1802,12 @@ const runGuardianPipeline = async (
       // is consumed, and each attempt passes a fresh one). The local prover
       // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
       // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+      // Reported here as well as in `proveWithFallback`, because this is a second
+      // implementation of the same fallback and shares none of that one's code.
+      // Left out, every guardian operation would contribute nothing to prover
+      // health — and this fallback exists precisely BECAUSE delegated proving was
+      // failing under load, so it is the last path that should be silent about it.
+      const proveStartedAt = performance.now();
       try {
         // Safe to bound here in the strongest sense available: this pipeline drives
         // execute/prove/submit itself, so the deadline provably expires BEFORE any
@@ -1799,6 +1821,7 @@ const runGuardianPipeline = async (
           executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
           'Delegated guardian prove'
         );
+        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {
         // The delegated prove was the longest parking await in this hold, and the
         // fallback below is a WASM call on `executedTx` — an object borrowed from
@@ -1809,10 +1832,20 @@ const runGuardianPipeline = async (
         // checked before the fallback rather than only after it. Still pre-submit.
         assertStillHoldingLock(hold, 'before the local prove fallback');
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+        // The outage the fallback is covering for. `proveWithFallback` marks this
+        // too, and without it a prover failing only on guardian operations would
+        // raise no banner and produce no `service_prover` event.
+        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+        try {
+          provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+        } catch (fallbackError) {
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          throw fallbackError;
+        }
       }
     }
     // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
@@ -2299,15 +2332,24 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'replace-hot-key': {
-      const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+      const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+        sameWalletAccountId(a.publicKey, transaction.accountId)
+      );
       if (!walletAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
       }
-      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
+      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
       if (!sdkAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
       service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      // Stamp the guardian this rotation runs under before anything below can fail: a switch that
+      // completed after initiation moved the account's endpoint, and the row must name this one.
+      const rTx = transaction as ReplaceHotKeyTransaction;
+      rTx.extraInputs = { ...(rTx.extraInputs ?? {}), guardianEndpoint: service.guardianEndpoint };
+      await Repo.transactions.where({ id: transaction.id }).modify(t => {
+        t.extraInputs = rTx.extraInputs;
+      });
       // NOT retry-wrapped — createReplaceHotKeyProposal mints a hot key.
       const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);
       if (!guardianProvider.persistNewHotKey) {
@@ -2327,7 +2369,6 @@ const generateGuardianTransaction = async (
       await guardianProvider.persistNewHotKey(newHot.publicKeyHex, newHot.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
-      const rTx = transaction as ReplaceHotKeyTransaction;
       rTx.extraInputs = { ...(rTx.extraInputs ?? {}), newHotPublicKey: newHot.publicKeyHex };
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
@@ -2558,11 +2599,13 @@ const generateGuardianTransaction = async (
   // Guardian server keyed by proposal id so order doesn't matter, and the
   // transient cold service is dropped at scope exit.
   if (transaction.type === 'switch-guardian') {
-    const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+      sameWalletAccountId(a.publicKey, transaction.accountId)
+    );
     if (!walletAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
     }
-    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
+    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
     if (!sdkAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
     }
@@ -2865,6 +2908,21 @@ const generateGuardianTransaction = async (
     throw error;
   }
 
+  // Clears the WORKER's copy of a prover outage, and only ever that one. Each
+  // realm holds its own `connectivity-state` module state, so this cannot reach
+  // the offscreen document's — which is why the offscreen leaf marks and clears
+  // its own, right where the prove happens.
+  //
+  // What this clears is the worker-realm mark from the inline leaf's delegated
+  // prove, on a build with the offscreen route off. The requeue path above
+  // (`index.ts`, gated on the row's stage being `proving`) is a third case and
+  // one that only the inline leaf can reach at all, since the offscreen leaf
+  // reports no stages and leaves the row at `sending`. Unconditional here rather
+  // than gated on which leaf ran: clearing a flag that was never set is a no-op,
+  // and the alternative is a condition that has to be kept in step with the
+  // routing predicate.
+  clearConnectivityIssue('prover');
+
   // The tx id, re-derived from the (possibly offscreen-round-tripped) result
   // rather than a separate handle: the offscreen pipeline returns only the
   // serialized TransactionResult, and `executedTransaction()` survives that
@@ -3085,6 +3143,40 @@ export const generateTransactionsLoop = async (
     // offscreen deadline arrives as `OperationAbortedError` from the identical
     // point and is equally still running (`cancel.ts` treats the two as one class).
     const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+
+    // The initial sync is the only pipeline step that runs while the committed
+    // row is still Queued at `syncing`. An ordinary failure at that boundary is
+    // strictly pre-build for every transaction type, so defer it instead of
+    // turning a transient RPC error into a terminal failure. Re-read the row:
+    // `nextTransaction` predates the stage stamp, and a concurrent user cancel
+    // must win over this retry. Abandoned operations remain on the existing kill
+    // path even here, since they may still be running after their caller rejects.
+    // A permanent rejection cannot succeed on retry, so deferring it only spends the 30-minute
+    // MAX_QUEUED_AGE budget on ~60 lock-held syncs and then reports the generic expiry instead of
+    // the node's own answer. `notes.ts` already carves the same predicate out of its transient set
+    // for the same reason, after a permanent 400 burned ~288 retries there.
+    const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
+    if (
+      !abandoned &&
+      !isLockedError(e) &&
+      !isPermanentHttpRejection(e) &&
+      currentRow?.status === ITransactionStatus.Queued &&
+      currentRow.stage === 'syncing'
+    ) {
+      logger.warning('Pre-send sync failed; requeueing transaction for a later cycle');
+      try {
+        await requeueTransactionForRetry(
+          nextTransaction.id,
+          nextTransaction.type,
+          'syncing',
+          SYNC_FAILURE_REQUEUE_COOLDOWN_SEC
+        );
+      } catch (requeueError) {
+        logger.warning('Failed to requeue transaction after pre-send sync failure', requeueError);
+      }
+      return false;
+    }
+
     if (!abandoned && isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to

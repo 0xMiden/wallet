@@ -29,26 +29,19 @@ jest.mock('lib/ui/util', () => ({
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   HistoryAction: { Replace: 'replace' },
-  useLocation: () => ({ historyPosition: 0 })
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: 0, href: 'http://localhost/#/import-account' }),
+  listen: () => () => undefined
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
     <header>
       <h1>{title}</h1>
       <button type="button" onClick={onBack}>
         back
       </button>
     </header>
-  )
-}));
-
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ title, description }: { title: string; description: React.ReactNode }) => (
-    <div role="alert">
-      {title}: {description}
-    </div>
   )
 }));
 
@@ -65,6 +58,39 @@ it('renders an accessible private-key import form', () => {
   expect(screen.getByLabelText('privateKey')).toHaveAttribute('id', 'importacc-privatekey');
   expect(screen.getByLabelText('accountName')).toHaveAttribute('id', 'importacc-name');
   expect(screen.getByRole('button', { name: 'importAccount' })).toBeEnabled();
+  // FormSubmitButton defaulted to type="submit"; the canonical Button defaults to
+  // type="button", so the caller has to pin it explicitly or a real click (not just
+  // this suite's `fireEvent.submit` on the form) would stop submitting.
+  expect(screen.getByRole('button', { name: 'importAccount' })).toHaveAttribute('type', 'submit');
+});
+
+it('draws the page through the shared frame: fields, hints and a CTA pinned outside the form', () => {
+  const { container } = render(<ImportAccount />);
+
+  // The shared text field, not a hand-rolled well: label, hint and field are one component.
+  const secretField = screen.getByLabelText('privateKey');
+  expect(secretField.tagName).toBe('TEXTAREA');
+  expect(secretField.parentElement).toHaveClass('bg-fill');
+  expect(screen.getByText('privateKeyInputDescription')).toHaveClass('text-caption', 'text-muted');
+  expect(container.querySelector('label[for="importacc-privatekey"]')).toHaveClass('text-label', 'text-muted');
+
+  // The CTA is in the layout's pinned footer, and submits the form by name from there.
+  const cta = screen.getByRole('button', { name: 'importAccount' });
+  const pinned = container.querySelector('[data-slot="footer"]')!;
+  expect(pinned).toContainElement(cta);
+  expect(pinned).not.toContainElement(screen.getByTestId('import-account-form'));
+  expect(cta).toHaveAttribute('form', 'import-account-form');
+});
+
+it('covers a pasted private key once the field is left', () => {
+  render(<ImportAccount />);
+  const field = screen.getByLabelText('privateKey');
+
+  fireEvent.focus(field);
+  fireEvent.change(field, { target: { value: 'aabbcc' } });
+  expect(document.querySelector('[data-slot="secret-cover"]')).toBeNull();
+  fireEvent.blur(field);
+  expect(document.querySelector('[data-slot="secret-cover"]')).toBeInTheDocument();
 });
 
 it('normalizes the secret and name, selects the imported account, and returns home', async () => {
@@ -138,7 +164,11 @@ it('shows an import failure without navigating or logging the secret', async () 
 
   // The backend sentence is untranslated, so the screen shows its own copy and
   // keeps the cause in the log.
-  expect(await screen.findByRole('alert')).toHaveTextContent('error: smthWentWrong');
+  // The shared negative Notice, not the atom's red block.
+  const alert = await screen.findByTestId('import-account-error');
+  expect(alert).toHaveAttribute('role', 'alert');
+  expect(alert).toHaveAttribute('data-tone', 'negative');
+  expect(alert).toHaveTextContent('smthWentWrong');
   expect(consoleErrorSpy).toHaveBeenCalled();
   expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain('secret-value');
   consoleErrorSpy.mockRestore();
@@ -154,7 +184,7 @@ it('uses the safe fallback for non-Error failures', async () => {
   fireEvent.change(screen.getByLabelText('privateKey'), { target: { value: 'secret-value' } });
   fireEvent.submit(screen.getByTestId('import-account-form'));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('error: smthWentWrong');
+  expect(await screen.findByTestId('import-account-error')).toHaveTextContent('smthWentWrong');
 });
 
 it('returns home from the back button', () => {

@@ -1,29 +1,71 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { ActivityGroupedHistory } from 'app/templates/history/ActivityGroupedHistory';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
+import { ActivityViewMenu } from 'app/templates/history/ActivityViewMenu';
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
-import { TabHeader, TabHeaderAction } from 'components/ui';
+import { TabHeaderAction, TabRootHeader } from 'components/ui';
+import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { hapticSelection } from 'lib/mobile/haptics';
+import { setActivityView, useActivityView } from 'lib/settings/activity-view';
+import { beginFlow, FlowHandle } from 'lib/telemetry';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 type AllHistoryProps = {
   programId?: string | null;
 };
 
+/**
+ * The filter a link asked for, e.g. `/history?filter=pending` - which is where every
+ * received-transfer notification and the home prompt now land (`ACTIVITY_PENDING_PATH`). Only an
+ * id the segmented control offers is accepted.
+ */
+function filterFromSearch(
+  search: string,
+  filters: readonly SegmentedControlItem<ActivityFilter>[]
+): ActivityFilter | undefined {
+  const asked = new URLSearchParams(search).get('filter');
+  return filters.find(candidate => candidate.id === asked)?.id;
+}
+
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<ActivityFilter>('all');
-  const [searchOpen, setSearchOpen] = useState(false);
+  const { search: locationSearch } = useLocation();
 
-  const filters = useMemo<Array<{ id: ActivityFilter; label: string }>>(
+  /**
+   * `activity_view` is a view flow, so its terminal state is the user actually
+   * seeing their activity: it completes when the list's first load settles and
+   * is cancelled when they leave before that. There is no later moment worth
+   * calling "completed" — reading a list emits no such event, and inventing one
+   * (a tap on a row, say) would report every ordinary visit as abandoned.
+   * Held in a ref rather than state because settling must never re-render.
+   */
+  const flowRef = useRef<FlowHandle | null>(null);
+  useEffect(() => {
+    flowRef.current = beginFlow('activity_view');
+    return () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    };
+  }, []);
+
+  // Clearing the ref keeps this to one terminal call per visit, and keeps the
+  // unmount above from re-reporting a view that already completed.
+  const handleHistoryLoaded = useCallback(() => {
+    const flow = flowRef.current;
+    if (!flow) return;
+    flowRef.current = null;
+    flow.complete();
+  }, []);
+
+  const filters = useMemo<SegmentedControlItem<ActivityFilter>[]>(
     () => [
       { id: 'all', label: t('all') },
       { id: 'pending', label: t('pending') },
@@ -33,6 +75,29 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     ],
     [t]
   );
+  const [filter, setFilter] = useState<ActivityFilter>(() => filterFromSearch(locationSearch, filters) ?? 'all');
+  // `TabLayout` keeps a visited tab mounted, so a notification arriving while Activity is already
+  // open does not remount this page — the initial state above would never be re-read. Following
+  // the location is what makes the deep link work on the second and every later tap.
+  useEffect(() => {
+    const asked = filterFromSearch(locationSearch, filters);
+    if (asked) setFilter(asked);
+  }, [locationSearch, filters]);
+  // A pick is written back to the URL, so a later link to a filter the URL no longer names is a
+  // change of location the effect above sees.
+  const pickFilter = (next: ActivityFilter) => {
+    setFilter(next);
+    navigate(
+      ({ pathname, hash, state }) => ({ pathname, search: `?filter=${next}`, hash, state }),
+      HistoryAction.Replace
+    );
+  };
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Remembered per device in the app's settings module, so the tab reopens in the view the user
+  // left it in; `list` until they choose otherwise.
+  const view = useActivityView();
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
   // The search button in the header shows and hides the search field. A
   // closed field also clears the query, so the list goes back to the full set.
@@ -43,62 +108,72 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     });
   };
 
-  const handleFilterTap = (id: ActivityFilter) => {
-    if (id === filter) return;
-    hapticSelection();
-    setFilter(id);
-  };
-
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <TabHeader
+      <TabRootHeader
         title={t('activity')}
         search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
         actions={
-          <TabHeaderAction
-            label={t('activitySearch')}
-            icon={IconName.Search}
-            active={searchOpen}
-            onClick={toggleSearch}
-          />
+          <>
+            <TabHeaderAction
+              label={t('activitySearch')}
+              icon={IconName.Search}
+              active={searchOpen}
+              onClick={toggleSearch}
+            />
+            <TabHeaderAction
+              ref={menuAnchorRef}
+              label={t('activityViewOptions')}
+              icon={IconName.List}
+              active={menuOpen}
+              onClick={() => setMenuOpen(open => !open)}
+              data-testid="activity-view-button"
+            />
+          </>
         }
+        // The filter row belongs to the feed. The Groups view rolls the history up by counterparty,
+        // which is its own filtering, so it carries no row — and no filter anywhere else either:
+        // a narrowing with no visible control saying so is worse than none. The feed's choice is
+        // kept while the user is away in Groups, and the row shows it again on the way back.
+        filter={
+          view === 'list'
+            ? { items: filters, value: filter, onChange: pickFilter, 'aria-label': t('activityFilters') }
+            : undefined
+        }
+      />
+
+      <ActivityViewMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        anchorRef={menuAnchorRef}
+        view={view}
+        onViewChange={setActivityView}
       />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
           possibly the only copy of the funds, so surfaced where the user looks
           for their incoming activity, with the manual drain the dead-letter
-          store's contract assumes. Renders nothing while the store is empty. */}
-      <DeadletteredNotesNotice className="shrink-0 mx-4 mt-3" />
-
-      <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {filters.map(f => {
-          const isActive = f.id === filter;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => handleFilterTap(f.id)}
-              className={classNames(
-                'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
-                isActive
-                  ? 'bg-accent-primary text-pure-white font-semibold'
-                  : 'bg-white text-text-primary-token border border-rule-strong'
-              )}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+          store's contract assumes. Renders nothing while the store is empty.
+          Under the filter row, so an empty store costs the page nothing. */}
+      <DeadletteredNotesNotice className="shrink-0 mx-4 mt-2" />
 
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
-      <ActivityPendingHistory
-        key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
-        search={search}
-        filter={filter}
-        programId={programId}
-      />
+      {view === 'groups' ? (
+        <ActivityGroupedHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          programId={programId}
+          onInitialLoad={handleHistoryLoaded}
+        />
+      ) : (
+        <ActivityPendingHistory
+          key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+          search={search}
+          filter={filter}
+          programId={programId}
+          onInitialLoad={handleHistoryLoaded}
+        />
+      )}
     </div>
   );
 };

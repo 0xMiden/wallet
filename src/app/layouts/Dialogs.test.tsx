@@ -8,9 +8,9 @@ import Dialogs from './Dialogs';
 
 const ORIGINAL_E2E = process.env.MIDEN_E2E_TEST;
 
-// `lib/ui/dialog` owns the modal params store and the close dispatchers.
+// `lib/ui/dialog` owns the dialog params store and the close dispatchers.
 // Mock it so each test can steer `useModalsParams()` (open/closed for each
-// modal) and assert on the dispatch* calls without pulling in constate,
+// dialog) and assert on the dispatch* calls without pulling in constate,
 // CustomEvent classes, or the `#root` lookup the real module does at import.
 jest.mock('lib/ui/dialog', () => ({
   useModalsParams: jest.fn(),
@@ -25,34 +25,12 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: jest.fn()
 }));
 
-// Stub the two child modals to lightweight probes that surface the props the
-// component wires up (isOpen passthrough + the onRequestClose / onConfirm
-// callbacks) so we can click them and verify the right dispatcher fires.
-jest.mock('app/templates/ConfirmationModal', () => ({
-  __esModule: true,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  default: (props: any) => (
-    <div data-testid="confirm-modal" data-open={String(props.isOpen)}>
-      <button data-testid="confirm-close" onClick={props.onRequestClose}>
-        confirm-close
-      </button>
-      <button data-testid="confirm-ok" onClick={props.onConfirm}>
-        confirm-ok
-      </button>
-    </div>
-  )
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
 }));
 
-jest.mock('app/templates/AlertModal', () => ({
-  __esModule: true,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  default: (props: any) => (
-    <div data-testid="alert-modal" data-open={String(props.isOpen)}>
-      <button data-testid="alert-close" onClick={props.onRequestClose}>
-        alert-close
-      </button>
-    </div>
-  )
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn()
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -68,8 +46,8 @@ const { useMobileBackHandler } = require('lib/mobile/useMobileBackHandler') as {
 };
 
 type ModalsParams = {
-  alertParams: { isOpen: boolean };
-  confirmParams: { isOpen: boolean };
+  alertParams: { isOpen: boolean; title?: string; children?: string };
+  confirmParams: { isOpen: boolean; title?: string; children?: string; confirmLabel?: string; destructive?: boolean };
 };
 
 function setParams(params: ModalsParams): void {
@@ -94,44 +72,103 @@ beforeEach(() => {
 });
 
 describe('Dialogs', () => {
-  it('renders both modals and forwards the isOpen params from the store', () => {
-    setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
-
+  it('renders no sheet while neither dialog is open', () => {
     render(<Dialogs />);
 
-    expect(screen.getByTestId('confirm-modal')).toHaveAttribute('data-open', 'false');
-    expect(screen.getByTestId('alert-modal')).toHaveAttribute('data-open', 'true');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  it('closes the confirmation modal (onRequestClose) via dispatchConfirmClose(false)', () => {
-    render(<Dialogs />);
+  describe('confirm', () => {
+    const open = { isOpen: true, title: 'Delete contact', children: 'Are you sure?' };
 
-    fireEvent.click(screen.getByTestId('confirm-close'));
+    it('asks as a sheet: title, sentence, OK over Cancel, on the e2e test ids', () => {
+      setParams({ alertParams: { isOpen: false }, confirmParams: open });
+      render(<Dialogs />);
 
-    expect(dialog.dispatchConfirmClose).toHaveBeenCalledTimes(1);
-    expect(dialog.dispatchConfirmClose).toHaveBeenCalledWith(false);
-    expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
+      const sheet = screen.getByRole('alertdialog', { name: 'Delete contact' });
+      expect(sheet).toHaveAccessibleDescription('Are you sure?');
+      const confirm = screen.getByTestId('confirmation-modal-confirm');
+      expect(confirm).toHaveTextContent('ok');
+      expect(confirm).toHaveClass('bg-accent-primary');
+      expect(screen.getByTestId('confirmation-modal-cancel')).toHaveTextContent('cancel');
+    });
+
+    it('uses the caller label and the destructive button when asked', () => {
+      setParams({
+        alertParams: { isOpen: false },
+        confirmParams: { ...open, confirmLabel: 'Delete', destructive: true }
+      });
+      render(<Dialogs />);
+
+      const confirm = screen.getByTestId('confirmation-modal-confirm');
+      expect(confirm).toHaveTextContent('Delete');
+      expect(confirm).toHaveClass('text-negative-ink');
+    });
+
+    it('resolves true from the action', () => {
+      setParams({ alertParams: { isOpen: false }, confirmParams: open });
+      render(<Dialogs />);
+
+      fireEvent.click(screen.getByTestId('confirmation-modal-confirm'));
+
+      expect(dialog.dispatchConfirmClose).toHaveBeenCalledTimes(1);
+      expect(dialog.dispatchConfirmClose).toHaveBeenCalledWith(true);
+      expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
+    });
+
+    it('resolves false from Cancel', () => {
+      setParams({ alertParams: { isOpen: false }, confirmParams: open });
+      render(<Dialogs />);
+
+      fireEvent.click(screen.getByTestId('confirmation-modal-cancel'));
+
+      expect(dialog.dispatchConfirmClose).toHaveBeenCalledTimes(1);
+      expect(dialog.dispatchConfirmClose).toHaveBeenCalledWith(false);
+    });
+
+    it('resolves false on Escape', () => {
+      setParams({ alertParams: { isOpen: false }, confirmParams: open });
+      render(<Dialogs />);
+
+      fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+
+      expect(dialog.dispatchConfirmClose).toHaveBeenCalledWith(false);
+    });
   });
 
-  it('confirms (onConfirm) via dispatchConfirmClose(true)', () => {
-    render(<Dialogs />);
+  describe('alert', () => {
+    const open = { isOpen: true, title: 'Error', children: 'boom' };
 
-    fireEvent.click(screen.getByTestId('confirm-ok'));
+    it('shows a sheet with one OK and no Cancel', () => {
+      setParams({ alertParams: open, confirmParams: { isOpen: false } });
+      render(<Dialogs />);
 
-    expect(dialog.dispatchConfirmClose).toHaveBeenCalledTimes(1);
-    expect(dialog.dispatchConfirmClose).toHaveBeenCalledWith(true);
+      expect(screen.getByRole('alertdialog', { name: 'Error' })).toHaveAccessibleDescription('boom');
+      expect(screen.getAllByRole('button')).toHaveLength(1);
+      expect(screen.queryByTestId('confirmation-modal-cancel')).not.toBeInTheDocument();
+    });
+
+    it('closes from OK via dispatchAlertClose', () => {
+      setParams({ alertParams: open, confirmParams: { isOpen: false } });
+      render(<Dialogs />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'ok' }));
+
+      expect(dialog.dispatchAlertClose).toHaveBeenCalledTimes(1);
+      expect(dialog.dispatchConfirmClose).not.toHaveBeenCalled();
+    });
+
+    it('closes on Escape via dispatchAlertClose', () => {
+      setParams({ alertParams: open, confirmParams: { isOpen: false } });
+      render(<Dialogs />);
+
+      fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+
+      expect(dialog.dispatchAlertClose).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('closes the alert modal (onRequestClose) via dispatchAlertClose', () => {
-    render(<Dialogs />);
-
-    fireEvent.click(screen.getByTestId('alert-close'));
-
-    expect(dialog.dispatchAlertClose).toHaveBeenCalledTimes(1);
-    expect(dialog.dispatchConfirmClose).not.toHaveBeenCalled();
-  });
-
-  it('registers the back handler with the modal-open flags as deps', () => {
+  it('registers the back handler with the dialog-open flags as deps', () => {
     setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
 
     render(<Dialogs />);
@@ -144,7 +181,7 @@ describe('Dialogs', () => {
   });
 
   describe('mobile back handler', () => {
-    it('closes the confirmation modal and consumes the back press when confirm is open', () => {
+    it('closes the confirmation and consumes the back press when confirm is open', () => {
       setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: true } });
       render(<Dialogs />);
 
@@ -156,7 +193,7 @@ describe('Dialogs', () => {
       expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
     });
 
-    it('prioritizes the confirmation modal when both modals are open', () => {
+    it('prioritizes the confirmation when both dialogs are open', () => {
       setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: true } });
       render(<Dialogs />);
 
@@ -167,7 +204,7 @@ describe('Dialogs', () => {
       expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
     });
 
-    it('closes the alert modal and consumes the back press when only the alert is open', () => {
+    it('closes the alert and consumes the back press when only the alert is open', () => {
       setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
       render(<Dialogs />);
 
@@ -178,7 +215,7 @@ describe('Dialogs', () => {
       expect(dialog.dispatchConfirmClose).not.toHaveBeenCalled();
     });
 
-    it('passes the back press through (returns false) when no modal is open', () => {
+    it('passes the back press through (returns false) when no dialog is open', () => {
       setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: false } });
       render(<Dialogs />);
 
@@ -202,23 +239,23 @@ describe('Dialogs', () => {
       else process.env.MIDEN_E2E_TEST = ORIGINAL_E2E;
     });
 
-    it('publishes dialog:alert while the alert modal is open', () => {
+    it('publishes drawer:alert while the alert sheet is open', () => {
       setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
 
       render(<Dialogs />);
 
-      expect(getCurrentScreen().key).toBe('/x > dialog:alert');
+      expect(getCurrentScreen().key).toBe('/x > drawer:alert');
     });
 
-    it('publishes dialog:confirm while the confirmation modal is open', () => {
+    it('publishes drawer:confirm while the confirmation sheet is open', () => {
       setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: true } });
 
       render(<Dialogs />);
 
-      expect(getCurrentScreen().key).toBe('/x > dialog:confirm');
+      expect(getCurrentScreen().key).toBe('/x > drawer:confirm');
     });
 
-    it('publishes nothing extra when neither modal is open', () => {
+    it('publishes nothing extra when neither dialog is open', () => {
       setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: false } });
 
       render(<Dialogs />);
@@ -226,10 +263,10 @@ describe('Dialogs', () => {
       expect(getCurrentScreen().key).toBe('/x');
     });
 
-    it('pops dialog:alert when the alert modal closes', () => {
+    it('pops drawer:alert when the alert sheet closes', () => {
       setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
       const { rerender } = render(<Dialogs />);
-      expect(getCurrentScreen().key).toBe('/x > dialog:alert');
+      expect(getCurrentScreen().key).toBe('/x > drawer:alert');
 
       setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: false } });
       rerender(<Dialogs />);

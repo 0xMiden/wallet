@@ -83,9 +83,8 @@ jest.mock('./PageLayout/ChangelogOverlay/ChangelogOverlay', () => ({
   ChangelogOverlay: () => <div data-testid="changelog-overlay" />
 }));
 
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 jest.mock('app/icons/v2', () => ({

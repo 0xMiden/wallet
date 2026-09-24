@@ -58,6 +58,7 @@ jest.mock('@capacitor/filesystem', () => ({
 
 import * as categoryData from './category-data';
 import * as dappSession from './dapp-session';
+import * as exploreCatalog from './explore-catalog';
 import * as faviconCache from './favicon-cache';
 import * as featuredDapps from './featured-dapps';
 import * as barrel from './index';
@@ -104,10 +105,13 @@ describe('dapp-browser barrel — re-export identity', () => {
     // featured-dapps
     ['FEATURED_DAPPS', featuredDapps, 'FEATURED_DAPPS'],
     ['CAROUSEL_DAPPS', featuredDapps, 'CAROUSEL_DAPPS'],
-    ['EXPLORE_GRID_DAPPS', featuredDapps, 'EXPLORE_GRID_DAPPS'],
-    ['getExploreGridDapps', featuredDapps, 'getExploreGridDapps'],
     // category-data
     ['CATEGORIES', categoryData, 'CATEGORIES'],
+    // explore-catalog
+    ['EXPLORE_FILTERS', exploreCatalog, 'EXPLORE_FILTERS'],
+    ['getExploreCatalog', exploreCatalog, 'getExploreCatalog'],
+    ['resolveExploreSections', exploreCatalog, 'resolveExploreSections'],
+    ['searchExploreCatalog', exploreCatalog, 'searchExploreCatalog'],
     // recent-dapps
     ['getRecentDapps', recentDapps, 'getRecentDapps'],
     ['recordRecentDapp', recentDapps, 'recordRecentDapp'],
@@ -156,7 +160,6 @@ describe('dapp-browser barrel — live wiring smoke checks', () => {
       'rectFromDOMRect',
       'rectsEqual',
       'useDappConfirmation',
-      'getExploreGridDapps',
       'getRecentDapps',
       'recordRecentDapp',
       'forgetRecentDapp',
@@ -190,7 +193,6 @@ describe('dapp-browser barrel — live wiring smoke checks', () => {
     expect(Array.isArray(barrel.FEATURED_DAPPS)).toBe(true);
     expect(barrel.FEATURED_DAPPS.length).toBeGreaterThan(0);
     expect(Array.isArray(barrel.CAROUSEL_DAPPS)).toBe(true);
-    expect(Array.isArray(barrel.EXPLORE_GRID_DAPPS)).toBe(true);
     expect(Array.isArray(barrel.CATEGORIES)).toBe(true);
     expect(barrel.CATEGORIES.length).toBeGreaterThan(0);
   });

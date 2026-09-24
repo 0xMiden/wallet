@@ -1,8 +1,11 @@
 import { MidenDAppMessageType } from 'lib/adapter/types';
 import { SendTransaction } from 'lib/miden/db/types';
 import { spendingLimits, transactions } from 'lib/miden/repo';
+import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
+import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { WalletStatus } from 'lib/shared/types';
+import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -43,12 +46,17 @@ import {
   importMnemonicAccount,
   importFundraiserAccount,
   importWatchOnlyAccount,
-  listSpendingLimits,
+  handleReportTelemetryEvent,
+  getSpendingLimit,
   saveSpendingLimit,
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication
 } from './actions';
+
+jest.mock('lib/miden/spending-limits/valuation', () => ({ resolveSpendsUsd: jest.fn() }));
+
+const mockedResolve = jest.mocked(resolveSpendsUsd);
 
 // Create mock vault instance
 const mockVault = {
@@ -868,96 +876,84 @@ describe('actions', () => {
   });
 
   describe('spending limits', () => {
-    it('validates and serializes configuration at the action boundary', async () => {
-      await expect(
-        saveSpendingLimit(
-          {
-            accountId: 'account-a',
-            faucetId: 'faucet-a',
-            dailyLimit: '90',
-            asset: { symbol: 'MIDEN', decimals: 8 }
-          },
-          undefined,
-          true
-        )
-      ).resolves.toMatchObject({ dailyLimit: '90', revision: expect.any(String) });
+    const ACCOUNT = 'account-a';
 
-      await expect(listSpendingLimits('account-a')).resolves.toEqual([
-        expect.objectContaining({ accountId: 'account-a', faucetId: 'faucet-a', dailyLimit: '90' })
-      ]);
+    beforeEach(async () => {
+      // A 1:1 passthrough by default: most cases here exercise the message-layer plumbing, not
+      // real dollar valuation, which policy.test.ts and valuation.test.ts already cover.
+      mockedResolve.mockImplementation(async spends => spends.reduce((total, spend) => total + spend.amount, 0n));
+      await saveSpendingLimit({ accountId: ACCOUNT, limit: '50000000' }, undefined, true);
+    });
+
+    it('returns the one configuration for an account', async () => {
+      await expect(getSpendingLimit(ACCOUNT)).resolves.toMatchObject({ limit: '50000000' });
+    });
+
+    it('reports no configuration for an account with none', async () => {
+      await expect(getSpendingLimit('account-unconfigured')).resolves.toBeUndefined();
     });
 
     it('rejects a non-canonical transport amount without writing it', async () => {
-      await expect(
-        saveSpendingLimit(
-          {
-            accountId: 'account-a',
-            faucetId: 'faucet-a',
-            dailyLimit: '090',
-            asset: { symbol: 'MIDEN', decimals: 8 }
-          },
-          undefined,
-          true
-        )
-      ).rejects.toThrow(/policy is unavailable/i);
-      await expect(spendingLimits.count()).resolves.toBe(0);
+      await expect(saveSpendingLimit({ accountId: 'account-b', limit: '090' }, undefined, true)).rejects.toThrow(
+        /policy is unavailable/i
+      );
+      await expect(spendingLimits.get('account-b')).resolves.toBeUndefined();
     });
 
-    it('returns a serializable preflight assessment from the current transaction history', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      await saveSpendingLimit(
-        {
-          accountId: 'account-a',
-          faucetId: 'faucet-a',
-          dailyLimit: '100',
-          asset: { symbol: 'MIDEN', decimals: 8 }
-        },
-        undefined,
-        true
-      );
-      const previous = new SendTransaction('account-a', 90n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
-      previous.initiatedAt = now - 1;
-      await transactions.add(previous);
+    it('assesses a multi-asset proposal as one dollar figure', async () => {
+      mockedResolve.mockResolvedValueOnce(4_010_000_000n);
 
-      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-a', '20')).resolves.toMatchObject({
-        amount: '20',
-        breaches: [{ period: '24h', overBy: '10' }]
+      const assessment = await assessOutgoingSpendingLimit(ACCOUNT, [
+        { faucetId: 'eth', amount: '1000000000000000000' },
+        { faucetId: 'usdc', amount: '10000000' }
+      ]);
+
+      expect(assessment?.usdAmount).toBe('4010000000');
+    });
+
+    it('surfaces a price failure as its own code rather than a policy failure', async () => {
+      mockedResolve.mockRejectedValue(new SpendingLimitPriceUnavailableError('ETH'));
+
+      await expect(assessOutgoingSpendingLimit(ACCOUNT, [{ faucetId: 'eth', amount: '1' }])).rejects.toMatchObject({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE'
       });
     });
 
-    it('reports no assessment when the account has no policy for that faucet', async () => {
+    it('reports no assessment when the account has no policy', async () => {
       // The transport must distinguish "no limit configured" from "assessed and fine": the dApp
       // and UI branches both key off undefined to skip the challenge entirely.
-      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-unconfigured', '20')).resolves.toBeUndefined();
+      await expect(
+        assessOutgoingSpendingLimit('account-unconfigured', [{ faucetId: 'faucet-a', amount: '20' }])
+      ).resolves.toBeUndefined();
     });
 
-    it('reports no configuration back when a save removes the last period', async () => {
-      await saveSpendingLimit(
-        {
-          accountId: 'account-a',
-          faucetId: 'faucet-a',
-          dailyLimit: '100',
-          asset: { symbol: 'MIDEN', decimals: 8 }
-        },
-        undefined,
-        true
-      );
-      const stored = await listSpendingLimits('account-a');
+    it('serializes a breach built from real transaction history', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const previous = new SendTransaction(ACCOUNT, 90n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
+      previous.initiatedAt = now - 1;
+      await transactions.add({ ...previous, spentUsd: 40_000_000n });
 
-      // Clearing every period deletes the record, and the caller needs undefined rather than a
-      // stale row so the settings screen stops showing a limit that no longer exists.
+      mockedResolve.mockResolvedValueOnce(20_000_000n);
+
       await expect(
-        saveSpendingLimit(
-          { accountId: 'account-a', faucetId: 'faucet-a', asset: { symbol: 'MIDEN', decimals: 8 } },
-          stored[0]?.revision,
-          true
-        )
-      ).resolves.toBeUndefined();
-      await expect(listSpendingLimits('account-a')).resolves.toEqual([]);
+        assessOutgoingSpendingLimit(ACCOUNT, [{ faucetId: 'faucet-a', amount: '20' }])
+      ).resolves.toMatchObject({
+        usdAmount: '20000000',
+        breach: { spent: '40000000', overBy: '10000000' }
+      });
+    });
+
+    it('reports no configuration back when a save removes the limit', async () => {
+      const stored = await getSpendingLimit(ACCOUNT);
+
+      // Clearing the limit deletes the record, and the caller needs undefined rather than a
+      // stale row so the settings screen stops showing a limit that no longer exists.
+      await expect(saveSpendingLimit({ accountId: ACCOUNT }, stored?.revision, true)).resolves.toBeUndefined();
+      await expect(getSpendingLimit(ACCOUNT)).resolves.toBeUndefined();
     });
 
     it('rejects a non-canonical preflight proposal amount', async () => {
-      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-a', '020')).rejects.toThrow(
+      await expect(assessOutgoingSpendingLimit(ACCOUNT, [{ faucetId: 'faucet-a', amount: '020' }])).rejects.toThrow(
         /policy is unavailable/i
       );
     });
@@ -1770,6 +1766,24 @@ describe('actions', () => {
       } finally {
         delete (globalThis as any).init_vault;
       }
+    });
+  });
+});
+
+jest.mock('lib/telemetry/sink', () => ({ sendEvent: jest.fn() }));
+
+describe('handleReportTelemetryEvent', () => {
+  afterEach(() => jest.resetAllMocks());
+
+  it('forwards the event with a background-derived context', async () => {
+    const response = await handleReportTelemetryEvent({
+      type: WalletMessageType.ReportTelemetryEventRequest,
+      event: { phase: 'started', flow: 'send', flowId: 'f1', runId: 'r1' }
+    });
+    expect(response.type).toBe(WalletMessageType.ReportTelemetryEventResponse);
+    expect(jest.mocked(sendEvent).mock.calls[0]?.[1]).toEqual({
+      appVersion: expect.stringMatching(/^\d+\.\d+\.\d+$/),
+      platform: expect.any(String)
     });
   });
 });

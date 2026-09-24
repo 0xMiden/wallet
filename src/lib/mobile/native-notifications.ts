@@ -1,6 +1,7 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 import { InAppBrowser } from '@miden/dapp-browser';
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { hapticSuccess } from 'lib/mobile/haptics';
 import { isAndroid, isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
@@ -89,7 +90,7 @@ export async function showNoteReceivedNotification(title: string, body: string):
           // Extra data for handling tap
           extra: {
             type: 'note_received',
-            navigateTo: '/pending-notes'
+            navigateTo: ACTIVITY_PENDING_PATH
           }
         }
       ]

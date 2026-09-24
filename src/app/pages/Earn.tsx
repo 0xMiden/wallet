@@ -1,69 +1,97 @@
 import React, { FC } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { hapticLight } from 'lib/mobile/haptics';
+import { IconName } from 'app/icons/v2';
+import { HomeGroupPane } from 'app/layouts/HomeGroupPane';
+import { CardButton } from 'components/ui/Card';
+import { EmptyState } from 'components/ui/EmptyState';
+import { SectionHeader } from 'components/ui/SectionHeader';
+import { TextAction } from 'components/ui/TextAction';
 import { navigate } from 'lib/woozie';
-import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
+import { EarnSummaryPanel } from 'screens/earn-flow/components';
+import { EarnLoadError } from 'screens/earn-flow/EarnLoadError';
+import { ProviderLogo } from 'screens/earn-flow/ProviderLogo';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, vaults } = useEarnPositions();
-  const handleSeeAllClick = () => {
-    hapticLight();
-    navigate('/earn/positions');
-  };
+  const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
+  // SWR keeps the error until a load succeeds, and a first load has none: a retry (which SWR reports
+  // as isLoading) must not lift the failure and flash the empty state back.
+  const loadFailed = Boolean(error);
 
   return (
-    <div className="h-full overflow-hidden bg-app-bg font-inter" data-testid="earn-page">
-      <div className="h-full overflow-y-auto">
-        <div className="flex flex-col px-4 pt-4 pb-32">
+    // The shared home-group pane (HomeGroupPane): the page margin, the offset to the title, the
+    // scroll and gesture contract and the clearance over the tab bar, the same as Send, Receive
+    // and Swap. 20px between sections is this page's own.
+    <HomeGroupPane paneTestId="earn-page" title={t('earnTitle')} titleTestId="earn-title">
+      <div className="flex flex-col gap-5 pt-5">
+        {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
+        {!(positions.length === 0 && (isLoading || loadFailed)) && (
           <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
+        )}
 
-          <section className="mt-4" aria-labelledby="earn-positions-title">
-            <div className="flex items-center justify-between">
-              <h2 id="earn-positions-title" className="text-xl font-heading font-bold leading-none text-heading-gray">
-                {t('earnCurrentPositionsTitle')}
-              </h2>
-              <button
-                type="button"
-                onClick={handleSeeAllClick}
-                className="text-xs font-heading font-bold leading-none text-heading-gray"
-              >
+        <section aria-label={t('earnCurrentPositionsTitle')}>
+          {/* The tab root's section title, with its text action, through the shared header. */}
+          <SectionHeader
+            size="xl"
+            action={
+              <TextAction onClick={() => navigate('/earn/positions')} data-testid="earn-see-all">
                 {t('earnSeeAll')}
-              </button>
-            </div>
+              </TextAction>
+            }
+          >
+            {t('earnCurrentPositionsTitle')}
+          </SectionHeader>
 
-            <div
-              className="-mx-4 mt-5 overflow-x-auto no-scrollbar touch-pan-x"
-              onPointerDown={event => event.stopPropagation()}
-            >
-              <div className="flex gap-5 px-4 pb-1">
-                {positions.map(position => (
-                  <PositionCard key={position.id} position={position} />
-                ))}
+          {/* Only a load that settled with nothing says "no positions": while the first load is in
+              flight the slot stays empty, and a failed load says so and retries - in place of the
+              list when there is nothing to show, above the last-good cards when there is. */}
+          {positions.length === 0 && loadFailed ? (
+            <EarnLoadError onRetry={refetch} />
+          ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
+            <EmptyState
+              surface="dashed"
+              icon={IconName.Earn}
+              title={t('earnNoActivePositionsTitle')}
+              description={t('earnNoActivePositionsBody')}
+              data-testid="earn-positions-empty"
+            />
+          ) : (
+            <>
+              {loadFailed && <EarnLoadError onRetry={refetch} />}
+              <div
+                className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
+                onPointerDown={event => event.stopPropagation()}
+              >
+                <div className="flex gap-3 px-4 pb-1">
+                  {positions.map(position => (
+                    <PositionCard key={position.id} position={position} />
+                  ))}
+                </div>
               </div>
-            </div>
-          </section>
+            </>
+          )}
+        </section>
 
-          <section className="mt-3" aria-labelledby="earn-vaults-title">
-            <h2 id="earn-vaults-title" className="text-xl font-heading font-bold leading-none text-heading-gray">
-              {t('earnVaultsTitle')}
-            </h2>
+        {/* Fed by the same read as the positions: with no vaults, loading, failed or settled, there is
+            nothing to feature, and a failure is already said once above. */}
+        {vaults.length > 0 && (
+          <section aria-label={t('earnVaultsTitle')}>
+            <SectionHeader size="xl">{t('earnVaultsTitle')}</SectionHeader>
 
-            <div className="mt-1 flex flex-col divide-y divide-rule-default">
+            {/* Cards in a list are separated by space, 12px, not hairlines. */}
+            <div className="flex flex-col gap-3">
               {vaults.map(vault => (
                 <VaultRow key={vault.id} vault={vault} />
               ))}
             </div>
           </section>
-        </div>
+        )}
       </div>
-    </div>
+    </HomeGroupPane>
   );
 };
 
@@ -71,32 +99,28 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
   const { t } = useTranslation();
 
   return (
-    <button
-      type="button"
+    <CardButton
+      surface="outline"
+      padding="tile"
       data-testid={`earn-position-card-${position.id}`}
-      onClick={() => {
-        hapticLight();
-        navigate(`/earn/positions/${position.id}`);
-      }}
-      className={classNames('shrink-0 rounded-2xl border border-[#EFEFF2] bg-white px-4 py-4 text-left')}
+      onClick={() => navigate(`/earn/positions/${position.id}`)}
+      className="shrink-0"
     >
       <div className="flex items-center gap-10">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="text-base font-bold leading-none text-black">
+          <div className="text-row-title text-ink">
             {position.protocol} &bull; {position.asset}
           </div>
         </div>
-        <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-bold font-heading leading-none text-green-500">
-          {position.apy} {t('earnApyLabel')}
-        </div>
+        <div className="text-value text-positive-tint-ink">{t('earnPositionsApy', { apy: position.apy })}</div>
       </div>
 
-      <div className="mt-3 text-[22px] font-bold font-heading leading-none text-black">{position.amount}</div>
-      <div className="mt-2 text-xs font-bold leading-none text-green-500">
+      <div className="mt-3 text-entry-unit text-ink">{position.amount}</div>
+      <div className="mt-2 text-caption text-positive-tint-ink">
         {position.rewards} &bull; {position.age}
       </div>
-    </button>
+    </CardButton>
   );
 };
 
@@ -104,34 +128,27 @@ const VaultRow: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
   return (
-    <button
-      type="button"
+    <CardButton
+      surface="outline"
+      padding="row"
       data-testid={`earn-vault-row-${vault.id}`}
-      onClick={() => {
-        hapticLight();
-        navigate(`/earn/vaults/${vault.id}`);
-      }}
-      className="flex w-full items-center gap-3 py-4 text-left"
+      onClick={() => navigate(`/earn/vaults/${vault.id}`)}
     >
-      <span className="flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-[14px] bg-[#F0F0FF]">
-        <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
-      </span>
+      <div className="flex w-full items-center gap-3">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-fill">
+          <ProviderLogo protocol={vault.protocol} className="h-8 w-8" />
+        </span>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="shrink-0 text-base font-bold leading-tight text-black">{vault.protocol}</span>
-          <span className="truncate text-xs font-regular leading-tight text-text-secondary-token">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-row-title text-ink">{vault.protocol}</div>
+          <div className="truncate text-caption text-muted">
             {t('earnVaultAssetOnNetwork', { asset: vault.asset, network: vault.network })}
-          </span>
+          </div>
         </div>
-        <div className="mt-0.5 flex items-baseline gap-1 text-xs font-bold leading-tight">
-          <span className="text-text-secondary-token">{t('earnApyLabel')}</span>
-          <span className="text-status-positive">{vault.apy}</span>
-        </div>
-      </div>
 
-      <Icon name={IconName.ChevronRightLucide} className="h-5 w-5 shrink-0 text-text-secondary-token" fill="none" />
-    </button>
+        <span className="shrink-0 text-value text-positive-tint-ink">{vault.apy}</span>
+      </div>
+    </CardButton>
   );
 };
 

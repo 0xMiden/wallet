@@ -2,9 +2,8 @@ import React, { createContext, FC, useContext, useEffect, useLayoutEffect, useMe
 
 import { AnimatePresence, motion, TargetAndTransition, usePresence, useReducedMotion } from 'framer-motion';
 
-import { PageActiveContext } from 'app/layouts/page-active';
-import { useMotion } from 'lib/animation';
-import { pageSlideDim, pageSlideEntrance, pageSlideParallax } from 'lib/animation/page-appearance';
+import { PageActiveContext, PageOnScreenContext } from 'app/layouts/page-active';
+import { pageSlideDim, pageSlideParallax, usePreset } from 'lib/animation';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { HistoryAction } from 'lib/woozie/history';
@@ -48,15 +47,14 @@ interface PageLayerProps extends PropsWithChildren {
   animated: boolean;
 }
 
+// The page beneath a slide page. The slide page itself moves on the `page` preset.
 const coveredTarget: TargetAndTransition = { x: pageSlideParallax };
-const restTarget: TargetAndTransition = { x: 0 };
-const uncoverTarget: TargetAndTransition = { x: '100%' };
 
 const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, revealed, animated, children }) => {
   const [present, remove] = usePresence();
   const { retain, poppedKey, mounted, pageKey: currentPageKey } = useContext(LayerStackContext);
   const ref = useRef<HTMLDivElement>(null);
-  const transition = useMotion(pageSlideEntrance);
+  const page = usePreset('page');
   // A layer that started to slide out keeps sliding out. It is off screen,
   // and a later push must not pull it back under the new page.
   const uncovering = useRef(false);
@@ -83,6 +81,22 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
       break;
   }
   if (layerMotion === 'uncover') uncovering.current = true;
+  // Set while a slide page covers this layer; cleared once its way back has finished. A slide page
+  // returned to from another slide page is `still`, yet it animates back from the covered offset too.
+  const covered = useRef(false);
+  if (layerMotion === 'cover') covered.current = true;
+
+  // Fully on screen: off the moment a push starts covering this layer, and after a pop only once
+  // its own way back has finished (a covered layer, or a fresh one mounted in `reveal`), since the
+  // page above is still sliding off until then. Set during render, so the commit that changes
+  // `present` never paints a stale value.
+  const settled = present && !(animated && (covered.current || layerMotion === 'reveal'));
+  const [onScreen, setOnScreen] = useState(settled);
+  const [onScreenFor, setOnScreenFor] = useState(present);
+  if (onScreenFor !== present) {
+    setOnScreenFor(present);
+    setOnScreen(settled);
+  }
 
   useLayoutEffect(() => {
     if (gone) return;
@@ -107,7 +121,7 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
   if (gone || superseded) return null;
 
   let initial: false | TargetAndTransition = false;
-  let animate: TargetAndTransition = restTarget;
+  let animate = page.animate;
   let dim = 0;
   let zIndex = present ? 2 : 1;
   switch (layerMotion) {
@@ -120,7 +134,7 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
       dim = pageSlideDim;
       break;
     case 'uncover':
-      animate = uncoverTarget;
+      animate = page.exit;
       zIndex = 3;
       break;
   }
@@ -134,22 +148,29 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
       style={{ zIndex, pointerEvents: present ? 'auto' : 'none' }}
       initial={initial}
       animate={animate}
-      transition={transition}
+      transition={page.transition}
       onAnimationComplete={() => {
-        if (present || layerMotion !== 'uncover') return;
-        setGone(true);
-        remove?.();
+        if (!present && layerMotion === 'uncover') {
+          setGone(true);
+          remove?.();
+        }
+        if (present && !onScreen) {
+          covered.current = false;
+          setOnScreen(true);
+        }
       }}
     >
       <LocationProvider snapshot={location}>
-        <PageActiveContext.Provider value={present}>{children}</PageActiveContext.Provider>
+        <PageActiveContext.Provider value={present}>
+          <PageOnScreenContext.Provider value={onScreen}>{children}</PageOnScreenContext.Provider>
+        </PageActiveContext.Provider>
       </LocationProvider>
       <motion.div
         aria-hidden
         className="absolute inset-0 bg-pure-black pointer-events-none"
         initial={layerMotion === 'reveal' ? { opacity: pageSlideDim } : { opacity: 0 }}
         animate={{ opacity: dim }}
-        transition={transition}
+        transition={page.transition}
       />
     </motion.div>
   );
