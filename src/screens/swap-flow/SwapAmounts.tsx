@@ -179,6 +179,8 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       <div className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>
         <Button
           title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
+          // The dots below replace the label while the quote loads, so the button is named by its action.
+          aria-label={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}

@@ -48,6 +48,7 @@ jest.mock('components/Button', () => ({
     disabled,
     variant,
     children,
+    'aria-label': ariaLabel,
     'data-testid': dataTestId
   }: {
     title?: string;
@@ -55,9 +56,16 @@ jest.mock('components/Button', () => ({
     disabled?: boolean;
     variant?: string;
     children?: React.ReactNode;
+    'aria-label'?: string;
     'data-testid'?: string;
   }) => (
-    <button data-testid={dataTestId} data-variant={variant} onClick={onClick} disabled={disabled}>
+    <button
+      data-testid={dataTestId}
+      data-variant={variant}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+    >
       {children ?? title}
     </button>
   ),
@@ -354,8 +362,12 @@ describe('SwapAmounts — CTA', () => {
     renderComponent({ offerAmount: '', requestLoading: false });
     expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveTextContent('enterAmount');
 
+    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveAccessibleName('enterAmount');
+
     renderComponent({ offerAmount: '10', requestLoading: true });
     expect(screen.getAllByRole('status', { name: 'calculatingQuote' }).at(-1)).toBeInTheDocument();
+    // The dots replace the label, not the button's name: it still says what it does.
+    expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveAccessibleName('reviewSwap');
 
     renderComponent({ offerAmount: '10', requestLoading: false });
     expect(screen.getAllByTestId('swap-review-submit').at(-1)).toHaveTextContent('reviewSwap');
