@@ -203,7 +203,7 @@ side by side sit 10px apart (`gap-2.5`), each `flex-1`.
 
 | Element | Height |
 | --- | --- |
-| Page header | 60px row, then the 4px rule |
+| Page header | 60px row (taller for a two-line title), then the 4px rule |
 | CTA (`Button` lg) | 52px |
 | Compact button (`Button` sm) | 36px |
 | Search, single-line input | 44px / 52px |
@@ -250,7 +250,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | --- | --- | --- | --- |
 | Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 52px pill. `primary`: `accent`, white `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
 | Icon button | `IconButton` | `bare`: a 24px `ink` glyph in a 44px hit area (tab-root actions). `circle`: a 32px (or 36px) circle on `fill`, `muted` glyph (sheets and overlays). `filled`: a 44px circle on `fill` with an `ink` 24px glyph (a pushed page's back button). | `NavButton`, `CircleButton`, ad-hoc round buttons |
-| Pushed page header | `PageHeader` (`components/PageHeader`) | 60px row: the `filled` `IconButton` back button (`ArrowLeft`), the `text-title-tab` title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last; then `HeaderRule`, the 4px rounded rule on `fill`, under the row. No horizontal padding of its own: `className` lands on the block holding the row and the rule, so a caller in an unpadded parent passes `className="px-4"` and both inset together. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), grey title bars |
+| Pushed page header | `PageHeader` (`components/PageHeader`) | Row of at least 60px, growing for a two-line title: the `filled` `IconButton` back button (`ArrowLeft`), the `text-title-tab` title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last; then `HeaderRule`, the 4px rounded rule on `fill`, under the row. No horizontal padding of its own: `className` lands on the block holding the row and the rule, so a caller in an unpadded parent passes `className="px-4"` and both inset together. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), grey title bars |
 | Tab root header | `TabHeader` | `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px. Under it a full-bleed 1px `hairline` by default, or with `divider="rule"` the 4px `HeaderRule` inset to the page margin (Activity and Explore, above their filter rows). | — |
 | Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
 | Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, and every segment resizes on the same spring as the bubble. | — |

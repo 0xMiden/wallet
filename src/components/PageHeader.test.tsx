@@ -19,7 +19,10 @@ it('puts back, title, actions and close in one 60px row', () => {
   render(<PageHeader title="Address Book" onBack={onBack} onClose={onClose} actions={<span>edit</span>} />);
 
   const header = screen.getByRole('banner');
-  expect(header).toHaveClass('h-15');
+  expect(header).toHaveClass('min-h-15');
+  // At least 60px, and taller for a second title line (two 36px lines), so a long title never runs
+  // onto the rule below.
+  expect(header).not.toHaveClass('h-15');
   // The inset rule under the title, a sibling of the row so the row keeps its height.
   expect(header.nextElementSibling).toHaveClass('h-1', 'rounded-full', 'bg-fill');
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Address Book');

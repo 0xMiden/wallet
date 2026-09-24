@@ -70,7 +70,7 @@ describe('FlowLayout', () => {
     );
 
     expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
-    expect(screen.getByRole('banner')).toHaveClass('h-15');
+    expect(screen.getByRole('banner')).toHaveClass('min-h-15');
     expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 

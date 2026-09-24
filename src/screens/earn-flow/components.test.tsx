@@ -126,7 +126,7 @@ describe('EarnFlowHeader', () => {
     render(<EarnFlowHeader vault={VAULT} />);
 
     const header = screen.getByRole('banner');
-    expect(header).toHaveClass('h-15');
+    expect(header).toHaveClass('min-h-15');
     // The page margin sits on the header block, so the rule under the row is inset with it.
     expect(header.parentElement).toHaveClass('px-4', 'shrink-0');
     // No divider beyond PageHeader's own rule, and no 26px title. The caller's class lands on the

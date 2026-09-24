@@ -26,7 +26,7 @@ describe('SubPageLayout', () => {
     const header = screen.getByRole('banner');
     expect(within(header).getByRole('heading', { level: 1, name: 'Keys' })).toBeInTheDocument();
     // The header block (row and rule) takes the page's 16px margin, like the body and the footer.
-    expect(header).toHaveClass('h-15');
+    expect(header).toHaveClass('min-h-15');
     expect(header.parentElement).toHaveClass('px-4');
     fireEvent.click(screen.getByTestId('page-back'));
     expect(onBack).toHaveBeenCalledTimes(1);

@@ -27,9 +27,11 @@ export interface PageHeaderProps {
 }
 
 /**
- * The header of every pushed page: back, title, actions and close in one 60px row, like a native
- * navigation bar, then the 4px rule under it. Tab roots use TabHeader and sheets DrawerHeader;
- * everything else uses this, so a page's content starts at the same height everywhere. No
+ * The header of every pushed page: back, title, actions and close in one row of at least 60px, like
+ * a native navigation bar, then the 4px rule under it. The row grows for a title that takes its
+ * second line, so the rule is never drawn across it. Tab roots use TabHeader and sheets
+ * DrawerHeader; everything else uses this, so a page's content starts at the same height wherever
+ * its title fits one line. No
  * horizontal padding of its own: `className` lands on the block holding both the row and the rule,
  * so the page margin a caller passes insets them together.
  */
@@ -52,7 +54,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
 
   return (
     <div className={clsx('flex shrink-0 flex-col', className)}>
-      <header className="flex h-15 shrink-0 items-center gap-3">
+      <header className="flex min-h-15 shrink-0 items-center gap-3">
         {onBack && (
           // A 44px `fill` circle with an `ink` glyph, in a flow too: the flow accents are under 3:1 on white.
           <IconButton
