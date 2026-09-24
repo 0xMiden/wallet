@@ -176,7 +176,7 @@ describe('MidenProvider', () => {
     warn.mockRestore();
   });
 
-  it('fetches prices while the wallet is still locked, so Home has them on its first frame', async () => {
+  it('mounts PriceProvider while the wallet is still locked, so its fetch starts before unlock', async () => {
     _g.__providerTest.ready = false;
     const { findByTestId } = render(
       <MidenProvider>

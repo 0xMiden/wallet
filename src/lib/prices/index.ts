@@ -26,7 +26,7 @@ export function useTokenSparkline(symbol: string, timeframe: Timeframe = '1D'): 
 
 /**
  * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.
- * Mount alongside FiatCurrencyProvider in the app tree.
+ * Mount it once, outside the wallet-ready gate: prices are public, so the fetch can start before unlock.
  */
 export function PriceProvider() {
   const setTokenPrices = useWalletStore(s => s.setTokenPrices);
