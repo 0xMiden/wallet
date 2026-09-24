@@ -21,6 +21,7 @@ import {
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
+  isFaucetMintTransaction,
   isFaucetRequest,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
@@ -293,6 +294,15 @@ describe('isFaucetRequest', () => {
     mockGetNativeAssetIdSync.mockReturnValue('native-id');
     const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'other' };
     expect(isFaucetRequest(entry)).toBe(false);
+  });
+});
+
+describe('isFaucetMintTransaction', () => {
+  // A stored row's ids can read back null; while the native faucet is still unknown (null too),
+  // only the guard stops null === null from calling an ordinary claim a faucet mint.
+  it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
+    const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
+    expect(isFaucetMintTransaction(transaction, null)).toBe(false);
   });
 });
 
