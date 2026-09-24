@@ -49,8 +49,11 @@ describe('keyboard-inset', () => {
   });
 
   afterEach(() => {
+    // Release any navbar hold a test left: the hold counter is shared, module-level state.
+    listeners['keyboardWillHide']?.();
     jest.useRealTimers();
     document.body.innerHTML = '';
+    document.body.removeAttribute('data-hide-navbar');
   });
 
   it('does nothing off mobile', async () => {
@@ -73,18 +76,46 @@ describe('keyboard-inset', () => {
     expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('0px');
   });
 
-  it('does NOT register the keyboard-height listeners on Android (native adjustResize handles it)', async () => {
+  it('hides the navbar in the same callback that writes the inset, and shows it again in the same one', async () => {
+    isMobileMock.mockReturnValue(true);
+
+    await initKeyboardInset();
+
+    // One task: the inset, the cushion and the bar change together, so the CTA moves once.
+    listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+    expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('336px');
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+
+    listeners['keyboardWillHide']!();
+    expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('0px');
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+  });
+
+  it('takes one hold however many times the keyboard reports it is showing', async () => {
+    isMobileMock.mockReturnValue(true);
+
+    await initKeyboardInset();
+
+    listeners['keyboardWillShow']!({ keyboardHeight: 300 });
+    listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+    listeners['keyboardWillHide']!();
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+  });
+
+  it('on Android holds the navbar flag but leaves --keyboard-height alone (native adjustResize lifts the page)', async () => {
     isMobileMock.mockReturnValue(true);
     isIOSMock.mockReturnValue(false);
 
     await initKeyboardInset();
 
-    // On Android the window is adjustResize, so the system already lifts the
-    // layout above the keyboard. Setting --keyboard-height too would double-count
-    // it, collapsing the layout with a void above the keyboard.
-    expect(addListenerMock).not.toHaveBeenCalledWith('keyboardWillShow', expect.any(Function));
-    expect(addListenerMock).not.toHaveBeenCalledWith('keyboardWillHide', expect.any(Function));
+    // Setting --keyboard-height on Android would double-count the native resize, collapsing the
+    // layout with a void above the keyboard.
+    listeners['keyboardWillShow']!({ keyboardHeight: 336 });
     expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('');
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+
+    listeners['keyboardWillHide']!();
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
   });
 
   it('still nudges the focused input into view on Android', async () => {

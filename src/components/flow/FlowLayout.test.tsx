@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -90,6 +93,13 @@ describe('FlowLayout', () => {
     const footer = screen.getByText('cta').parentElement;
     expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
     expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+    // The flow footer snaps its cushion (the slide animates it), so it opts out of the padding transition.
+    expect(footer).toHaveAttribute('data-flow-footer');
+  });
+
+  it("exempts a flow footer from main.css's cushion padding transition", () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
+    expect(css).toMatch(/\[data-navbar-cushion='true'\]\[data-flow-footer\]\s*\{\s*transition:\s*none;/);
   });
 
   // The keyboard raises `data-hide-navbar` too, but only after a round trip through two components'
@@ -97,7 +107,7 @@ describe('FlowLayout', () => {
   // here made the cushion a second, later reflow, so the CTA rode the keyboard down and then hopped
   // back up by 3rem. The cushion is a function of `--keyboard-height` alone now, so both land in
   // the same frame and the CTA makes one move.
-  it('does not re-read the navbar flag, so the keyboard moves the CTA once', () => {
+  it('keys its cushion on --keyboard-height, not on a React read of the navbar flag', () => {
     document.body.setAttribute('data-hide-navbar', '');
     try {
       render(

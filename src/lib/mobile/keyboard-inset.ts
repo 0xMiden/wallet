@@ -2,6 +2,8 @@ import { Keyboard } from '@capacitor/keyboard';
 
 import { isIOS, isMobile } from 'lib/platform';
 
+import { holdNavbarHidden } from './useHideNavbarWhileOpen';
+
 /**
  * Keyboard inset for mobile.
  *
@@ -44,21 +46,28 @@ export async function initKeyboardInset(): Promise<void> {
     // non-iPhone platform or no native implementation — leave the bar as-is
   }
 
-  // iOS only — on Android the native ADJUST_RESIZE already lifts the layout
-  // above the keyboard, so mirroring the height here would double-count it.
-  if (isIOS()) {
-    try {
-      await Keyboard.addListener('keyboardWillShow', info => {
-        root.style.setProperty('--keyboard-height', `${info.keyboardHeight || 0}px`);
-      });
+  // The keyboard's hold on the hidden navbar lives here, not in React: taking and releasing it in
+  // the same callback that writes the inset means the inset, the CTA cushion and the bar change in
+  // one task, so on iOS the pinned CTA makes one move on open AND on close. The height is mirrored
+  // on iOS only: on Android the native ADJUST_RESIZE already lifts the layout above the keyboard
+  // (before this listener runs), so mirroring it would double-count, and the CTA takes two slides.
+  const ios = isIOS();
+  let releaseNavbar: (() => void) | undefined;
+  try {
+    await Keyboard.addListener('keyboardWillShow', info => {
+      if (ios) root.style.setProperty('--keyboard-height', `${info.keyboardHeight || 0}px`);
+      // A keyboard type change reports WillShow again without a hide: one hold, not two.
+      releaseNavbar ??= holdNavbarHidden();
+    });
 
-      await Keyboard.addListener('keyboardWillHide', () => {
-        root.style.setProperty('--keyboard-height', '0px');
-      });
-    } catch {
-      // Keyboard plugin has no web implementation — run without insets rather
-      // than failing mobile app init.
-    }
+    await Keyboard.addListener('keyboardWillHide', () => {
+      if (ios) root.style.setProperty('--keyboard-height', '0px');
+      releaseNavbar?.();
+      releaseNavbar = undefined;
+    });
+  } catch {
+    // Keyboard plugin has no web implementation — run without insets rather
+    // than failing mobile app init.
   }
 
   // Mid-layout inputs can still sit below the fold after the layout shrinks;

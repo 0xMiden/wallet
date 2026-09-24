@@ -515,7 +515,7 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
 
 /* Bottom-CTA footers that reserve space for the floating BottomNav (pb-24)
  * tag themselves with data-navbar-cushion. While the navbar is hidden —
- * notably when the soft keyboard is up (TabLayout hides it) — collapse the
+ * notably when the soft keyboard is up (lib/mobile/keyboard-inset hides it) — collapse the
  * cushion so the CTA sits snug above the keyboard instead of leaving a dead
  * gap. Timed to match the navbar fade above. */
 [data-navbar-cushion='true'] {
@@ -523,6 +523,11 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
 }
 body[data-hide-navbar] [data-navbar-cushion='true'] {
   padding-bottom: 1rem;
+}
+/* A flow footer's cushion snaps: it slides with useSlideOnReflow, and a padding transition under
+ * that slide would reflow every frame and leave the slide's start position stale. */
+[data-navbar-cushion='true'][data-flow-footer] {
+  transition: none;
 }
 
 /* BottomNav's shadow deliberately overflows #root into body's safe-area

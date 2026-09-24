@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 
-import { useHideNavbarWhileOpen } from './useHideNavbarWhileOpen';
+import { holdNavbarHidden, useHideNavbarWhileOpen } from './useHideNavbarWhileOpen';
 
 describe('useHideNavbarWhileOpen', () => {
   beforeEach(() => {
@@ -27,6 +27,17 @@ describe('useHideNavbarWhileOpen', () => {
     expect(document.body).toHaveAttribute('data-hide-navbar');
 
     second.unmount();
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+  });
+
+  it('counts a hold and an open caller on one counter', () => {
+    const release = holdNavbarHidden();
+    const caller = renderHook(() => useHideNavbarWhileOpen(true));
+
+    release();
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+    release();
+    caller.unmount();
     expect(document.body).not.toHaveAttribute('data-hide-navbar');
   });
 });

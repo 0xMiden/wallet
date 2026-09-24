@@ -23,8 +23,6 @@ import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
-import { useKeyboardVisible } from 'lib/mobile/useKeyboardVisible';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -189,11 +187,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
 
-  // Hide the floating BottomNav whenever the mobile soft keyboard is up —
-  // the keyboard inset (mobile.html) shrinks the layout, and the navbar
-  // hovering right above the keyboard looks odd. Refcounted with the other
-  // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
-  useHideNavbarWhileOpen(useKeyboardVisible());
+  // The BottomNav hides while the soft keyboard is up, but that hold is taken by the native keyboard
+  // listener (lib/mobile/keyboard-inset), in the same task as the inset, not here a render later.
 
   const dockedBar = useRef<DockedNavBarHandle>(null);
 

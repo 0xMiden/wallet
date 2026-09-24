@@ -520,4 +520,13 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
     });
   });
+
+  it('pins its CTA in a flow footer that slides and snaps its cushion, like every flow page', () => {
+    renderComponent();
+
+    const footer = screen.getByTestId('confirm-btn').parentElement!;
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+    expect(footer).toHaveAttribute('data-flow-footer');
+    expect(footer.className).not.toContain('transition-[padding-bottom]');
+  });
 });

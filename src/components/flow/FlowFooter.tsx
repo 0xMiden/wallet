@@ -12,12 +12,13 @@ export interface FlowFooterProps {
 /**
  * The pinned CTA at the bottom of a flow page.
  *
- * Its resting place is one expression of `--keyboard-height` (footer-cushion.ts), deliberately NOT
- * a React read of the `data-hide-navbar` flag: the keyboard raises that flag too, but only after a
- * round trip through two components' state, so the cushion collapsed a frame or two AFTER the
- * keyboard inset had already moved the page. That was two reflows, and two slides — the CTA rode
- * the keyboard down and then hopped back up by the cushion's height. Keyed off the var, the inset
- * and the cushion resolve in the same frame, so there is one move and one slide.
+ * Its resting place is one expression of `--keyboard-height` (footer-cushion.ts) plus the
+ * `body[data-hide-navbar]` collapse, and the keyboard listener (lib/mobile/keyboard-inset) writes
+ * both in the same task. So on iOS the inset, the cushion and the bar change together and the CTA
+ * makes one move on open and on close. On Android the native resize moves the page before that
+ * listener runs, so the CTA takes two slides there. The cushion snaps (`data-flow-footer` exempts it
+ * from main.css's padding transition) and `useSlideOnReflow` animates the move from where the CTA
+ * was drawn.
  *
  * The cushion is unconditional, and `data-navbar-cushion` is what drops it. The docked bar draws
  * OVER the page (`z-60`, screen edge), so the only safe rule is that the CTA clears the bar
@@ -35,7 +36,12 @@ export const FlowFooter: React.FC<FlowFooterProps> = ({ children }) => {
   useSlideOnReflow(ref);
 
   return (
-    <div ref={ref} data-navbar-cushion="true" className={clsx('shrink-0 pt-3', stepFooterCushionClass())}>
+    <div
+      ref={ref}
+      data-navbar-cushion="true"
+      data-flow-footer=""
+      className={clsx('shrink-0 pt-3', stepFooterCushionClass())}
+    >
       {children}
     </div>
   );

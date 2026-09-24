@@ -66,7 +66,8 @@ export function useSlideOnReflow(ref: RefObject<HTMLElement | null>) {
 
     const observer = new ResizeObserver(onReflow);
     observer.observe(container);
-    observer.observe(el);
+    // Border box: a padding-only move (the cushion collapsing) changes no content box.
+    observer.observe(el, { box: 'border-box' });
     return () => {
       observer.disconnect();
       running?.cancel();

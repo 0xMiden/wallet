@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { TokenLogo } from 'components/TokenLogo';
 import { Avatar } from 'components/ui/Avatar';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -108,6 +109,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 }) => {
   const { t } = useTranslation();
   const accentClasses = ACCENT_CLASSES[accent];
+  // The pinned CTA moves with the keyboard and the tab bar; slide it there, as FlowFooter does.
+  const footerRef = useRef<HTMLDivElement>(null);
+  useSlideOnReflow(footerRef);
 
   const availableFiat = token ? token.balance * token.fiatPrice : 0;
   // An amount typed here is converted to base units with `token.decimals`. When
@@ -261,10 +265,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div
-        className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}
-        data-navbar-cushion="true"
-      >
+      <div ref={footerRef} className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true" data-flow-footer="">
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}

@@ -12,11 +12,14 @@ jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile }));
 jest.mock('framer-motion', () => ({ useReducedMotion: () => reduceMotion }));
 
 let reflow: () => void = () => {};
+const mockObserved: Array<{ target: Element; box?: string }> = [];
 class MockResizeObserver {
   constructor(cb: () => void) {
     reflow = cb;
   }
-  observe() {}
+  observe(target: Element, options?: ResizeObserverOptions) {
+    mockObserved.push({ target, box: options?.box });
+  }
   disconnect() {}
 }
 
@@ -144,4 +147,10 @@ it('stops the next slide when the preference is turned on after mount', () => {
   act(() => reflow());
 
   expect(animateMock).not.toHaveBeenCalled();
+});
+
+it("observes the element's border box, so a padding-only move reaches the slide", () => {
+  mockObserved.length = 0;
+  const { getByText } = render(<Harness />);
+  expect(mockObserved).toContainEqual({ target: getByText('cta'), box: 'border-box' });
 });
