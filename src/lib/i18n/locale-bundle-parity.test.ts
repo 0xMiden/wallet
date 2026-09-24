@@ -244,8 +244,9 @@ describe('Chrome i18n placeholder declarations', () => {
 describe('hand-copied English is queued for translation', () => {
   // A non-English entry whose message is the English text is only acceptable while it is marked for
   // the next DeepL run; `translateWithDiff` re-translates an entry whose englishSource is stale, so
-  // the explicit sentinel is what puts it in that queue. Every derived bundle, en_GB included: it is
-  // outside the runtime parity check, so a key could otherwise vanish from it unnoticed.
+  // the explicit sentinel is what puts it in that queue. Every derived bundle, en_GB included, must
+  // carry the keys: en_GB is outside the runtime parity check, so a key could otherwise vanish from it
+  // unnoticed. The queued check skips English variants (en_*), whose translation can equal English.
   const COPIED_KEYS = [
     'earnNoActivePositionsTitle',
     'earnNoActivePositionsBody',
@@ -263,6 +264,7 @@ describe('hand-copied English is queued for translation', () => {
     const messages = loadMessages(locale);
     const missing = COPIED_KEYS.filter(key => messages[key] === undefined);
     expect(missing).toEqual([]);
+    if (locale.startsWith('en')) return;
     const neither = COPIED_KEYS.filter(
       key => messages[key]!.message === en[key]?.message && messages[key]!.englishSource !== '(untranslated)'
     );
