@@ -318,7 +318,7 @@ export async function reportHotKeyHardwareFailure(message: string): Promise<void
 }
 
 /**
- * Surface the "rotate your device key" prompt. Called (via a lazy import)
+ * Surface the "Everyday key needs rotation" prompt. Called (via a lazy import)
  * from the secure-hot-key facade when a native op rejects with UNWRAP_FAILED
  * or KEY_INVALIDATED. Unlike `seedWalletPrompt`, a COMPLETED status re-arms:
  * a fresh unwrap failure after a successful rotation is a new incident, not

@@ -132,7 +132,7 @@ Both are configured to delete data after 90 days, to store no IP addresses, and 
 For transparency about how the App functions on your device (this is not data we receive or have access to):
 
 - Your wallet's recovery phrase, private keys, account names, transaction history, and balances are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled.
-- This information never leaves your device unless **you** explicitly export it via the in-app "Export Wallet" function.
+- This information never leaves your device unless **you** explicitly export it via the in-app "Encrypted Wallet File" export.
 
 ## Biometric authentication (Face ID, Touch ID, Fingerprint)
 
