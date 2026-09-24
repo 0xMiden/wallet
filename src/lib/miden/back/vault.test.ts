@@ -1480,7 +1480,7 @@ describe('Vault.revealHotKey', () => {
       vaultKey
     );
 
-    await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).rejects.toThrow('Hot key ciphertext not found');
+    await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).rejects.toThrow('Everyday key ciphertext not found');
     expect(mockRevealHotKey).not.toHaveBeenCalled();
   });
 

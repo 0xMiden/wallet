@@ -2646,21 +2646,21 @@ export class Vault {
    */
   static async revealHotKey(accountPublicKey: string, password?: string): Promise<string> {
     const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-    return withError('Failed to reveal hot key', async () => {
+    return withError('Failed to reveal everyday key', async () => {
       const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
       const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
       }
       if (account.type !== WalletType.Guardian || !account.hotPublicKey) {
-        throw new PublicError('Hot key is only available for activated Guardian accounts');
+        throw new PublicError('Everyday key is only available for activated Guardian accounts');
       }
       const ciphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
         accAuthSecretKeyStrgKey(account.hotPublicKey),
         vaultKey
       );
       if (!ciphertext) {
-        throw new PublicError('Hot key ciphertext not found');
+        throw new PublicError('Everyday key ciphertext not found');
       }
       if (!account.evmAddress) throw new PublicError(getMessage('evmPrivateKeyMissing'));
       const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
