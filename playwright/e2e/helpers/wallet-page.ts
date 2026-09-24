@@ -2803,7 +2803,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
             (failures.length > 0 ? ` (${failures.join('; ')})` : '')
         );
       }
-      await exactToken.locator('[data-testid^="send-token-"]').first().click({ timeout: STEP_TIMEOUT_MS });
+      // The picker row itself carries data-token-id beside its send-token-* test id: click the one
+      // matched row, not an element beneath it.
+      await exactToken.first().click({ timeout: STEP_TIMEOUT_MS });
     } else if (params.tokenSymbol) {
       const tokenRow = this.page.getByTestId(`send-token-${params.tokenSymbol}`);
       const symbolRowCount = await tokenRow.count().catch(() => 0);

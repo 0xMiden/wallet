@@ -155,8 +155,10 @@ describe('SelectTokenDrawer', () => {
 
     const rows = screen.getAllByTestId('send-token-BTC');
     expect(rows).toHaveLength(2);
-    expect(rows[0]!.closest('[data-token-id]')).toHaveAttribute('data-token-id', BTC.tokenId);
-    expect(rows[1]!.closest('[data-token-id]')).toHaveAttribute('data-token-id', duplicateBtc.tokenId);
+    // The row itself carries both ids: the E2E harness clicks the matched [data-token-id] row, so the
+    // id must not move to a wrapper or a child of it.
+    expect(rows[0]).toHaveAttribute('data-token-id', BTC.tokenId);
+    expect(rows[1]).toHaveAttribute('data-token-id', duplicateBtc.tokenId);
   });
 
   it('passes the account public key and base metadata through to useAllBalances', () => {
