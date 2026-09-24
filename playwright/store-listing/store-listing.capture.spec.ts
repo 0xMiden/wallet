@@ -238,7 +238,12 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   await onboarding.getByRole('button', { name: 'Get started' }).click();
   await acknowledgeNetworkNotice(onboarding);
   await capture(onboarding, protection);
-  await onboarding.evaluate(() => window.history.pushState(null, '', '/#/#choose-guardian'));
+  // The picker needs this create's seed, which the passcode step generates: set one up (entered, then
+  // confirmed), then open the picker from Meet your Guardian the way a user does.
+  await onboarding.getByRole('button', { name: 'Set up your passcode' }).click();
+  await onboarding.getByTestId('onboarding-setup-passcode').waitFor({ state: 'visible' });
+  for (const digit of '135790135790') await onboarding.getByTestId(`numpad-${digit}`).click();
+  await openGuardianPickerFromMeetGuardian(onboarding);
   await capture(onboarding, guardian);
   await onboardingContext.browser()?.close();
 
