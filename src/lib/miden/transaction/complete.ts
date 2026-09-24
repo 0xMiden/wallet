@@ -460,7 +460,7 @@ export const completeReplaceHotKeyTransaction = async (
         storedAccountId = walletAccount.publicKey;
         const sdkAccount = await withWasmClientLock(async () => {
           await midenClientProxy.syncState();
-          return midenClientProxy.getAccount(tx.accountId);
+          return midenClientProxy.getAccount(walletAccount.publicKey);
         });
         if (!sdkAccount) {
           throw new Error(`Guardian account ${tx.accountId} not found in local client`);
@@ -523,7 +523,7 @@ export const completeReplaceHotKeyTransaction = async (
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
     // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(tx.accountId, tx.delegateTransaction, guardianProvider);
+    await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
@@ -712,7 +712,7 @@ export const completeSwitchGuardianTransaction = async (
       if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
       } else {
-        await finalizeDirectGuardianSwitch(tx.accountId, newGuardianEndpoint, guardianProvider);
+        await finalizeDirectGuardianSwitch(storedAccountId, newGuardianEndpoint, guardianProvider);
       }
     } catch (registerError) {
       registerFailed = true;

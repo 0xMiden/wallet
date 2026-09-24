@@ -512,6 +512,24 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.extraInputs).toMatchObject({ endpointPersistFailed: false });
   });
 
+  it('finalizes a DIRECT switch under the stored id when the row was queued under another spelling', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    mockFinalizeDirectSwitch.mockResolvedValueOnce(undefined);
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }],
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, undefined, provider as never);
+
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeDirectSwitch.mock.calls[0]![0]).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ registerFailed: false });
+  });
+
   // By the time this runs, `update_guardian` has COMMITTED — the account's
   // guardian IS the new operator, so a vault still naming the old one is wrong,
   // and the row is terminal either way (`switch-guardian` is in no requeue set
@@ -6478,6 +6496,36 @@ describe('completeReplaceHotKeyTransaction', () => {
     for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+  it('reads the account and checks its hardening under the stored id when the row was queued under another spelling', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    // The SDK store knows the account only by its stored id.
+    const getAccount = jest.fn(async (id: string) =>
+      id === 'acc-1_suffix' ? { id: () => ({ toString: () => 'acc-1_suffix' }) } : null
+    );
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), getAccount });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey: jest.fn(async () => {})
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(getAccount).toHaveBeenCalled();
+    for (const [id] of getAccount.mock.calls) expect(id).toBe('acc-1_suffix');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
+    for (const [id] of mockGetOrCreateMultisigService.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ reRegisterFailed: false });
   });
 });
 
