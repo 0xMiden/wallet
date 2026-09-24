@@ -307,6 +307,48 @@ describe('EarnSummaryPanel', () => {
     expect(screen.getByText('earnTotalEarnedRewards')).toBeInTheDocument();
     expect(screen.getByText('$218.32')).toBeInTheDocument();
   });
+
+  // jsdom has no `matchMedia`, so AnimatedNumber only travels once a test installs one.
+  describe('while the first read is in flight', () => {
+    const LOADING: EarnSummary = {
+      totalRewardsUsd: null,
+      blendedApyPercent: null,
+      totalDepositedUsd: null,
+      estimatedRewardsUsd: null
+    };
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows placeholders, not zeros', () => {
+      const { container } = render(<EarnSummaryPanel summary={LOADING} titleId="earn-title" />);
+
+      expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+      expect(screen.queryByText('+$0.00')).not.toBeInTheDocument();
+      expect(screen.getAllByText('—')).toHaveLength(3);
+      expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
+      expect((container.querySelector('section') as HTMLElement).textContent).toMatch(/^—earnTotalEarnedRewards/);
+    });
+
+    it('lands on the loaded figures instead of counting up to them', () => {
+      const { rerender } = render(<EarnSummaryPanel summary={LOADING} titleId="earn-title" />);
+
+      rerender(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
+
+      expect(screen.getByText('$218.32')).toBeInTheDocument();
+      expect(screen.getByText('$4,218.32')).toBeInTheDocument();
+      expect(screen.getByText('+$24.50')).toBeInTheDocument();
+    });
+  });
 });
 
 describe('EarnAmountUnit', () => {

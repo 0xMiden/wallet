@@ -11,7 +11,7 @@ import { Card } from 'components/ui/Card';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
-import { formatSignedUsd, formatUsd } from './earn-mapping';
+import { EARN_PLACEHOLDER, formatSignedUsd, formatUsd } from './earn-mapping';
 import { EarnSummary } from './types';
 
 /** What the earn flow's header knows about the thing it is showing: the two names in its title and
@@ -138,12 +138,13 @@ export const EarnSummaryPanel: FC<{
     <EarnHero
       labelId={titleId}
       className={className}
-      value={<AnimatedNumber value={summary.totalRewardsUsd} format={formatUsd} />}
+      value={<AnimatedNumber value={summary.totalRewardsUsd} format={formatUsd} placeholder={EARN_PLACEHOLDER} />}
       label={t('earnTotalEarnedRewards')}
       meta={
         <AnimatedNumber
           value={summary.blendedApyPercent}
           format={apy => t('earnEarningBlendedApy', { apy: `~${apy.toFixed(1)}%` })}
+          placeholder={t('earnEarningBlendedApy', { apy: EARN_PLACEHOLDER })}
         />
       }
     >
@@ -153,11 +154,19 @@ export const EarnSummaryPanel: FC<{
         <div className="mt-4 grid grid-cols-2 items-stretch gap-3">
           <MetricCard
             label={t('earnTotalDeposited')}
-            value={<AnimatedNumber value={summary.totalDepositedUsd} format={formatUsd} />}
+            value={
+              <AnimatedNumber value={summary.totalDepositedUsd} format={formatUsd} placeholder={EARN_PLACEHOLDER} />
+            }
           />
           <MetricCard
             label={t('earnEstimatedRewards')}
-            value={<AnimatedNumber value={summary.estimatedRewardsUsd} format={formatSignedUsd} />}
+            value={
+              <AnimatedNumber
+                value={summary.estimatedRewardsUsd}
+                format={formatSignedUsd}
+                placeholder={EARN_PLACEHOLDER}
+              />
+            }
             valueClassName="text-positive-tint-ink"
           />
         </div>

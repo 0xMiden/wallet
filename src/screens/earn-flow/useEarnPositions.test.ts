@@ -90,21 +90,38 @@ describe('useEarnPositions', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
-  it('returns stable empty display data before the first response', () => {
+  it('returns empty lists and a summary with no figures yet before the first response', () => {
     mockUseRetryableSWR.mockReturnValue({ data: undefined, isLoading: true });
 
     const { result } = renderHook(() => useEarnPositions());
 
     expect(result.current.positions).toEqual([]);
     expect(result.current.vaults).toEqual([]);
-    expect(result.current.summary).toMatchObject({
+    // Not zeros: a zero is a value, and the summary would count up from it when the read lands.
+    expect(result.current.summary).toEqual({
+      totalRewardsUsd: null,
+      blendedApyPercent: null,
+      totalDepositedUsd: null,
+      estimatedRewardsUsd: null
+    });
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.isLoading).toBe(true);
+  });
+
+  it('reports zeros once a completed read finds no positions', () => {
+    mockUseRetryableSWR.mockReturnValue({
+      data: { positions: [], vaults: [], totalDepositsUSD: 0, owners: [], errors: [] },
+      isLoading: false
+    });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.summary).toEqual({
       totalRewardsUsd: 0,
       blendedApyPercent: 0,
       totalDepositedUsd: 0,
       estimatedRewardsUsd: 0
     });
-    expect(result.current.error).toBeUndefined();
-    expect(result.current.isLoading).toBe(true);
   });
 
   it('loads every historical owner plus the lowercased wallet address once', async () => {

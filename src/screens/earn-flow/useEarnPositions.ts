@@ -4,16 +4,16 @@ import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useRetryableSWR } from 'lib/swr';
 
-import { buildEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
+import { buildEarnSummary, loadingEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping';
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
 /**
  * Live earn positions for the current account, mapped to the earn-flow display
  * shapes. Owners are the union of past earn-deposit rows (survives address
  * changes) and the wallet-derived `evmAddress` (survives reinstall/restore
- * before any local activity exists). First load yields an empty list + an
- * empty-state summary; `keepPreviousData` holds last-good data across the
- * 10s refresh.
+ * before any local activity exists). First load yields an empty list + a
+ * summary with no figures yet; `keepPreviousData` holds last-good data across
+ * the 10s refresh.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
@@ -46,7 +46,7 @@ export function useEarnPositions(): {
     () => ({
       positions: (data?.positions ?? []).map(mapEarnPosition),
       vaults: (data?.vaults ?? []).map(mapEarnVault),
-      summary: buildEarnSummary(data?.positions ?? []),
+      summary: data ? buildEarnSummary(data.positions) : loadingEarnSummary(),
       isLoading,
       // Surface a load failure so the UI can show "couldn't load — retry" instead
       // of a misleading empty "$0 / no positions". Prefer the positions service's

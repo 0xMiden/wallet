@@ -6,10 +6,11 @@
  * in `earn-mapping.ts`, and left unset wherever the string is a placeholder.
  */
 export interface EarnSummary {
-  totalRewardsUsd: number;
-  blendedApyPercent: number;
-  totalDepositedUsd: number;
-  estimatedRewardsUsd: number;
+  /** Each figure is `null` until the first positions read completes (`loadingEarnSummary`). */
+  totalRewardsUsd: number | null;
+  blendedApyPercent: number | null;
+  totalDepositedUsd: number | null;
+  estimatedRewardsUsd: number | null;
 }
 
 export interface EarnPosition {

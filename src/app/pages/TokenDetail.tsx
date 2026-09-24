@@ -79,9 +79,11 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const token = balances?.find(b => b.tokenId === tokenId);
   const metadata = token?.metadata || allTokensMetadata[tokenId];
   const symbol = metadata?.symbol || t('unknown');
-  const balance = token?.balance ?? 0;
+  // No figure until the balances have been read: a stand-in 0 is a value AnimatedNumber would count
+  // up from when the real one arrives. Once read, a token with no entry holds nothing.
+  const balance = balances ? (token?.balance ?? 0) : null;
   const priceInfo = getTokenPrice(tokenPrices, symbol);
-  const fiatValue = balance * priceInfo.price;
+  const fiatValue = balance === null ? null : balance * priceInfo.price;
   // `balance` was divided by the placeholder's guessed decimals upstream, so for
   // an unresolved faucet it is not this user's holding — and the fiat figure
   // below is that same wrong number multiplied by a price. The hero is the most
@@ -90,8 +92,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const scaleIsKnown = hasKnownScale(metadata);
   // An em dash, not a translated phrase: this slot is a number in the hero,
   // and the header above it already names the token.
-  const formatBalance = adaptiveFormatterFor(balance);
-  const formatFiat = adaptiveFormatterFor(fiatValue);
+  const formatBalance = adaptiveFormatterFor(balance ?? 0);
+  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
 
   const handleBack = () => goBack();
 

@@ -422,6 +422,39 @@ describe('TokenDetail', () => {
     });
   });
 
+  // jsdom has no `matchMedia`, so AnimatedNumber only travels once a test installs one.
+  describe('a balance still loading', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('lands on the first balance and its fiat value instead of counting up from zero', () => {
+      configure({ metadata: { [TOKEN_ID]: { symbol: 'ETH', name: 'Ether', decimals: 18 } } });
+      mockUseAllBalances.mockReturnValue({ data: undefined });
+      const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
+
+      const hero = screen.getByTestId('token-detail-hero');
+      expect(hero).toHaveTextContent('—');
+      expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
+
+      mockUseAllBalances.mockReturnValue({
+        data: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }]
+      });
+      rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+      expect(within(hero).getByText('12.50')).toBeInTheDocument();
+      expect(within(hero).getByText('$25000.00')).toBeInTheDocument();
+    });
+  });
+
   // The hero is the most emphatic number in the wallet. For a faucet whose
   // decimals never resolved, `balance` was divided by the placeholder's guessed
   // 6 upstream, so it is not this user's holding — and the fiat line under it is

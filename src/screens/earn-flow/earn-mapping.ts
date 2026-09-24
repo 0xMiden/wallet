@@ -135,6 +135,11 @@ export function buildEarnSummary(positions: LibEarnPosition[]): EarnSummary {
   };
 }
 
+/** The summary while the first positions read is in flight: no figures yet, so none can count from zero. */
+export function loadingEarnSummary(): EarnSummary {
+  return { totalRewardsUsd: null, blendedApyPercent: null, totalDepositedUsd: null, estimatedRewardsUsd: null };
+}
+
 /** All-placeholder vault for deep links that land before data arrives. */
 export function placeholderVault(): EarnVault {
   return {
