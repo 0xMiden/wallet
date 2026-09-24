@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import EarnPositionDetail from './EarnPositionDetail';
@@ -317,9 +317,12 @@ describe('EarnPositionDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'earnDepositMore' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/vaults/vault-flat/deposit');
+    // `Button` fires the tap haptic itself; a direct call here would buzz twice.
+    expect(hapticLight).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
+    expect(hapticLight).toHaveBeenCalledTimes(2);
   });
 
   it('renders the four timeframes as the shared segmented control, 1M selected, switching on tap', () => {

@@ -100,7 +100,10 @@ describe('home-group panes', () => {
 
     for (const [relative, component] of Object.entries(roots)) {
       const source = fs.readFileSync(path.join(SRC, relative), 'utf8');
-      expect([relative, source.includes(`<${component}`)]).toEqual([relative, true]);
+      // A plain `includes` would match `<HomeGroupPane` inside `<HomeGroupPaneRoot`, so the row
+      // opens as its own JSX tag: the name followed by whitespace, `/` or `>`.
+      const opensAsOwnTag = new RegExp(`<${component}[\\s/>]`).test(source);
+      expect([relative, opensAsOwnTag]).toEqual([relative, true]);
     }
   });
 });
