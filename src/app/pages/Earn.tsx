@@ -15,12 +15,16 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 const Earn: FC = () => {
   const { t } = useTranslation();
   const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
+  const loadFailed = Boolean(error) && !isLoading;
 
   return (
     <div className="h-full overflow-hidden bg-page" data-testid="earn-page">
       <div className="h-full overflow-y-auto">
         <div className="flex flex-col gap-5 px-4 pt-3 pb-32">
-          <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
+          {/* A failed first load draws no summary: with no positions behind it, it would read as "$0". */}
+          {!(loadFailed && positions.length === 0) && (
+            <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
+          )}
 
           <section className="flex flex-col gap-3" aria-labelledby="earn-positions-title">
             <div className="flex items-center justify-between">
@@ -33,8 +37,9 @@ const Earn: FC = () => {
             </div>
 
             {/* Only a load that settled with nothing says "no positions": while the first load is in
-                flight the slot stays empty, and a failed load with nothing to show says so and retries. */}
-            {positions.length === 0 && isLoading ? null : positions.length === 0 && error ? (
+                flight the slot stays empty, and a failed load says so and retries - in place of the
+                list when there is nothing to show, above the last-good cards when there is. */}
+            {positions.length === 0 && isLoading ? null : positions.length === 0 && loadFailed ? (
               <EarnLoadError onRetry={refetch} />
             ) : positions.length === 0 ? (
               <EmptyState
@@ -45,16 +50,19 @@ const Earn: FC = () => {
                 data-testid="earn-positions-empty"
               />
             ) : (
-              <div
-                className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
-                onPointerDown={event => event.stopPropagation()}
-              >
-                <div className="flex gap-3 px-4 pb-1">
-                  {positions.map(position => (
-                    <PositionCard key={position.id} position={position} />
-                  ))}
+              <>
+                {loadFailed && <EarnLoadError onRetry={refetch} />}
+                <div
+                  className="-mx-4 overflow-x-auto no-scrollbar touch-pan-x"
+                  onPointerDown={event => event.stopPropagation()}
+                >
+                  <div className="flex gap-3 px-4 pb-1">
+                    {positions.map(position => (
+                      <PositionCard key={position.id} position={position} />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </section>
 

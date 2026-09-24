@@ -16,12 +16,11 @@ const EarnPositions: FC = () => {
   const { t } = useTranslation();
   const { summary, positions, error, isLoading, refetch } = useEarnPositions();
 
-  // A failed load with nothing to fall back on must NOT read as "you have no
-  // positions / $0" — that misrepresents a network/service problem as an empty
-  // portfolio. Show a distinct, retryable error instead. If there is last-good
-  // data (positions present via keepPreviousData), keep showing it rather than
-  // hiding real balances behind a transient error.
-  const showLoadError = Boolean(error) && positions.length === 0 && !isLoading;
+  // A failed load must NOT read as "you have no positions / $0": with nothing to fall back on it
+  // replaces the list; with last-good positions on screen (keepPreviousData) they stay, under a
+  // notice that they may be incomplete.
+  const loadFailed = Boolean(error) && !isLoading;
+  const showLoadError = loadFailed && positions.length === 0;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
@@ -33,6 +32,7 @@ const EarnPositions: FC = () => {
             <EarnLoadError onRetry={refetch} className="mt-10" />
           ) : (
             <>
+              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
               <EarnSummaryPanel summary={summary} titleId="earn-positions-summary-title" />
 
               <section className="mt-7 flex flex-col gap-5" aria-label={t('earnPositionsRegionLabel')}>

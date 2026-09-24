@@ -220,7 +220,7 @@ describe('EarnPositions', () => {
       expect(mockHapticLight).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps showing last-good positions on a transient error rather than hiding real balances', () => {
+    it('keeps last-good positions on a transient error, under a notice that they may be incomplete', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
         positions: EARN_DATA.positions, // stale-but-real data survived via keepPreviousData
@@ -232,9 +232,27 @@ describe('EarnPositions', () => {
 
       render(<EarnPositions />);
 
-      // With real data to show, the error state is suppressed.
-      expect(screen.queryByTestId('earn-positions-load-error')).not.toBeInTheDocument();
+      // The real balances stay; the failure is said above them rather than hidden.
       expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
+      expect(screen.getAllByTestId(/^earn-position-card-/)).toHaveLength(EARN_DATA.positions.length);
+      expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+      fireEvent.click(screen.getByTestId('earn-positions-retry'));
+      expect(mockRefetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('says nothing while a retry is still loading', () => {
+      mockUseEarnPositions.mockReturnValue({
+        summary: EARN_DATA.summary,
+        positions: EARN_DATA.positions,
+        vaults: EARN_DATA.vaults,
+        isLoading: true,
+        error: 'positions request failed (503)',
+        refetch: mockRefetch
+      });
+
+      render(<EarnPositions />);
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
 });

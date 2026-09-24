@@ -12,6 +12,7 @@ import { goBack, navigate } from 'lib/woozie';
 
 import { MetricCard } from './components';
 import { placeholderVault } from './earn-mapping';
+import { EarnLoadError } from './EarnLoadError';
 import { EarnVault } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -32,8 +33,10 @@ interface EarnVaultDetailProps {
 const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
   const { t } = useTranslation();
-  const { vaults } = useEarnPositions();
-  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
+  const { vaults, error, isLoading, refetch } = useEarnPositions();
+  const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
+  const vault = useMemo(() => found ?? placeholderVault(), [found]);
+  const loadFailed = Boolean(error) && !isLoading;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
@@ -48,44 +51,55 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 pb-8 pt-8">
-          <section aria-labelledby="earn-vault-apy-title">
-            <div
-              id="earn-vault-apy-title"
-              className="font-heading text-[56px] font-bold leading-none text-status-positive"
-            >
-              {vault.apy}
-            </div>
-            <div className="mt-2 text-xs font-bold uppercase leading-none tracking-wide text-gray-secondary">
-              {t('earnCurrentApy')}
-            </div>
-            <div className="mt-0.5 text-xl font-semibold leading-none text-status-positive">{vault.apyChange24h}</div>
-          </section>
+          {/* A failed load never draws the placeholder vault as if it were real; with the vault in
+              hand from an earlier load, it is still shown, under a notice that it may be stale. */}
+          {loadFailed && !found ? (
+            <EarnLoadError onRetry={refetch} className="mt-10" />
+          ) : (
+            <>
+              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
+              <section aria-labelledby="earn-vault-apy-title">
+                <div
+                  id="earn-vault-apy-title"
+                  className="font-heading text-[56px] font-bold leading-none text-status-positive"
+                >
+                  {vault.apy}
+                </div>
+                <div className="mt-2 text-xs font-bold uppercase leading-none tracking-wide text-gray-secondary">
+                  {t('earnCurrentApy')}
+                </div>
+                <div className="mt-0.5 text-xl font-semibold leading-none text-status-positive">
+                  {vault.apyChange24h}
+                </div>
+              </section>
 
-          <VaultAreaChart vault={vault} />
+              <VaultAreaChart vault={vault} />
 
-          <SegmentedControl
-            items={TIMEFRAME_ITEMS}
-            value={timeframe}
-            onChange={setTimeframe}
-            size="sm"
-            layout="fill"
-            aria-label={t('chartTimeframe')}
-            className="mt-3"
-          />
+              <SegmentedControl
+                items={TIMEFRAME_ITEMS}
+                value={timeframe}
+                onChange={setTimeframe}
+                size="sm"
+                layout="fill"
+                aria-label={t('chartTimeframe')}
+                className="mt-3"
+              />
 
-          <VaultStats vault={vault} />
-          <VaultAbout vault={vault} />
+              <VaultStats vault={vault} />
+              <VaultAbout vault={vault} />
 
-          <div className="mt-auto pt-16">
-            <Button
-              data-testid="earn-vault-deposit-btn"
-              title={t('earnDeposit')}
-              variant={ButtonVariant.Primary}
-              disabled={!vault.id}
-              onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
-              className="max-w-none"
-            />
-          </div>
+              <div className="mt-auto pt-16">
+                <Button
+                  data-testid="earn-vault-deposit-btn"
+                  title={t('earnDeposit')}
+                  variant={ButtonVariant.Primary}
+                  disabled={!vault.id}
+                  onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
+                  className="max-w-none"
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

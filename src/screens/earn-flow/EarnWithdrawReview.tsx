@@ -16,6 +16,7 @@ import { goBack, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 import { placeholderPosition } from './earn-mapping';
+import { EarnLoadError } from './EarnLoadError';
 import { useEarnPositions } from './useEarnPositions';
 
 interface EarnWithdrawReviewProps {
@@ -31,11 +32,10 @@ interface EarnWithdrawReviewProps {
  */
 const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { positions } = useEarnPositions();
-  const position = useMemo(
-    () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
-    [positions, positionId]
-  );
+  const { positions, error, isLoading, refetch } = useEarnPositions();
+  const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
+  const position = useMemo(() => found ?? placeholderPosition(), [found]);
+  const loadFailed = Boolean(error) && !isLoading;
   const account = useAccount();
   const withdrawSymbol = 'USDC';
   const amountValue = Number(position.withdrawable) || 0;
@@ -87,39 +87,46 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
-        <div className={clsx('flex flex-col px-6 pt-6')}>
-          <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnWithdrawAmount')}</span>
-          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
-            {toAdaptiveFixed(amountValue)}
-          </div>
-          <div className="flex items-center gap-1">
-            <TokenLogo symbol={withdrawSymbol} size="md" />
-            <span className="font-heading text-2xl font-bold text-ink">{withdrawSymbol}</span>
+      {loadFailed && !found ? (
+        <EarnLoadError onRetry={refetch} className="mt-10 px-6" />
+      ) : (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
+            <div className={clsx('flex flex-col px-6 pt-6')}>
+              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
+              <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnWithdrawAmount')}</span>
+              <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
+                {toAdaptiveFixed(amountValue)}
+              </div>
+              <div className="flex items-center gap-1">
+                <TokenLogo symbol={withdrawSymbol} size="md" />
+                <span className="font-heading text-2xl font-bold text-ink">{withdrawSymbol}</span>
+              </div>
+
+              <div className="mt-8 space-y-6 pb-4">
+                <DetailRow label={t('route')} value={`${position.protocol} (${position.network}) -> Miden`} />
+                <DetailRow label={t('positionOwnerLabel')} value={truncateAddress(position.owner, false, 8, 8)} />
+                <DetailRow label={t('earnWithdrawalLabel')} value={t('earnFullPositionGasless')} />
+                <DetailRow label={t('earnEstimatedTimeLabel')} value={t('earnEstimatedTimeOneMinute')} />
+              </div>
+            </div>
           </div>
 
-          <div className="mt-8 space-y-6 pb-4">
-            <DetailRow label={t('route')} value={`${position.protocol} (${position.network}) -> Miden`} />
-            <DetailRow label={t('positionOwnerLabel')} value={truncateAddress(position.owner, false, 8, 8)} />
-            <DetailRow label={t('earnWithdrawalLabel')} value={t('earnFullPositionGasless')} />
-            <DetailRow label={t('earnEstimatedTimeLabel')} value={t('earnEstimatedTimeOneMinute')} />
+          <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
+            {submitError && (
+              <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
+            )}
+            <Button
+              data-testid="earn-withdraw-review-confirm"
+              title={isSubmitting ? t('withdrawing') : t('withdraw')}
+              variant={ButtonVariant.Primary}
+              onClick={handleWithdraw}
+              disabled={isSubmitting || amountValue <= 0 || !position.id}
+              className="w-full max-w-none"
+            />
           </div>
-        </div>
-      </div>
-
-      <div className={clsx('shrink-0 pt-4 pb-6', isMobile() ? 'px-8' : 'px-6')}>
-        {submitError && (
-          <div className="mb-2 text-center text-sm leading-tight text-status-negative">{submitError}</div>
-        )}
-        <Button
-          data-testid="earn-withdraw-review-confirm"
-          title={isSubmitting ? t('withdrawing') : t('withdraw')}
-          variant={ButtonVariant.Primary}
-          onClick={handleWithdraw}
-          disabled={isSubmitting || amountValue <= 0 || !position.id}
-          className="w-full max-w-none"
-        />
-      </div>
+        </>
+      )}
     </div>
   );
 };

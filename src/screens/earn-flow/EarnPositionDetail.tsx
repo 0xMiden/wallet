@@ -13,6 +13,7 @@ import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel, MetricCard, PositionLogo } from './components';
 import { placeholderPosition } from './earn-mapping';
+import { EarnLoadError } from './EarnLoadError';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -33,11 +34,10 @@ interface EarnPositionDetailProps {
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
   const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
-  const { summary, positions } = useEarnPositions();
-  const position = useMemo(
-    () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
-    [positions, positionId]
-  );
+  const { summary, positions, error, isLoading, refetch } = useEarnPositions();
+  const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
+  const position = useMemo(() => found ?? placeholderPosition(), [found]);
+  const loadFailed = Boolean(error) && !isLoading;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
@@ -49,28 +49,36 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-6">
-          <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
+          {/* A failed load never draws the placeholder position, or a $0 summary, as if it were real. */}
+          {loadFailed && !found ? (
+            <EarnLoadError onRetry={refetch} className="mt-10" />
+          ) : (
+            <>
+              {loadFailed && <EarnLoadError onRetry={refetch} className="mb-6" />}
+              <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
 
-          <PositionAreaChart position={position} />
+              <PositionAreaChart position={position} />
 
-          <SegmentedControl
-            items={TIMEFRAME_ITEMS}
-            value={timeframe}
-            onChange={setTimeframe}
-            size="sm"
-            layout="fill"
-            aria-label={t('chartTimeframe')}
-            className="mt-3"
-          />
+              <SegmentedControl
+                items={TIMEFRAME_ITEMS}
+                value={timeframe}
+                onChange={setTimeframe}
+                size="sm"
+                layout="fill"
+                aria-label={t('chartTimeframe')}
+                className="mt-3"
+              />
 
-          <PositionHeading position={position} />
-          <PositionStats position={position} />
-          <ProjectedEarnings position={position} />
-          <PositionDetails position={position} />
-          <PositionActions
-            position={position}
-            onWithdraw={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
-          />
+              <PositionHeading position={position} />
+              <PositionStats position={position} />
+              <ProjectedEarnings position={position} />
+              <PositionDetails position={position} />
+              <PositionActions
+                position={position}
+                onWithdraw={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

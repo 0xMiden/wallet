@@ -20,6 +20,10 @@ let mockPositions: EarnPosition[] = [];
 // button's accessible name; without this the un-initialized react-i18next
 // instance warns on every render and `t('back')` falls back to the key.
 // Mocking it keeps that fallback deterministic instead of implicit.
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -50,8 +54,8 @@ jest.mock('./useEarnPositions', () => ({
     summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
     positions: mockPositions,
     vaults: [],
-    isLoading: false,
-    error: undefined
+    ...mockLoadState,
+    refetch: mockRefetch
   })
 }));
 
@@ -230,5 +234,32 @@ describe('EarnWithdrawReview', () => {
     const footer = screen.getByRole('button', { name: 'withdraw' }).parentElement;
     expect(footer).toHaveClass('px-8');
     expect(footer).not.toHaveClass('px-6');
+  });
+});
+
+describe('EarnWithdrawReview after a failed load', () => {
+  beforeEach(() => {
+    mockPositions = [position];
+  });
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says the load failed, with Retry, instead of offering to withdraw a placeholder position', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a position it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
   });
 });

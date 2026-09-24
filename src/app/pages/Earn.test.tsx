@@ -142,12 +142,32 @@ describe('Earn page', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('keeps last-good positions on screen through a failed refresh', () => {
-    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, isLoading: false, error: 'boom', refetch: jest.fn() });
+  it('keeps last-good positions on screen through a failed refresh, under a retryable notice', () => {
+    const refetch = jest.fn();
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, isLoading: false, error: 'boom', refetch });
     render(<Earn />);
-    expect(screen.queryByRole('alert')).toBeNull();
+    // The cards stay, but they are not presented as complete: the failure is said beside them.
     expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
     expect(positionsSection().querySelector('.overflow-x-auto')).not.toBeNull();
+    expect(within(positionsSection()).getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    fireEvent.click(within(positionsSection()).getByRole('button', { name: 'retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws no summary over a failed first load, so it never reads as $0', () => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch: jest.fn() });
+    render(<Earn />);
+    expect(screen.queryByTestId('earn-summary-panel')).toBeNull();
+  });
+
+  it('keeps the summary while the first load is in flight and once it has settled', () => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch: jest.fn() });
+    const { unmount } = render(<Earn />);
+    expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
+    unmount();
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, isLoading: false, error: 'boom', refetch: jest.fn() });
+    render(<Earn />);
+    expect(screen.getByTestId('earn-summary-panel')).toBeInTheDocument();
   });
 
   it('shows the dashed empty state, not the scroll row, when there are no positions', () => {

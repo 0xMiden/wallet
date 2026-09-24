@@ -6,9 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { hapticLight } from 'lib/mobile/haptics';
 
 /**
- * A failed positions load with nothing to fall back on. It must not read as "you have no positions":
- * that would present a network or service problem as an empty portfolio. Shared by Earn and the
- * positions list, so both say the same thing and retry the same way.
+ * A positions load that did not fully succeed. It must not read as "you have no positions": that
+ * would present a network or service problem as an empty portfolio. With nothing to fall back on it
+ * stands in for the content; above last-good data it marks that data as possibly incomplete. Shared
+ * by every `useEarnPositions` consumer, so all of them say the same thing and retry the same way.
  */
 export const EarnLoadError: FC<{ onRetry: () => void; className?: string }> = ({ onRetry, className }) => {
   const { t } = useTranslation();

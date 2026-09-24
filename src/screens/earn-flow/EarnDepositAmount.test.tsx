@@ -9,6 +9,10 @@ import EarnDepositAmount from './EarnDepositAmount';
 
 // `lib/woozie` reaches for browser history state on import; stub `navigate`
 // so we can assert the deposit-review push without running the real router.
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('lib/woozie', () => ({
@@ -85,8 +89,8 @@ jest.mock('./useEarnPositions', () => {
       summary: EARN_DATA.summary,
       positions: EARN_DATA.positions,
       vaults: EARN_DATA.vaults,
-      isLoading: false,
-      error: undefined
+      ...mockLoadState,
+      refetch: mockRefetch
     })
   };
 });
@@ -235,6 +239,41 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     expect(() => fireEvent.click(screen.getByTestId('select-token'))).not.toThrow();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('EarnDepositAmount after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says the load failed, with Retry, instead of taking an amount for a placeholder vault', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByTestId('select-amount')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a vault it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('select-amount')).toBeInTheDocument();
+  });
+});
+
+describe('EarnDepositAmount with no vault', () => {
+  it('never continues a valid amount into a deposit for the placeholder vault', () => {
+    render(<EarnDepositAmount vaultId="no-such-vault" />);
+    setAmount('10');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+    fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

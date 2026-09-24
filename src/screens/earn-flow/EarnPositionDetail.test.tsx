@@ -20,6 +20,10 @@ import EarnPositionDetail from './EarnPositionDetail';
 //     every branch of `if (!active || !payload?.[0]) return null` runs.
 // The factory references no out-of-scope bindings (only `require('react')`) so
 // swc's jest-hoist is happy (mirrors the sibling `lib/ui/charts.test.tsx`).
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('recharts', () => {
@@ -197,8 +201,8 @@ jest.mock('./useEarnPositions', () => ({
       }
     ],
     vaults: [],
-    isLoading: false,
-    error: undefined
+    ...mockLoadState,
+    refetch: mockRefetch
   })
 }));
 
@@ -372,5 +376,30 @@ describe('EarnPositionDetail', () => {
     const normal = renderDetail('pos-normal');
     expect(normal.getByTestId('area-chart')).toBeInTheDocument();
     expect(normal.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
+  });
+});
+
+describe('EarnPositionDetail after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says the load failed, with Retry, instead of drawing a placeholder position', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderDetail('no-such-position');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a position it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderDetail('pos-normal');
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
   });
 });

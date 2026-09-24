@@ -22,6 +22,10 @@ import EarnVaultDetail from './EarnVaultDetail';
 // i18n: the component and the shared Button/IconButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -152,8 +156,8 @@ jest.mock('./useEarnPositions', () => ({
         ]
       }
     ],
-    isLoading: false,
-    error: undefined
+    ...mockLoadState,
+    refetch: mockRefetch
   })
 }));
 
@@ -283,5 +287,38 @@ describe('EarnVaultDetail', () => {
 
     fireEvent.click(radio('1D'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EarnVaultDetail after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says the load failed, with Retry, instead of drawing a placeholder vault', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
+    expect(screen.queryByText('earnCurrentApy')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a vault it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
+  });
+
+  it('says nothing while the load is still in flight', () => {
+    mockLoadState = { isLoading: true, error: 'boom' };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

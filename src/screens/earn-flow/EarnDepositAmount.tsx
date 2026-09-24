@@ -14,6 +14,7 @@ import { UIToken } from 'screens/send-flow/types';
 
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
+import { EarnLoadError } from './EarnLoadError';
 import { useEarnPositions } from './useEarnPositions';
 
 interface EarnDepositAmountProps {
@@ -25,8 +26,10 @@ const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) |
 const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { t } = useTranslation();
   const [amount, setAmount] = useState('');
-  const { vaults } = useEarnPositions();
-  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
+  const { vaults, error, isLoading, refetch } = useEarnPositions();
+  const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
+  const vault = useMemo(() => found ?? placeholderVault(), [found]);
+  const loadFailed = Boolean(error) && !isLoading;
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -57,36 +60,44 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   // A deposit is a transaction, and the fee comes out of this account's own vault
   // in the native asset -- holding USDC alone is not enough to move it.
   const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
-  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing;
+  // Continue also needs the vault itself: the placeholder has no id to deposit into.
+  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing && Boolean(vault.id);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-amount-page">
       <EarnFlowHeader vault={vault} />
 
-      <div className="min-h-0 flex-1">
-        <SelectAmount
-          token={token}
-          amount={amount}
-          isValidAmount={isValidAmount}
-          label={t('earnDepositAmountLabel')}
-          confirmTitle={t('confirm')}
-          showNetworkPill={false}
-          showBalanceHelper={!hasAmount}
-          // Say WHY Continue is dead. Without this the user sees a positive,
-          // in-balance amount and a disabled button with no explanation — the
-          // send and swap flows both name the same condition. `SelectAmount`
-          // translates the key itself, so pass the key rather than the text.
-          error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
-          footerClassName="pt-4 pb-6"
-          onAmountChange={setAmount}
-          onSelectToken={() => undefined}
-          onConfirm={() => {
-            if (isValidAmount) {
-              navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);
-            }
-          }}
-        />
-      </div>
+      {loadFailed && !found ? (
+        <EarnLoadError onRetry={refetch} className="mt-10 px-4" />
+      ) : (
+        <>
+          {loadFailed && <EarnLoadError onRetry={refetch} className="shrink-0 px-4 pt-4" />}
+          <div className="min-h-0 flex-1">
+            <SelectAmount
+              token={token}
+              amount={amount}
+              isValidAmount={isValidAmount}
+              label={t('earnDepositAmountLabel')}
+              confirmTitle={t('confirm')}
+              showNetworkPill={false}
+              showBalanceHelper={!hasAmount}
+              // Say WHY Continue is dead. Without this the user sees a positive,
+              // in-balance amount and a disabled button with no explanation — the
+              // send and swap flows both name the same condition. `SelectAmount`
+              // translates the key itself, so pass the key rather than the text.
+              error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
+              footerClassName="pt-4 pb-6"
+              onAmountChange={setAmount}
+              onSelectToken={() => undefined}
+              onConfirm={() => {
+                if (isValidAmount) {
+                  navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);
+                }
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 };

@@ -6,11 +6,16 @@ import { openEarnPosition } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
+import { EARN_DATA } from './data';
 import EarnDepositReview from './EarnDepositReview';
 
 // --- react-i18next: echo the key back, and fold interpolation options into the
 //     returned string so we can assert the interpolated route/reward values
 //     (mirrors the swap-flow ReviewSwap sibling test).
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -111,8 +116,8 @@ jest.mock('./useEarnPositions', () => {
       summary: EARN_DATA.summary,
       positions: EARN_DATA.positions,
       vaults: EARN_DATA.vaults,
-      isLoading: false,
-      error: undefined
+      ...mockLoadState,
+      refetch: mockRefetch
     })
   };
 });
@@ -489,5 +494,29 @@ describe('EarnDepositReview', () => {
       renderReview('does-not-exist', '?amount=1000');
       expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });
+  });
+});
+
+describe('EarnDepositReview after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it('says the load failed, with Retry, instead of offering to open a position in a placeholder vault', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderReview('no-such-vault', '?amount=10');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a vault it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    renderReview(EARN_DATA.vaults[1]!.id, '?amount=10');
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeInTheDocument();
   });
 });
