@@ -334,10 +334,13 @@ describe('SelectAmount', () => {
 
   it("snaps a flow footer's cushion: main.css sets no transition on it", () => {
     const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    const bodies = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g))
-      .filter(([, selector]) => selector.trim() === "[data-navbar-cushion='true'][data-flow-footer]")
-      .map(([, , body]) => body);
-    expect(bodies.some(body => /(^|;)\s*transition:\s*none\s*(;|$)/.test(body.trim()))).toBe(true);
+    const bodies = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g), ([, selector = '', body = '']) => ({
+      selector: selector.trim(),
+      body: body.trim()
+    }))
+      .filter(rule => rule.selector === "[data-navbar-cushion='true'][data-flow-footer]")
+      .map(rule => rule.body);
+    expect(bodies.some(body => /(^|;)\s*transition:\s*none\s*(;|$)/.test(body))).toBe(true);
   });
 
   describe('token selector', () => {
