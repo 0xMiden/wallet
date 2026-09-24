@@ -44,36 +44,6 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-jest.mock('app/atoms/Alert', () => () => null);
-
-// A functional input mock so react-hook-form can register the password
-// field and we can drive the software-unlock path. Only forwards the props
-// that matter for the form (name/type/onChange/onBlur/ref/id/placeholder).
-jest.mock('app/atoms/FormField', () =>
-  React.forwardRef(
-    (
-      {
-        name,
-        type,
-        id,
-        placeholder,
-        onChange,
-        onBlur
-      }: {
-        name?: string;
-        type?: string;
-        id?: string;
-        placeholder?: string;
-        onChange?: React.ChangeEventHandler<HTMLInputElement>;
-        onBlur?: React.FocusEventHandler<HTMLInputElement>;
-      },
-      ref: React.Ref<HTMLInputElement>
-    ) => (
-      <input ref={ref} name={name} type={type} id={id} placeholder={placeholder} onChange={onChange} onBlur={onBlur} />
-    )
-  )
-);
-
 jest.mock('components/Button', () => ({
   Button: ({ onClick, title, disabled }: { onClick: () => void; title: string; disabled?: boolean }) => (
     <button onClick={onClick} disabled={disabled}>

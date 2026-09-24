@@ -40,13 +40,6 @@ jest.mock('lib/mobile/screenshot-guard', () => ({
   useScreenshotGuard: () => true
 }));
 
-// Alert surfaces the hardware-unlock `authError`; render its description so we
-// can assert the error text made it to the screen.
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description }: { description?: string }) => <div role="alert">{description}</div>
-}));
-
 jest.mock('components/Button', () => ({
   Button: ({
     onClick,
