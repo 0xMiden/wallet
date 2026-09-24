@@ -44,12 +44,12 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
       <PageHeader
         className="shrink-0 px-4"
-        // A failed load of a vault it does not have names nothing: no placeholder title or pill.
-        title={loadFailed && !found ? undefined : `${vault.protocol} • ${vault.asset}`}
+        // Until the vault is found the header names the route, never a placeholder vault or pill.
+        title={found ? `${found.protocol} • ${found.asset}` : t('earnDeposit')}
         onBack={goBack}
         actions={
-          !(loadFailed && !found) && (
-            <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+          found && (
+            <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: found.asset, network: found.network })}</Pill>
           )
         }
       />

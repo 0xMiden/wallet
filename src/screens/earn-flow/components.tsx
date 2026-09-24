@@ -12,18 +12,18 @@ import { goBack } from 'lib/woozie';
 import { EarnSummary, EarnVault } from './types';
 
 /** Shared top bar for the vault deposit flow: the `PageHeader` with back, a "{protocol} • {asset}"
- *  title and the "{asset} on {network}" pill. Used by the deposit-amount and deposit-review pages
+ *  title (the route name until the vault is found) and the "{asset} on {network}" pill. Used by the deposit-amount and deposit-review pages
  *  so their headers stay identical, and shaped like the vault and withdraw-review headers. Both
  *  pages are unpadded, so the header brings the 16px page margin itself. */
 export const EarnFlowHeader: FC<{ vault?: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
-  // No vault (a failed load of one that is not cached): the header names nothing rather than a
-  // placeholder, and back is still there.
+  // No vault (loading, failed or unknown): the header names the route rather than a placeholder vault,
+  // so the page keeps its h1.
   return (
     <PageHeader
       className="shrink-0 px-4"
-      title={vault ? `${vault.protocol} • ${vault.asset}` : undefined}
+      title={vault ? `${vault.protocol} • ${vault.asset}` : t('earnDeposit')}
       onBack={goBack}
       actions={
         vault && (

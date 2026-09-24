@@ -80,13 +80,12 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-withdraw-review-page">
       <PageHeader
         className="shrink-0 px-4"
-        title={loadFailed && !found ? undefined : `${position.protocol} • ${position.asset}`}
+        // Until the position is found the header names the route, never a placeholder position.
+        title={found ? `${found.protocol} • ${found.asset}` : t('withdraw')}
         onBack={goBack}
         actions={
-          !(loadFailed && !found) && (
-            <Pill className="shrink-0">
-              {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
-            </Pill>
+          found && (
+            <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: found.asset, network: found.network })}</Pill>
           )
         }
       />

@@ -299,7 +299,7 @@ describe('EarnPositionDetail', () => {
 
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('earnPositionHeaderTitle');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
     expect(screen.getByTestId('position-logo')).toHaveAttribute('data-asset', '—');
 
     const cards = screen.getAllByTestId('metric-card');
@@ -396,12 +396,12 @@ describe('EarnPositionDetail after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the failure said while a retry is loading, and names nothing in the header', () => {
+  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
     mockLoadState = { isLoading: true, error: 'boom' };
     renderDetail('no-such-position');
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
   });
 
   it('draws nothing it has not loaded during a first load with no error', () => {
@@ -420,5 +420,26 @@ describe('EarnPositionDetail after a failed load', () => {
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+  });
+});
+
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom' }],
+  ['a load in flight', { isLoading: true }],
+  ['a settled load without it', { isLoading: false }]
+];
+
+describe('EarnPositionDetail with no position to name', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each(MISSING_LOAD_STATES)('keeps a route heading and no placeholder name after %s', (_state, loadState) => {
+    mockLoadState = loadState;
+    renderDetail('no-such-position');
+
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/^earnPositionsTitle$/);
   });
 });

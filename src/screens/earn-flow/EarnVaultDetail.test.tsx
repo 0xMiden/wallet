@@ -248,9 +248,9 @@ describe('EarnVaultDetail', () => {
   it('falls back to the placeholder vault when the id is unknown', () => {
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    // `?? placeholderVault()` — every display field is the "—" placeholder and
-    // the empty id disables the Deposit CTA.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('— • —');
+    // `?? placeholderVault()` — every body field is the "—" placeholder, the header names only the
+    // route, and the empty id disables the Deposit CTA.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
     expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
   });
@@ -315,7 +315,7 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
   });
 
-  it('keeps the failure said while a retry is loading, and names nothing in the header', () => {
+  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
     mockLoadState = { isLoading: true, error: 'boom' };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
@@ -333,5 +333,28 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();
     expect(screen.queryByText('—')).toBeNull();
+  });
+});
+
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom' }],
+  ['a load in flight', { isLoading: true }],
+  ['a settled load without it', { isLoading: false }]
+];
+
+describe('EarnVaultDetail with no vault to name', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each(MISSING_LOAD_STATES)('keeps a route heading and no placeholder name after %s', (_state, loadState) => {
+    mockLoadState = loadState;
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/^earnDeposit$/);
+    expect(screen.queryByText('— • —')).toBeNull();
+    expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

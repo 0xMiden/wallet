@@ -255,12 +255,12 @@ describe('EarnWithdrawReview after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the failure said while a retry is loading, and names nothing in the header', () => {
+  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
     mockLoadState = { isLoading: true, error: 'boom' };
     render(<EarnWithdrawReview positionId="unknown" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^withdraw$/);
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 
@@ -279,5 +279,28 @@ describe('EarnWithdrawReview after a failed load', () => {
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+  });
+});
+
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom' }],
+  ['a load in flight', { isLoading: true }],
+  ['a settled load without it', { isLoading: false }]
+];
+
+describe('EarnWithdrawReview with no position to name', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each(MISSING_LOAD_STATES)('keeps a route heading and no placeholder name after %s', (_state, loadState) => {
+    mockLoadState = loadState;
+    render(<EarnWithdrawReview positionId="unknown" />);
+
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/^withdraw$/);
+    expect(screen.queryByText('— • —')).toBeNull();
+    expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

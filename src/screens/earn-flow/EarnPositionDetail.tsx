@@ -45,10 +45,11 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
       <PageHeader
         className="shrink-0 px-4"
+        // Until the position is found the header names the route, never a placeholder position.
         title={
-          loadFailed && !found
-            ? undefined
-            : t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })
+          found
+            ? t('earnPositionHeaderTitle', { protocol: found.protocol, asset: found.asset })
+            : t('earnPositionsTitle')
         }
         onBack={goBack}
       />

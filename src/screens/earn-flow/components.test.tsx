@@ -90,11 +90,11 @@ beforeEach(() => {
 });
 
 describe('EarnFlowHeader', () => {
-  it('names nothing without a vault: the back button stays, no title and no pill', () => {
+  it('names only the route without a vault: the back button stays, no vault title and no pill', () => {
     render(<EarnFlowHeader />);
 
     expect(screen.getByRole('banner')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
     expect(screen.queryByText('earnAssetOnNetwork')).toBeNull();
   });
 
