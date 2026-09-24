@@ -299,13 +299,17 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
+      # `--json --outputFile` adds the shard's test count (numTotalTests) for the tests badge; Jest keeps its
+      # normal console output on stderr.
       - name: Run Coverage shard
-        run: yarn test:coverage --shard=${{ matrix.shard }}/3 --coverageReporters=json --coverageReporters=text-summary
+        run: yarn test:coverage --shard=${{ matrix.shard }}/3 --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-shard-${{ matrix.shard }}
-          path: coverage/coverage-final.json
+          path: |
+            coverage/coverage-final.json
+            coverage/jest-results.json
           if-no-files-found: error
 
   coverage-gate:
@@ -338,6 +342,26 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/covtools/node_modules
         run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
+      # The main-branch Badges workflow reads this instead of rerunning the whole suite unsharded (which
+      # outgrew one runner): the merged line coverage and the summed test count of this PR head.
+      - name: Record badge data
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016 # the JavaScript template literal is meant for node, not the shell
+          node -e '
+            const fs = require("fs");
+            const lines = require("./coverage/coverage-summary.json").total.lines.pct;
+            const tests = [1, 2, 3]
+              .map(n => require(`./coverage-shards/coverage-shard-${n}/jest-results.json`).numTotalTests)
+              .reduce((a, b) => a + b, 0);
+            fs.writeFileSync("badge-data.json", JSON.stringify({ lines, tests }));
+            console.log(`badge data: lines ${lines}%, tests ${tests}`);
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge-data
+          path: badge-data.json
+          if-no-files-found: error
 
   i18n-check:
     name: Check for non-i18n'd strings
