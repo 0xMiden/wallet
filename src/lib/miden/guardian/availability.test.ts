@@ -90,9 +90,15 @@ describe('pingGuardianEndpointLatency', () => {
   // Onboarding picks the operator with the smallest number, so the number is the request's own
   // round trip: taken before the request goes out, read after the commitment is checked, rounded.
   it('measures the round trip of the request, in whole milliseconds', async () => {
-    const now = jest.spyOn(performance, 'now').mockReturnValueOnce(1000).mockReturnValueOnce(1234.4);
+    // The clock moves only while the request is out, so a start or an end read on the wrong side of
+    // the await reads 0, not 234.
+    let clock = 1000;
+    const now = jest.spyOn(performance, 'now').mockImplementation(() => clock);
     try {
-      mockGetPubkey.mockResolvedValue({ commitment: '0xCCC' });
+      mockGetPubkey.mockImplementation(async () => {
+        clock += 234.4;
+        return { commitment: '0xCCC' };
+      });
       await expect(pingGuardianEndpointLatency('https://timed.example.com')).resolves.toBe(234);
     } finally {
       now.mockRestore();
