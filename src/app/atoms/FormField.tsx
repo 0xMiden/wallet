@@ -81,7 +81,6 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
     const inputType = isPasswordInput ? passwordInputType : type;
 
     const [localValue, setLocalValue] = useState(value ?? defaultValue ?? '');
-    const [, setFocused] = useState(false);
 
     const handleChange = useCallback(
       (e: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -91,14 +90,12 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
     );
 
     const handleFocus = useCallback(
-      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) =>
-        focusHandler(e, onFocus!, setFocused),
-      [onFocus, setFocused]
+      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) => focusHandler(e, onFocus!),
+      [onFocus]
     );
     const handleBlur = useCallback(
-      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) =>
-        blurHandler(e, onBlur!, setFocused),
-      [onBlur, setFocused]
+      (e: React.FocusEvent<HTMLInputElement> | React.FocusEvent<HTMLTextAreaElement>) => blurHandler(e, onBlur!),
+      [onBlur]
     );
 
     const handleCleanClick = useCallback(() => {
