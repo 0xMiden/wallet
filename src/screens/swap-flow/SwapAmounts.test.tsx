@@ -32,7 +32,7 @@ jest.mock('framer-motion', () => ({
       </span>
     )),
     div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
-      <div ref={ref} data-animate={JSON.stringify(animate)} {...props}>
+      <div ref={ref} data-animate={JSON.stringify(animate)} data-initial={JSON.stringify(initial ?? null)} {...props}>
         {children}
       </div>
     ))
@@ -313,12 +313,16 @@ describe('SwapAmounts', () => {
       const toggle = screen.getAllByRole('button', { name: 'swapDirection' }).at(-1)!;
       expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 0 });
 
+      // Nothing lifts before the first press.
+      expect(JSON.parse(latest('swap-pay-side').getAttribute('data-initial')!)).toBe(false);
+      expect(JSON.parse(latest('swap-receive-side').getAttribute('data-initial')!)).toBe(false);
+
       fireEvent.click(toggle);
       expect(onSwapDirection).toHaveBeenCalledTimes(1);
       expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 180 });
-      // Both sides settle back to rest from opposite directions.
-      expect(JSON.parse(latest('swap-pay-side').getAttribute('data-animate')!)).toEqual({ y: 0, opacity: 1 });
-      expect(JSON.parse(latest('swap-receive-side').getAttribute('data-animate')!)).toEqual({ y: 0, opacity: 1 });
+      // The two sides enter from opposite directions, so they read as trading places.
+      expect(JSON.parse(latest('swap-pay-side').getAttribute('data-initial')!)).toEqual({ y: -24, opacity: 0 });
+      expect(JSON.parse(latest('swap-receive-side').getAttribute('data-initial')!)).toEqual({ y: 24, opacity: 0 });
 
       fireEvent.click(toggle);
       expect(JSON.parse(toggle.getAttribute('data-animate')!)).toEqual({ rotate: 360 });
