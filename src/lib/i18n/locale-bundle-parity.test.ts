@@ -234,35 +234,28 @@ describe('Chrome i18n placeholder declarations', () => {
 describe('hand-copied English is queued for translation', () => {
   // A non-English entry whose message is the English text is only acceptable while it is marked for
   // the next DeepL run; `translateWithDiff` re-translates an entry whose englishSource is stale, so
-  // the explicit sentinel is what puts it in that queue. (en_GB is not a runtime bundle, and a real
-  // British entry may legitimately equal the English.)
+  // the explicit sentinel is what puts it in that queue. Every derived bundle, en_GB included: it is
+  // outside the runtime parity check, so a key could otherwise vanish from it unnoticed.
   const COPIED_KEYS = [
     'earnNoActivePositionsTitle',
     'earnNoActivePositionsBody',
     'tokenActivityEmptyTitle',
-    'tokenActivityEmptyBody'
+    'tokenActivityEmptyBody',
+    'tokenActivityLoadError'
   ];
-  it.each(RUNTIME_LOCALES)('%s translates or explicitly queues each copied key', locale => {
-    const messages = loadMessages(locale);
-    const neither = COPIED_KEYS.filter(
-      key => messages[key]?.message === en[key]?.message && messages[key]?.englishSource !== '(untranslated)'
-    );
-    expect(neither).toEqual([]);
-  });
-});
-
-describe('the history load-error string', () => {
-  // A new key reaches every derived bundle, en_GB included: translated, or English queued for DeepL.
-  it.each(DERIVED_LOCALES)('%s carries tokenActivityLoadError, translated or queued', locale => {
-    const entry = loadMessages(locale).tokenActivityLoadError;
-    expect(entry).toBeDefined();
-    expect(entry!.message !== en.tokenActivityLoadError?.message || entry!.englishSource === '(untranslated)').toBe(
-      true
-    );
-  });
 
   it('covers en_GB, which the runtime list leaves out', () => {
     expect(DERIVED_LOCALES).toContain('en_GB');
+  });
+
+  it.each(DERIVED_LOCALES)('%s carries each copied key, translated or explicitly queued', locale => {
+    const messages = loadMessages(locale);
+    const missing = COPIED_KEYS.filter(key => messages[key] === undefined);
+    expect(missing).toEqual([]);
+    const neither = COPIED_KEYS.filter(
+      key => messages[key]!.message === en[key]?.message && messages[key]!.englishSource !== '(untranslated)'
+    );
+    expect(neither).toEqual([]);
   });
 });
 
