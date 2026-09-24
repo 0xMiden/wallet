@@ -35,7 +35,10 @@ let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { amount?: string }) => (values?.amount === undefined ? key : `${key}:${values.amount}`)
+    t: (key: string, values?: { amount?: string; count?: number }) => {
+      const value = values?.amount ?? values?.count;
+      return value === undefined ? key : `${key}:${value}`;
+    }
   })
 }));
 
@@ -44,6 +47,7 @@ jest.mock('components/ui', () => ({
   PromptCard: ({
     title,
     body,
+    bodyValue,
     hero,
     onClick,
     actionLabel,
@@ -54,6 +58,7 @@ jest.mock('components/ui', () => ({
   }: {
     title: string;
     body?: string;
+    bodyValue?: string;
     hero?: { icon: string; label: string; tone: string };
     onClick?: () => void;
     actionLabel?: string;
@@ -76,6 +81,7 @@ jest.mock('components/ui', () => ({
         {title}
       </button>
       {body && <p>{body}</p>}
+      {bodyValue && <p data-testid="prompt-card-value">{bodyValue}</p>}
       {actionLabel && (
         <button type="button" onClick={onAction} disabled={actionDisabled}>
           {actionLabel}
@@ -88,6 +94,11 @@ jest.mock('components/ui', () => ({
       )}
     </section>
   )
+}));
+
+const mockHiddenNotes = { ids: new Set<string>(), loaded: true, failed: false };
+jest.mock('app/hooks/useActivityHiddenNotes', () => ({
+  useActivityHiddenNotes: () => ({ ...mockHiddenNotes, hide: jest.fn(), restore: jest.fn() })
 }));
 
 jest.mock('lib/wallet-prompts', () => {
@@ -181,6 +192,11 @@ const makePromptState = ({ storage, ...overrides }: { storage?: object } & Recor
 describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The hidden (declined) set is module-scoped state, so a test that declines something must
+    // not leave it declined for the next one.
+    mockHiddenNotes.ids = new Set<string>();
+    mockHiddenNotes.loaded = true;
+    mockHiddenNotes.failed = false;
     mockFaucet.mockResolvedValue(undefined);
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
@@ -2306,7 +2322,7 @@ describe('HomePrompts', () => {
 
     // A new note from a DIFFERENT faucet (e.g. an unrelated inbound transfer,
     // or a pre-existing note whose metadata only just resolved) must NOT play
-    // the success beat — the request only ever mints native MIDEN.
+    // the success beat - the request only ever mints native MIDEN.
     rerender(
       <HomePrompts
         account={account}
@@ -2546,16 +2562,55 @@ describe('HomePrompts', () => {
       'pendingNotesPromptTitle',
       'verifySeedPhrasePromptTitle'
     ]);
-    expect(screen.getByText('pendingNotesPromptBody:$4.50')).toBeInTheDocument();
+    // The money is its own value on the body line, not a number buried in a translated sentence.
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
     expect(screen.queryByRole('button', { name: 'pendingNotesPromptAction' })).not.toBeInTheDocument();
+    // Nothing waiting to be accepted can be swept away.
+    expect(screen.queryByRole('button', { name: 'dismiss-pendingNotesPromptTitle' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'pendingNotesPromptTitle' }));
-    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/pending-notes');
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending');
   });
 
-  it('dismisses the current pending-note batch by note id', () => {
-    const setPromptStatus = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ setPromptStatus }));
+  it('leaves a declined transfer out of the count and out of the total, until it is restored', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    // `note-1` was declined on the Activity tab. It is still claimable — declining only hides it
+    // — so the raw list still carries it, and the banner used to count it and add its value.
+    mockHiddenNotes.ids = new Set(['note-1']);
+
+    const { rerender } = render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={pendingNotes}
+        fundingNotes={pendingNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    expect(screen.getByTestId('prompt-card-value')).not.toHaveTextContent('$4.50');
+    expect(screen.getByText('pendingNotesPromptBody:1')).toBeInTheDocument();
+
+    // Restore puts it back, and the banner agrees again.
+    mockHiddenNotes.ids = new Set();
+    rerender(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={pendingNotes}
+        fundingNotes={pendingNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
+    expect(screen.getByText('pendingNotesPromptBody:2')).toBeInTheDocument();
+  });
+
+  it('shows nothing at all when every pending transfer has been declined', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.ids = new Set(['note-1', 'note-2']);
 
     render(
       <HomePrompts
@@ -2567,15 +2622,11 @@ describe('HomePrompts', () => {
         tokenPrices={tokenPrices}
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: 'dismiss-pendingNotesPromptTitle' }));
 
-    expect(setPromptStatus).toHaveBeenCalledWith(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed, [
-      'note-1',
-      'note-2'
-    ]);
+    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
   });
 
-  it('keeps a dismissed batch hidden while one of its notes remains', () => {
+  it('ignores a dismissal an older build stored: the card cannot be dismissed any more', () => {
     const setPromptStatus = jest.fn();
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
@@ -2600,7 +2651,8 @@ describe('HomePrompts', () => {
       />
     );
 
-    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+    // A wallet that dismissed the card once must not go silent about every later transfer.
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
     expect(setPromptStatus).not.toHaveBeenCalled();
   });
 
@@ -2801,6 +2853,54 @@ describe('HomePrompts', () => {
     });
   });
 
+  it('arms no timer when it unmounts while the clipboard write is still pending', async () => {
+    jest.useFakeTimers();
+    mockFetchHotKeyHardwareError.mockResolvedValue({ message: 'TEE unavailable (code 7)' });
+    let resolveWrite: () => void = () => undefined;
+    const writeText = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          resolveWrite = resolve;
+        })
+    );
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    const { unmount } = render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    await waitFor(() => expect(mockFetchHotKeyHardwareError).toHaveBeenCalled());
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+
+    unmount();
+    // The feedback timer is armed only AFTER the awaited write, so at unmount there is nothing for
+    // the cleanup to clear. Without a liveness check the continuation arms one anyway.
+    await act(async () => {
+      resolveWrite();
+    });
+    expect(jest.getTimerCount()).toBe(0);
+    jest.useRealTimers();
+  });
+
   it('marks the copy action failed when the clipboard rejects', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const writeText = jest.fn().mockRejectedValue(new Error('denied'));
@@ -2832,6 +2932,42 @@ describe('HomePrompts', () => {
       expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
     });
     errorSpy.mockRestore();
+  });
+
+  // Where the Clipboard API is absent the DEREFERENCE throws, so before the write was owned by an
+  // async function the `.catch` that sets this indicator was never attached to anything.
+  it('marks the copy action failed where the Clipboard API is absent entirely', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const stub = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    delete (navigator as { clipboard?: unknown }).clipboard;
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          pendingNotesDismissedIds: []
+        },
+        isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
+      })
+    );
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'hotKeyHardwareErrorPromptAction' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
+    });
+    errorSpy.mockRestore();
+    if (stub) Object.defineProperty(navigator, 'clipboard', stub);
   });
 
   it('initiates a hot-key rotation and routes to the generating-transaction page from the rotation prompt', async () => {

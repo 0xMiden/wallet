@@ -25,6 +25,17 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Calendar: 'Calendar' }
 }));
 
+// Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so
+// Confirm's flow colour is assertable without the real Button's cva class computation.
+jest.mock('components/ui/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
+}));
+
 // Drawer — the real component renders through `vaul` portals; a passthrough
 // stub keeps the children (and their handlers) directly in the DOM and exposes
 // the `open` prop plus a way to fire `onOpenChange`.
@@ -191,6 +202,16 @@ describe('RecallCalendarDrawer', () => {
     });
   });
 
+  it('puts the time on a fill list group and the presets on pills, not outlined boxes', async () => {
+    await renderDrawer();
+
+    const group = screen.getByTestId('recall-time-input').closest('[class*="bg-fill"]');
+    expect(group).not.toBeNull();
+    const preset = screen.getByRole('button', { name: '30mins' });
+    expect(preset.className).toContain('rounded-full');
+    expect(preset.className).toContain('bg-fill');
+  });
+
   it('reflects a passed recallTime and forwards edits to onRecallTimeChange', async () => {
     const props = makeProps({ recallTime: '08:15' });
     await renderDrawer(props);
@@ -263,7 +284,14 @@ describe('RecallCalendarDrawer', () => {
 
   it('hides the confirm button when no recallDate is set', async () => {
     await renderDrawer(makeProps({ recallDate: undefined }));
-    expect(screen.queryByText('confirm')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'confirm' })).not.toBeInTheDocument();
+  });
+
+  it('gives Confirm the send flow colour', async () => {
+    const recallDate = new Date('2035-06-15T00:00:00');
+    await renderDrawer(makeProps({ recallDate }));
+
+    expect(screen.getByRole('button', { name: 'confirm' })).toHaveAttribute('data-accent', 'send');
   });
 
   it('confirm applies the selection, computes relative blocks, and closes the drawer', async () => {
@@ -271,7 +299,7 @@ describe('RecallCalendarDrawer', () => {
     const props = makeProps({ recallDate, recallTime: '14:30' });
     render(<RecallCalendarDrawer {...props} />);
 
-    fireEvent.click(screen.getByText('confirm'));
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
 
     expect(props.onRecallDateChange).toHaveBeenCalledWith(recallDate);
     expect(props.onRecallTimeChange).toHaveBeenCalledWith('14:30');
@@ -294,13 +322,13 @@ describe('RecallCalendarDrawer', () => {
         recallTime: '12:01'
       });
       const { unmount } = render(<RecallCalendarDrawer {...props} />);
-      expect(screen.getByText('confirm')).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: 'confirm' })).not.toBeDisabled();
 
       // Advance the wall clock without firing the 15-second React interval.
       // The render-time state is still 12:00, so the click reaches the
       // callback's final defensive check at the now-expired 12:01 target.
       jest.setSystemTime(new Date('2030-01-01T12:02:00'));
-      fireEvent.click(screen.getByText('confirm'));
+      fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
 
       expect(props.onRecallDateChange).not.toHaveBeenCalled();
       expect(props.onRecallBlocksChange).not.toHaveBeenCalled();
@@ -315,7 +343,7 @@ describe('RecallCalendarDrawer', () => {
     const props = makeProps({ recallDate: new Date('2035-06-15T00:00:00') });
     await renderDrawer(props);
 
-    fireEvent.click(screen.getByText('never'));
+    fireEvent.click(screen.getByRole('button', { name: 'never' }));
 
     expect(props.onRecallNever).toHaveBeenCalledTimes(1);
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
@@ -326,7 +354,7 @@ describe('RecallCalendarDrawer', () => {
     const props = makeProps({ recallDate, recallTime: '5' });
     render(<RecallCalendarDrawer {...props} />);
 
-    fireEvent.click(screen.getByText('confirm'));
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
 
     expect(props.onRecallTimeChange).toHaveBeenCalledWith('5');
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
@@ -337,7 +365,7 @@ describe('RecallCalendarDrawer', () => {
     const props = makeProps({ recallDate, recallTime: '' });
     render(<RecallCalendarDrawer {...props} />);
 
-    fireEvent.click(screen.getByText('confirm'));
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -347,7 +375,7 @@ describe('RecallCalendarDrawer', () => {
       const props = makeProps();
       render(<RecallCalendarDrawer {...props} />);
 
-      fireEvent.click(screen.getByText(label));
+      fireEvent.click(screen.getByRole('button', { name: label }));
 
       // The preset produces a Date and an 'HH:mm' string.
       expect(props.onRecallDateChange).toHaveBeenCalledTimes(1);
@@ -387,7 +415,7 @@ describe('RecallCalendarDrawer', () => {
     it('renders the time red with an error message', async () => {
       await renderDrawer(pastProps());
 
-      expect(screen.getByTestId('recall-time-input').className).toContain('text-red-500');
+      expect(screen.getByTestId('recall-time-input').className).toContain('text-negative-ink');
       expect(screen.getByText('recallTimeInPast')).toBeInTheDocument();
     });
 
@@ -395,8 +423,8 @@ describe('RecallCalendarDrawer', () => {
       const props = pastProps();
       await renderDrawer(props);
 
-      const confirm = screen.getByText('confirm') as HTMLButtonElement;
-      expect(confirm.disabled).toBe(true);
+      const confirm = screen.getByRole('button', { name: 'confirm' });
+      expect(confirm).toBeDisabled();
 
       fireEvent.click(confirm);
       expect(props.onRecallBlocksChange).not.toHaveBeenCalled();
@@ -416,10 +444,10 @@ describe('RecallCalendarDrawer', () => {
       const props = makeProps({ recallDate, recallTime: '14:30' });
       await renderDrawer(props);
 
-      expect(screen.getByTestId('recall-time-input').className).toContain('text-heading-gray');
+      expect(screen.getByTestId('recall-time-input').className).toContain('text-ink');
       expect(screen.queryByText('recallTimeInPast')).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByText('confirm'));
+      fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
       expect(props.onOpenChange).toHaveBeenCalledWith(false);
     });
   });

@@ -4,7 +4,8 @@ import {
   HAPTIC_FEEDBACK_STORAGE_KEY,
   DEFAULT_DELEGATE_PROOF,
   DEFAULT_AUTO_CONSUME,
-  DEFAULT_HAPTIC_FEEDBACK
+  DEFAULT_HAPTIC_FEEDBACK,
+  TELEMETRY_STORAGE_KEY
 } from './constants';
 import {
   setDelegateProofSetting,
@@ -20,7 +21,11 @@ import {
   isAutoConsumeEnabledAsync,
   isDelegateProofEnabledAsync,
   mirrorBackgroundSettings,
-  areBackgroundSettingsMirrored
+  areBackgroundSettingsMirrored,
+  setTelemetrySetting,
+  isTelemetryEnabled,
+  isTelemetryEnabledAsync,
+  hasTelemetryChoice
 } from './helpers';
 
 const mockKvStore: Record<string, unknown> = {};
@@ -256,5 +261,41 @@ describe('settings helpers', () => {
 
       localStorage.setItem = originalSetItem;
     });
+  });
+});
+
+describe('telemetry consent setting', () => {
+  afterEach(() => {
+    localStorage.clear();
+    for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
+  });
+
+  it('is off on a fresh install', () => {
+    expect(isTelemetryEnabled()).toBe(false);
+  });
+
+  it('reports no choice made on a fresh install', () => {
+    expect(hasTelemetryChoice()).toBe(false);
+  });
+
+  it('reports a choice once the user turns it on', () => {
+    setTelemetrySetting(true);
+    expect(hasTelemetryChoice()).toBe(true);
+    expect(isTelemetryEnabled()).toBe(true);
+  });
+
+  it('reports a choice once the user explicitly turns it off', () => {
+    setTelemetrySetting(false);
+    expect(hasTelemetryChoice()).toBe(true);
+    expect(isTelemetryEnabled()).toBe(false);
+  });
+
+  it('persists under the documented key', () => {
+    setTelemetrySetting(true);
+    expect(localStorage.getItem(TELEMETRY_STORAGE_KEY)).toBe('true');
+  });
+
+  it('resolves false from the background mirror on a read miss', async () => {
+    await expect(isTelemetryEnabledAsync()).resolves.toBe(false);
   });
 });

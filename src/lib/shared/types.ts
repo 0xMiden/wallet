@@ -6,16 +6,8 @@ import type {
 } from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { TelemetryEvent } from 'lib/telemetry/types';
 import { WalletType } from 'screens/onboarding/types';
-
-import {
-  SendPageEventRequest,
-  SendPageEventResponse,
-  SendPerformanceEventRequest,
-  SendPerformanceEventResponse,
-  SendTrackEventRequest,
-  SendTrackEventResponse
-} from './analytics-types';
 
 export enum WalletMessageType {
   // Aknowledge
@@ -51,8 +43,6 @@ export enum WalletMessageType {
   ExportAccountFileResponse = 'EXPORT_ACCOUNT_FILE_RESPONSE',
   RevealHotKeyRequest = 'REVEAL_HOT_KEY_REQUEST',
   RevealHotKeyResponse = 'REVEAL_HOT_KEY_RESPONSE',
-  RevealGuardianKeysRequest = 'REVEAL_GUARDIAN_KEYS_REQUEST',
-  RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
   ExportWalletBackupMaterialRequest = 'EXPORT_WALLET_BACKUP_MATERIAL_REQUEST',
@@ -77,8 +67,8 @@ export enum WalletMessageType {
   ImportMnemonicAccountResponse = 'IMPORT_MNEMONIC_ACCOUNT_RESPONSE',
   UpdateSettingsRequest = 'UPDATE_SETTINGS_REQUEST',
   UpdateSettingsResponse = 'UPDATE_SETTINGS_RESPONSE',
-  GetSpendingLimitsRequest = 'GET_SPENDING_LIMITS_REQUEST',
-  GetSpendingLimitsResponse = 'GET_SPENDING_LIMITS_RESPONSE',
+  GetSpendingLimitRequest = 'GET_SPENDING_LIMIT_REQUEST',
+  GetSpendingLimitResponse = 'GET_SPENDING_LIMIT_RESPONSE',
   SaveSpendingLimitRequest = 'SAVE_SPENDING_LIMIT_REQUEST',
   SaveSpendingLimitResponse = 'SAVE_SPENDING_LIMIT_RESPONSE',
   AssessSpendingLimitRequest = 'ASSESS_SPENDING_LIMIT_REQUEST',
@@ -143,12 +133,6 @@ export enum WalletMessageType {
   DAppGetAllSessionsResponse = 'DAPP_GET_ALL_SESSIONS_RESPONSE',
   DAppRemoveSessionRequest = 'DAPP_REMOVE_SESSION_REQUEST',
   DAppRemoveSessionResponse = 'DAPP_REMOVE_SESSION_RESPONSE',
-  SendTrackEventRequest = 'SEND_TRACK_EVENT_REQUEST',
-  SendTrackEventResponse = 'SEND_TRACK_EVENT_RESPONSE',
-  SendPageEventRequest = 'SEND_PAGE_EVENT_REQUEST',
-  SendPageEventResponse = 'SEND_PAGE_EVENT_RESPONSE',
-  SendPerformanceEventRequest = 'SEND_PROOF_GENERATION_EVENT_REQUEST',
-  SendPerformanceEventResponse = 'SEND_PROOF_GENERATION_EVENT_RESPONSE',
   DecryptCiphertextsRequest = 'DECRYPT_CIPHERTEXTS_REQUEST',
   DecryptCiphertextsResponse = 'DECRYPT_CIPHERTEXTS_RESPONSE',
   GetOwnedRecordsRequest = 'GET_OWNED_RECORDS_REQUEST',
@@ -175,7 +159,9 @@ export enum WalletMessageType {
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
-  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
+  ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -353,6 +339,16 @@ export interface GetInputNoteDetailsRequest extends WalletMessageBase {
   noteIds: string[];
 }
 
+export interface ReportTelemetryEventRequest extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventRequest;
+  /** Only the event. Version and platform are derived in the background. */
+  event: TelemetryEvent;
+}
+
+export interface ReportTelemetryEventResponse extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventResponse;
+}
+
 export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsResponse;
   notes: SerializedInputNoteDetail[];
@@ -410,6 +406,20 @@ export interface ReadyWalletState extends WalletState {
  * creation time and never mutated.
  */
 export type AuthScheme = 'falcon' | 'ecdsa';
+
+/**
+ * Key-derivation scheme an account's seed was derived under. Mirrors
+ * `KeyDerivation` in `@miden/hd-key`.
+ *
+ * - `legacy`: label `bls12_377 seed`, path `m/44'/0'/<walletType>'/<hdIndex>'`.
+ * - `v1`: label `miden seed`, path `m/44'/5063758'/<walletType>'/<authScheme>'/<hdIndex>'`.
+ *
+ * Optional on stored `WalletAccount` records. Records written before this
+ * field existed have it absent on read; consumers MUST treat missing as
+ * `legacy`. Fixed at account creation and never mutated, because the
+ * derivation decides which on-chain key the seed phrase recovers.
+ */
+export type KeyDerivation = 'legacy' | 'v1';
 
 /**
  * Local reconciliation state of a Guardian account's endpoint vs its on-chain
@@ -487,6 +497,12 @@ export interface WalletAccount {
    * the missing-on-read → `"falcon"` legacy interpretation.
    */
   authScheme?: AuthScheme;
+  /**
+   * Key-derivation scheme this account's seed was derived under. See
+   * {@link KeyDerivation} for the missing-on-read → `legacy` interpretation.
+   * Absent on imported accounts (`hdIndex: -1`), which have no derivation.
+   */
+  keyDerivation?: KeyDerivation;
   /**
    * Wallet-derived EVM address (BIP-44 m/44'/60'/0'/0/{hdIndex}), used as the
    * Epoch lending position owner. Stamped at account creation and backfilled
@@ -662,19 +678,6 @@ export interface RevealHotKeyResponse extends WalletMessageBase {
   keyPairPayload: string;
 }
 
-export interface RevealGuardianKeysRequest extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysRequest;
-  accountPublicKey: string;
-  password?: string;
-}
-
-export interface RevealGuardianKeysResponse extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysResponse;
-  coldPrivateKey: string;
-  coldPublicKey: string;
-  hotPublicKey?: string;
-}
-
 export interface RemoveSeedPhraseRequest extends WalletMessageBase {
   type: WalletMessageType.RemoveSeedPhraseRequest;
   password?: string;
@@ -800,6 +803,12 @@ export interface WalletSettings {
 export interface WalletContact {
   address: string;
   name: string;
+  /**
+   * Destination network a `0x` contact is for (a bridge network id, e.g. `sepolia`). The same
+   * `0x` address is valid on every EVM chain, so the contact remembers which one; a Miden address
+   * carries its own network and leaves this unset.
+   */
+  network?: string;
   addedAt?: number;
   accountInWallet?: boolean;
   isPublic?: boolean;
@@ -810,14 +819,14 @@ export interface UpdateSettingsResponse extends WalletMessageBase {
   type: WalletMessageType.UpdateSettingsResponse;
 }
 
-export interface GetSpendingLimitsRequest extends WalletMessageBase {
-  type: WalletMessageType.GetSpendingLimitsRequest;
+export interface GetSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitRequest;
   accountId: string;
 }
 
-export interface GetSpendingLimitsResponse extends WalletMessageBase {
-  type: WalletMessageType.GetSpendingLimitsResponse;
-  configurations: PersistedSpendingLimit[];
+export interface GetSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitResponse;
+  configuration?: PersistedSpendingLimit;
 }
 
 export interface SaveSpendingLimitRequest extends WalletMessageBase {
@@ -832,11 +841,15 @@ export interface SaveSpendingLimitResponse extends WalletMessageBase {
   configuration?: PersistedSpendingLimit;
 }
 
+export interface SerializedSpend {
+  faucetId: string;
+  amount: string;
+}
+
 export interface AssessSpendingLimitRequest extends WalletMessageBase {
   type: WalletMessageType.AssessSpendingLimitRequest;
   accountId: string;
-  faucetId: string;
-  amount: string;
+  spends: SerializedSpend[];
 }
 
 export interface AssessSpendingLimitResponse extends WalletMessageBase {
@@ -1235,7 +1248,6 @@ export type WalletRequest =
   | RevealPrivateKeyRequest
   | ExportAccountFileRequest
   | RevealHotKeyRequest
-  | RevealGuardianKeysRequest
   | RemoveSeedPhraseRequest
   | ProvideRecoverySeedRequest
   | PrepareRecoveryRequest
@@ -1249,7 +1261,7 @@ export type WalletRequest =
   | ImportMnemonicAccountRequest
   | ConfirmationRequest
   | UpdateSettingsRequest
-  | GetSpendingLimitsRequest
+  | GetSpendingLimitRequest
   | SaveSpendingLimitRequest
   | AssessSpendingLimitRequest
   | GetStrictAuthenticationProtectorsRequest
@@ -1280,9 +1292,6 @@ export type WalletRequest =
   | DAppDeployConfirmationRequest
   | GetAllDAppSessionsRequest
   | RemoveDAppSessionRequest
-  | SendTrackEventRequest
-  | SendPageEventRequest
-  | SendPerformanceEventRequest
   | DecryptCiphertextsRequest
   | GetOwnedRecordsRequest
   | ImportFromClientRequest
@@ -1293,7 +1302,8 @@ export type WalletRequest =
   | ImportNoteBytesRequest
   | RetryDeadletteredNotesRequest
   | ExportNoteRequest
-  | GetInputNoteDetailsRequest;
+  | GetInputNoteDetailsRequest
+  | ReportTelemetryEventRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1311,7 +1321,6 @@ export type WalletResponse =
   | RevealPrivateKeyResponse
   | ExportAccountFileResponse
   | RevealHotKeyResponse
-  | RevealGuardianKeysResponse
   | RemoveSeedPhraseResponse
   | ProvideRecoverySeedResponse
   | PrepareRecoveryResponse
@@ -1325,7 +1334,7 @@ export type WalletResponse =
   | ImportMnemonicAccountResponse
   | ConfirmationResponse
   | UpdateSettingsResponse
-  | GetSpendingLimitsResponse
+  | GetSpendingLimitResponse
   | SaveSpendingLimitResponse
   | AssessSpendingLimitResponse
   | GetStrictAuthenticationProtectorsResponse
@@ -1356,9 +1365,6 @@ export type WalletResponse =
   | DAppDeployConfirmationResponse
   //   | GetAllDAppSessionsResponse
   // | RemoveDAppSessionResponse
-  | SendTrackEventResponse
-  | SendPageEventResponse
-  | SendPerformanceEventResponse
   | DecryptCiphertextsResponse
   | GetOwnedRecordsResponse
   | ImportFromClientResponse
@@ -1369,4 +1375,5 @@ export type WalletResponse =
   | ImportNoteBytesResponse
   | RetryDeadletteredNotesResponse
   | ExportNoteResponse
-  | GetInputNoteDetailsResponse;
+  | GetInputNoteDetailsResponse
+  | ReportTelemetryEventResponse;

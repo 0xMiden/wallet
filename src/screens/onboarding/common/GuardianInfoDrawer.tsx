@@ -5,7 +5,8 @@ import { Trans, useTranslation } from 'react-i18next';
 import { ReactComponent as WhatIsGuardianHero } from 'app/icons/onboarding/what-is-guardian-hero.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
+import { ListGroup } from 'components/ui/ListGroup';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 export interface GuardianInfoDrawerProps {
   open: boolean;
@@ -16,54 +17,56 @@ interface InfoRowProps {
   badge: React.ReactNode;
   title: string;
   description: string;
-  hasDivider?: boolean;
 }
 
-const InfoRow: React.FC<InfoRowProps> = ({ badge, title, description, hasDivider = true }) => (
-  <div className={hasDivider ? 'border-b border-[#E9E9E9]' : undefined}>
-    <div className="mx-auto flex max-w-[32rem] flex-col items-center px-4 py-4 text-center">
-      <div className="flex max-w-full items-center justify-center gap-3">
-        {badge}
-        <h3 className="min-w-0 break-words text-left font-heading text-[18px] font-semibold leading-[1.2] text-[#151515] dark:text-heading-gray">
-          {title}
-        </h3>
-      </div>
-      <p className="mt-2.5 break-words text-[15px] font-normal leading-[1.32] text-gray-secondary">{description}</p>
+/**
+ * One fact in the explainer's group: the badge leading, the title beside it and the `muted`
+ * description under both. `ListRow` is not used here because the description wraps to several
+ * lines under the badge rather than sitting on a fixed 64px row.
+ */
+const InfoRow: React.FC<InfoRowProps> = ({ badge, title, description }) => (
+  <div className="relative flex flex-col gap-1.5 px-4 py-3.5 before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-hairline first:before:hidden">
+    <div className="flex min-w-0 items-center gap-3">
+      {badge}
+      <h3 className="min-w-0 break-words text-row-title text-ink">{title}</h3>
     </div>
+    <p className="break-words text-caption text-muted">{description}</p>
   </div>
 );
 
 const IconBadge: React.FC<{ className: string; children: React.ReactNode }> = ({ className, children }) => (
-  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${className}`}>{children}</div>
+  <div aria-hidden="true" className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${className}`}>
+    {children}
+  </div>
 );
 
+/**
+ * The "what is a guardian" explainer sheet. It carries the app's one sheet header (title left,
+ * close right) and states the three facts in a single `fill` group with inset hairlines, the way
+ * every other list in the wallet is drawn — no rules across the sheet, no literal colours.
+ */
 export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
-      <DrawerContent
-        className="max-h-[78vh] overflow-hidden rounded-t-[28px] border-t-[6px] border-primary-500 bg-surface-solid"
-        overlayClassName="bg-transparent backdrop-blur-0 dark:bg-transparent"
-      >
-        <div className="flex flex-col overflow-y-auto px-5 pb-4 pt-4">
-          <DrawerTitle className="text-center font-heading text-[28px] font-semibold leading-[1.1] text-heading-gray">
-            {t('whatIsAGuardian')}
-          </DrawerTitle>
+      <DrawerContent className="max-h-[78vh]">
+        <DrawerHeader>
+          <DrawerTitle>{t('whatIsAGuardian')}</DrawerTitle>
+        </DrawerHeader>
 
-          <WhatIsGuardianHero className="mx-auto mt-2 h-[111px] w-[125px] shrink-0" />
+        <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4">
+          <WhatIsGuardianHero className="mx-auto h-[111px] w-[125px] shrink-0" />
 
-          <p className="mx-auto mt-3 max-w-[34rem] text-center text-[18px] font-normal leading-[1.28] text-heading-gray">
-            <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
+          <p className="text-body text-ink">
+            <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="text-body-strong" /> }} />
           </p>
 
-          <div className="mt-5 h-1.5 w-full shrink-0 rounded-full bg-primary-500" />
-
-          <div className="mt-3 flex flex-col">
+          <ListGroup>
             <InfoRow
               badge={
-                <IconBadge className="bg-[#7D936D]">
-                  <Icon name={IconName.Checkmark} size="xs" fill="currentColor" className="text-pure-white" />
+                <IconBadge className="bg-positive-tint text-positive-tint-ink">
+                  <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
                 </IconBadge>
               }
               title={t('guardianInfoWhatItDoesTitle')}
@@ -71,8 +74,8 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
             />
             <InfoRow
               badge={
-                <IconBadge className="bg-primary-500">
-                  <span className="font-heading text-[17px] font-bold leading-none text-pure-white">!</span>
+                <IconBadge className="bg-accent-tint text-accent-tint-ink">
+                  <span className="text-row-title">!</span>
                 </IconBadge>
               }
               title={t('guardianInfoSwitchingIsEasyTitle')}
@@ -80,17 +83,16 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
             />
             <InfoRow
               badge={
-                <IconBadge className="bg-[#C96060]">
-                  <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-pure-white" />
+                <IconBadge className="bg-negative-tint text-negative-tint-ink">
+                  <Icon name={IconName.Close} size="xs" fill="currentColor" />
                 </IconBadge>
               }
               title={t('guardianInfoWhatItCannotDoTitle')}
               description={t('guardianInfoWhatItCannotDoDescription')}
-              hasDivider={false}
             />
-          </div>
+          </ListGroup>
 
-          <div className="mt-4 flex justify-center">
+          <div className="flex justify-center">
             <Button title={t('gotIt')} onClick={() => onOpenChange(false)} />
           </div>
         </div>

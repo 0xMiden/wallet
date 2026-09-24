@@ -339,20 +339,6 @@ export const useWalletStore = create<WalletStore>()(
       return res.keyPairPayload;
     },
 
-    revealGuardianKeys: async (accountPublicKey, password) => {
-      const res = await request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey,
-        password
-      });
-      assertResponse(res.type === WalletMessageType.RevealGuardianKeysResponse);
-      return {
-        coldPrivateKey: res.coldPrivateKey,
-        coldPublicKey: res.coldPublicKey,
-        hotPublicKey: res.hotPublicKey
-      };
-    },
-
     importAccount: async (privateKey, name) => {
       const res = await request({
         type: WalletMessageType.ImportAccountRequest,
@@ -386,13 +372,13 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
-    listSpendingLimits: async accountId => {
+    readSpendingLimit: async accountId => {
       const res = await request({
-        type: WalletMessageType.GetSpendingLimitsRequest,
+        type: WalletMessageType.GetSpendingLimitRequest,
         accountId
       });
-      assertResponse(res.type === WalletMessageType.GetSpendingLimitsResponse);
-      return res.configurations.map(parsePersistedSpendingLimit);
+      assertResponse(res.type === WalletMessageType.GetSpendingLimitResponse);
+      return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
     },
 
     saveSpendingLimit: async (draft, observedRevision, strictlyAuthenticated) => {
@@ -406,12 +392,11 @@ export const useWalletStore = create<WalletStore>()(
       return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
     },
 
-    assessSpendingLimit: async (accountId, faucetId, amount) => {
+    assessSpendingLimit: async (accountId, spends) => {
       const res = await request({
         type: WalletMessageType.AssessSpendingLimitRequest,
         accountId,
-        faucetId,
-        amount: amount.toString()
+        spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: spend.amount.toString() }))
       });
       assertResponse(res.type === WalletMessageType.AssessSpendingLimitResponse);
       return res.assessment === undefined ? undefined : parseSerializedSpendingLimitAssessment(res.assessment);

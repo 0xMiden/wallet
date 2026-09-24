@@ -104,18 +104,22 @@ describe('UpdateNotificationProvider', () => {
     expect(await screen.findByTestId('update-card')).toHaveTextContent('1.1.0');
   });
 
-  it.each(['/reset-required', '/reset-wallet', '/forgot-password', '/forgot-password-info', '/finish-side-panel'])(
-    'stays silent on the recovery or onboarding route %s',
-    async route => {
-      pathname = route;
-      const testRuntime = runtime();
-      render(<UpdateNotificationProvider runtime={testRuntime.value}>wallet</UpdateNotificationProvider>);
+  it.each([
+    '/reset-required',
+    '/reset-wallet',
+    '/forgot-password',
+    '/forgot-password-info',
+    '/finish-side-panel',
+    '/help-improve-wallet'
+  ])('stays silent on the recovery or onboarding route %s', async route => {
+    pathname = route;
+    const testRuntime = runtime();
+    render(<UpdateNotificationProvider runtime={testRuntime.value}>wallet</UpdateNotificationProvider>);
 
-      await act(async () => undefined);
-      expect(testRuntime.controller.check).not.toHaveBeenCalled();
-      expect(screen.queryByTestId('update-card')).not.toBeInTheDocument();
-    }
-  );
+    await act(async () => undefined);
+    expect(testRuntime.controller.check).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('update-card')).not.toBeInTheDocument();
+  });
 
   it('stays silent while the current account requires hot-key rotation', async () => {
     currentAccount = { requiresHotKeyRotation: true };

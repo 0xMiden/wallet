@@ -15,6 +15,7 @@ import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } fro
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
+import { swapOrderExpired } from './expiry';
 
 export { classifySwapOrderNotes } from './classification';
 
@@ -103,7 +104,7 @@ export async function reconcileSwapOrderNotes(
     // have no expiry fields; fabricating one from completedAt would deem every
     // pre-existing open order instantly expired and reclaim its tip.
     const expiresAt = order.extraInputs.expiresAt;
-    const expired = expiresAt != null && nowSeconds >= expiresAt;
+    const expired = swapOrderExpired(expiresAt, nowSeconds);
     if (state === 'active' && !expired) continue;
 
     if (expired && order.extraInputs.expiryTriggeredAt == null) {

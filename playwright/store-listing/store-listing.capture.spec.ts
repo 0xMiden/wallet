@@ -12,6 +12,8 @@ import {
   type CapturePlanEntry,
   type StorePlatform
 } from './store-listing.capture';
+import { openGuardianPickerFromMeetGuardian } from '../e2e/helpers/meet-guardian';
+import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
 
 const repositoryRoot = path.resolve(__dirname, '../..');
 const mobileBaseUrl = 'http://127.0.0.1:4173/';
@@ -234,9 +236,17 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   await preparePage(onboarding);
   await onboarding.getByTestId('onboarding-welcome').waitFor({ state: 'visible' });
   await onboarding.getByRole('button', { name: 'Get started' }).click();
-  await onboarding.getByTestId('onboarding-network-notice-acknowledge').click();
+  await acknowledgeNetworkNotice(onboarding);
   await capture(onboarding, protection);
-  await onboarding.evaluate(() => window.history.pushState(null, '', '/#/#choose-guardian'));
+  // The picker needs this create's seed, which the passcode step generates: set one up (entered, then
+  // confirmed), then open the picker from Meet your Guardian the way a user does.
+  await onboarding.getByRole('button', { name: 'Set up your passcode' }).click();
+  await onboarding.getByTestId('onboarding-setup-passcode').waitFor({ state: 'visible' });
+  // The screen moves to its confirm phase on a short timer and ignores keys past six until then.
+  for (const digit of '135790') await onboarding.getByTestId(`numpad-${digit}`).click();
+  await onboarding.getByRole('heading', { name: 'Confirm your passcode' }).waitFor({ state: 'visible' });
+  for (const digit of '135790') await onboarding.getByTestId(`numpad-${digit}`).click();
+  await openGuardianPickerFromMeetGuardian(onboarding);
   await capture(onboarding, guardian);
   await onboardingContext.browser()?.close();
 
@@ -304,10 +314,11 @@ async function captureChrome(): Promise<void> {
     await preparePage(guardianPage);
     await guardianPage.getByTestId('onboarding-welcome').waitFor({ state: 'visible' });
     await guardianPage.getByRole('button', { name: 'Get started' }).click();
-    await guardianPage.getByTestId('onboarding-network-notice-acknowledge').click();
+    await acknowledgeNetworkNotice(guardianPage);
     await guardianPage.getByTestId('create-password-input').fill(fixturePassword);
     await guardianPage.getByTestId('create-password-verify-input').fill(fixturePassword);
     await guardianPage.getByTestId('create-password-submit').click();
+    await openGuardianPickerFromMeetGuardian(guardianPage);
     await capture(guardianPage, planEntry('chromeWebStore', 'guardian'));
     await guardianPage.close();
 

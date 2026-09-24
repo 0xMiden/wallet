@@ -940,7 +940,7 @@ describe('doSync — notification getMessage fallback branches', () => {
     const showNotification = jest.fn();
     (globalThis as any).registration = { showNotification };
     await doSync();
-    expect(showNotification).toHaveBeenCalledWith('You have received a note', expect.any(Object));
+    expect(showNotification).toHaveBeenCalledWith('You have an incoming transfer', expect.any(Object));
     delete (globalThis as any).registration;
     getMessage.mockImplementation((key: string) => key);
   });
@@ -955,8 +955,8 @@ describe('doSync — notification getMessage fallback branches', () => {
     (globalThis as any).registration = { showNotification };
     await doSync();
     expect(showNotification).toHaveBeenCalledWith(
-      'You have received a note',
-      expect.objectContaining({ body: 'You have 2 new notes to claim' })
+      'You have an incoming transfer',
+      expect.objectContaining({ body: 'You have 2 new transfers to accept' })
     );
     delete (globalThis as any).registration;
     getMessage.mockImplementation((key: string) => key);

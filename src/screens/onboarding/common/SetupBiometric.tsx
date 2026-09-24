@@ -115,10 +115,10 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
             <>
               <button type="button" aria-label={promptTitle} onClick={handleRetry} className="outline-none">
                 <ScanFrame color="primary">
-                  <InnerIcon className="w-16 h-16 text-heading-gray" />
+                  <InnerIcon className="w-16 h-16 text-ink" />
                 </ScanFrame>
               </button>
-              <h1 className="text-2xl font-semibold font-heading text-heading-gray text-center mt-8">{promptTitle}</h1>
+              <h1 className="text-2xl font-semibold font-heading text-ink text-center mt-8">{promptTitle}</h1>
               {error && <p className="text-sm text-status-negative text-center mt-3 px-4">{error}</p>}
             </>
           ) : (
@@ -130,7 +130,7 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
                   </div>
                 </div>
               </ScanFrame>
-              <h1 className="text-2xl font-semibold font-heading text-heading-gray text-center mt-8">
+              <h1 className="text-2xl font-semibold font-heading text-ink text-center mt-8">
                 {t('biometricConfirmed')}
               </h1>
               <p className="text-base text-text-tertiary-token text-center mt-2">{t('onlyOneMoreStep')}</p>

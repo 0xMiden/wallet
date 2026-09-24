@@ -4,12 +4,12 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import DocBg from 'app/a11y/DocBg';
-import Spinner from 'app/atoms/Spinner/Spinner';
 import { useAppEnv } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
 import { Button, ButtonVariant } from 'components/Button';
+import { Spinner } from 'components/ui/Spinner';
 import { isDesktop, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
@@ -215,7 +215,7 @@ const Toolbar: FC<ToolbarProps> = ({
         {navigationStyle === 'back' && isBackButtonAvailable && (
           <Button
             variant={ButtonVariant.Ghost}
-            className="h-12 w-12 max-w-none shrink-0 rounded-xl border-0 bg-surface-interactive p-3 text-primary-500 hover:bg-surface-interactive"
+            className="h-12 w-12 max-w-none shrink-0 rounded-xl border-0 bg-fill p-3 text-primary-500 hover:bg-fill"
             onClick={step ? onStepBack : onBack}
             data-testid={PageLayoutSelectors.BackButton}
           >
@@ -226,7 +226,7 @@ const Toolbar: FC<ToolbarProps> = ({
         {pageTitle && (
           <div
             className={classNames(
-              'flex items-center text-black font-semibold leading-none',
+              'flex items-center text-ink font-semibold leading-none',
               navigationStyle === 'back' ? 'flex-1 text-left' : 'text-right'
             )}
             style={{ fontSize: navigationStyle === 'back' ? '24px' : '18px', lineHeight: '44px' }}
@@ -242,7 +242,7 @@ const Toolbar: FC<ToolbarProps> = ({
               variant={ButtonVariant.Ghost}
               className={classNames(
                 'h-auto w-auto max-w-none p-2 border-0',
-                'text-black font-bold text-shadow-black',
+                'text-ink font-bold text-shadow-black',
                 'opacity-90 hover:opacity-100'
               )}
               style={{ fontSize: 16, lineHeight: '20px' }}
@@ -263,7 +263,7 @@ const Toolbar: FC<ToolbarProps> = ({
             className={classNames(
               'h-auto w-auto max-w-none px-4 py-2 border-0',
               'rounded',
-              'font-sans text-black text-shadow-black',
+              'font-sans text-ink text-shadow-black',
               'text-sm font-semibold leading-none',
               'opacity-90 hover:opacity-100'
             )}

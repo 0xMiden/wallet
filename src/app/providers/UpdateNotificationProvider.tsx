@@ -11,10 +11,13 @@ import { useLocation } from 'lib/woozie';
 
 // These routes can be reached while a wallet is technically ready, but they
 // belong to onboarding or destructive recovery rather than the normal shell.
+// `/help-improve-wallet` is the last onboarding screen: the wallet is already
+// Ready there, and the update card would cover its buttons.
 const EXCLUDED_PATHS = new Set([
   '/finish-side-panel',
   '/forgot-password',
   '/forgot-password-info',
+  '/help-improve-wallet',
   '/reset-required',
   '/reset-wallet'
 ]);

@@ -6,6 +6,12 @@ import * as RechartsPrimitive from 'recharts';
 
 import { cn } from './util';
 
+// Tokens, not literals: recharts takes SVG paint strings, so the custom properties go straight in
+// and follow the theme.
+const CHART_POSITIVE = 'var(--status-positive)';
+const CHART_DOT_RING = 'var(--ds-page)';
+const CHART_RULE = 'var(--ds-hairline)';
+
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: '', dark: '.dark' } as const;
 
@@ -286,4 +292,27 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
   return configLabelKey in config ? config[configLabelKey] : config[key as keyof typeof config];
 }
 
-export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle };
+/** The earn charts' hover card: one value over its label, on an inverted surface. */
+function ChartValueTooltip({ value, label }: { value: React.ReactNode; label: React.ReactNode }) {
+  return (
+    <div className="rounded-xl bg-ink px-2 py-1 text-pure-white shadow">
+      <div className="text-badge">{value}</div>
+      {/* An inverted surface: `muted` is tuned for `page` and `fill`, so the quiet line
+          here is the same white held back. */}
+      <div className="text-caption text-pure-white/70">{label}</div>
+    </div>
+  );
+}
+
+export {
+  CHART_DOT_RING,
+  CHART_POSITIVE,
+  CHART_RULE,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+  ChartStyle,
+  ChartValueTooltip
+};

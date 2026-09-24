@@ -118,6 +118,10 @@ export interface IHistoryEntry {
    * themselves deliberately do not cross this boundary.
    */
   guardianSwitchVerdict?: RotationVerdictKind;
+  /** `replace-hot-key`: the device (hot) key the rotation installed, once it is known. */
+  newHotPublicKey?: string;
+  /** `replace-hot-key`: the guardian the rotation ran under, when the record carries it. */
+  rotationGuardianEndpoint?: string;
 
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;

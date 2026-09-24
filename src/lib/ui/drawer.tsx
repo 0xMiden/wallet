@@ -4,7 +4,9 @@ import { createContext, useCallback, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
+import { IconButton } from 'components/ui/IconButton';
+import { sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
@@ -28,22 +30,48 @@ interface DrawerProps {
    * captured, just without a per-drawer label. E2E-only; no visual effect.
    */
   screenKey?: string;
+  /**
+   * `false` makes the sheet close only when the caller sets `open` to false: no drag down, press
+   * outside or Escape closes it on its own. Callers that want Escape handle it on `DrawerContent`.
+   */
+  dismissible?: boolean;
+  /**
+   * Skip vaul's Safari body pin and its black body paint on open. vaul keeps the pinned body's
+   * previous position in one module-level slot and restores it when ANY sheet closes, so a sheet
+   * opened over another sheet passes this to leave the pin of the one beneath in place. That pin
+   * is all it protects: vaul's scale cleanup (`useScaleBackground`) still resets
+   * `body.style.background` 500ms after this sheet closes, with no `noBodyStyles` guard, so on the
+   * extension a sheet closing over an open drawer still clears that drawer's black background.
+   */
+  noBodyStyles?: boolean;
 }
 
-function Drawer({ open = false, onOpenChange, children, screenKey }: DrawerProps) {
+function Drawer({ open = false, onOpenChange, children, screenKey, dismissible, noBodyStyles }: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
-      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">
+      <VaulDrawer.Root
+        open={open}
+        onOpenChange={onOpenChange}
+        shouldScaleBackground={isExtension()}
+        direction="bottom"
+        dismissible={dismissible}
+        noBodyStyles={noBodyStyles}
+      >
         {children}
       </VaulDrawer.Root>
     </DrawerContext.Provider>
   );
 }
 
+/**
+ * The sheet itself. It must never clip (`overflow-hidden` on it): the open spring overshoots, and
+ * vaul's `::after` skirt under the sheet fills the gap only while the sheet does not cut it off. A
+ * sheet whose content outgrows the cap scrolls an inner `min-h-0` column instead.
+ */
 interface DrawerContentProps extends Omit<
   React.ComponentPropsWithoutRef<typeof VaulDrawer.Content>,
   'children' | 'className'
@@ -56,28 +84,11 @@ interface DrawerContentProps extends Omit<
   hideHandle?: boolean;
 }
 
-/**
- * Was the press that Radix is calling "outside the drawer" actually inside the
- * confirmation/alert dialog stacked ABOVE it?
- *
- * react-modal portals into a `div.ReactModalPortal` on <body>, outside the
- * drawer's subtree, so Radix reads a click on the dialog as an outside
- * interaction and dismisses the drawer — pulling it closed underneath the very
- * question it is still asking. Radix dispatches its outside-event on the element
- * that was actually pressed, so the original event's target identifies the
- * dialog.
- */
-function isPressInsideModalPortal(event: { detail: { originalEvent: Event } }): boolean {
-  const target = event.detail.originalEvent.target;
-  return target instanceof Element && target.closest('.ReactModalPortal') !== null;
-}
-
 function DrawerContent({
   className,
   overlayClassName,
   children,
   hideHandle = true,
-  onPointerDownOutside,
   forceMount,
   style,
   ...props
@@ -91,35 +102,34 @@ function DrawerContent({
 
   return (
     <VaulDrawer.Portal forceMount={forceMount}>
+      {/* A plain scrim, one token in both themes: dimming the page is the whole job, and a frosted
+          blur over it only smears whatever is underneath. */}
       <VaulDrawer.Overlay
-        style={inertWhileClosing}
-        className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
+        style={{ ...sheetMotionVars, ...inertWhileClosing }}
+        className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)}
       />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
-        style={{ ...style, ...inertWhileClosing }}
+        // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
+        style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the
           // Android nav bar / iOS home indicator AND the iOS soft keyboard
           // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
-          // (env() and the var are 0 on extension/Android). The transition runs
-          // in sync with the native keyboard slide.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none',
-          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
+          // (env() and the var are 0 on extension/Android). The padding snaps:
+          // only the transform transitions, so main.css's sheet spring, which
+          // lands on every transitioned property, never animates the inset.
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
+          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
           className
         )}
-        onPointerDownOutside={event => {
-          onPointerDownOutside?.(event);
-          // vaul dismisses only if this event comes back un-prevented.
-          if (isPressInsideModalPortal(event)) event.preventDefault();
-        }}
         {...props}
       >
         {!hideHandle && (
           <div className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing">
-            <VaulDrawer.Handle className="h-0.5 w-10 shrink-0 rounded-full bg-primary-500 opacity-100" />
+            <VaulDrawer.Handle className="h-[5px] w-9 shrink-0 rounded-full bg-fill-pressed opacity-100" />
           </div>
         )}
         {children}
@@ -129,28 +139,22 @@ function DrawerContent({
 }
 
 /**
- * Drawer header / top bar: a large left-aligned title (via `DrawerTitle`, 28px
- * semibold) with a circular close button on the right, a bottom divider, and a
- * 16px gap to the content below (`mb-4`). The handle-less default closes through
- * this button — it reads `onClose` from the drawer context, so no extra wiring.
- * Children render in a column on the left (title + optional `DrawerDescription`).
+ * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` (optionally
+ * over a `DrawerDescription`) and the 32px circular close on the right, on the 16px sheet margin.
+ * No rule under it — separation inside a sheet comes from the `fill` groups below, not from a
+ * divider across the top (design-system.md, "Elevation"). The close reads `onClose` from the drawer
+ * context, so the handle-less default needs no extra wiring.
  */
 function DrawerHeader({ className, children }: { className?: string; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const { onClose } = useContext(DrawerContext);
   return (
-    <div data-slot="drawer-header" className={cn('border-b border-border-faint mb-4', className)}>
-      <div className="flex w-full items-center justify-between gap-3 p-4">
-        <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t('close')}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100"
-        >
-          <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-heading-gray" />
-        </button>
-      </div>
+    <div
+      data-slot="drawer-header"
+      className={cn('flex w-full shrink-0 items-center justify-between gap-3 px-4 pt-5 pb-4', className)}
+    >
+      <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
+      <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
     </div>
   );
 }
@@ -163,7 +167,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
   return (
     <VaulDrawer.Title
       data-slot="drawer-title"
-      className={cn('text-3xl font-bold font-heading leading-none text-heading-gray', className)}
+      className={cn('text-left text-title-section text-ink', className)}
       {...props}
     >
       {children}
@@ -175,7 +179,7 @@ function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLPar
   return (
     <VaulDrawer.Description
       data-slot="drawer-description"
-      className={cn('text-sm text-text-muted', className)}
+      className={cn('text-body-sm text-muted', className)}
       {...props}
     />
   );

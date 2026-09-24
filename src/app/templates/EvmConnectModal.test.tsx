@@ -18,17 +18,19 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
-jest.mock('lib/ui/button', () => ({
+jest.mock('components/ui/Button', () => ({
   Button: ({
     children,
     onClick,
+    className,
     'data-testid': testId
   }: {
     children: React.ReactNode;
     onClick?: () => void;
+    className?: string;
     'data-testid'?: string;
   }) => (
-    <button type="button" onClick={onClick} data-testid={testId}>
+    <button type="button" onClick={onClick} className={className} data-testid={testId}>
       {children}
     </button>
   )
@@ -78,8 +80,10 @@ describe('EvmConnectModal (#875)', () => {
     render(<EvmConnectModal open onOpenChange={jest.fn()} />);
 
     const warning = screen.getByTestId('evm-connect-test-wallet-warning');
-    expect(warning).toHaveTextContent('evmConnectTestWalletTitle');
-    expect(warning).toHaveTextContent('evmConnectTestWalletBody');
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
   });
 
   it('keeps the warning in the scroll region and "Open wallet" in the pinned footer', () => {
@@ -94,7 +98,15 @@ describe('EvmConnectModal (#875)', () => {
     const openWallet = screen.getByTestId('evm-connect-open-wallet');
     expect(body).not.toContainElement(openWallet);
     expect(openWallet.closest('[data-slot="drawer-footer"]')).not.toBeNull();
-    expect(screen.getByTestId('drawer-content')).toHaveClass('overflow-hidden');
+    // The sheet itself never clips: vaul's ::after skirt fills the gap under the sheet at the open
+    // spring's overshoot, and overflow-hidden on the sheet would clip it. The scroll column shrinks.
+    expect(screen.getByTestId('drawer-content')).not.toHaveClass('overflow-hidden');
+  });
+
+  it('stretches "Open wallet" across the footer instead of the 370px CTA cap', () => {
+    render(<EvmConnectModal open onOpenChange={jest.fn()} />);
+
+    expect(screen.getByTestId('evm-connect-open-wallet')).toHaveClass('max-w-none');
   });
 
   it('hands a dismiss (header X, swipe, overlay tap) to its onOpenChange prop', () => {

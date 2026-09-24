@@ -1,48 +1,43 @@
 import React, { FC } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
-import { Button, ButtonVariant } from 'components/Button';
-import { Message } from 'components/Message';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { Icon, IconName } from 'app/icons/v2';
+import { Button } from 'components/Button';
+import { Hero } from 'components/ui/Hero';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 
 interface ResetRequiredScreenProps {
   onConfirm: () => void;
 }
 
-const ForgotPasswordInfoScreen: FC<ResetRequiredScreenProps> = ({ onConfirm }) => {
+/**
+ * The wallet must be reset before it can be used again. No way back: the header names the page, the
+ * Miden mark stands alone as its hero, and Reset is the one action.
+ */
+const ResetRequiredScreen: FC<ResetRequiredScreenProps> = ({ onConfirm }) => {
   const { t } = useTranslation();
 
   return (
-    <div
-      className={classNames(
-        'w-[22.5rem] h-[37.5rem] md:w-[37.5rem] md:h-[46.875rem]',
-        'border border-gray-100',
-        'mx-auto md:rounded-3xl',
-        'flex flex-1 flex-col bg-app-bg',
-        'overflow-hidden relative'
-      )}
-    >
-      <NavigationHeader title={t('resetRequired')} />
-      <div className="flex flex-col flex-1 p-4 justify-between md:w-[460px] md:mx-auto">
-        <div className="flex flex-col grow items-center justify-center">
-          <Message
-            className="flex-1"
-            title={t('resetRequired')}
-            description={t('resetRequiredDescription')}
-            icon={IconName.MidenLogo}
-            iconClassName="w-[218px] h-[218px]"
-            secondDescription={t('resetRequiredSecondDescription')}
+    <div className="mx-auto flex h-full w-full max-w-[600px] flex-col bg-app-bg" data-testid="reset-required">
+      <SubPageLayout
+        title={t('resetRequired')}
+        footer={<Button className="max-w-none" data-testid="reset-button" title={t('reset')} onClick={onConfirm} />}
+      >
+        <div className="my-auto flex flex-col items-center gap-3 py-6 text-center">
+          <Hero
+            visual={
+              <span className="flex size-22 items-center justify-center rounded-full bg-fill">
+                <Icon name={IconName.MidenLogo} className="size-12" aria-hidden="true" />
+              </span>
+            }
           />
+          <p className="font-sans text-base leading-6 text-ink">{t('resetRequiredDescription')}</p>
+          <p className="font-sans text-[15px] leading-[22px] text-muted">{t('resetRequiredSecondDescription')}</p>
         </div>
-        <div className="flex flex-col">
-          <Button className="mx-4 mt-4 mb-2" title={t('reset')} variant={ButtonVariant.Primary} onClick={onConfirm} />
-        </div>
-      </div>
+      </SubPageLayout>
     </div>
   );
 };
 
-export default ForgotPasswordInfoScreen;
+export default ResetRequiredScreen;

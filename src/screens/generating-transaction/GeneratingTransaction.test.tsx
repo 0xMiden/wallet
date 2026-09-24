@@ -16,14 +16,25 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 
-jest.mock('app/atoms/CircularProgress', () => () => null);
 jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: string }) => <div data-testid="alert">{title}</div>,
   AlertVariant: { Warning: 'Warning' }
 }));
 jest.mock('components/Button', () => ({
-  Button: ({ children, onClick, variant }: { children?: React.ReactNode; onClick?: () => void; variant?: string }) => (
-    <button type="button" data-variant={variant} onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    variant,
+    accent,
+    className
+  }: {
+    children?: React.ReactNode;
+    onClick?: () => void;
+    variant?: string;
+    accent?: string;
+    className?: string;
+  }) => (
+    <button type="button" data-variant={variant} data-accent={accent} className={className} onClick={onClick}>
       {children}
     </button>
   ),
@@ -55,10 +66,6 @@ jest.mock('lib/store', () => ({
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>
-}));
-
-jest.mock('lib/analytics', () => ({
-  useAnalytics: () => ({ pageEvent: jest.fn(), trackEvent: jest.fn() })
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -406,6 +413,40 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  const buttonLabelled = (container: HTMLElement, label: string) =>
+    Array.from(container.querySelectorAll('button')).find(b => b.textContent === label);
+
+  // Only the types isRequeueableTransaction accepts ever reach Retry; execute has no flow of its own.
+  it.each([
+    ['send', 'send'],
+    ['consume', 'receive'],
+    ['swap', 'swap'],
+    ['bridged-send', 'send'],
+    ['execute', 'brand']
+  ])('draws Retry and Done on a failed %s row in its flow colour', async (type, accent) => {
+    mockRowState = { row: makeTx({ status: 3, type }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(buttonLabelled(container, 'retry')).toHaveAttribute('data-accent', accent);
+    expect(buttonLabelled(container, 'done')).toHaveAttribute('data-accent', accent);
+    act(() => root.unmount());
+  });
+
+  it.each([
+    ['send', 'send'],
+    ['swap', 'swap'],
+    ['earn-deposit', 'earn'],
+    ['consume', 'receive']
+  ])('draws Done on a completed %s row in its flow colour', async (type, accent) => {
+    mockRowState = { row: makeTx({ status: 2, type }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(buttonLabelled(container, 'done')).toHaveAttribute('data-accent', accent);
+    act(() => root.unmount());
+  });
+
   it('does NOT show Retry when the failed tx is not requeueable (#483)', async () => {
     isRequeueableTransactionMock.mockReturnValue(false);
     mockRowState = { row: makeTx({ status: 3, type: 'replace-hot-key' }), loaded: true };
@@ -636,7 +677,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
       paragraph =>
         paragraph.textContent === 'generatingTransactionDescription' && paragraph.classList.contains('font-bold')
     );
-    expect(helper).toHaveClass('text-heading-gray');
+    expect(helper).toHaveClass('text-ink');
     expect(helper).not.toHaveClass('dark:text-white');
     act(() => root.unmount());
   });
@@ -751,6 +792,30 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(viewBtn).toBeDefined();
     act(() => viewBtn!.click());
     expect(navigateMock).toHaveBeenCalledWith('/history-details/tx-failed-1');
+    act(() => root.unmount());
+  });
+
+  it("labels Done in the secondary button's own color once Retry takes the primary slot", async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={false}
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        canRetry
+        onRetry={() => {}}
+      />
+    );
+    const doneBtn = Array.from(container.querySelectorAll('button')).find(button =>
+      button.textContent?.includes('done')
+    );
+    expect(doneBtn).toHaveAttribute('data-variant', 'secondary');
+    // White would vanish on the light secondary fill; the label is plain text now, styled by
+    // the variant itself (no wrapping span carrying a stray white-text override), and the
+    // className the caller passes carries no color override of its own — className is now
+    // forwarded by the mock, so this actually exercises the real prop.
+    expect(doneBtn?.querySelector('span')).toBeNull();
+    expect(doneBtn?.className ?? '').not.toMatch(/text-pure-white/);
     act(() => root.unmount());
   });
 

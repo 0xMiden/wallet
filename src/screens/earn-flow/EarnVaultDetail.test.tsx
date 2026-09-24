@@ -2,47 +2,90 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 // Imported after the mocks above are registered (jest hoists jest.mock).
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnVaultDetail from './EarnVaultDetail';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-// `./components` re-exports `MetricCard` alongside a module-level
-// `import aaveLogoUrl from '...aave.svg?url'` (a webpack `?url` query that
-// jest's `\.svg$` mapper does not match). Stub the module so we only pull in a
-// light `MetricCard` and never touch that asset import. The stub echoes its
+// Stub `./components` so we only pull in a light `MetricCard`. The stub echoes its
 // props via data-* attributes so we can assert what `EarnVaultDetail` passed
 // (label / value / valueClassName), which is where the audited-branch styling
 // lives.
-// i18n: the component and the shared Button/CircleButton call `useTranslation`.
+// i18n: the component and the shared Button/IconButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
+// A load that did not fully succeed is driven per test; the default is a clean load.
+let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
+const mockRefetch = jest.fn();
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-jest.mock('./components', () => ({
-  MetricCard: ({
-    label,
-    value,
-    valueClassName,
-    className
-  }: {
-    label: string;
-    value: string;
-    valueClassName?: string;
-    className?: string;
-  }) => (
-    <div data-testid="metric-card" data-label={label} data-value-class={valueClassName ?? ''} className={className}>
-      {value}
-    </div>
+// Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
+// Deposit CTA's flow colour is assertable without the real Button's cva class computation.
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary' },
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
   )
 }));
+
+jest.mock('./components', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    MetricCard: ({
+      label,
+      value,
+      valueClassName,
+      className
+    }: {
+      label: string;
+      value: string;
+      valueClassName?: string;
+      className?: string;
+    }) =>
+      R.createElement(
+        'div',
+        {
+          'data-testid': 'metric-card',
+          'data-label': label,
+          'data-value-class': valueClassName ?? '',
+          className
+        },
+        value
+      ),
+    // The shared hero: a probe that keeps the figure, its caption and the change line assertable.
+    // The figure and the change line are NODES (a live one is an `AnimatedNumber`), so they are
+    // rendered as children rather than interpolated into a string.
+    EarnHero: ({
+      labelId,
+      value,
+      label,
+      meta
+    }: {
+      labelId: string;
+      value: React.ReactNode;
+      label: string;
+      meta?: React.ReactNode;
+    }) => R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, value, ' ', label, ' ', meta),
+    // The token mark that replaced the "{asset} on {network}" pill in the header.
+    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+      R.createElement(
+        'span',
+        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
+        'earnAssetOnNetwork'
+      )
+  };
+});
 
 // `lib/woozie` back/forward navigation is native-history-backed; stub the two
 // entry points the component calls so we can assert them without a real router.
@@ -51,11 +94,9 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-// Haptics wrap the Capacitor plugin. `EarnVaultDetail` calls `hapticSelection`
-// on timeframe taps; the real `Button` / `CircleButton` we render call
-// `hapticLight`. Stub both so no native code is touched.
+// Haptics wrap the Capacitor plugin. The real `Button` / `IconButton` we render
+// call `hapticLight`; stub it so no native code is touched.
 jest.mock('lib/mobile/haptics', () => ({
-  hapticSelection: jest.fn(),
   hapticLight: jest.fn()
 }));
 
@@ -112,8 +153,9 @@ jest.mock('recharts', () => {
 //   - the unaudited vault — audited=false, all-equal chart values →
 //     `(max-min)*0.18` is 0, so the `|| 1` fallback branch runs.
 jest.mock('./useEarnPositions', () => ({
+  ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
-    summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
+    summary: { totalRewardsUsd: 0, blendedApyPercent: 0, totalDepositedUsd: 0, estimatedRewardsUsd: 0 },
     positions: [],
     vaults: [
       {
@@ -152,8 +194,8 @@ jest.mock('./useEarnPositions', () => ({
         ]
       }
     ],
-    isLoading: false,
-    error: undefined
+    ...mockLoadState,
+    refetch: mockRefetch
   })
 }));
 
@@ -178,29 +220,53 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByRole('button', { name: 'earnDeposit' })).not.toBeDisabled();
   });
 
+  it('gives the Deposit CTA the earn flow colour', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByTestId('earn-vault-deposit-btn')).toHaveAttribute('data-accent', 'earn');
+  });
+
+  it('carries only layout on the deposit CTA, no restyled height/radius/weight', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    // Was `h-14 max-w-none rounded-full text-lg font-bold` (`rounded-full` and
+    // `font-extrabold` below are the canonical Button's own base classes, not a
+    // caller override, so they're expected and not asserted against here).
+    const depositBtn = screen.getByTestId('earn-vault-deposit-btn');
+    expect(depositBtn).toHaveClass('max-w-none');
+    expect(depositBtn.className).not.toMatch(/h-14|\btext-lg\b|\bfont-bold\b/);
+  });
+
   it('renders the audited vault: header, APY block, stats, about and chart', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
     // Page root.
     expect(screen.getByTestId('earn-vault-detail-page')).toBeInTheDocument();
 
-    // Header: "{protocol} • {asset}" title and "{asset} on {network}" pill.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Aave • USDC');
-    // "{{asset}} on {{network}}" pill — the stubbed t() echoes the key.
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    // Header: the protocol alone, so the title holds one line, plus the asset's compact mark.
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent('Aave');
+    // The asset belongs to the mark; naming it twice wrapped the header onto a second line.
+    expect(heading).not.toHaveTextContent('•');
+    // The mark rides the header row, in place of the pill that took the title's width.
+    const mark = screen.getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', 'USDC');
+    expect(mark).toHaveAttribute('data-network', 'Ethereum');
+    expect(screen.getByRole('banner')).toContainElement(mark);
 
-    // APY section.
-    expect(screen.getByText('earnCurrentApy')).toBeInTheDocument();
-    expect(screen.getByText('+0.12% (24h)')).toBeInTheDocument();
-    // "5.24%" appears in the APY headline (and in the mocked tooltip body).
-    expect(screen.getAllByText('5.24%').length).toBeGreaterThanOrEqual(1);
+    // APY hero: the figure, its caption and the 24h move, through the shared hero.
+    const hero = screen.getByTestId('earn-hero');
+    expect(hero).toHaveAttribute('id', 'earn-vault-apy-title');
+    expect(hero).toHaveTextContent('5.24%');
+    expect(hero).toHaveTextContent('earnCurrentApy');
+    expect(hero).toHaveTextContent('+0.12% (24h)');
 
-    // Stats: audited → "✓ yes" with the heading-gray value class.
+    // Stats: audited → "✓ yes" with the ink value class.
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
     expect(metricValue('earnRiskLabel')).toHaveTextContent('Low');
     const audited = metricValue('earnAuditedLabel');
     expect(audited).toHaveTextContent('✓ yes');
-    expect(audited).toHaveAttribute('data-value-class', 'text-heading-gray');
+    expect(audited).toHaveAttribute('data-value-class', 'text-ink');
 
     // About section copy.
     expect(screen.getByText('About the audited vault.')).toBeInTheDocument();
@@ -209,15 +275,15 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByTestId('area-chart')).toBeInTheDocument();
     expect(screen.getByText('TipLabel')).toBeInTheDocument();
     // The tooltip body formats the point value to 2dp with a % suffix.
-    // (The APY headline also reads "5.24%" but uses font-bold, not font-semibold.)
-    expect(screen.getByText('5.24%', { selector: 'div.font-heading.font-semibold' })).toBeInTheDocument();
+    // (The APY headline also reads "5.24%" but takes the display style.)
+    expect(screen.getByText('5.24%', { selector: 'div.text-badge' })).toBeInTheDocument();
   });
 
   it('renders the unaudited vault with flat chart data (padding fallback + "No")', () => {
     render(<EarnVaultDetail vaultId="v-unaudited" />);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound • DAI');
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Compound');
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', 'DAI');
 
     // Not audited → "no" and no explicit value class (undefined → '').
     const audited = metricValue('earnAuditedLabel');
@@ -233,9 +299,10 @@ describe('EarnVaultDetail', () => {
   it('falls back to the placeholder vault when the id is unknown', () => {
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    // `?? placeholderVault()` — every display field is the "—" placeholder and
-    // the empty id disables the Deposit CTA.
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('— • —');
+    // `?? placeholderVault()`: every body field is the EARN_PLACEHOLDER value, the header names only the
+    // route, and the empty id disables the Deposit CTA.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
+    expect(screen.queryByTestId('earn-asset-mark')).toBeNull();
     expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
   });
@@ -254,26 +321,93 @@ describe('EarnVaultDetail', () => {
     expect(navigate).toHaveBeenCalledWith('/earn/vaults/v-audited/deposit');
   });
 
-  it('defaults the active timeframe to 1M and switches on tap with haptic feedback', () => {
+  // No timeframe row: no chart on this screen reads a timeframe, so the control changed nothing.
+  it('draws the chart with no timeframe row', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
-    const oneMonth = screen.getByRole('button', { name: '1M' });
-    const oneDay = screen.getByRole('button', { name: '1D' });
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument();
+  });
+});
 
-    // Initial state: 1M is the selected (bold / black) timeframe.
-    expect(oneMonth).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneDay).not.toHaveClass('font-semibold');
-    expect(oneDay).toHaveClass('text-gray-secondary');
+describe('EarnVaultDetail after a failed load', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
 
-    // Tap 1D → haptic fires and selection moves.
-    fireEvent.click(oneDay);
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(oneDay).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneMonth).not.toHaveClass('font-semibold');
+  it('says the load failed, with Retry, instead of drawing a placeholder vault', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    // All four timeframe options are rendered.
-    ['1D', '1W', '1M', 'All'].forEach(label => {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
-    });
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
+    expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
+    expect(screen.queryByText('earnCurrentApy')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no notice over a found vault when only one owner's positions failed", () => {
+    mockLoadState = { isLoading: false, error: 'owner unavailable' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', 'USDC');
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
+  });
+
+  it('keeps a vault it already has, under the notice', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', 'USDC');
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
+  });
+
+  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
+    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('— • —')).toBeNull();
+    expect(screen.queryByText('earnAssetOnNetwork')).toBeNull();
+    expect(screen.getByLabelText('back')).toBeInTheDocument();
+  });
+
+  it('draws nothing it has not loaded during a first load with no error', () => {
+    mockLoadState = { isLoading: true };
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
+    expect(screen.queryByText('earnCurrentApy')).toBeNull();
+    expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+});
+
+const MISSING_LOAD_STATES: Array<[string, { isLoading: boolean; error?: string; loadError?: string }]> = [
+  ['a failed load', { isLoading: false, error: 'boom', loadError: 'boom' }],
+  ['a load in flight', { isLoading: true }],
+  ['a settled load without it', { isLoading: false }]
+];
+
+describe('EarnVaultDetail with no vault to name', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each(MISSING_LOAD_STATES)('keeps a route heading and no placeholder name after %s', (_state, loadState) => {
+    mockLoadState = loadState;
+    render(<EarnVaultDetail vaultId="does-not-exist" />);
+
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/^earnDeposit$/);
+    expect(screen.queryByText(`${EARN_PLACEHOLDER} • ${EARN_PLACEHOLDER}`)).toBeNull();
+    expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

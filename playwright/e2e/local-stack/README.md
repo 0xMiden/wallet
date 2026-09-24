@@ -87,7 +87,7 @@ E2E_NETWORK=localhost yarn test:e2e:blockchain:run
 `playwright.e2e.config.ts` ignores `guardian-*.spec.ts` and the `swap/`, `bridge/`, `earn/`
 and `resilience/` subsuites, so this is the core set: `wallet-lifecycle`, `mint-and-balance`,
 `send-public`, `send-public-local-prove`, `send-private`, `multi-account`, `multi-claim`,
-`recall-reclaim`, `contacts-send`, `group-claim`, `history-cancel`, `receive-address`,
+`recall-reclaim`, `contacts-send`, `history-cancel`, `receive-address`,
 `settings-toggles`, `unlock-lockout`.
 
 ### 5. (Tier-2) Guardian specs — optional, currently quarantined

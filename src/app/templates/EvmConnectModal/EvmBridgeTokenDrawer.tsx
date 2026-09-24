@@ -1,11 +1,10 @@
 import React from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { TokenLogo } from 'components/TokenLogo';
-import { hapticLight } from 'lib/mobile/haptics';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 /** The two EVM source tokens a deposit can bridge: native ETH or USDC. */
@@ -51,43 +50,28 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
     { token: 'USDC', balance: usdcBalance, loading: usdcLoading }
   ];
 
-  const handleSelect = (token: DepositToken) => {
-    hapticLight();
-    onSelect(token);
-  };
-
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-bridge-token">
-      <DrawerContent className="px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+      <DrawerContent className="pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
         <DrawerHeader>
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>
         </DrawerHeader>
 
-        <div className="flex flex-col gap-2">
+        {/* One grouped list on the shared `fill`, with the design system's round check on the
+            chosen token — the same picker the send and swap flows draw. */}
+        <ListGroup className="mx-4">
           {rows.map(({ token, balance, loading }) => (
-            <button
+            <ListRow
               key={token}
-              type="button"
+              title={token}
+              subtitle={loading ? t('loading') : `${balance} ${token}`}
+              avatar={<TokenLogo symbol={token} size="lg" />}
+              checked={token === selected}
+              onClick={() => onSelect(token)}
               data-testid={`bridge-token-${token}`}
-              onClick={() => handleSelect(token)}
-              className={classNames(
-                'flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors',
-                token === selected ? 'border-primary-500 bg-surface-interactive' : 'border-rule-default bg-pure-white'
-              )}
-            >
-              <TokenLogo symbol={token} size="md" />
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="font-heading text-base font-bold text-heading-gray">{token}</span>
-                <span className="text-xs font-semibold text-heading-gray/60">
-                  {loading ? t('loading') : `${balance} ${token}`}
-                </span>
-              </div>
-              {token === selected && (
-                <Icon name={IconName.Checkmark} className="h-5 w-5 shrink-0 text-primary-500" fill="currentColor" />
-              )}
-            </button>
+            />
           ))}
-        </div>
+        </ListGroup>
       </DrawerContent>
     </Drawer>
   );

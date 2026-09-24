@@ -229,6 +229,9 @@ export default defineConfig({
     // (isOffscreenAvailable) also catches it, but pinning the build-time
     // constant lets dead-code elimination drop the offscreen import entirely.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify('false'),
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   }

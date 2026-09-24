@@ -1,14 +1,16 @@
-import React, { FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { Button } from 'components/Button';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { setFaucetIdSetting } from 'lib/miden/assets';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
+const FORM_ID = 'edit-miden-faucet-id-form';
 
 type FormData = {
   faucetId: string;
@@ -44,32 +46,41 @@ const EditMidenFaucetId: FC = () => {
       try {
         await setFaucetIdSetting(faucetId);
         setSubmitSuccess(true);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error(err);
 
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
-        setError('faucetId', { type: SUBMIT_ERROR_TYPE, message: err.message });
+        setError('faucetId', { type: SUBMIT_ERROR_TYPE, message: err instanceof Error ? err.message : String(err) });
         focusFaucetIdField();
       }
     },
     [isSubmitting, clearErrors, setError, focusFaucetIdField]
   );
 
-  const content = useMemo(() => {
-    return (
-      <form ref={formRef} onSubmit={handleSubmit(onSubmit)}>
-        <FormField
+  return (
+    <SubPageLayout
+      data-testid="edit-miden-faucet-id"
+      formId={FORM_ID}
+      formRef={formRef}
+      onSubmit={handleSubmit(onSubmit)}
+      footer={
+        // Outside the form (it is pinned under the body), so it names the form it submits.
+        <Button type="submit" form={FORM_ID} className="flex-1 max-w-none" isLoading={isSubmitting}>
+          {t('setNewFaucetId')}
+        </Button>
+      }
+    >
+      <SubPageSection className="gap-3">
+        <TextField
           {...register('faucetId', { required: t('required') })}
           label={t('faucetId')}
-          labelDescription={t('setNewFaucetIdDescription')}
+          hint={t('setNewFaucetIdDescription')}
           id="set-faucet-id"
-          className="font-sans"
           type="text"
-          name="faucetId"
           placeholder={faucetId ?? ''}
-          errorCaption={errors.faucetId?.message}
-          containerClassName="mb-4"
+          error={errors.faucetId?.message}
+          errorTestId="edit-faucet-id-error"
           onChange={() => {
             clearErrors();
             if (submitSuccess) {
@@ -78,27 +89,14 @@ const EditMidenFaucetId: FC = () => {
           }}
         />
 
-        <FormSubmitButton
-          className="capitalize w-full justify-center mt-6"
-          loading={isSubmitting}
-          style={{
-            fontSize: '18px',
-            lineHeight: '24px',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-            paddingTop: '12px',
-            paddingBottom: '12px'
-          }}
-        >
-          {t('setNewFaucetId')}
-        </FormSubmitButton>
-
-        {submitSuccess && <div className="mt-4 text-green-600 text-sm font-medium">{t('faucetIdUpdated')}</div>}
-      </form>
-    );
-  }, [faucetId, errors, handleSubmit, onSubmit, register, isSubmitting, clearErrors, submitSuccess, t]);
-
-  return <div className="w-full max-w-sm p-2 mx-auto">{content}</div>;
+        {submitSuccess && (
+          <p role="status" className="px-1 text-caption text-positive-ink">
+            {t('faucetIdUpdated')}
+          </p>
+        )}
+      </SubPageSection>
+    </SubPageLayout>
+  );
 };
 
 export default EditMidenFaucetId;

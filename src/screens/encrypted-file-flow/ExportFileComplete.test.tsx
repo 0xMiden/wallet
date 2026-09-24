@@ -26,6 +26,11 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Success: 'Success', Close: 'Close' }
 }));
 
+// The shared 64px outcome circle (the one transaction outcomes use): a marker exposing its state.
+jest.mock('screens/generating-transaction/components', () => ({
+  TransactionHeroIcon: ({ state }: { state: string }) => <div data-testid="hero-icon" data-state={state} />
+}));
+
 jest.mock('components/Button', () => ({
   Button: ({ onClick, title }: { onClick?: () => void; title: string }) => (
     <button data-testid="done-button" onClick={onClick}>
@@ -206,7 +211,16 @@ describe('ExportFileComplete', () => {
     renderComponent();
 
     await screen.findByText('encryptedWalletFileExportedTitle1');
-    expect(screen.getByTestId('icon')).toHaveTextContent('Success');
+    expect(screen.getByTestId('hero-icon')).toHaveAttribute('data-state', 'success');
+    // The outcome is the shared Hero: its title is the 24px h2, the copy under it muted.
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('encryptedWalletFileExportedTitle1');
+    expect(screen.getByText('encryptedWalletFileExportedDesc1').parentElement).toHaveClass(
+      'text-body-sm',
+      'text-muted'
+    );
+    // Done is pinned in the SubPageLayout footer, not in the scrolling body.
+    const page = screen.getByTestId('export-file-complete');
+    expect(page.querySelector('[data-slot="footer"]')).toContainElement(screen.getByTestId('done-button'));
     expect(screen.getByText('encryptedWalletFileExportedTitle1')).toBeInTheDocument();
     expect(screen.getByText('encryptedWalletFileExportedTitle2')).toBeInTheDocument();
     expect(screen.getByText('encryptedWalletFileExportedDesc1')).toBeInTheDocument();
@@ -451,7 +465,7 @@ describe('ExportFileComplete', () => {
     // The success claim is gone — not merely accompanied by an error.
     expect(screen.queryByText('encryptedWalletFileExportedTitle1')).not.toBeInTheDocument();
     expect(screen.getByText('encryptedWalletFileExportFailedDesc')).toBeInTheDocument();
-    expect(screen.getByTestId('icon')).toHaveTextContent('Close');
+    expect(screen.getByTestId('hero-icon')).toHaveAttribute('data-state', 'failed');
     expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to export encrypted wallet file:', error);
 
     consoleErrorSpy.mockRestore();

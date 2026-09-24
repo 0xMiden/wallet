@@ -17,6 +17,8 @@ export default {
     // extension: the update-catalog validator ships as ESM so a plain `node` CI
     // step can share it with the app bundle.
     'src/**/*.{ts,tsx,mjs}',
+    'packages/hd-key/src/**/*.ts',
+    '!packages/hd-key/src/**/*.test.ts',
     '!src/**/*.d.ts',
     '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
@@ -33,8 +35,8 @@ export default {
   //   QR/native-share UI, and transaction-list interactions covered by E2E.
   // - `app/providers/DappBrowserProvider.tsx` — Capacitor inappbrowser
   //   provider wired to native plugins, exercised via mobile-e2e.
-  // - `components/review/ReviewRow.tsx`, `lib/ui/drawer.tsx`, and the swap
-  //   success view — interaction/animation wrappers with no domain logic.
+  // - `lib/ui/drawer.tsx` and the swap success view — interaction/animation
+  //   wrappers with no domain logic.
   // - `lib/animation/use-motion.ts` — browser media-query/animation plumbing.
   // - `app/icons/v2/index.tsx` — barrel file of SVG re-exports.
   // - `lib/mobile/faucet-webview.ts` — Capacitor InAppBrowser wrapper.
@@ -54,10 +56,14 @@ export default {
   //   not referenced by the `./index` barrel, not imported anywhere. It has no
   //   runtime surface to test; when real staking logic lands, remove it from
   //   this list so the gate demands proper tests.
+  // - `lib/telemetry/types.ts` — pure types and interfaces, no enums; TypeScript
+  //   erases the whole file at compile time, so it has no runtime surface to
+  //   execute or cover, ever.
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/lib/lock-up/run-checks\\.ts$',
     '/src/lib/miden/assets/stake\\.ts$',
+    '/src/lib/telemetry/types\\.ts$',
     '/src/app/pages/Browser/',
     '/src/app/pages/Pending\\.tsx$',
     '/src/app/pages/PendingNotes\\.tsx$',
@@ -73,7 +79,6 @@ export default {
     '/src/app/pages/Receive/',
     '/src/app/icons/v2/index\\.tsx$',
     '/src/app/providers/DappBrowserProvider\\.tsx$',
-    '/src/components/review/ReviewRow\\.tsx$',
     '/src/lib/animation/use-motion\\.ts$',
     '/src/lib/ui/drawer\\.tsx$',
     '/src/lib/mobile/faucet-webview\\.ts$',
@@ -111,6 +116,8 @@ export default {
     // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
     // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the
     // stub instead of trying to execute the PNG bytes as JavaScript.
+    // A `?url` import is the asset's URL, not a component, and `\.svg$` cannot match past the query.
+    '\\.svg\\?url$': '<rootDir>/__mocks__/fileMock.js',
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
     '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
     '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.ts',
@@ -120,6 +127,10 @@ export default {
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
+    // The in-house key-derivation package is consumed from source so unit
+    // tests need no build step; the app bundles resolve it through the
+    // `link:` symlink and its built `dist/` instead.
+    '^@miden/hd-key$': '<rootDir>/packages/hd-key/src/index.ts',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',

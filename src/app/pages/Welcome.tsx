@@ -1,12 +1,10 @@
 import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { generateMnemonic } from 'bip39';
-import wordslist from 'bip39/src/wordlists/english.json';
 import { useTranslation } from 'react-i18next';
 
+import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
@@ -16,9 +14,12 @@ import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { hasTelemetryChoice } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
+import { TelemetryStep } from 'lib/telemetry/types';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
 import { errorToMessage } from 'screens/onboarding/error-message';
@@ -81,6 +82,22 @@ const READY_WAIT_BUDGET_MS = 5_000;
 const READY_POLL_INTERVAL_MS = 100;
 
 /**
+ * Where a finished onboarding goes next.
+ *
+ * The telemetry consent prompt is a one-time detour in front of `destination`,
+ * taken only while the user has never answered it — asking is worth one screen,
+ * re-asking someone who has already decided is not, which is what
+ * `hasTelemetryChoice()` rules out. The prompt continues to `destination`'s own
+ * route itself, so Chrome's chain stays create → consent → /finish-side-panel.
+ *
+ * Only ever called once the wallet exists: a user who has not got a wallet, or
+ * whose creation failed, is not asked at all.
+ */
+function postCreationRoute(destination: string): string {
+  return hasTelemetryChoice() ? destination : '/help-improve-wallet';
+}
+
+/**
  * Wait for the wallet state to become Ready after registration.
  * This ensures the state is fully synced before navigation.
  */
@@ -119,6 +136,36 @@ async function waitForReadyState(syncFromBackend: (state: any) => void): Promise
   return false;
 }
 
+/**
+ * Onboarding screen -> reported step.
+ *
+ * A `Partial` so a screen with nothing worth distinguishing - the welcome
+ * splash - simply has no entry and leaves the previous step standing as the
+ * furthest reached.
+ *
+ * Only screens that can actually produce an event appear here, which is a
+ * stronger condition than being renderable and is why three original entries
+ * were dead. Two named screens this component never shows; `Welcome.test.tsx`
+ * now fails on those. The third, the wallet-type screen, IS reachable - but the
+ * flow BEGINS from it (see `beginOnboardingFlow`), so there is nothing open to
+ * report against while the user is on it, and no `back` returns there with a
+ * flow alive. That ordering is not something a static test can see, so it is
+ * recorded here instead.
+ */
+const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>> = {
+  [OnboardingStep.ChooseProtection]: 'choose_protection',
+  [OnboardingStep.SetupPasscode]: 'setup_passcode',
+  [OnboardingStep.SetupBiometric]: 'setup_biometric',
+  [OnboardingStep.CreatePassword]: 'set_password',
+  [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
+  // One decision on two screens: the picker is a detail of the guardian step, so both report it.
+  [OnboardingStep.MeetGuardian]: 'choose_guardian',
+  [OnboardingStep.ChooseGuardian]: 'choose_guardian',
+  [OnboardingStep.ImportFromSeed]: 'enter_phrase',
+  // Account creation is running; a failure here is ours, not a change of mind.
+  [OnboardingStep.Confirmation]: 'submitting'
+};
+
 // The registration key must tell two backups apart without ever carrying a
 // secret, so it keeps the payload as it is and drops only secretKeyHex; a field
 // added to either record later stays in the key by construction.
@@ -134,6 +181,8 @@ const Welcome: FC = () => {
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
+  const seedPhraseRef = useRef(seedPhrase);
+  seedPhraseRef.current = seedPhrase;
   // Seed-less Guardian import: the normalized hot:EVM pair. Mutually
   // exclusive with `seedPhrase` — each submit clears the other, so register()
   // and back-navigation can branch on which credential is live.
@@ -165,6 +214,10 @@ const Welcome: FC = () => {
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+  // Whether a registration has landed for this attempt. Distinct from `registrationError`,
+  // which both outcomes set: the throw and the resolved-but-never-Ready path. Only this tells
+  // them apart, and only this can say whether a wallet may already exist.
+  const [registrationCommitted, setRegistrationCommitted] = useState(false);
   // The registration the backend is building or holds, keyed by the inputs that made it.
   // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
   // twice (a retry joins it), and a failed registration is forgotten because it may already have
@@ -179,12 +232,10 @@ const Welcome: FC = () => {
   // unmounts. An action that awaits the hardware-security check acts on its answer only while nothing newer happened:
   // otherwise the user has moved on, and may have confirmed inputs the stale answer would overwrite.
   const transitionGenerationRef = useRef(0);
-  // Tracks which protection screen the user came through; needed so ChooseGuardian
-  // back navigation and the create-password→confirmation routing pick the right
-  // origin without colliding with the legacy create flow.
+  // Tracks which protection screen the user came through, so back from the Meet your
+  // Guardian step returns to it.
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
   const { importWalletFromClient, registerWallet, registerWalletFromHotKey } = useMidenContext();
-  const { trackEvent } = useAnalytics();
   // Guardian auto-detection (issue #418): kicked off in the background the
   // moment a seed phrase is submitted, so it is usually already resolved by the
   // time the user gets through the password/passcode step to the
@@ -204,6 +255,76 @@ const Welcome: FC = () => {
   // under E2E and on non-Chrome — those keep the classic click-to-create flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
+  // A flow's state belongs to one attempt: a create or an import starts, and leaving for Welcome ends, with
+  // nothing an abandoned attempt left behind. A seed, key, password or staged wallet file would pass for this
+  // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
+  // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
+  const resetFlowState = useCallback(() => {
+    setSeedPhrase(null);
+    setKeyPairPayload(null);
+    setPassword(null);
+    setWalletFilePayload(null);
+    setImportType(null);
+    setBiometricAttempts(0);
+    setBiometricError(null);
+    setConfirmPhase('idle');
+    setGuardianLookupError(false);
+    setUseBiometric(true);
+    setWalletType(WalletType.Guardian);
+    setGuardianEndpoint(undefined);
+    resetGuardianProbe();
+  }, [resetGuardianProbe]);
+
+  // Telemetry for the onboarding flow the user is currently walking through.
+  // Held in a ref rather than state because settling it must never re-render.
+  const flowRef = useRef<FlowHandle | null>(null);
+
+  // Entering a path starts a flow. Re-entering after backing out cancels the
+  // abandoned one first, so a single mount can never leave two flows open.
+  const beginOnboardingFlow = useCallback((flow: 'create' | 'import') => {
+    flowRef.current?.cancel();
+    flowRef.current = beginFlow(flow);
+  }, []);
+
+  // The handle is idempotent, but clearing the ref keeps a later settle from
+  // being attributed to a flow that has already ended.
+  const settleOnboardingFlow = useCallback((settle: (handle: FlowHandle) => void) => {
+    const handle = flowRef.current;
+    if (!handle) return;
+    flowRef.current = null;
+    settle(handle);
+  }, []);
+
+  // Report the onboarding screen the user reached. First-run drop-off is the
+  // whole point of this telemetry, and without a step every abandoned setup
+  // arrives as one `create_started` with no hint whether they balked at writing
+  // down a seed phrase, at the password, or at picking a guardian.
+  useEffect(() => {
+    const reported = ONBOARDING_TELEMETRY_STEPS[step];
+    if (reported) flowRef.current?.step(reported);
+  }, [step]);
+
+  // Back navigation only abandons the flow when it leaves onboarding for the
+  // welcome screen; every other `back` target is a step *within* the flow.
+  const cancelOnLeavingOnboarding = useCallback(
+    (target: string) => {
+      if (target !== '/') return;
+      settleOnboardingFlow(handle => handle.cancel());
+      resetFlowState();
+    },
+    [settleOnboardingFlow, resetFlowState]
+  );
+
+  // An unmount with the flow still open is an abandonment we can actually see,
+  // so record it as cancelled rather than leaving an unmatched `started`. A
+  // flow already settled above is unaffected — the ref is null by then.
+  useEffect(
+    () => () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    },
+    []
+  );
 
   // Check hardware security availability on mount
   useEffect(() => {
@@ -260,7 +381,7 @@ const Welcome: FC = () => {
     console.log(
       `[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}, onboardingType=${bypassOnboardingType}`
     );
-    const testSeed = importedSeed ?? generateMnemonic(128).split(' ');
+    const testSeed = importedSeed ?? generateMnemonic().split(' ');
     // E2E-only: surface the mnemonic actually used for this bypass run
     // (freshly generated for Create, or the caller's own for Import) so the
     // harness can recover the just-created wallet from a SEPARATE profile
@@ -297,18 +418,9 @@ const Welcome: FC = () => {
   // in `guardianProbe.state`, which the recovery-method screen renders.
   const startGuardianProbe = useCallback(
     (words: string[]) => {
-      void guardianProbe.start(words).then(result => {
-        if (!result) return;
-        // Deliberately no endpoint / account id — only shape, so we can tell
-        // how often detection actually helps.
-        trackEvent('guardian-probe', AnalyticsEventCategory.General, {
-          detected: Boolean(result.best),
-          matchCount: result.matches.length,
-          failureCount: result.failures.length
-        });
-      });
+      void guardianProbe.start(words);
     },
-    [guardianProbe, trackEvent]
+    [guardianProbe]
   );
 
   // Same fire-and-forget shape for the seed-less import: probe the operators by
@@ -317,17 +429,9 @@ const Welcome: FC = () => {
     (payload: string) => {
       const pair = parsePrivateKeyPair(payload);
       if (!pair) return;
-      guardianProbe.startWithKey(pair.hotPrivateKey).then(result => {
-        if (!result) return;
-        trackEvent('guardian-probe', AnalyticsEventCategory.General, {
-          method: 'hot-key',
-          detected: Boolean(result.best),
-          matchCount: result.matches.length,
-          failureCount: result.failures.length
-        });
-      });
+      void guardianProbe.startWithKey(pair.hotPrivateKey);
     },
-    [guardianProbe, trackEvent]
+    [guardianProbe]
   );
 
   const register = useCallback(async () => {
@@ -370,12 +474,16 @@ const Welcome: FC = () => {
         registration = next;
       }
       await registration.done;
+      // From here a wallet may exist, whatever happens next: the escape back to the file picker is
+      // withdrawn, because it would show an empty picker implying the restore was abandoned while
+      // the databases are written and the registration has landed.
+      setRegistrationCommitted(true);
       if (!walletFilePayload && onboardingType === OnboardingType.Create) {
         // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
     } else {
-      throw new Error('Missing password or seed phrase');
+      throw new Error('Missing password or recovery phrase');
     }
   }, [
     password,
@@ -398,7 +506,7 @@ const Welcome: FC = () => {
   //   - import flows are excluded because guardian lookup can fail and needs
   //     the in-tab retry UI — imports keep the classic in-tab flow.
   // The `confirmPhase !== 'idle'` guard makes this fire at most once even though
-  // `register`/`trackEvent` are (correctly) in the dependency array.
+  // `register` is (correctly) in the dependency array.
   useEffect(() => {
     if (!sidePanelHandoff) return;
     if (step !== OnboardingStep.Confirmation) return;
@@ -418,18 +526,19 @@ const Welcome: FC = () => {
     (async () => {
       try {
         await register();
-        trackEvent('confirmation', AnalyticsEventCategory.FormSubmit, {});
+        settleOnboardingFlow(handle => handle.complete());
         // Move to the dedicated handoff route, which survives the Ready
         // transition and shows the "Open wallet" button. Crucially we do NOT
         // waitForReadyState here — pushing Ready into the store first would
         // route this tab to the wallet home before we navigate.
-        navigate('/finish-side-panel');
+        navigate(postCreationRoute('/finish-side-panel'));
       } catch (error) {
         // Fall back to the classic click-to-create flow: the confirmation
         // button reverts to running register() in-tab on the next tap. Say so —
         // the spinner stops either way, and without this the screen goes quiet
         // and the user has no reason to believe a second tap would help.
         console.error('[Welcome] Side panel handoff auto-create failed:', error);
+        settleOnboardingFlow(handle => handle.fail(classifyError(error)));
         setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
         setConfirmPhase('failed');
       } finally {
@@ -437,15 +546,13 @@ const Welcome: FC = () => {
         setIsLoading(false);
       }
     })();
-  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, trackEvent, t]);
+  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, settleOnboardingFlow, t]);
 
   const onAction = async (action: OnboardingAction) => {
     // A running confirmation attempt holds onboarding where it is (see attemptInFlightRef).
     if (attemptInFlightRef.current) return;
     transitionGenerationRef.current += 1;
     const generation = transitionGenerationRef.current;
-    let eventCategory = AnalyticsEventCategory.ButtonPress;
-    let eventProperties = {};
 
     const startCreateFlow = () => {
       setImportType(null);
@@ -470,6 +577,8 @@ const Welcome: FC = () => {
         }
         break;
       case 'choose-protection':
+        beginOnboardingFlow('create');
+        resetFlowState();
         // On a test network the chosen flow waits behind the network notice
         // (#875); acknowledging the notice starts it.
         if (getTestNetworkNameKey()) {
@@ -491,10 +600,10 @@ const Welcome: FC = () => {
         // User finished the (fake) biometric prompt — generate the mnemonic
         // silently and route to guardian selection. The hardware/password
         // decision is deferred to after the guardian is chosen.
-        setSeedPhrase(generateMnemonic(128).split(' '));
+        setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        navigate('/#choose-guardian');
+        navigate('/#meet-guardian');
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -508,10 +617,14 @@ const Welcome: FC = () => {
           navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
           break;
         }
-        setSeedPhrase(generateMnemonic(128).split(' '));
+        setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
+        navigate('/#meet-guardian');
+        break;
+      case 'choose-guardian':
+        // "Choose a different Guardian" on the Meet your Guardian step: the full picker.
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
@@ -541,8 +654,8 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
-        setImportType(null);
-        setWalletFilePayload(null);
+        beginOnboardingFlow('import');
+        resetFlowState();
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
           navigate('/#network-notice');
@@ -559,6 +672,8 @@ const Welcome: FC = () => {
         navigate('/#import-from-key');
         break;
       case 'import-hot-key-submit':
+        // A new key retires a Guardian lookup failure raised for the previous credential.
+        setGuardianLookupError(false);
         setKeyPairPayload(action.payload);
         // Mutually exclusive with the seed credential (see the state comment).
         setSeedPhrase(null);
@@ -566,6 +681,7 @@ const Welcome: FC = () => {
         // Same hardware/password branch as import-seed-phrase-submit.
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (transitionGenerationRef.current !== generation) break;
           if (hardwareAvailable) {
             setPassword('__HARDWARE_ONLY__');
             navigate('/#import-select-recovery-method');
@@ -623,14 +739,13 @@ const Welcome: FC = () => {
         break;
       case 'create-password-submit':
         setPassword(action.payload.password);
-        eventCategory = AnalyticsEventCategory.FormSubmit;
         if (onboardingType === OnboardingType.Create && !isMobile()) {
           // Extension/desktop create flow: the password screen replaces
           // passcode setup and runs before guardian selection — generate the
           // mnemonic here, exactly like setup-passcode-submit does.
-          setSeedPhrase(generateMnemonic(128).split(' '));
+          setSeedPhrase(generateMnemonic().split(' '));
           setProtectionMethod('password');
-          navigate('/#choose-guardian');
+          navigate('/#meet-guardian');
         } else if (onboardingType === OnboardingType.Import) {
           navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
         } else {
@@ -666,6 +781,7 @@ const Welcome: FC = () => {
           // Wait for state to be synced before navigating
           // This fixes a race condition where navigation happens before state is Ready
           const becameReady = await waitForReadyState(syncFromBackend);
+          setIsLoading(false);
           if (!becameReady) {
             // Registration resolved but the wallet never reported Ready. Do NOT
             // navigate: `resolveRootView` sends a not-ready root back to
@@ -674,13 +790,15 @@ const Welcome: FC = () => {
             setRegistrationError(t('walletSetupDidNotComplete'));
             break;
           }
-          eventCategory = AnalyticsEventCategory.FormSubmit;
+          settleOnboardingFlow(handle => handle.complete());
           // Recovery/import completes in this classic handler (the Create flow
           // takes the auto-create effect above). Hand off to the side panel just
           // like Create does, instead of always entering in-tab (#428).
-          navigate(postOnboardingRoute());
+          navigate(postCreationRoute(postOnboardingRoute()));
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
+          setIsLoading(false);
+          settleOnboardingFlow(handle => handle.fail(classifyError(error)));
           // Surface it for every path; most used to show nothing. The Guardian import
           // branch below hands off to the recovery-method screen, which retires this
           // message on arrival, and the hardware-only branch adds its attempt count.
@@ -718,6 +836,7 @@ const Welcome: FC = () => {
           step === OnboardingStep.SelectWalletType ||
           step === OnboardingStep.ChooseProtection
         ) {
+          cancelOnLeavingOnboarding('/');
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
@@ -731,9 +850,14 @@ const Welcome: FC = () => {
           } else {
             // The choose-protection screen is skipped when biometric is
             // unavailable, so backing out of passcode setup returns to Welcome.
-            navigate(biometricProtectionSupported() ? '/#choose-protection' : '/');
+            const target = biometricProtectionSupported() ? '/#choose-protection' : '/';
+            cancelOnLeavingOnboarding(target);
+            navigate(target);
           }
         } else if (step === OnboardingStep.ChooseGuardian) {
+          // The picker was pushed from the Meet your Guardian step; back returns there.
+          navigate('/#meet-guardian');
+        } else if (step === OnboardingStep.MeetGuardian) {
           if (protectionMethod === 'biometric') {
             navigate('/#setup-biometric');
           } else if (protectionMethod === 'password') {
@@ -745,8 +869,10 @@ const Welcome: FC = () => {
           if (onboardingType === OnboardingType.Create) {
             // Extension/desktop: the password screen is the first protection
             // step, so back returns to Welcome. On mobile the
-            // biometric-without-hardware path lands here from choose-guardian.
-            navigate(isMobile() ? '/#choose-guardian' : '/');
+            // biometric-without-hardware path lands here from the guardian step.
+            const target = isMobile() ? '/#meet-guardian' : '/';
+            cancelOnLeavingOnboarding(target);
+            navigate(target);
           } else {
             navigate(
               importType === ImportType.WalletFile
@@ -780,8 +906,6 @@ const Welcome: FC = () => {
       default:
         break;
     }
-
-    trackEvent(action.id, eventCategory, eventProperties);
   };
 
   // The router reports each history change here as the location changes, before React renders it, so a move
@@ -849,9 +973,16 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setStep(OnboardingStep.SetupBiometric);
         break;
+      case '#meet-guardian':
       case '#choose-guardian':
-        setOnboardingType(OnboardingType.Create);
-        setStep(OnboardingStep.ChooseGuardian);
+        // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
+        // a create, and a history jump can land here before any protection step generated it (a create
+        // starts with no credentials, see resetFlowState). The seed is read through a ref: in the
+        // deps it would re-run the import cases, and #import-from-seed would reset the probe its submit
+        // just started.
+        if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
+        else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
+        else setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#select-import-type':
         setOnboardingType(OnboardingType.Import);
@@ -909,11 +1040,50 @@ const Welcome: FC = () => {
     }
   }, [hash, password, onboardingType, resetGuardianProbe]);
 
+  // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
+  // password or type change, and a reset there would wipe what the next action just set.
+  const previousHashRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousHashRef.current;
+    previousHashRef.current = hash;
+    if (previous === hash) return;
+    // A running confirmation attempt holds the flow (the routing effect sends the hash back), and a retry needs
+    // everything it had.
+    if (attemptInFlightRef.current) return;
+    if (hash === '') {
+      // Arriving at Welcome from inside the flow (history, an edited URL, a guard's redirect) ends the attempt.
+      // The first render is not an arrival: a fresh load, or the E2E bypass seeding the flow on mount.
+      if (previous !== null) cancelOnLeavingOnboarding('/');
+    } else if (hash === '#select-wallet-type' || hash === '#choose-protection') {
+      // Every create submits its credential after these screens.
+      resetFlowState();
+    } else if (hash === '#select-import-type' && onboardingType !== OnboardingType.Import) {
+      // An import resumed here by history keeps what it has (the import steps have no credential guard, so a
+      // reset would dead-end its Forward); a new import starts from the select-import-type action, which resets.
+      resetFlowState();
+    } else if (hash === '#setup-biometric' && onboardingType !== OnboardingType.Create) {
+      // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.
+      resetFlowState();
+    }
+  }, [hash, onboardingType, resetFlowState, cancelOnLeavingOnboarding]);
+
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.
   useEffect(() => {
-    if (step !== OnboardingStep.Confirmation) setRegistrationError(null);
+    if (step !== OnboardingStep.Confirmation) {
+      setRegistrationError(null);
+      setRegistrationCommitted(false);
+    }
   }, [step]);
+
+  // Confirmation creates the wallet, so there is nothing to step back to, except a file restore the
+  // user might want to retry with a different file - and only while no registration has landed. The
+  // chevron and the hardware back read the SAME predicate: the hardware path used to consult only
+  // `isLoading`, so it stayed open exactly where the chevron was being closed. Back returns to the
+  // file choice; see the 'back' action.
+  const canLeaveConfirmation =
+    step !== OnboardingStep.Confirmation ||
+    (importType === ImportType.WalletFile && !isLoading && !registrationCommitted);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
@@ -921,14 +1091,13 @@ const Welcome: FC = () => {
     if (step === OnboardingStep.Welcome) {
       return false;
     }
-    // On confirmation/loading screen, don't allow back
-    if (step === OnboardingStep.Confirmation && isLoading) {
+    if (!canLeaveConfirmation) {
       return true; // Consume but don't navigate
     }
     // Trigger the onboarding back action
     onAction({ id: 'back' });
     return true;
-  }, [step, isLoading, onAction]);
+  }, [step, canLeaveConfirmation, onAction]);
 
   return (
     <AwaitFonts name="Nunito" weights={[500, 600, 700]}>
@@ -949,6 +1118,7 @@ const Welcome: FC = () => {
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
           importViaKey={Boolean(keyPairPayload)}
+          canGoBack={canLeaveConfirmation}
           onBiometricChange={setUseBiometric}
           onAction={onAction}
         />

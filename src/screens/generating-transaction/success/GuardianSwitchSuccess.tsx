@@ -7,6 +7,7 @@ import { ReactComponent as GuardianSwitchArt } from 'app/icons/guardian-switch-s
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
@@ -67,6 +68,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       hero={<GuardianSwitchArt className="h-40 w-auto" aria-hidden="true" />}
       title={t(commitUnconfirmed ? 'guardianSwitchUnconfirmedHeading' : 'guardianSwitchSuccessTitle')}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
@@ -81,7 +83,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
       {/* A custom endpoint is shown as its raw host, which can be long enough to
           push the pair off screen; break it rather than overflow. */}
       {newName && (
-        <div className="mt-2 flex min-w-0 items-center justify-center gap-1.5 text-sm font-semibold text-heading-gray">
+        <div className="mt-2 flex min-w-0 items-center justify-center gap-1.5 text-sm font-semibold text-ink">
           {previousName && (
             <>
               {/* The arrow is the only thing carrying direction, and an untitled
@@ -132,11 +134,11 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
       )}
 
       <div className="mt-6 w-full text-left">
-        <p className="text-base font-semibold text-heading-gray">{t('guardianSwitchSuccessInfoTitle')}</p>
+        <p className="text-base font-semibold text-ink">{t('guardianSwitchSuccessInfoTitle')}</p>
         <ul className="mt-2 flex flex-col gap-2">
           {infoKeys.map(key => (
-            <li key={key} className="flex gap-2 text-sm leading-5 text-heading-gray">
-              <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full bg-heading-gray" />
+            <li key={key} className="flex gap-2 text-sm leading-5 text-ink">
+              <span aria-hidden="true" className="mt-2 h-1 w-1 shrink-0 rounded-full bg-ink" />
               <span>{t(key)}</span>
             </li>
           ))}

@@ -8,11 +8,15 @@ import {
   isAutoConsumeEnabled,
   isDelegateProofEnabled,
   isHapticFeedbackEnabled,
+  isTelemetryEnabled,
   setAutoConsumeSetting,
   setDelegateProofSetting,
-  setHapticFeedbackSetting
+  setHapticFeedbackSetting,
+  setTelemetrySetting
 } from 'lib/settings/helpers';
 import { setTheme } from 'lib/settings/theme';
+import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
+import { dropQueue } from 'lib/telemetry/sink';
 
 import GeneralSettings from './GeneralSettings';
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
@@ -37,10 +41,28 @@ jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: jest.fn(() => true),
   isDelegateProofEnabled: jest.fn(() => true),
   isHapticFeedbackEnabled: jest.fn(() => true),
+  isTelemetryEnabled: jest.fn(() => false),
   setAutoConsumeSetting: jest.fn(),
   setDelegateProofSetting: jest.fn(),
-  setHapticFeedbackSetting: jest.fn()
+  setHapticFeedbackSetting: jest.fn(),
+  setTelemetrySetting: jest.fn()
 }));
+
+// The telemetry queue lives in the sink and the Sentry client in `crash`.
+// Withdrawing consent has to reach BOTH — stopping new events is not the same
+// as stopping the sharing already under way — so both are spied on directly.
+jest.mock('lib/telemetry/sink', () => ({
+  dropQueue: jest.fn()
+}));
+
+jest.mock('lib/telemetry/crash', () => ({
+  initCrashReporting: jest.fn(),
+  stopCrashReporting: jest.fn()
+}));
+
+// ListRow's routed branch imports the wallet Link, whose analytics barrel reaches
+// the store; none of these rows route.
+jest.mock('lib/woozie', () => ({ Link: () => null }));
 
 // `setTheme` applies the theme to the document (media queries / class toggles);
 // stub it to a spy so we only assert the intent.
@@ -48,39 +70,18 @@ jest.mock('lib/settings/theme', () => ({
   setTheme: jest.fn()
 }));
 
-// `TabPicker` reaches into framer-motion / uuid / SVG icons. Render each tab as
-// a plain button exposing its id, active flag and index-driven onTabChange, plus
-// a dedicated out-of-range trigger so the `if (!next) return` guard is testable.
-jest.mock('components/TabPicker', () => ({
-  TabPicker: ({
-    tabs,
-    onTabChange
-  }: {
-    tabs: { id: string; title: string; active: boolean }[];
-    onTabChange: (index: number) => void;
-  }) => (
-    <div data-testid="tab-picker">
-      {tabs.map((tab, index) => (
-        <button
-          key={tab.id}
-          type="button"
-          data-testid={tab.id}
-          data-active={String(tab.active)}
-          onClick={() => onTabChange(index)}
-        >
-          {tab.title}
-        </button>
-      ))}
-      <button type="button" data-testid="tab-invalid" onClick={() => onTabChange(999)}>
-        invalid
-      </button>
-    </div>
-  )
-}));
+// The theme picker is the real shared SegmentedControl; only its haptic is stubbed.
+jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn() }));
+
+// jsdom has no scrollIntoView; the control keeps its selection in view with it.
+beforeAll(() => {
+  HTMLElement.prototype.scrollIntoView = jest.fn();
+});
 
 // `SettingToggle` wraps `ToggleSwitch` (analytics / haptics). Render a plain
-// controlled checkbox exposing checked/onChange/name plus title & optional
-// description so every prop and branch of GeneralSettings is assertable.
+// controlled checkbox exposing checked/onChange/name plus the title so every
+// prop and branch of GeneralSettings is assertable. What a setting does is the
+// page's own section footnote, rendered for real.
 jest.mock('./SettingToggle', () => ({
   __esModule: true,
   default: ({
@@ -88,20 +89,17 @@ jest.mock('./SettingToggle', () => ({
     onChange,
     name,
     testID,
-    title,
-    description
+    title
   }: {
     checked: boolean;
     onChange: (evt: React.ChangeEvent<HTMLInputElement>) => void;
     name: string;
     testID: string;
     title: string;
-    description?: string;
   }) => (
-    <div>
+    <div data-testid={`${testID}-row`}>
       <span data-testid={`${testID}-title`}>{title}</span>
       <input type="checkbox" data-testid={testID} name={name} checked={checked} onChange={onChange} />
-      {description ? <span data-testid={`${testID}-desc`}>{description}</span> : null}
     </div>
   )
 }));
@@ -111,9 +109,23 @@ const mockGetThemeSetting = getThemeSetting as jest.Mock;
 const mockIsAutoConsumeEnabled = isAutoConsumeEnabled as jest.Mock;
 const mockIsDelegateProofEnabled = isDelegateProofEnabled as jest.Mock;
 const mockIsHapticFeedbackEnabled = isHapticFeedbackEnabled as jest.Mock;
+const mockIsTelemetryEnabled = isTelemetryEnabled as jest.Mock;
 const mockSetAutoConsumeSetting = setAutoConsumeSetting as jest.Mock;
 const mockSetDelegateProofSetting = setDelegateProofSetting as jest.Mock;
 const mockSetHapticFeedbackSetting = setHapticFeedbackSetting as jest.Mock;
+const mockSetTelemetrySetting = setTelemetrySetting as jest.Mock;
+
+/**
+ * The telemetry handler AWAITS the consent write before starting the crash
+ * reporter, so the background cannot still read the old value while navigation
+ * ends a flow. Anything after that await lands a microtask later. The mock must
+ * therefore be thenable — a bare `jest.fn()` returning undefined would still be
+ * awaitable, but keeping it a promise matches the real signature.
+ */
+const flushConsentWrite = () => new Promise(resolve => setTimeout(resolve, 0));
+const mockDropQueue = dropQueue as jest.Mock;
+const mockInitCrashReporting = initCrashReporting as jest.Mock;
+const mockStopCrashReporting = stopCrashReporting as jest.Mock;
 const mockSetTheme = setTheme as jest.Mock;
 
 beforeEach(() => {
@@ -123,10 +135,13 @@ beforeEach(() => {
   mockIsAutoConsumeEnabled.mockReturnValue(true);
   mockIsDelegateProofEnabled.mockReturnValue(true);
   mockIsHapticFeedbackEnabled.mockReturnValue(true);
+  // Consent is off until the user opts in — the baseline every telemetry
+  // assertion below starts from.
+  mockIsTelemetryEnabled.mockReturnValue(false);
 });
 
 describe('GeneralSettings', () => {
-  it('renders the theme selector with the three theme tabs and the system tab active by default', () => {
+  it('renders the theme selector with the three theme options and system selected by default', () => {
     render(<GeneralSettings />);
 
     // Theme label + selector container.
@@ -139,9 +154,9 @@ describe('GeneralSettings', () => {
     expect(screen.getByText('themeDark')).toBeInTheDocument();
 
     // `active: themeSetting === opt` — only the system tab is active initially.
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('renders the delegate and auto-consume toggles (both with descriptions) and hides haptic on non-mobile', () => {
@@ -156,10 +171,12 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-title`)).toHaveTextContent(
       'delegateProofSettings'
     );
-    // The delegate toggle now carries an explanatory description (local vs
-    // delegated proving), not just a bare label (#478).
-    expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-desc`)).toHaveTextContent(
-      'delegateProofSettingsDescription'
+    // The delegate toggle carries an explanatory description (local vs
+    // delegated proving), not just a bare label (#478): its section's footnote,
+    // right under the group holding the row.
+    const delegateNote = screen.getByText('delegateProofSettingsDescription');
+    expect(delegateNote.closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-row`)
     );
 
     expect(consume).toBeInTheDocument();
@@ -168,13 +185,54 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-title`)).toHaveTextContent(
       'autoConsumeSettings'
     );
-    // Auto-consume passes a `description` — its description branch renders.
-    expect(screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-desc`)).toHaveTextContent(
-      'autoConsumeSettingsDescription'
+    const consumeNote = screen.getByText('autoConsumeSettingsDescription');
+    expect(consumeNote.closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-row`)
     );
 
     // Non-mobile: haptic toggle is not rendered.
     expect(screen.queryByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeInTheDocument();
+  });
+
+  it('renders through SubPageLayout: theme and haptics in one group, each described switch in its own', () => {
+    mockIsMobile.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    const page = screen.getByTestId('general-settings');
+    const body = page.querySelector('[data-slot="body"]')!;
+    expect(body).toHaveClass('px-4', 'gap-5');
+    // Four since the telemetry consent joined: theme+haptics share one, then delegate,
+    // auto-consume and telemetry each get their own described section.
+    expect(body.querySelectorAll(':scope > section')).toHaveLength(4);
+
+    // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
+    const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
+    expect(themeRow.querySelector('[data-slot="title"]')).toHaveTextContent('theme');
+    expect(themeRow).toContainElement(screen.getByRole('radiogroup', { name: 'theme' }));
+    // A settings choice is a fill row: it never scrolls, so it can never scroll the page under it.
+    expect(screen.getByRole('radiogroup', { name: 'theme' })).toHaveClass('w-full');
+    expect(screen.getByRole('radiogroup', { name: 'theme' }).className).not.toMatch(/overflow-x-auto/);
+    // A `plain` group: no surface of its own, its rows flush on the page margin.
+    expect(themeRow.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(themeRow.parentElement).not.toHaveClass('bg-fill');
+    expect(themeRow.parentElement).not.toHaveClass('border');
+    expect(themeRow.parentElement).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
+    );
+    // Every group on the page is plain, the telemetry consent's included.
+    for (const id of [
+      GeneralSettingsSelectors.DelegateToggle,
+      GeneralSettingsSelectors.AutoConsumeToggle,
+      GeneralSettingsSelectors.TelemetryToggle
+    ]) {
+      expect(screen.getByTestId(`${id}-row`).parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+      expect(screen.getByTestId(`${id}-row`).parentElement).not.toHaveClass('border');
+    }
+
+    // Descriptions are the muted 14px section footnote.
+    expect(screen.getByText('delegateProofSettingsDescription')).toHaveClass('text-body-sm', 'text-muted');
+    // No page footer: every setting applies as it is changed.
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });
 
   it('reflects non-default (disabled) toggle states from the helpers', () => {
@@ -192,12 +250,12 @@ describe('GeneralSettings', () => {
 
     render(<GeneralSettings />);
 
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('selecting the light theme tab persists it and updates the active tab', () => {
+  it('selecting the light theme persists it and moves the selection', () => {
     render(<GeneralSettings />);
 
     fireEvent.click(screen.getByTestId('theme-light'));
@@ -205,20 +263,20 @@ describe('GeneralSettings', () => {
     expect(mockSetTheme).toHaveBeenCalledTimes(1);
     expect(mockSetTheme).toHaveBeenCalledWith('light');
     // Local state updated -> the light tab is now active, system is not.
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('selecting the dark theme tab persists it', () => {
+  it('selecting the dark theme persists it', () => {
     render(<GeneralSettings />);
 
     fireEvent.click(screen.getByTestId('theme-dark'));
 
     expect(mockSetTheme).toHaveBeenCalledWith('dark');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('re-selecting the system theme tab persists it', () => {
+  it('re-selecting the system theme persists it', () => {
     // Start on a non-system theme so clicking system is a real change.
     mockGetThemeSetting.mockReturnValue('light');
     render(<GeneralSettings />);
@@ -226,13 +284,13 @@ describe('GeneralSettings', () => {
     fireEvent.click(screen.getByTestId('theme-system'));
 
     expect(mockSetTheme).toHaveBeenCalledWith('system');
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('ignores an out-of-range theme index without persisting (the `if (!next) return` guard)', () => {
+  it('ignores a tap on the theme that is already selected', () => {
     render(<GeneralSettings />);
 
-    fireEvent.click(screen.getByTestId('tab-invalid'));
+    fireEvent.click(screen.getByTestId('theme-system'));
 
     expect(mockSetTheme).not.toHaveBeenCalled();
   });
@@ -320,6 +378,93 @@ describe('GeneralSettings', () => {
       render(<GeneralSettings />);
 
       expect(screen.getByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeChecked();
+    });
+  });
+
+  describe('telemetry consent toggle', () => {
+    it('renders off on a fresh install, and labels itself with the localized title and disclosure', () => {
+      render(<GeneralSettings />);
+
+      const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
+      expect(toggle).toBeInTheDocument();
+      expect(toggle).not.toBeChecked();
+      expect(toggle).toHaveAttribute('name', 'telemetryEnabled');
+      expect(screen.getByTestId(`${GeneralSettingsSelectors.TelemetryToggle}-title`)).toHaveTextContent(
+        'helpImproveWallet'
+      );
+      // The disclosure is what makes the opt-in informed, so it is not optional. It renders as
+      // the section's footnote rather than a toggle prop: SettingToggle deliberately has no
+      // `description`, because a footnote can wrap.
+      expect(screen.getByText('helpImproveWalletDescription')).toBeInTheDocument();
+    });
+
+    it('renders on when the user has already consented', () => {
+      mockIsTelemetryEnabled.mockReturnValue(true);
+
+      render(<GeneralSettings />);
+
+      expect(screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle)).toBeChecked();
+    });
+
+    it('does not touch telemetry on mount', () => {
+      render(<GeneralSettings />);
+
+      // Merely opening Settings must neither record a choice nor start sharing.
+      expect(mockSetTelemetrySetting).not.toHaveBeenCalled();
+      expect(mockInitCrashReporting).not.toHaveBeenCalled();
+      expect(mockDropQueue).not.toHaveBeenCalled();
+      expect(mockStopCrashReporting).not.toHaveBeenCalled();
+    });
+
+    it('turning it on persists the opt-in, starts crash reporting, and checks the toggle', async () => {
+      render(<GeneralSettings />);
+      const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
+
+      fireEvent.click(toggle);
+      await flushConsentWrite();
+
+      expect(mockSetTelemetrySetting).toHaveBeenCalledTimes(1);
+      // Exact argument: an inverted consent write is the bug the old logger
+      // shipped, so `true` here is asserted rather than just "was called".
+      expect(mockSetTelemetrySetting).toHaveBeenCalledWith(true);
+      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+      // Opting IN must not also tear down what it just started.
+      expect(mockDropQueue).not.toHaveBeenCalled();
+      expect(mockStopCrashReporting).not.toHaveBeenCalled();
+      expect(toggle).toBeChecked();
+    });
+
+    it('turning it off persists the opt-out, drops the queue, stops crash reporting, and unchecks the toggle', () => {
+      mockIsTelemetryEnabled.mockReturnValue(true);
+      render(<GeneralSettings />);
+      const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
+
+      fireEvent.click(toggle);
+
+      expect(mockSetTelemetrySetting).toHaveBeenCalledTimes(1);
+      expect(mockSetTelemetrySetting).toHaveBeenCalledWith(false);
+      // Withdrawing consent stops sharing that is already under way, not just
+      // the next event: the pending queue goes, and so does the crash client.
+      expect(mockDropQueue).toHaveBeenCalledTimes(1);
+      expect(mockStopCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockInitCrashReporting).not.toHaveBeenCalled();
+      expect(toggle).not.toBeChecked();
+    });
+
+    it('survives a full opt-in / opt-out round trip', async () => {
+      render(<GeneralSettings />);
+      const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
+
+      fireEvent.click(toggle);
+      await flushConsentWrite();
+      fireEvent.click(toggle);
+      await flushConsentWrite();
+
+      expect(mockSetTelemetrySetting.mock.calls).toEqual([[true], [false]]);
+      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockDropQueue).toHaveBeenCalledTimes(1);
+      expect(mockStopCrashReporting).toHaveBeenCalledTimes(1);
+      expect(toggle).not.toBeChecked();
     });
   });
 });

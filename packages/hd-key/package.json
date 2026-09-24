@@ -1,0 +1,25 @@
+{
+  "name": "@miden/hd-key",
+  "version": "0.1.0",
+  "description": "SLIP-0010 hardened-only key derivation and BIP-39 mnemonic helpers for the Miden Wallet.",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rimraf ./dist"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@scure/bip39": "^1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
