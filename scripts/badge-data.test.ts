@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -11,9 +11,15 @@ function run(...args: string[]) {
   return { status: res.status, stdout: res.stdout, stderr: res.stderr };
 }
 
+const dirs: string[] = [];
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'badge-data-'));
+  const dir = mkdtempSync(join(tmpdir(), 'badge-data-'));
+  dirs.push(dir);
+  return dir;
 }
+afterAll(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
 
 function writeJson(path: string, value: unknown): string {
   writeFileSync(path, typeof value === 'string' ? value : JSON.stringify(value));
