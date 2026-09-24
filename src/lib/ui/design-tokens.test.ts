@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { CARD_COLORS } from 'lib/settings/constants';
+import { arrowInkFor } from 'screens/generating-transaction/TransactionSummaryBadge';
 
 const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
 const config = fs.readFileSync(path.join(__dirname, '../../../tailwind.config.ts'), 'utf8');
@@ -413,5 +414,24 @@ describe('QR palette', () => {
 
   it.each(NAMES)('%s stays scannable on the white tile (3:1 or better)', name => {
     expect(contrast(light[name]!, '#FFFFFF')).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// The summary badge draws its arrow in an ink it derives from the fill, so every fill a caller
+// passes must read at 3:1 under that ink in both themes. The list is every fill the app passes.
+const BADGE_ARROW_FILLS = [
+  undefined,
+  'var(--tx-received)',
+  'var(--action-swap)',
+  '#CCA4B8',
+  'var(--tx-earn)',
+  '#777487'
+] as const;
+
+describe.each([':root', '.dark'] as const)('summary badge arrow in %s', selector => {
+  const color = (value: string) => (value.startsWith('var(--') ? resolved(selector, value.slice(6, -1)) : value);
+
+  it.each(BADGE_ARROW_FILLS)('draws its arrow at 3:1 on the %s fill', fill => {
+    expect(contrast(color(arrowInkFor(fill)), color(fill ?? 'var(--action-send)'))).toBeGreaterThanOrEqual(3);
   });
 });

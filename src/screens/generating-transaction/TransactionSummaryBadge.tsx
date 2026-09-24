@@ -39,22 +39,42 @@ export interface TransactionSummaryBadgeContent {
   fillForArrow?: string;
 }
 
-/** Default separator — the horizontal "→" arrow, tinted by `fill`. */
-const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--action-send)' }} />
-    <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
-    <path
-      d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
-      stroke="white"
-      stroke-width="2.20995"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-  </svg>
-);
+const ARROW_INK: Record<string, string> = {
+  'var(--action-send)': 'var(--accent-send-on)',
+  'var(--tx-sent)': 'var(--accent-send-on)',
+  'var(--action-receive)': 'var(--accent-receive-on)',
+  'var(--tx-received)': 'var(--accent-receive-on)',
+  'var(--action-swap)': 'var(--accent-swap-on)',
+  'var(--tx-swap)': 'var(--accent-swap-on)',
+  '#cca4b8': '#191919'
+};
 
-/** Separator used when opening an earn position — an up "↑" arrow in the Earn action colour. */
+/**
+ * The arrow's ink for a badge fill. Derived here rather than passed beside the fill so every caller,
+ * present and future, gets a readable arrow; white stays only on the slate fills, where it reads 4.5:1.
+ */
+export const arrowInkFor = (fill: string = 'var(--action-send)'): string => ARROW_INK[fill.toLowerCase()] ?? '#ffffff';
+
+/** Default separator — the horizontal "→" arrow, tinted by `fill`. */
+const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => {
+  const ink = arrowInkFor(fill);
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--action-send)' }} />
+      <path d="M6.22266 12.0889H16.5071" stroke={ink} stroke-width="2.20995" stroke-linecap="round" />
+      <path
+        d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
+        stroke={ink}
+        stroke-width="2.20995"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+};
+
+/** Separator used when opening an earn position: an up "↑" arrow in the Earn action colour, whose slate
+ * holds white at 4.58:1 in both themes. */
 export const EarnDepositArrowGlyph: FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect width="24" height="24" rx="12" style={{ fill: 'var(--action-earn)' }} />

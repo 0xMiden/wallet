@@ -101,6 +101,19 @@ describe('TransactionSummaryBadge component', () => {
   });
 
   it.each([
+    ['#CCA4B8', '#191919'],
+    ['var(--action-swap)', 'var(--accent-swap-on)'],
+    ['#777487', '#ffffff']
+  ])('strokes the arrow on a %s fill in the ink derived from it', async (fillForArrow, ink) => {
+    const { container, root } = await renderInto(
+      <TransactionSummaryBadge lhs="a" rhs="b" fillForArrow={fillForArrow} />
+    );
+    const strokes = Array.from(container.querySelectorAll('path')).map(path => path.getAttribute('stroke'));
+    expect(strokes).toEqual([ink, ink]);
+    act(() => root.unmount());
+  });
+
+  it.each([
     ['lhs null', null, 'rhs'],
     ['lhs undefined', undefined, 'rhs'],
     ['lhs false', false, 'rhs'],
