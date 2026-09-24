@@ -2,8 +2,10 @@ import React, { useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SearchInput } from 'components/ui/SearchInput';
@@ -70,7 +72,7 @@ const AddressBook: React.FC = () => {
               <section>
                 <SectionHeader>{t('contacts')}</SectionHeader>
                 {contacts.length > 0 ? (
-                  <ListGroup>
+                  <ListGroup surface="outline">
                     {contacts.map(contact => (
                       <ListRow
                         key={contact.address}
@@ -85,13 +87,13 @@ const AddressBook: React.FC = () => {
                   </ListGroup>
                 ) : (
                   !hasSavedContacts && (
-                    <div
+                    <EmptyState
+                      icon={IconName.ContactsBook}
+                      surface="dashed"
+                      title={t('noContactsYet')}
+                      description={t('noContactsYetHint')}
                       data-testid="address-book-empty"
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-fill px-6 py-8 text-center"
-                    >
-                      <span className="text-row-title text-ink">{t('noContactsYet')}</span>
-                      <span className="text-sm text-muted">{t('noContactsYetHint')}</span>
-                    </div>
+                    />
                   )
                 )}
               </section>
@@ -100,7 +102,7 @@ const AddressBook: React.FC = () => {
             {accounts.length > 0 && (
               <section>
                 <SectionHeader>{t('myAccounts')}</SectionHeader>
-                <ListGroup>
+                <ListGroup surface="outline">
                   {accounts.map(account => (
                     <ListRow
                       key={account.address}

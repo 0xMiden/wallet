@@ -80,11 +80,14 @@ it('searches names and addresses across both sections', () => {
   expect(screen.getByText('noContactsFound')).toBeInTheDocument();
 });
 
-it('shows an empty state with no saved contacts, and opens the new-contact page', () => {
+it('shows an empty state through EmptyState with the dashed surface, and opens the new-contact page', () => {
   contactsMock.mockReturnValue([MINE]);
   render(<AddressBook />);
 
-  expect(screen.getByTestId('address-book-empty')).toHaveTextContent('noContactsYet');
+  const empty = screen.getByTestId('address-book-empty');
+  expect(empty).toHaveTextContent('noContactsYet');
+  expect(empty).toHaveClass('border-dashed');
+  expect(empty).not.toHaveClass('bg-fill');
   // Was `w-full max-w-none rounded-full bg-fill text-base font-semibold text-ink`
   // — the Secondary variant already paints bg-fill/text-ink, so hand-painting
   // them again was redundant on top of fighting the anatomy.
@@ -95,15 +98,20 @@ it('shows an empty state with no saved contacts, and opens the new-contact page'
   expect(navigateMock).toHaveBeenCalledWith('/contacts/new');
 });
 
-it('draws contacts as one fill group with hairlines inset past the avatar', () => {
+it('draws contacts and my-accounts as outline groups, not the shared fill', () => {
   render(<AddressBook />);
   const first = screen.getByTestId('address-book-contact-mtst1alice');
   const second = screen.getByTestId('address-book-contact-0xzed');
-  expect(first.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+  expect(first.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+  expect(first.parentElement).not.toHaveClass('bg-fill');
   expect(second.parentElement).toBe(first.parentElement);
   // The first row's hairline is hidden by `first:`; the rest start after the avatar.
   expect(first).toHaveClass('first:before:hidden');
   expect(second).toHaveClass('before:bg-hairline', 'before:left-[68px]');
+
+  const account = screen.getByTestId('address-book-account-mtst1mine');
+  expect(account.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+  expect(account.parentElement).not.toHaveClass('bg-fill');
 });
 
 it('draws the rows and labels with the shared list components', () => {
