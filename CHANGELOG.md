@@ -17,11 +17,8 @@
 - [CHANGE][all] Pushed pages open with a round back button, a larger title and an inset rule under it.
 - [CHANGE][all] Token detail: muted section titles, a larger price over an area chart, a bare copy control on the contract row and a dashed empty activity card.
 - [CHANGE][all] Settings sub-pages draw their groups as outlined cards and the rotate-key button as border-only.
-- [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
 - [CHANGE][all] The swap page sits tighter, its You Pay and You Receive titles match Send's, its Review button waits on the quote with a wave of dots and lines up with Send's Confirm, and the page carries the swap colour throughout.
-- [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
 - [CHANGE][all] Scroll bars are hidden everywhere in the app; scrolling is unchanged.
-- [CHANGE][all] The swap page is tighter: You Pay and You Receive each sit in a card with the direction toggle on the seam, and a missing fee asset reads as a notice instead of reddening the amount.
 - [CHANGE][all] Send's review page is quieter: the address in body text, the network as a plain value, no fee note, "Expires" with Edit, and the reclaim reassurance as one caption under the card.
 - [CHANGE][all] Send's first page is titled like the other tabs, its address field fits two lines on a small phone and Paste, Address Book and Scan stay on one row.
 - [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.
@@ -51,7 +48,7 @@
 - [FEATURE][all] Address book: saved contacts and your own accounts in separate sections under one search, a New contact page that checks the address as it is entered (including against contacts already saved), and a page per contact with its full address, network and date added, a Send button that opens the send flow with the contact filled in, and Edit to rename (or change a `0x` contact's network) or delete it. Its lists sit in grey groups with dividers that start after the avatar, under sentence-case section labels, and New contact is a grey secondary button.
 - [CHANGE][all] Token detail page uses the shared hero, buttons, sections and cards. Its Token info card shows a short, copyable contract id instead of the full id in bold, and a View on Midenscan action.
 - [CHANGE][all] Filters and segmented choices across the app share the tab bar's raised bubble and bouncy switch.
-- [CHANGE][all] Receive carries its own green: a soft wash behind a white card that holds the code, the network chip and the address, with green glyphs, chevrons and dividers on the Share and Cross-chain rows. The code is smaller so the page breathes, and tapping the Bread logo in its middle repaints it through the account card colours.
+- [CHANGE][all] Receive carries its own green on the Share and Cross-chain rows' glyphs, chevrons and dividers. The code sits on the page at a fixed size with no card around it, and tapping the Bread logo in its middle repaints it through the account card colours.
 - [CHANGE][all] A Guardian change in Activity is one compact card read top down: the old provider on its brand logo tile under a From label, a down arrow, then the new provider under To, with the status below and the page's accent rule in the same slate as the Guardian row's icon instead of the receive green. A device-key rotation shows the guardian once and lists the new key in Details.
 
 - [CHANGE][all] The encrypted wallet file now carries accounts imported from a private key, so restoring it brings them back with their keys instead of silently leaving them behind. A file written by an older version still restores, and names how many imported accounts it had to omit before you confirm. An imported account whose key the wallet cannot read is named rather than quietly dropped from the backup.

@@ -230,3 +230,22 @@ describe('Chrome i18n placeholder declarations', () => {
     expect(undeclared).toEqual([]);
   });
 });
+
+describe('locale files declare each key once', () => {
+  // JSON.parse keeps the last of two equal keys, so a duplicate is invisible to every parsed check here
+  // and an edit to the first copy is silently lost. Count top-level key lines in the raw text instead.
+  it('no public/_locales file repeats a top-level key', () => {
+    const repeats = fs.readdirSync(LOCALES_DIR).flatMap(dir =>
+      fs
+        .readdirSync(path.join(LOCALES_DIR, dir))
+        .filter(file => file.endsWith('.json'))
+        .flatMap(file => {
+          const keys = [
+            ...fs.readFileSync(path.join(LOCALES_DIR, dir, file), 'utf8').matchAll(/^ {2}"([^"]+)":/gm)
+          ].map(match => match[1]);
+          return keys.filter((key, index) => keys.indexOf(key) !== index).map(key => `${dir}/${file}: ${key}`);
+        })
+    );
+    expect(repeats).toEqual([]);
+  });
+});
