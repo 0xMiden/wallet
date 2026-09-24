@@ -789,6 +789,16 @@ describe('Welcome — hash → step routing', () => {
     expect(mockProbeReset).toHaveBeenCalled();
   });
 
+  it('restores the biometric preference for the next attempt', async () => {
+    mockIsMobileFn.mockReturnValue(true);
+    await renderWelcome();
+    await setHash('#confirmation');
+    await dispatch({ id: 'switch-to-password' });
+    expect(mockFlowProps.current.useBiometric).toBe(false);
+    await setHash('');
+    expect(mockFlowProps.current.useBiometric).toBe(true);
+  });
+
   it('does not carry a failed biometric attempt into the next one', async () => {
     mockIsMobileFn.mockReturnValue(true);
     mockBiometricHW.mockResolvedValue(true);

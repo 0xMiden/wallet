@@ -269,6 +269,7 @@ const Welcome: FC = () => {
     setBiometricError(null);
     setConfirmPhase('idle');
     setGuardianLookupError(false);
+    setUseBiometric(true);
     resetGuardianProbe();
   }, [resetGuardianProbe]);
 
