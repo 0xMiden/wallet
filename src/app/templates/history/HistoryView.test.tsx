@@ -278,11 +278,25 @@ describe('HistoryView empty state', () => {
   });
 
   describe('after a failed load', () => {
-    it.each([
+    const emptyModes: Array<[string, Partial<React.ComponentProps<typeof HistoryView>>]> = [
       ['the default list', {}],
       ['the centred Activity list', { centerEmptyState: true }],
       ["one token's full history", { tokenId: 'token-1', fullHistory: true }]
-    ])('says the load failed, with Retry, instead of the empty card, in %s', (_mode, modeProps) => {
+    ];
+
+    it.each(emptyModes)(
+      'says the load failed, with Retry, while the other read still loads, in %s',
+      (_mode, modeProps) => {
+        const onRetry = jest.fn();
+        render(<HistoryView {...baseProps} {...modeProps} entries={[]} initialLoading loadError onRetry={onRetry} />);
+
+        expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+        fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+        expect(onRetry).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(emptyModes)('says the load failed, with Retry, instead of the empty card, in %s', (_mode, modeProps) => {
       const onRetry = jest.fn();
       render(<HistoryView {...baseProps} {...modeProps} entries={[]} loadError onRetry={onRetry} />);
 

@@ -385,7 +385,8 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (initialLoading)
+      // One read failing while the other still loads is already a failure worth a Retry.
+      if (initialLoading && !loadError)
         return (
           <div className="flex h-8 justify-center pt-5">
             <Spinner />
