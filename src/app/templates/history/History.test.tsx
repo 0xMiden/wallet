@@ -30,6 +30,8 @@ const mockResolveConsumeExtraAmounts = jest.fn();
 // Latest props seen by the mocked HistoryView child, so tests can invoke its
 // `loadMore` callback and read back the filtered/sorted `entries`.
 let mockHistoryViewProps: any;
+// Each SWR read's mutate, by the first element of its key, so a test can see which reads a Retry re-runs.
+const mockSwrMutates: Record<string, jest.Mock> = {};
 
 // ---------------------------------------------------------------------------
 // `lib/swr` — a real hook implementation that runs the fetcher on mount (and on
@@ -40,26 +42,32 @@ let mockHistoryViewProps: any;
 const mockUseRetryableSWR = jest.fn(
   (key: unknown, fetcher: () => Promise<unknown>, _config?: { isPaused?: () => boolean }) => {
     const keyStr = JSON.stringify(key);
-    const [state, setState] = React.useState<{ data: unknown; isLoading: boolean }>({
+    const [state, setState] = React.useState<{ data: unknown; isLoading: boolean; error?: unknown }>({
       data: undefined,
       isLoading: true
     });
     const [tick, setTick] = React.useState(0);
     const mutateRef = React.useRef<jest.Mock>();
     if (!mutateRef.current) mutateRef.current = jest.fn(() => setTick(t => t + 1));
+    mockSwrMutates[String((key as unknown[])[0])] = mutateRef.current;
 
     React.useEffect(() => {
       let active = true;
-      Promise.resolve(fetcher()).then(data => {
-        if (active) setState({ data, isLoading: false });
-      });
+      Promise.resolve(fetcher()).then(
+        data => {
+          if (active) setState({ data, isLoading: false });
+        },
+        error => {
+          if (active) setState({ data: undefined, isLoading: false, error });
+        }
+      );
       return () => {
         active = false;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keyStr, tick]);
 
-    return { data: state.data, isLoading: state.isLoading, mutate: mutateRef.current };
+    return { data: state.data, isLoading: state.isLoading, error: state.error, mutate: mutateRef.current };
   }
 );
 
@@ -445,6 +453,48 @@ describe('History', () => {
     expect(entry.amount).toBeUndefined();
     expect(entry.token).toBe('Unknown');
     expect(mockFormatAmount).not.toHaveBeenCalledWith(1000000000000000000n, 6);
+  });
+
+  describe('a failed read', () => {
+    it('forwards a load error when the transactions read fails', async () => {
+      mockGetCompletedTransactions.mockRejectedValue(new Error('db down'));
+      await renderHistory();
+
+      await waitFor(() => expect(mockHistoryViewProps.loadError).toBe(true));
+    });
+
+    it('forwards a load error when only the pending read fails, beside an empty transactions read', async () => {
+      mockGetCompletedTransactions.mockResolvedValue([]);
+      mockGetUncompletedTransactions.mockRejectedValue(new Error('db down'));
+      await renderHistory();
+
+      await waitFor(() => expect(mockHistoryViewProps.loadError).toBe(true));
+    });
+
+    it('re-runs both reads on Retry', async () => {
+      mockGetCompletedTransactions.mockRejectedValue(new Error('db down'));
+      await renderHistory();
+      await waitFor(() => expect(mockHistoryViewProps.loadError).toBe(true));
+
+      await act(async () => mockHistoryViewProps.onRetry());
+      expect(mockSwrMutates['latest-transactions']).toHaveBeenCalled();
+      expect(mockSwrMutates['latest-pending-transactions']).toHaveBeenCalled();
+    });
+
+    it('forwards no load error under the Pending filter, where both reads are paused', async () => {
+      mockGetCompletedTransactions.mockRejectedValue(new Error('db down'));
+      await renderHistory({ filter: 'pending' });
+
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      expect(mockHistoryViewProps.loadError).toBe(false);
+    });
+
+    it('forwards no load error when both reads succeed', async () => {
+      await renderHistory();
+
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      expect(mockHistoryViewProps.loadError).toBe(false);
+    });
   });
 
   it('forwards passthrough props and initial-loading flag to HistoryView', async () => {

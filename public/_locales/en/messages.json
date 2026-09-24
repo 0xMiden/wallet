@@ -4050,6 +4050,10 @@
     "message": "Transactions with this token will appear here.",
     "englishSource": "Transactions with this token will appear here."
   },
+  "tokenActivityLoadError": {
+    "message": "Couldn't load this activity.",
+    "englishSource": "Couldn't load this activity."
+  },
   "recentActivity": {
     "message": "Recent activity",
     "englishSource": "Recent activity"

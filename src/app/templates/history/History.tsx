@@ -114,6 +114,7 @@ const History = memo<HistoryProps>(
     const {
       data: latestTransactions,
       isLoading: transactionsLoading,
+      error: latestError,
       mutate: mutateLatest
     } = useRetryableSWR(
       [`latest-transactions`, address, tokenId],
@@ -127,7 +128,11 @@ const History = memo<HistoryProps>(
       }
     );
 
-    const { data: latestPendingTransactions, mutate: mutateTx } = useRetryableSWR(
+    const {
+      data: latestPendingTransactions,
+      error: pendingError,
+      mutate: mutateTx
+    } = useRetryableSWR(
       [`latest-pending-transactions`, address, tokenId],
       async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
       {
@@ -275,6 +280,12 @@ const History = memo<HistoryProps>(
         entries={entries ?? []}
         // Under Pending both reads are paused, and one that never ran reports loading until they resume.
         initialLoading={filter !== 'pending' && transactionsLoading}
+        // The list is both reads together, so either failing is a failed load, and Retry re-runs both.
+        loadError={filter !== 'pending' && Boolean(latestError || pendingError)}
+        onRetry={() => {
+          void mutateLatest();
+          void mutateTx();
+        }}
         loadMore={loadMore}
         // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
         // row is filtered out, and off screen.

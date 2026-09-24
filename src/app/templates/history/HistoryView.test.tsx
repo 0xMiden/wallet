@@ -98,18 +98,23 @@ jest.mock('components/ui/EmptyState', () => ({
     title,
     description,
     surface,
-    className
+    className,
+    role,
+    secondaryAction
   }: {
     icon: string;
     title: string;
     description?: string;
     surface?: string;
     className?: string;
+    role?: string;
+    secondaryAction?: { label: string; onClick: () => void };
   }) => (
-    <div data-testid="empty-state" data-classname={className} data-surface={surface}>
+    <div data-testid="empty-state" data-classname={className} data-surface={surface} role={role}>
       <span data-testid="icon" data-name={icon} />
       <h3>{title}</h3>
       {description && <p>{description}</p>}
+      {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
     </div>
   )
 }));
@@ -270,6 +275,30 @@ describe('HistoryView empty state', () => {
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
     expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
     expect(screen.getByTestId('empty-state')).not.toHaveAttribute('data-surface', 'dashed');
+  });
+
+  describe('after a failed load', () => {
+    it.each([
+      ['the default list', {}],
+      ['the centred Activity list', { centerEmptyState: true }],
+      ["one token's full history", { tokenId: 'token-1', fullHistory: true }]
+    ])('says the load failed, with Retry, instead of the empty card, in %s', (_mode, modeProps) => {
+      const onRetry = jest.fn();
+      render(<HistoryView {...baseProps} {...modeProps} entries={[]} loadError onRetry={onRetry} />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('tokenActivityLoadError');
+      expect(screen.queryByText('noOperationsFound')).toBeNull();
+      expect(screen.queryByText('tokenActivityEmptyTitle')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the rows it has', () => {
+      render(<HistoryView {...baseProps} entries={[makeEntry({ key: 'kept' })]} loadError onRetry={jest.fn()} />);
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByTestId('history-item')).toHaveAttribute('data-key', 'kept');
+    });
   });
 
   it('keeps the centred Activity card as it is, even with a token id', () => {

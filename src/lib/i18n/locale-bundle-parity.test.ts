@@ -251,6 +251,21 @@ describe('hand-copied English is queued for translation', () => {
   });
 });
 
+describe('the history load-error string', () => {
+  // A new key reaches every derived bundle, en_GB included: translated, or English queued for DeepL.
+  it.each(DERIVED_LOCALES)('%s carries tokenActivityLoadError, translated or queued', locale => {
+    const entry = loadMessages(locale).tokenActivityLoadError;
+    expect(entry).toBeDefined();
+    expect(entry!.message !== en.tokenActivityLoadError?.message || entry!.englishSource === '(untranslated)').toBe(
+      true
+    );
+  });
+
+  it('covers en_GB, which the runtime list leaves out', () => {
+    expect(DERIVED_LOCALES).toContain('en_GB');
+  });
+});
+
 describe('retired keys', () => {
   // The vault row's TVL line was dropped because the earn API has no TVL; its string goes with it.
   it('no locale bundle carries earnVaultTvl', () => {

@@ -39,6 +39,10 @@ type HistoryViewProps = {
   centerEmptyState?: boolean;
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+  /** A read behind the list failed: with no rows to show, say so instead of "no activity". */
+  loadError?: boolean;
+  /** Re-runs the failed reads; backs the load-error card's Retry. */
+  onRetry?: () => void;
   className?: string;
 };
 
@@ -351,6 +355,8 @@ const HistoryView = memo<HistoryViewProps>(
     centerEmptyState,
     pendingItems,
     renderPendingItem,
+    loadError,
+    onRetry,
     className
   }) => {
     const { t } = useTranslation();
@@ -384,13 +390,30 @@ const HistoryView = memo<HistoryViewProps>(
             <Spinner />
           </div>
         );
+      // A failed read with nothing to show must not read as "no activity": in every empty mode the
+      // card says the load failed and offers Retry instead.
+      const loadErrorCard = loadError ? (
+        <EmptyState
+          role="alert"
+          icon={IconName.ArrowUpDown}
+          surface={tokenId ? 'dashed' : 'fill'}
+          title={t('tokenActivityLoadError')}
+          secondaryAction={
+            onRetry ? { label: t('retry'), onClick: onRetry, 'data-testid': 'history-load-retry' } : undefined
+          }
+          className="w-full"
+          data-testid="history-load-error"
+        />
+      ) : null;
       if (centerEmptyState) {
         // Sits right under the filters, at the same top offset the first date
         // group gets once the list has entries (`pt-4` on the first `dateGroups`
         // row below) — not vertically centered in the remaining tab height.
         return (
           <div className="flex flex-col pt-4">
-            <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            {loadErrorCard ?? (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            )}
           </div>
         );
       }
@@ -399,17 +422,18 @@ const HistoryView = memo<HistoryViewProps>(
         // header, which already spaces it; the summary view keeps its own margin. One token's history
         // is a slot waiting to be filled, so it gets the dashed card and its own copy.
         <div className={classNames('flex flex-col justify-left', !fullHistory && 'm-4')}>
-          {tokenId ? (
-            <EmptyState
-              icon={IconName.ArrowUpDown}
-              surface="dashed"
-              title={t('tokenActivityEmptyTitle')}
-              description={t('tokenActivityEmptyBody')}
-              className="w-full"
-            />
-          ) : (
-            <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
-          )}
+          {loadErrorCard ??
+            (tokenId ? (
+              <EmptyState
+                icon={IconName.ArrowUpDown}
+                surface="dashed"
+                title={t('tokenActivityEmptyTitle')}
+                description={t('tokenActivityEmptyBody')}
+                className="w-full"
+              />
+            ) : (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            ))}
         </div>
       );
     }

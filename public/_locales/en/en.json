@@ -920,6 +920,7 @@
   "recentActivity": "Recent activity",
   "tokenActivityEmptyTitle": "No activity yet",
   "tokenActivityEmptyBody": "Transactions with this token will appear here.",
+  "tokenActivityLoadError": "Couldn't load this activity.",
   "type": "Type",
   "txIdLabel": "Transaction ID",
   "notesSection": "Notes",
