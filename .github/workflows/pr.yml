@@ -269,8 +269,11 @@ jobs:
   # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
   # one ubuntu-latest). Three shards keep billed minutes about the same and cut
   # wall clock under 25m. The required-check name stays on the merge gate.
+  # The shard count is the matrix length: steps and the name read it as
+  # strategy.job-total, and coverage-gate's COVERAGE_SHARDS must match it
+  # (Actions cannot feed an env value into a matrix).
   coverage:
-    name: Coverage shard ${{ matrix.shard }}/3
+    name: Coverage shard ${{ matrix.shard }}/${{ strategy.job-total }}
     needs: translations
     strategy:
       fail-fast: false
@@ -300,23 +303,34 @@ jobs:
         uses: ./.github/actions/yarn-install
 
       # `--json --outputFile` adds the shard's test count (numTotalTests) for the tests badge; Jest keeps its
-      # normal console output on stderr.
+      # normal console output on stderr. Only the count is uploaded: the full results carry absolute paths and
+      # failure text nothing downstream needs.
       - name: Run Coverage shard
-        run: yarn test:coverage --shard=${{ matrix.shard }}/3 --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: |
+          set -euo pipefail
+          yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-shard-${{ matrix.shard }}
           path: |
             coverage/coverage-final.json
-            coverage/jest-results.json
+            coverage/test-count.json
           if-no-files-found: error
+          retention-days: 1
 
   coverage-gate:
     name: Coverage Check (95% minimum)
     needs: coverage
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
+    env:
+      # Must equal the length of the coverage job's matrix.
+      COVERAGE_SHARDS: 3
     steps:
       - name: Check shards
         run: |
@@ -343,21 +357,14 @@ jobs:
           NODE_PATH: ${{ runner.temp }}/covtools/node_modules
         run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
       # The main-branch Badges workflow reads this instead of rerunning the whole suite unsharded (which
-      # outgrew one runner): the merged line coverage and the summed test count of this PR head.
+      # outgrew one runner): the merged line coverage and the summed test count of this PR head. Badge
+      # bookkeeping never fails the gate; a missing artifact only leaves the badges as they were.
       - name: Record badge data
-        run: |
-          set -euo pipefail
-          # shellcheck disable=SC2016 # the JavaScript template literal is meant for node, not the shell
-          node -e '
-            const fs = require("fs");
-            const lines = require("./coverage/coverage-summary.json").total.lines.pct;
-            const tests = [1, 2, 3]
-              .map(n => require(`./coverage-shards/coverage-shard-${n}/jest-results.json`).numTotalTests)
-              .reduce((a, b) => a + b, 0);
-            fs.writeFileSync("badge-data.json", JSON.stringify({ lines, tests }));
-            console.log(`badge data: lines ${lines}%, tests ${tests}`);
-          '
-      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        run: node scripts/badge-data.mjs record "$COVERAGE_SHARDS" coverage/coverage-summary.json coverage-shards badge-data.json
+      - name: Upload badge data
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-badge-data
           path: badge-data.json

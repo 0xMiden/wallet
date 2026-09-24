@@ -14,11 +14,20 @@ on:
   push:
     branches: [main]
 
+# One publish at a time, never cancelled. Each run also checks it is still for
+# the main tip right before it pushes, so a run for a superseded commit skips
+# rather than overwriting newer badges.
+concurrency:
+  group: badges
+  cancel-in-progress: false
+
 permissions:
   contents: write
   actions: read
   pull-requests: read
 
+# Every value that comes from the API or the artifact reaches a script through
+# `env:`, never `${{ }}` inside `run:`.
 jobs:
   coverage-badge:
     name: Publish coverage badge
@@ -33,52 +42,59 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)][0].number // empty')
-          if [ -z "$pr" ]; then
-            echo "::notice::$SHA came from no merged pull request; badges left unchanged"
-            echo "run=" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          head=$(gh api "repos/$REPO/pulls/$pr" --jq '.head.sha')
-          run=""
-          # Newest first. A run counts only if its Coverage Check uploaded the badge data, so a run cut short or a
-          # failed coverage gate is skipped rather than read.
-          for id in $(gh api "repos/$REPO/actions/workflows/pr.yml/runs?head_sha=$head&per_page=20" --jq '.workflow_runs[].id'); do
-            if gh api "repos/$REPO/actions/runs/$id/artifacts" --jq '.artifacts[] | select(.name == "coverage-badge-data" and .expired == false) | .id' | grep -q .; then
-              run=$id; break
-            fi
-          done
-          if [ -z "$run" ]; then
-            echo "::notice::no pr.yml run of #$pr ($head) carries coverage-badge-data; badges left unchanged"
-          else
-            echo "Reading #$pr's coverage from pr.yml run $run"
-          fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
+          out=$(node scripts/badge-source-run.mjs "$REPO" "$SHA")
+          printf '%s\n' "$out" >> "$GITHUB_OUTPUT"
+          case "$out" in
+            *reason=no-pr*) echo "::notice::$SHA came from no merged pull request into main; badges left unchanged" ;;
+            *reason=no-artifact*) echo "::warning::no pr.yml run of the pull request that merged $SHA carries coverage-badge-data; badges left unchanged" ;;
+            *) printf 'Reading coverage from:\n%s\n' "$out" ;;
+          esac
       - name: Download badge data
         if: steps.source.outputs.run != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "${{ steps.source.outputs.run }}" --repo "${{ github.repository }}" --name coverage-badge-data --dir /tmp/badge
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.source.outputs.run }}
+        run: gh run download "$RUN_ID" --repo "$REPO" --name coverage-badge-data --dir "$RUNNER_TEMP/badge"
+      - name: Validate badge data
+        if: steps.source.outputs.run != ''
+        id: data
+        run: node scripts/badge-data.mjs read "$RUNNER_TEMP/badge/badge-data.json" >> "$GITHUB_OUTPUT"
       - name: Compose shields.io endpoint JSON
         if: steps.source.outputs.run != ''
-        id: badge
+        env:
+          PCT: ${{ steps.data.outputs.pct }}
+          COUNT: ${{ steps.data.outputs.count }}
         run: |
           set -euo pipefail
-          pct=$(node -e 'process.stdout.write(Number(require("/tmp/badge/badge-data.json").lines).toFixed(1))')
-          int=$(printf '%.0f' "$pct")
+          int=$(printf '%.0f' "$PCT")
           color=red
           if [ "$int" -ge 80 ]; then color=yellow; fi
           if [ "$int" -ge 90 ]; then color=brightgreen; fi
           if [ "$int" -ge 95 ]; then color=green; fi
-          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > /tmp/coverage.json
-          echo "Line coverage: ${pct}%"
-          echo "pct=${pct}" >> "$GITHUB_OUTPUT"
-
-          count=$(node -e 'process.stdout.write(String(require("/tmp/badge/badge-data.json").tests))')
-          printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$count" > /tmp/tests.json
-          echo "Total tests: ${count}"
-          echo "count=${count}" >> "$GITHUB_OUTPUT"
-      - name: Publish to `badges` branch
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$PCT" "$color" > /tmp/coverage.json
+          echo "Line coverage: ${PCT}%"
+          printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$COUNT" > /tmp/tests.json
+          echo "Total tests: ${COUNT}"
+      - name: Check this is still the main tip
         if: steps.source.outputs.run != ''
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tip=$(node scripts/badge-source-run.mjs --check-tip "$REPO" "$SHA")
+          echo "$tip" >> "$GITHUB_OUTPUT"
+          if [ "$tip" != "tip=true" ]; then
+            echo "::notice::$SHA is no longer the tip of main; the newer push publishes the badges"
+          fi
+      - name: Publish to `badges` branch
+        if: steps.source.outputs.run != '' && steps.tip.outputs.tip == 'true'
+        env:
+          PCT: ${{ steps.data.outputs.pct }}
+          COUNT: ${{ steps.data.outputs.count }}
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
@@ -96,6 +112,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "Badge JSON unchanged"
           else
-            git commit -m "chore: badges -> coverage ${{ steps.badge.outputs.pct }}%, tests ${{ steps.badge.outputs.count }}"
+            git commit -m "chore: badges -> coverage ${PCT}%, tests ${COUNT}"
             git push origin badges
           fi
