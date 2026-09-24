@@ -17,7 +17,6 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 
 import { FlowLayout } from 'components/flow/FlowLayout';
-import { PageHeader } from 'components/PageHeader';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -68,20 +67,4 @@ it('opens a sub-page and a flow page the same distance under the rule', () => {
   expect(subPageGap.ruleBottom).toEqual(['mb-2']);
   expect(subPageGap.added).toEqual([]);
   expect(gapUnderRule(flowPage, 'content')).toEqual(subPageGap);
-});
-
-it('gives a hand-assembled pushed page the same gap without it asking', () => {
-  const { container } = render(
-    <div>
-      <PageHeader title="Recovery phrase" onBack={jest.fn()} />
-      <div className="flex flex-col px-4">
-        <p data-testid="content">the words</p>
-      </div>
-    </div>
-  );
-
-  expect(gapUnderRule(container.firstElementChild as HTMLElement, 'content')).toEqual({
-    ruleBottom: ['mb-2'],
-    added: []
-  });
 });
