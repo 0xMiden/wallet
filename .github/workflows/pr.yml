@@ -361,15 +361,19 @@ jobs:
       # The main-branch Badges workflow reads this instead of rerunning the whole suite unsharded (which
       # outgrew one runner): the merged line coverage and the summed test count of this PR head. Badge
       # bookkeeping never fails the gate; a missing artifact only leaves the badges as they were.
+      # The record goes to the runner temp directory and is uploaded only when this step succeeded, so the
+      # artifact never carries a file the step did not write.
       - name: Record badge data
+        id: badge-data
         continue-on-error: true
-        run: node scripts/badge-data.mjs record "$COVERAGE_SHARDS" coverage/coverage-summary.json coverage-shards badge-data.json
+        run: node scripts/badge-data.mjs record "$COVERAGE_SHARDS" coverage/coverage-summary.json coverage-shards "$RUNNER_TEMP/badge-data.json"
       - name: Upload badge data
+        if: steps.badge-data.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: coverage-badge-data
-          path: badge-data.json
+          path: ${{ runner.temp }}/badge-data.json
           if-no-files-found: error
 
   i18n-check:

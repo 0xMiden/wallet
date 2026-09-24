@@ -140,7 +140,7 @@ function stepBlocks(text: string): string[] {
       blocks.push(current.join('\n'));
       current = null;
     }
-    if (!current && start && /^\s*- (name|uses|run|id):/.test(line)) {
+    if (!current && start && /^\s*- [\w-]+:/.test(line)) {
       current = [];
       indent = start[1]!.length;
     }
@@ -207,6 +207,77 @@ describe('badge workflows', () => {
     expect(publish).toBeDefined();
     expect(publish).toContain('--check-source');
     expect(publish).toMatch(/status=diverged\*?\)[^\n]*::notice::/);
+    expect(publish).toMatch(/^\s*printf '\{"sha":"%s"\}\\n' "\$SHA" > source\.json$/m);
     expect(publish).toMatch(/git add coverage\.json tests\.json source\.json$/m);
+  });
+
+  it('coverage-badge.yml runs one publish at a time and never cancels one', () => {
+    expect(workflowText('coverage-badge.yml')).toMatch(
+      /^concurrency:\n {2}group: badges\n {2}cancel-in-progress: false$/m
+    );
+  });
+
+  // Every exit before the verdict line would also skip, so the order is what makes the skip unconditional.
+  it('coverage-badge.yml reduces the source check to one verdict and exits unless it is true, before any checkout or push', () => {
+    const publish = runScripts(workflowText('coverage-badge.yml')).find(b => b.includes('--check-source'));
+    expect(publish).toBeDefined();
+    const lines = publish!.split('\n').map(l => l.trim());
+    const verdict = lines.findIndex(l => l === `verdict=$(printf '%s\\n' "$check" | sed -n 's/^publish=//p')`);
+    const gate = lines.indexOf('if [ "$verdict" != true ]; then');
+    const close = lines.findIndex((l, i) => i > gate && l === 'fi');
+    const firstGit = lines.findIndex(l => /\bgit (checkout|push|commit)\b/.test(l));
+
+    expect(lines.filter(l => l.includes('publish='))).toHaveLength(1);
+    expect(verdict).toBeGreaterThan(-1);
+    expect(gate).toBe(verdict + 1);
+    expect(lines.slice(gate, close)).toContain('exit 0');
+    expect(close).toBeLessThan(firstGit);
+  });
+
+  it.each([
+    ['Find the pull request', 'badge-source-run.mjs "$REPO" "$SHA"'],
+    ['Publish', 'badge-source-run.mjs --check-source "$REPO" "$SHA"']
+  ])('coverage-badge.yml %s step turns an API failure into a warning with no publish', (name, call) => {
+    const body = runScripts(workflowText('coverage-badge.yml')).find(b => b.includes(call));
+    expect(body).toBeDefined();
+    const lines = body!.split('\n').map(l => l.trim());
+    const invoke = lines.findIndex(l => l.includes(call));
+    const warn = lines.findIndex(l => /^if \[ "\$rc" -eq 1 \]; then echo "::warning::[^"]+"; exit 0; fi$/.test(l));
+    const other = lines.indexOf('if [ "$rc" -ne 0 ]; then exit "$rc"; fi');
+    const output = lines.findIndex(l => l.includes('$GITHUB_OUTPUT') || l.includes('verdict='));
+
+    expect(lines[invoke]).toMatch(/\) \|\| rc=\$\?$/);
+    expect(lines[invoke - 1]).toBe('rc=0');
+    expect(warn).toBe(invoke + 1);
+    expect(other).toBe(invoke + 2);
+    expect(output).toBeGreaterThan(other);
+  });
+
+  it('pr.yml uploads only the badge data this run recorded, from the runner temp directory', () => {
+    const steps = stepBlocks(jobText('pr.yml', 'coverage-gate'));
+    const record = steps.find(b => /name: Record badge data$/m.test(b));
+    const upload = steps.find(b => /name: Upload badge data$/m.test(b));
+
+    expect(record).toMatch(/^\s*id: badge-data$/m);
+    expect(record).toMatch(/ "\$RUNNER_TEMP\/badge-data\.json"$/m);
+    expect(upload).toMatch(/^\s*if: steps\.badge-data\.outcome == 'success'$/m);
+    expect(upload).toMatch(/^\s*path: \$\{\{ runner\.temp \}\}\/badge-data\.json$/m);
+  });
+
+  it('the step reader opens a step on any key, so a step led by if: is checked too', () => {
+    const expr = ['$', '{{ github.sha }}'].join('');
+    const text = [
+      '    steps:',
+      '      - if: always()',
+      `        run: echo ${expr}`,
+      '      - env:',
+      '          A: b',
+      '        run: echo ok',
+      '      - name: last',
+      '        run: echo done'
+    ].join('\n');
+
+    expect(stepBlocks(text)).toHaveLength(3);
+    expect(runScripts(text)).toEqual([`        run: echo ${expr}`, '        run: echo ok', '        run: echo done']);
   });
 });

@@ -14,11 +14,14 @@ on:
   push:
     branches: [main]
 
-# One publish at a time, never cancelled, so reading the badges branch's
-# source.json, comparing and pushing never interleave. source.json records the
-# main commit the badges came from; a run publishes only when its commit is
-# ahead of that one, so a run for an older commit that finishes last skips
-# rather than overwriting newer badges.
+# One run at a time and none cancelled once started, so reading the badges
+# branch's source.json, comparing and pushing never interleave. Actions keeps
+# at most one more run pending: a newer push replaces a pending run, which then
+# never runs, so if the run that survives skips (no pull request or no
+# artifact), the badges stay as they are until the next push whose pull request
+# carries badge data. source.json records the main commit the badges came from,
+# and a run publishes only when its commit is ahead of that one, so a rerun for
+# an older commit skips rather than overwriting newer badges.
 concurrency:
   group: badges
   cancel-in-progress: false
@@ -44,7 +47,11 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          out=$(node scripts/badge-source-run.mjs "$REPO" "$SHA")
+          # Exit 1 is an API failure: warn and leave the badges. Any other failure (2 is usage) fails the job.
+          rc=0
+          out=$(node scripts/badge-source-run.mjs "$REPO" "$SHA") || rc=$?
+          if [ "$rc" -eq 1 ]; then echo "::warning::could not look up the coverage run for $SHA; badges left unchanged"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           printf '%s\n' "$out" >> "$GITHUB_OUTPUT"
           case "$out" in
             *reason=no-pr*) echo "::notice::$SHA came from no merged pull request into main; badges left unchanged" ;;
@@ -97,12 +104,18 @@ jobs:
             git show FETCH_HEAD:source.json > "$BADGE_SOURCE_FILE" 2> /dev/null || rm -f "$BADGE_SOURCE_FILE"
           fi
           # Run from main's checkout: the badges branch holds no scripts.
-          check=$(node scripts/badge-source-run.mjs --check-source "$REPO" "$SHA")
-          case "$check" in
-            *publish=true*) ;;
-            *status=diverged*) echo "::notice::$SHA and the commit the badges came from have diverged; badges left unchanged"; exit 0 ;;
-            *) echo "::notice::the badges already come from $SHA or a newer main commit; left unchanged"; exit 0 ;;
-          esac
+          rc=0
+          check=$(node scripts/badge-source-run.mjs --check-source "$REPO" "$SHA") || rc=$?
+          if [ "$rc" -eq 1 ]; then echo "::warning::could not compare $SHA with the commit the badges came from; badges left unchanged"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          verdict=$(printf '%s\n' "$check" | sed -n 's/^publish=//p')
+          if [ "$verdict" != true ]; then
+            case "$check" in
+              *status=diverged*) echo "::notice::$SHA and the commit the badges came from have diverged; badges left unchanged" ;;
+              *) echo "::notice::the badges already come from $SHA or a newer main commit; left unchanged" ;;
+            esac
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ "$has_badges" = true ]; then
