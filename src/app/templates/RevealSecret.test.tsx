@@ -339,6 +339,17 @@ describe('RevealSecret', () => {
     expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });
 
+  it('falls back to the password step-up when the protector check rejects', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('probe failed'));
+    const container = await renderReveal('private-key');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('input[name="password"]')).not.toBeNull();
+    expect(buttonWithText(container, 'continue')).toBeTruthy();
+  });
+
   it('renders the seed-phrase reveal (no account banner) without crashing', async () => {
     const container = await renderReveal('seed-phrase');
     expect(container.textContent).not.toContain('My Test Account');

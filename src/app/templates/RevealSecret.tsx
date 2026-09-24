@@ -104,7 +104,10 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
 
   useEffect(() => {
-    Vault.hasHardwareProtector().then(setHasHardwareProtector);
+    // A rejected probe falls back to the password step-up, as ExportAccountFile does.
+    Vault.hasHardwareProtector()
+      .then(setHasHardwareProtector)
+      .catch(() => setHasHardwareProtector(false));
   }, []);
 
   useEffect(() => {

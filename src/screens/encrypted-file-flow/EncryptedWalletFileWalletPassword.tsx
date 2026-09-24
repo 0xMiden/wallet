@@ -71,7 +71,11 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
 
   useEffect(() => {
-    Vault.hasHardwareProtector().then(setHasHardwareProtector);
+    // This step draws the flow's only header and renders null until the probe settles, so a
+    // rejection falls back to the password step-up rather than leaving a blank page with no way back.
+    Vault.hasHardwareProtector()
+      .then(setHasHardwareProtector)
+      .catch(() => setHasHardwareProtector(false));
   }, []);
 
   const onSubmit = useCallback(

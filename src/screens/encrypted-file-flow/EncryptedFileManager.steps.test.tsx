@@ -25,6 +25,7 @@ import { EncryptedFileFlow } from './EncryptedFileManager';
 const mockUnlock = jest.fn();
 let mockIsMobile = false;
 let mockHasHardwareProtector = false;
+let mockProbeRejects = false;
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -86,7 +87,10 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => Promise.resolve(mockHasHardwareProtector) }
+  Vault: {
+    hasHardwareProtector: () =>
+      mockProbeRejects ? Promise.reject(new Error('probe failed')) : Promise.resolve(mockHasHardwareProtector)
+  }
 }));
 
 jest.mock('lib/miden/front', () => {
@@ -131,6 +135,7 @@ beforeEach(() => {
   mockUnlock.mockResolvedValue(undefined);
   mockIsMobile = false;
   mockHasHardwareProtector = false;
+  mockProbeRejects = false;
 });
 
 describe('EncryptedFileFlow step containment', () => {
@@ -186,6 +191,19 @@ describe('EncryptedFileFlow step containment', () => {
       target: { value: FILE_PASSWORD }
     });
     await waitFor(() => expect(submit).toBeEnabled());
+  });
+});
+
+// The step is the flow's only header now, so a probe that rejects must not leave it rendering null.
+describe('EncryptedFileFlow when the hardware probe rejects', () => {
+  it('falls back to the password step, with its title, back and field', async () => {
+    mockProbeRejects = true;
+    render(<EncryptedFileFlow />);
+
+    const unlockStep = await within(flowRoot()).findByTestId('encrypted-file-wallet-password');
+    expect(within(unlockStep).getByRole('heading', { level: 1, name: 'encryptedWalletFile' })).toBeInTheDocument();
+    expect(within(unlockStep).getByRole('button', { name: 'back' })).toBeInTheDocument();
+    expect(within(unlockStep).getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
   });
 });
 
