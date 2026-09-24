@@ -1,21 +1,23 @@
 import { useEffect, useState } from 'react';
 
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
+import { useClaimCheckInvalidNoteIds } from 'app/hooks/useClaimNotes';
 import { historyEntryUnreadKey, pendingNoteUnreadKey } from 'app/templates/history/activityUnread';
+import { suppressLinkedConsumes } from 'app/templates/history/History';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
+import { getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { useManuallyClaimableNotes } from 'lib/miden/front/auto-managed-notes';
-import * as Repo from 'lib/miden/repo';
 import { isActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 
 /**
- * How far back the tab's indicator looks.
+ * How many of the account's completed and failed rows count.
  *
- * It does not need the whole history. Once the newest `RECENT_ROWS` rows are read, anything older
- * is read too in every case that matters: the read state collapses old reads into a high-water
- * mark, and a user who has opened the last fifty things has been down the list. Re-reading the
- * whole table on every write, to decide whether to draw a dot, would not be worth it.
+ * It bounds what counts, not what is read: the rows are read whole through History's own loaders.
+ * Once the newest `RECENT_ROWS` of them are read, anything older is read too in every case that
+ * matters: the read state collapses old reads into a high-water mark, and a user who has opened
+ * the last fifty things has been down the list. Every in-flight row counts regardless.
  */
 const RECENT_ROWS = 50;
 
@@ -24,28 +26,26 @@ interface RecentRow {
   timestamp: number;
 }
 
+const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
+  id: historyEntryUnreadKey({ key: row.id, txId: row.id }),
+  timestamp
+});
+
 /**
- * The newest rows by both stamps. A queued transaction has no `completedAt` at all, so an index
- * scan on that alone would never see the rows most likely to be unread.
+ * The rows History shows for `address`, through the same loaders and the same settlement-consume
+ * suppression, so the tab never counts a row the feed does not show. Each is stamped the way
+ * History dates it, so the two agree about which side of the high-water mark it falls on.
  */
-async function readRecentRows(): Promise<RecentRow[]> {
-  const [byCompleted, byInitiated] = await Promise.all([
-    Repo.transactions.orderBy('completedAt').reverse().limit(RECENT_ROWS).toArray(),
-    Repo.transactions.orderBy('initiatedAt').reverse().limit(RECENT_ROWS).toArray()
+async function readRecentRows(address: string): Promise<RecentRow[]> {
+  const [uncompleted, completed] = await Promise.all([
+    getUncompletedTransactions(address).then(suppressLinkedConsumes),
+    getCompletedTransactions(address, undefined, undefined, true).then(suppressLinkedConsumes)
   ]);
-  const rows = new Map<string, ITransaction>();
-  for (const row of [...byCompleted, ...byInitiated]) rows.set(row.id, row);
-  return (
-    [...rows.values()]
-      // The same stamp `History` dates the row by, so the tab and the feed agree about which side
-      // of the high-water mark a transaction falls on.
-      .map(row => ({
-        id: historyEntryUnreadKey({ key: row.id, txId: row.id }),
-        timestamp: row.completedAt ?? row.initiatedAt
-      }))
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, RECENT_ROWS)
-  );
+  return [
+    ...uncompleted.map(row => toRecentRow(row, row.initiatedAt)),
+    // Ascending, so the newest are at the end.
+    ...completed.slice(-RECENT_ROWS).map(row => toRecentRow(row, row.completedAt ?? row.initiatedAt))
+  ];
 }
 
 /**
@@ -60,27 +60,30 @@ async function readRecentRows(): Promise<RecentRow[]> {
  * row is read.
  */
 export function useHasUnreadActivity(): boolean {
-  const account = useAccount();
-  const { data: claimableNotes } = useManuallyClaimableNotes(account.publicKey);
-  const hiddenNotes = useActivityHiddenNotes(account.publicKey);
+  const address = useAccount().publicKey;
+  const { data: claimableNotes } = useManuallyClaimableNotes(address);
+  const hiddenNotes = useActivityHiddenNotes(address);
+  const unavailableNotes = useClaimCheckInvalidNoteIds(address);
   const readState = useActivityReadState();
   const [recent, setRecent] = useState<RecentRow[]>([]);
 
   useEffect(
     () =>
-      subscribeToLiveQuery(readRecentRows, {
+      subscribeToLiveQuery(() => readRecentRows(address), {
         next: setRecent,
         error: error => console.warn('[activity] Could not read recent transactions', error)
       }),
-    []
+    [address]
   );
 
   // A DECLINED transfer is not waiting for anything, so it marks nothing unread. Declining marks
   // it read as it happens, but a transfer declined by a build that had no read state at all would
-  // otherwise keep the tab lit forever; the hidden set is the authority either way.
+  // otherwise keep the tab lit forever; the hidden set is the authority either way. A transfer
+  // Activity's check has found unavailable cannot be accepted, so it waits for nothing either.
   const unreadTransfer = (claimableNotes ?? []).some(
     note =>
       !hiddenNotes.ids.has(note.id) &&
+      !unavailableNotes.has(note.id) &&
       !isActivityRead(readState, pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN)
   );
   if (unreadTransfer) return true;

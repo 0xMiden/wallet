@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-import { useClaimNotes } from './useClaimNotes';
+import { __resetClaimChecksForTest, useClaimCheckInvalidNoteIds, useClaimNotes } from './useClaimNotes';
 
 // --- Mocked collaborators -------------------------------------------------
 // useClaimNotes fans out to the claimable-notes query, the failed-transaction
@@ -199,4 +199,119 @@ describe('useClaimNotes failed-note check (#456)', () => {
   // The batch claimer that used to live here — Claim All and the per-asset group claim — went
   // with the "Pending notes" pages it belonged to. The one bulk action left is the Activity
   // Pending list's Accept All, covered by `useActivityClaims`.
+});
+
+describe('useClaimNotes publishes its invalid set per account', () => {
+  const allInvalid = (request: { ids: string[] }) => request.ids.map(noteId => ({ noteId, state: 'Invalid' }));
+
+  /** The published set for `account`, read the way the tab's unread hook reads it. */
+  function readStore(account: string) {
+    return renderHook(() => useClaimCheckInvalidNoteIds(account)).result;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Reset, not just cleared: a run a failing case never started would leave its queued gate
+    // for the next case's first call.
+    mockGetFailedTransactions.mockReset();
+    mockGetInputNoteDetails.mockReset();
+    __resetClaimChecksForTest();
+    mockUseAccount.mockReturnValue({ publicKey: 'A' });
+    mockGetFailedTransactions.mockResolvedValue([]);
+    mockGetInputNoteDetails.mockResolvedValue([]);
+    setNotes('a');
+  });
+
+  afterAll(() => {
+    mockUseAccount.mockReturnValue({ publicKey: 'mtst1account' });
+  });
+
+  it('publishes a finished check under the account that started it', async () => {
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    renderHook(() => useClaimNotes());
+
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    expect(storeB.current.size).toBe(0);
+  });
+
+  it('keeps each account right when B resolves before A after a switch', async () => {
+    const gateA = deferred<unknown[]>();
+    const gateB = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gateA.promise).mockReturnValueOnce(gateB.promise);
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    const { rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+
+    mockUseAccount.mockReturnValue({ publicKey: 'B' });
+    setNotes('b');
+    rerender();
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
+
+    await act(async () => gateB.resolve([]));
+    await waitFor(() => expect([...storeB.current]).toEqual(['b']));
+    await act(async () => gateA.resolve([]));
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    expect([...storeB.current]).toEqual(['b']);
+  });
+
+  it('does not let an older run of one account overwrite the newer set', async () => {
+    const first = deferred<unknown[]>();
+    const second = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    // Whichever run reaches the note-state read first (the newer one) sees the note invalid.
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ noteId: 'a', state: 'Invalid' }]).mockResolvedValueOnce([]);
+    const storeA = readStore('A');
+    renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
+
+    await act(async () => second.resolve([]));
+    await waitFor(() => expect([...storeA.current]).toEqual(['a']));
+    await act(async () => first.resolve([]));
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(2));
+    expect([...storeA.current]).toEqual(['a']);
+  });
+
+  it("starts B's own run on a switch with identical claimable ids and no focus", async () => {
+    const gateA = deferred<unknown[]>();
+    const gateB = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gateA.promise).mockReturnValueOnce(gateB.promise);
+    // B resolves first and reads the note invalid; A's read afterwards finds it fine.
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ noteId: 'a', state: 'Invalid' }]).mockResolvedValueOnce([]);
+    const storeA = readStore('A');
+    const storeB = readStore('B');
+    const { rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+
+    mockUseAccount.mockReturnValue({ publicKey: 'B' });
+    rerender();
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
+
+    await act(async () => gateB.resolve([]));
+    await waitFor(() => expect([...storeB.current]).toEqual(['a']));
+    await act(async () => gateA.resolve([]));
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(2));
+    expect(storeA.current.size).toBe(0);
+    expect([...storeB.current]).toEqual(['a']);
+  });
+
+  it('re-renders a reader mounted before the publish', async () => {
+    const gate = deferred<unknown[]>();
+    mockGetFailedTransactions.mockReturnValueOnce(gate.promise);
+    mockGetInputNoteDetails.mockImplementation(allInvalid);
+    const storeA = readStore('A');
+    renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(1));
+    expect(storeA.current.size).toBe(0);
+
+    await act(async () => gate.resolve([]));
+    await waitFor(() => expect(storeA.current.has('a')).toBe(true));
+  });
 });

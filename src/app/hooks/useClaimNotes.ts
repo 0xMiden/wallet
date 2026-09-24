@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
@@ -22,6 +22,39 @@ export interface ClaimNotesState {
   /** Notes the node/client reports as terminally Invalid — a retry cannot help. */
   invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
+}
+
+const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
+/** The last published invalid set per account, read by the tab's unread mark. */
+const publishedInvalid = new Map<string, ReadonlySet<string>>();
+/** Each account's newest check, so an older run that resolves late cannot overwrite it. */
+const latestRun = new Map<string, number>();
+let runCounter = 0;
+const listeners = new Set<() => void>();
+
+function subscribeClaimChecks(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function publishInvalid(accountId: string, run: number, ids: ReadonlySet<string>) {
+  if (latestRun.get(accountId) !== run) return;
+  publishedInvalid.set(accountId, ids);
+  listeners.forEach(listener => listener());
+}
+
+/**
+ * The notes the claim check last found terminally Invalid for `accountId`. Empty until a check has
+ * run for that account, so nothing is skipped before one has.
+ */
+export function useClaimCheckInvalidNoteIds(accountId: string): ReadonlySet<string> {
+  return useSyncExternalStore(subscribeClaimChecks, () => publishedInvalid.get(accountId) ?? EMPTY_IDS);
+}
+
+export function __resetClaimChecksForTest(): void {
+  publishedInvalid.clear();
+  latestRun.clear();
+  listeners.forEach(listener => listener());
 }
 
 /**
@@ -78,6 +111,8 @@ export function useClaimNotes(): ClaimNotesState {
   // (focus / visibility handlers) without re-subscribing them every render.
   const safeClaimableNotesRef = useRef(safeClaimableNotes);
   safeClaimableNotesRef.current = safeClaimableNotes;
+  const addressRef = useRef(address);
+  addressRef.current = address;
 
   // Check for failed/unavailable notes from both local IndexedDB (retriable —
   // a failed consume that a retry can recover) and node/client state (terminal
@@ -90,11 +125,17 @@ export function useClaimNotes(): ClaimNotesState {
   // background re-run stays silent. No polling interval is added.
   const runFailedNotesCheck = useCallback(async (showSpinner: boolean) => {
     const notes = safeClaimableNotesRef.current;
+    // Captured at the start: the account may switch while this run awaits, and its result belongs
+    // to the account whose notes it checked.
+    const accountId = addressRef.current;
+    const run = ++runCounter;
+    latestRun.set(accountId, run);
     if (notes.length === 0) {
       // Nothing claimable: drop any stale flags so old badges don't linger.
       locallyFailedNoteIdsRef.current = new Set();
       setRetriableNoteIds(new Set());
       setInvalidNoteIds(new Set());
+      publishInvalid(accountId, run, EMPTY_IDS);
       return;
     }
 
@@ -163,16 +204,19 @@ export function useClaimNotes(): ClaimNotesState {
 
       // REPLACE (not union), scoped to the ids still claimable right now. A note
       // reported Invalid is terminal and takes precedence over a retriable flag.
-      setInvalidNoteIds(new Set([...invalidIds].filter(id => claimableNoteIds.has(id))));
+      const scopedInvalidIds = new Set([...invalidIds].filter(id => claimableNoteIds.has(id)));
+      setInvalidNoteIds(scopedInvalidIds);
+      publishInvalid(accountId, run, scopedInvalidIds);
       setRetriableNoteIds(new Set([...retriableIds].filter(id => claimableNoteIds.has(id) && !invalidIds.has(id))));
     } finally {
       if (showSpinner) setCheckingNoteIds(new Set());
     }
   }, []);
 
-  // Primary re-run trigger: the claimable-id signature changing (notes added,
-  // removed, or claimed away). The first check with notes present shows the
-  // spinner; later signature changes re-check silently.
+  // Primary re-run triggers: the claimable-id signature changing (notes added,
+  // removed, or claimed away), and the account, which can switch to one with the
+  // same ids. The first check with notes present shows the spinner; later
+  // re-checks run silently.
   const claimableSignature = useMemo(
     () =>
       safeClaimableNotes
@@ -187,7 +231,7 @@ export function useClaimNotes(): ClaimNotesState {
     const showSpinner = !hasShownInitialSpinner.current && safeClaimableNotesRef.current.length > 0;
     if (showSpinner) hasShownInitialSpinner.current = true;
     runFailedNotesCheck(showSpinner);
-  }, [claimableSignature, runFailedNotesCheck]);
+  }, [address, claimableSignature, runFailedNotesCheck]);
 
   // Also re-check when the user returns to the tab: a consume may have failed
   // (or a note gone terminal) while the page was backgrounded. Never shows the

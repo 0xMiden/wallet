@@ -532,9 +532,11 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * to a normal receive row. Shared by the completed and pending fetches so the
  * two lists can't desynchronize. Token-scoped views stay complete because the
  * token filter (`matchesTokenId` in `lib/miden/transaction/get.ts`) surfaces
- * the swap row on its requested-token page too.
+ * the swap row on its requested-token page too. The tab's unread mark
+ * (`useHasUnreadActivity`) reads through it as well, so it never counts a row
+ * this feed hides.
  */
-async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
   const suppressed = await suppressedLinkedConsumeIds(transactions);
   return transactions.filter(tx => !suppressed.has(tx.id));
 }
