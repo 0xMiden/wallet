@@ -129,8 +129,10 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               </span>
               {token && (
                 <span className="text-sm text-text-muted" data-testid="send-amount-available">
+                  {/* Keyed by token: a different token lands its balance, not a count from the last one. */}
                   {scaleIsKnown ? (
                     <AnimatedNumber
+                      key={token.id}
                       value={token.balance}
                       format={value => `${t('available')} ${balanceFormatterFor(token.balance)(value)}`}
                     />

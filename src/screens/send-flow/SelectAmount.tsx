@@ -210,8 +210,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           {/* Same guessed scale as the amount above — quoting a spendable
               balance from it would be inviting the user to act on a number the
               wallet cannot stand behind. */}
+          {/* Keyed by token, so a different token lands its own balance instead of counting from the
+              last token's; a new balance for the same token still counts. */}
           {scaleIsKnown ? (
             <AnimatedNumber
+              key={token.id}
               value={token.balance}
               format={value => `${t('available')} ${balanceFormatterFor(token.balance)(value)} ${token.name}`}
             />
@@ -223,6 +226,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
         {scaleIsKnown && token.fiatPrice > 0 && (
           <AnimatedNumber
+            key={token.id}
             className="font-heading text-gray text-base font-bold"
             value={availableFiat}
             format={value => t('approxFiatValue', { value: `$${formatAvailableFiat(value)}` })}

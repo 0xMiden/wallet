@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { SendAmount, SendAmountProps } from './SendAmount';
 
@@ -170,5 +170,66 @@ describe('SendAmount', () => {
     expect(footer?.className).toContain('var(--keyboard-height,0px)');
     expect(footer?.className).not.toContain('pb-4');
     expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+  });
+
+  describe('an Available figure that changes', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    const available = () => screen.getByTestId('send-amount-available').textContent ?? '';
+    const amountOf = (text: string) => Number(text.replace(/[^\d.]/g, ''));
+
+    /** The line right after the change, and every text it shows until the count is done. */
+    const change = async (from: typeof TOKEN, to: typeof TOKEN) => {
+      const props: SendAmountProps = {
+        amount: '',
+        isValidAmount: false,
+        recipientAddress: 'mtst1recipientaddress',
+        network: 'miden',
+        onAmountChange: jest.fn(),
+        onSelectToken: jest.fn(),
+        onReceive: jest.fn(),
+        onBack: jest.fn(),
+        onConfirm: jest.fn()
+      };
+      const { rerender } = render(<SendAmount {...props} token={from} />);
+      const line = screen.getByTestId('send-amount-available');
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(available()));
+      observer.observe(line, { characterData: true, childList: true, subtree: true });
+
+      rerender(<SendAmount {...props} token={to} />);
+      const first = available();
+      frames.push(first);
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+      frames.push(available());
+      return { first, frames };
+    };
+
+    const TOKEN_A = { ...TOKEN, id: 'a', balance: 12000 };
+
+    it("lands on the new token's Available balance instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, { ...TOKEN, id: 'b', name: 'ETH', balance: 0.25 });
+
+      expect(first).toBe('available 0.25');
+      expect(frames.filter(frame => amountOf(frame) > 0.25)).toEqual([]);
+    });
+
+    it('still counts the Available balance when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame) > 12000 && amountOf(frame) < 15000)).toBe(true);
+      expect(frames[frames.length - 1]).toBe('available 15000');
+    });
   });
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -518,6 +518,82 @@ describe('SelectAmount', () => {
     it('expands past 4dp rather than rounding a dust balance to zero', () => {
       renderComponent({ token: baseToken({ balance: 0.00001234, fiatPrice: 0.2 }) });
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
+    });
+  });
+
+  describe('an Available figure that changes', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    type Figures = { available: string; fiat: string };
+    const figures = (): Figures => {
+      const [available, fiat] = Array.from(screen.getByTestId('ai-helper').querySelectorAll('.tabular-nums'));
+      return { available: available?.textContent ?? '', fiat: fiat?.textContent ?? '' };
+    };
+    const amountOf = (text: string) => Number(text.replace(/[^\d.]/g, ''));
+
+    /** The figures right after the change, and every figure shown until the count is done. */
+    const change = async (from: UIToken, to: UIToken) => {
+      const props: SelectAmountProps = {
+        amount: '10',
+        isValidAmount: true,
+        onAmountChange: jest.fn(),
+        onSelectToken: jest.fn(),
+        onConfirm: jest.fn()
+      };
+      const { rerender } = render(<SelectAmount {...props} token={from} />);
+      const helper = screen.getByTestId('ai-helper');
+      const frames: Figures[] = [];
+      const observer = new MutationObserver(() => frames.push(figures()));
+      observer.observe(helper, { characterData: true, childList: true, subtree: true });
+
+      rerender(<SelectAmount {...props} token={to} />);
+      const first = figures();
+      frames.push(first);
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+      frames.push(figures());
+      return { first, frames };
+    };
+
+    const TOKEN_A = baseToken({ id: 'a', name: 'USDC', balance: 12000, fiatPrice: 0.2 });
+    const TOKEN_B = baseToken({ id: 'b', name: 'ETH', balance: 0.25, fiatPrice: 2 });
+
+    it("lands on the new token's Available balance instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, TOKEN_B);
+
+      expect(first.available).toBe('available 0.25 ETH');
+      expect(frames.filter(frame => amountOf(frame.available) > 0.25)).toEqual([]);
+    });
+
+    it("lands on the new token's fiat value instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, TOKEN_B);
+
+      expect(amountOf(first.fiat)).toBe(0.5);
+      expect(frames.filter(frame => amountOf(frame.fiat) > 0.5)).toEqual([]);
+    });
+
+    it('still counts the Available balance when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame.available) > 12000 && amountOf(frame.available) < 15000)).toBe(true);
+      expect(frames[frames.length - 1]?.available).toBe('available 15000 USDC');
+    });
+
+    it('still counts the fiat value when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame.fiat) > 2400 && amountOf(frame.fiat) < 3000)).toBe(true);
+      expect(amountOf(frames[frames.length - 1]?.fiat ?? '')).toBe(3000);
     });
   });
 });
