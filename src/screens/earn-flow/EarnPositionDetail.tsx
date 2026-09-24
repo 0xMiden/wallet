@@ -163,7 +163,12 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
         valueClassName="text-status-positive"
         className="px-2"
       />
-      <MetricCard label="APY" value={position.apy} valueClassName="text-status-positive" className="px-2" />
+      <MetricCard
+        label={t('earnApyLabel')}
+        value={position.apy}
+        valueClassName="text-status-positive"
+        className="px-2"
+      />
       <MetricCard
         label={t('earnMetricDailyAvg')}
         value={position.dailyAverage}

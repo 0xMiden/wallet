@@ -243,7 +243,8 @@ describe('EarnPositionDetail', () => {
     expect(byLabel('earnMetricDeposited')).toHaveTextContent('$2,000.00');
     expect(byLabel('earnMetricTotalEarned')).toHaveTextContent('+$99.00');
     expect(byLabel('earnMetricTotalEarned')).toHaveAttribute('data-valueclass', 'text-status-positive');
-    expect(byLabel('APY')).toHaveTextContent('9.99%');
+    // The APY label goes through t() like its neighbours, so it is translated with them.
+    expect(byLabel('earnApyLabel')).toHaveTextContent('9.99%');
     expect(byLabel('earnMetricDailyAvg')).toHaveTextContent('+$1.11');
     expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
     expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
@@ -304,7 +305,7 @@ describe('EarnPositionDetail', () => {
     const cards = screen.getAllByTestId('metric-card');
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
     expect(byLabel('earnMetricDeposited')).toHaveTextContent('—');
-    expect(byLabel('APY')).toHaveTextContent('—');
+    expect(byLabel('earnApyLabel')).toHaveTextContent('—');
 
     expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
