@@ -222,6 +222,21 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  it("paints a bridge-in claim's arrow with the bridge slate its Activity row wears", async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 7n,
+        faucetId: 'faucet-1',
+        secondaryAccountId: 'bridge',
+        extraInputs: { bridgeIn: { provider: 'agglayer' } }
+      })
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe('#777487');
+    act(() => root.unmount());
+  });
+
   // Before discovery lands the wallet cannot tell a faucet mint from any other claim, so it
   // reads as the ordinary one rather than guessing the rose.
   it('leaves a claim green while the native faucet id is still unknown', async () => {

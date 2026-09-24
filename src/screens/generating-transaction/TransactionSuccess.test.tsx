@@ -242,6 +242,27 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it("paints a bridge-in claim's receipt arrow with the bridge slate", async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 5n,
+          faucetId: 'faucet-1',
+          secondaryAccountId: 'bridge',
+          extraInputs: { bridgeIn: { provider: 'agglayer' } }
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.querySelector('rect')?.style.fill).toBe('#777487');
+
+    act(() => root.unmount());
+  });
+
   // This receipt REPLACES the in-progress summary badge on the same screen a
   // second later. Resolving its amount from the scalar `amount`/`faucetId` pair
   // made the displayed total shrink at the moment of success — "20 AAA,

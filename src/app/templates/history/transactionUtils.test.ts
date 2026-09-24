@@ -12,6 +12,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  claimAccentColor,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   fontColorForType,
@@ -303,6 +304,31 @@ describe('isFaucetMintTransaction', () => {
   it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
     const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
     expect(isFaucetMintTransaction(transaction, null)).toBe(false);
+  });
+});
+
+describe('claimAccentColor', () => {
+  const bridgeIn = { bridgeIn: { provider: 'agglayer' } };
+
+  // Activity and the detail page slate every bridge-in row, so its claim arrow does too.
+  it('gives a bridge-in claim the bridge slate', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'bridged',
+      secondaryAccountId: 'bridge',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
+  });
+
+  it('puts the bridge slate ahead of the faucet rose', () => {
+    const transaction: any = {
+      type: 'consume',
+      faucetId: 'native',
+      secondaryAccountId: 'native',
+      extraInputs: bridgeIn
+    };
+    expect(claimAccentColor(transaction, 'native')).toBe('#777487');
   });
 });
 

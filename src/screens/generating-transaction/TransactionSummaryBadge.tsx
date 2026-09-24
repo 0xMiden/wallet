@@ -307,7 +307,7 @@ export const useTransactionSummaryBadgeContent = (
         lhs: parts.join(', '),
         rhs: t('consumed', { defaultValue: 'Consumed' }),
         // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
-        // dusty rose on this very page, and the arrow used to sit green underneath it.
+        // dusty rose on this very page (a bridge-in's the slate), and the arrow sat green under it.
         fillForArrow: claimAccentColor(transaction, nativeFaucetId)
       };
     }

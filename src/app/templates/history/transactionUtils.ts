@@ -345,17 +345,20 @@ export const isFaucetMintTransaction = (
 
 /**
  * The accent a claim wears: the colour `getTransactionIconBackgroundColor` paints that same
- * claim's glyph with, in Activity and on its detail page. A faucet mint takes the dusty rose;
- * every other claim is money arriving from someone, in the received green.
+ * claim's glyph with, in Activity and on its detail page. A bridge-in claim takes the bridge
+ * slate, a faucet mint the dusty rose; every other claim is money arriving from someone, in the
+ * received green.
  *
  * The summary badge's arrow sits directly under that glyph, so it asks this instead of naming
  * the Receive action colour — which drew a green arrow beneath a rose icon on every faucet claim.
  */
 export const claimAccentColor = (
-  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
+  transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId' | 'extraInputs'> | undefined,
   nativeFaucetId: string | null
-): typeof TRANSACTION_COLORS.faucet | typeof TRANSACTION_COLORS.receive =>
-  isFaucetMintTransaction(transaction, nativeFaucetId) ? TRANSACTION_COLORS.faucet : TRANSACTION_COLORS.receive;
+): typeof TRANSACTION_COLORS.bridge | typeof TRANSACTION_COLORS.faucet | typeof TRANSACTION_COLORS.receive => {
+  if (transaction?.type === 'consume' && transaction.extraInputs?.bridgeIn) return TRANSACTION_COLORS.bridge;
+  return isFaucetMintTransaction(transaction, nativeFaucetId) ? TRANSACTION_COLORS.faucet : TRANSACTION_COLORS.receive;
+};
 
 export const formatDate = (timestamp: number | string): string => {
   let date: Date;

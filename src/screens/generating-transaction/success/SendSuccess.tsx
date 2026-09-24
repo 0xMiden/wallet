@@ -78,8 +78,8 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
         lhs={amountText}
         rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient}
         // A claim carries the accent its own icon carries in Activity and on its detail page,
-        // not the Send blue: the received green, or the faucet's dusty rose when the note was
-        // minted by the faucet.
+        // not the Send blue: the received green, the bridge slate for a bridge-in claim, or the
+        // faucet's dusty rose when the note was minted by the faucet.
         fillForArrow={isConsume ? claimAccentColor(transaction, nativeFaucetId) : undefined}
       />
       <ReceiptRows rows={rows} className="mt-6" />
