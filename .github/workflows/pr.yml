@@ -333,9 +333,11 @@ jobs:
       COVERAGE_SHARDS: 3
     steps:
       - name: Check shards
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
         run: |
-          if [ "${{ needs.coverage.result }}" != "success" ]; then
-            echo "coverage shards ${{ needs.coverage.result }}"; exit 1; fi
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "coverage shards $SHARDS_RESULT"; exit 1; fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

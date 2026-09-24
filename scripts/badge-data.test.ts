@@ -106,8 +106,21 @@ describe('badge-data read', () => {
 
 // Line-based, not a YAML parser: the repo declares no YAML dependency and these
 // files use the plain block style this reads.
-function stepBlocks(workflow: string): string[] {
-  const lines = readFileSync(resolve(repoRoot, '.github/workflows', workflow), 'utf8').split('\n');
+function workflowText(workflow: string): string {
+  return readFileSync(resolve(repoRoot, '.github/workflows', workflow), 'utf8');
+}
+
+// The lines of one top-level job, from its `  <job>:` key to the next job key.
+function jobText(workflow: string, job: string): string {
+  const lines = workflowText(workflow).split('\n');
+  const start = lines.indexOf(`  ${job}:`);
+  if (start < 0) throw new Error(`no job ${job} in ${workflow}`);
+  const end = lines.findIndex((l, i) => i > start && /^ {2}[\w-]+:/.test(l));
+  return lines.slice(start, end < 0 ? undefined : end).join('\n');
+}
+
+function stepBlocks(text: string): string[] {
+  const lines = text.split('\n');
   const blocks: string[] = [];
   let current: string[] | null = null;
   let indent = -1;
@@ -131,8 +144,8 @@ function stepBlocks(workflow: string): string[] {
   return blocks;
 }
 
-function runScripts(workflow: string): string[] {
-  return stepBlocks(workflow).flatMap(block => {
+function runScripts(text: string): string[] {
+  return stepBlocks(text).flatMap(block => {
     const lines = block.split('\n');
     const i = lines.findIndex(l => /^\s*(- )?run:/.test(l));
     if (i < 0) return [];
@@ -148,16 +161,46 @@ function runScripts(workflow: string): string[] {
 
 describe('badge workflows', () => {
   it.each(['Record badge data', 'Upload badge data'])('pr.yml %s cannot fail the coverage gate', name => {
-    const step = stepBlocks('pr.yml').find(b => new RegExp(`name: ${name}$`, 'm').test(b));
+    const step = stepBlocks(workflowText('pr.yml')).find(b => new RegExp(`name: ${name}$`, 'm').test(b));
 
     expect(step).toBeDefined();
     expect(step).toMatch(/^\s*continue-on-error: true$/m);
   });
 
-  it('coverage-badge.yml interpolates no expression into a run script', () => {
-    const scripts = runScripts('coverage-badge.yml');
+  // The exact count makes a step the line reader misses (and so never checks) fail here instead.
+  it.each([
+    ['coverage-badge.yml', 'coverage-badge.yml', null, 5],
+    ['pr.yml job coverage', 'pr.yml', 'coverage', 1],
+    ['pr.yml job coverage-gate', 'pr.yml', 'coverage-gate', 4]
+  ])('%s interpolates no expression into its run scripts', (_label, workflow, job, count) => {
+    const scripts = runScripts(job ? jobText(workflow, job) : workflowText(workflow));
 
-    expect(scripts.length).toBeGreaterThan(3);
+    expect(scripts).toHaveLength(count);
     for (const body of scripts) expect(body).not.toContain('${{');
+  });
+
+  it('the coverage shards are exactly 1..N in the matrix, the gate and the merge step', () => {
+    const matrix = /^\s*shard: \[([^\]]*)\]$/m.exec(jobText('pr.yml', 'coverage'));
+    const gate = jobText('pr.yml', 'coverage-gate');
+    const shardsEnv = /^\s*COVERAGE_SHARDS: (\d+)$/m.exec(gate);
+    const merge = runScripts(gate).find(b => b.includes('scripts/merge-jest-coverage.mjs'));
+
+    expect(matrix).not.toBeNull();
+    expect(shardsEnv).not.toBeNull();
+    expect(merge).toBeDefined();
+    const shards = matrix![1]!.split(',').map(v => Number(v.trim()));
+    const expected = Array.from({ length: shards.length }, (_, i) => i + 1);
+    expect(shards).toEqual(expected);
+    expect(Number(shardsEnv![1])).toBe(shards.length);
+    expect([...merge!.matchAll(/coverage-shard-(\d+)\//g)].map(m => Number(m[1]))).toEqual(expected);
+  });
+
+  it('coverage-badge.yml records its source commit and skips with a notice when it has diverged', () => {
+    const publish = stepBlocks(workflowText('coverage-badge.yml')).find(b => /name: Publish/.test(b));
+
+    expect(publish).toBeDefined();
+    expect(publish).toContain('--check-source');
+    expect(publish).toMatch(/status=diverged\*?\)[^\n]*::notice::/);
+    expect(publish).toMatch(/git add coverage\.json tests\.json source\.json$/m);
   });
 });
