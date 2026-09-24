@@ -1,11 +1,8 @@
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
-import FormField from 'app/atoms/FormField';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
@@ -13,6 +10,10 @@ import { PageHeader } from 'components/PageHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
+import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
+import { TextField } from 'components/ui/TextField';
 import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
@@ -314,7 +315,7 @@ const RevealSeedPhrase: FC = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
         <PageHeader key="warning" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
 
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-2">
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4">
           {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
           <div aria-hidden="true" className="bg-fill rounded-2xl px-6 py-8">
             <div className="grid grid-cols-2 gap-x-6 gap-y-5">
@@ -324,20 +325,26 @@ const RevealSeedPhrase: FC = () => {
             </div>
           </div>
 
-          <p className="mt-4 text-center font-sans text-base text-muted">{t('pleaseWriteDownRecoveryPhrase')}</p>
+          <p className="mt-4 text-center text-body text-muted">{t('pleaseWriteDownRecoveryPhrase')}</p>
 
-          <div className="mt-auto flex flex-col items-center pt-8 text-center">
-            <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-accent-primary">
-              <Icon name={IconName.EyeOff} size="md" fill="white" />
-            </div>
-            <h2 className="mb-1 font-heading text-xl font-extrabold text-ink">{t('viewThisInPrivatePlace')}</h2>
-            <p className="font-sans text-base text-muted">{t('anyoneWithRecoveryPhrase')}</p>
-          </div>
+          {/* The shared outcome hero, the same one the verify flow's warning step draws. */}
+          <Hero
+            className="mt-auto pt-8"
+            visual={
+              <div className="flex size-16 items-center justify-center rounded-full bg-accent-primary">
+                <Icon name={IconName.EyeOff} size="md" fill="white" />
+              </div>
+            }
+            name={t('viewThisInPrivatePlace')}
+            subtitle={t('anyoneWithRecoveryPhrase')}
+          />
         </div>
 
         {probeError && (
           <div className="px-4 pt-4">
-            <Alert type="error" title={t('error')} description={t(probeError)} className="rounded-lg text-ink" />
+            <Notice tone="negative" role="alert" title={t('error')} data-testid="reveal-seed-probe-error">
+              {t(probeError)}
+            </Notice>
             <Button
               className="mt-3"
               variant={ButtonVariant.Secondary}
@@ -365,7 +372,7 @@ const RevealSeedPhrase: FC = () => {
   }
 
   // The error view is exempt: a Retry sets isSubmitting again, and blanking here
-  // would take the Alert and the Retry button off screen for the whole prompt.
+  // would take the Notice and the Retry button off screen for the whole prompt.
   if (!authError && (hasHardwareProtector === null || (!secret && isSubmitting))) {
     return null;
   }
@@ -376,39 +383,30 @@ const RevealSeedPhrase: FC = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
         <PageHeader key="words" className="px-4" title={t('recoveryPhrase')} onBack={handleHide} focusTitleOnMount />
 
-        <div className="flex-1 flex flex-col px-4 pt-4">
+        <div className="flex-1 flex flex-col px-4">
           {isGuardReady && (
             <>
               {/* Hidden field for copy */}
               <input ref={fieldRef} value={secret || ''} readOnly className="sr-only" tabIndex={-1} />
 
-              {/* Copy button */}
-              <div className="flex justify-center mb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    hapticLight();
-                    copy();
-                  }}
-                  className={classNames(
-                    'flex items-center gap-1.5 px-4 py-1.5',
-                    'border border-border-card rounded-2xl',
-                    'text-sm font-medium text-ink',
-                    'hover:opacity-80 cursor-pointer'
-                  )}
+              {/* Copy is the shared Pill, like every other copy action in the wallet. */}
+              <div className="mb-4 flex justify-center">
+                <Pill
+                  icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
+                  onClick={copy}
+                  data-testid="reveal-seed-copy"
                 >
-                  <AnimatedCopyIcon copied={copied} />
                   <CopyLabel copied={copied} copiedLabel={t('copied')}>
                     {t('copyToClipboard')}
                   </CopyLabel>
-                </button>
+                </Pill>
               </div>
 
-              {/* Word grid */}
-              <div className="p-6 bg-white rounded-10">
-                <div className="grid grid-cols-4 gap-x-4 gap-y-6">
+              {/* Word grid: the group's own `fill` surface, and each word a row value. */}
+              <div className="rounded-2xl bg-fill p-5">
+                <div className="grid grid-cols-3 gap-x-4 gap-y-5">
                   {words.map((word, idx) => (
-                    <span key={idx} className="text-base font-medium text-ink text-center">
+                    <span key={idx} className="text-center text-value text-ink">
                       {word.charAt(0).toUpperCase() + word.slice(1)}
                     </span>
                   ))}
@@ -441,8 +439,10 @@ const RevealSeedPhrase: FC = () => {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
         <PageHeader key="error" className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
-        <div className="px-4 pt-4">
-          <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
+        <div className="px-4">
+          <Notice tone="negative" role="alert" title={t('error')}>
+            {authError}
+          </Notice>
         </div>
 
         <div className="mt-auto flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
@@ -489,20 +489,19 @@ const RevealSeedPhrase: FC = () => {
             </div>
           ) : (
             <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
-              <FormField
+              <TextField
                 {...register('password', { required: t('required') })}
                 label={t('password')}
                 id="reveal-seed-password"
                 type="password"
-                name="password"
                 placeholder="********"
-                errorCaption={errors.password?.message}
+                error={errors.password?.message}
+                errorTestId="error-caption"
                 containerClassName="mb-4"
                 onChange={e => {
                   register('password').onChange(e);
                   clearErrors();
                 }}
-                labelClassName="text-ink"
               />
               <Button
                 className="w-full justify-center"

@@ -58,6 +58,8 @@ export function useActivityHiddenNotes(address: string) {
     loaded: status === 'ready',
     failed: status === 'unreadable' || saveFailed,
     hide: (id: string) => save(hidden => new Set([...hidden, id])),
-    restore: () => save(() => new Set())
+    /** Brings back the given notes, or every declined note when none are given. */
+    restore: (ids?: readonly string[]) =>
+      save(hidden => (ids ? new Set([...hidden].filter(id => !ids.includes(id))) : new Set()))
   };
 }

@@ -47,7 +47,10 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /** The claims a card stands for; the consume row each would repeat is hidden. */
   pendingItems?: PendingActivityItem[];
+  /** The cards drawn in the timeline, when fewer than `pendingItems` (a search); defaults to `pendingItems`. */
+  drawnPendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   tokenId?: string;
   searchQuery?: string;
@@ -58,7 +61,42 @@ type HistoryProps = {
    * this; the loading state lives here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
+  /**
+   * Narrows the list further, after the search and the filter. The Groups view's own page hands
+   * one group's matcher down here, so that page IS this list - paging, the in-flight rows and the
+   * row rendering all come with it - rather than a second list that would drift from it.
+   */
+  predicate?: (entry: IHistoryEntry) => boolean;
+  /**
+   * Renders something other than the date-grouped timeline over the SAME loaded entries, with the
+   * paging this component owns. The Groups view uses it; everything else gets `HistoryView`.
+   */
+  renderEntries?: (view: HistoryEntriesView) => React.ReactNode;
 };
+
+/** What `renderEntries` is handed: the loaded entries plus the paging state that produced them. */
+export interface HistoryEntriesView {
+  entries: IHistoryEntry[];
+  initialLoading: boolean;
+  /** False once the history is exhausted — which is when a count over `entries` is final. */
+  hasMore: boolean;
+  loadMore: (page: number) => Promise<void>;
+}
+
+/** Whether an activity row answers a search; `query` is already lowercased. */
+export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): boolean {
+  return Boolean(
+    entry.message?.toLowerCase().includes(query) ||
+    entry.token?.toLowerCase().includes(query) ||
+    // A swap row shows the asset it asks for as well as the one it gives.
+    entry.requestedToken?.toLowerCase().includes(query) ||
+    // A batch claim displays its secondary assets on the row, so searching
+    // for one has to find it, or typing a symbol the user can see hides
+    // the very row showing it.
+    entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
+    entry.secondaryAddress?.toLowerCase().includes(query)
+  );
+}
 
 // The chips above the activity list. `pending` shows only the notes that
 // wait for a claim, so it removes every settled history row.
@@ -80,7 +118,10 @@ const History = memo<HistoryProps>(
     searchQuery,
     filter,
     onInitialLoad,
+    predicate,
+    renderEntries,
     pendingItems,
+    drawnPendingItems,
     renderPendingItem
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
@@ -265,16 +306,7 @@ const History = memo<HistoryProps>(
     );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
-      entries = entries.filter(
-        e =>
-          e.message?.toLowerCase().includes(query) ||
-          e.token?.toLowerCase().includes(query) ||
-          // A batch claim displays its secondary assets on the row, so searching
-          // for one has to find it — otherwise typing a symbol the user can see
-          // hides the very row showing it.
-          e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-          e.secondaryAddress?.toLowerCase().includes(query)
-      );
+      entries = entries.filter(e => historyEntryMatchesSearch(e, query));
     }
     if (filter && filter !== 'all') {
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
@@ -294,9 +326,26 @@ const History = memo<HistoryProps>(
         return true;
       });
     }
+    // Last, so a group's page narrows what the search and the filter already left.
+    if (predicate) {
+      entries = entries.filter(predicate);
+    }
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);
       entries = entries.slice(0, maxIndex);
+    }
+
+    if (renderEntries) {
+      return (
+        <>
+          {renderEntries({
+            entries,
+            initialLoading: filter !== 'pending' && transactionsLoading,
+            hasMore: reading && hasMore,
+            loadMore
+          })}
+        </>
+      );
     }
 
     return (
@@ -319,7 +368,7 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
-        pendingItems={pendingItems}
+        pendingItems={drawnPendingItems ?? pendingItems}
         renderPendingItem={renderPendingItem}
         className={className}
       />

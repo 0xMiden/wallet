@@ -1181,11 +1181,21 @@
   "guardianCardMeta": "Оператор: $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Не удалось проверить способ разблокировки этого кошелька. Проверьте подключение и повторите попытку.",
   "receiveQrColorAction": "Изменить цвет QR-кода",
+  "receiveAt": "Получить на",
   "durationUnitSeconds": "Сек.",
   "durationUnitMinutes": "Мин.",
   "durationUnitHours": "Час",
   "durationUnitDays": "День",
   "swapExpiryUnit": "Единица срока действия",
   "moreInfoAbout": "Подробнее о $label$",
-  "swapExpiryRange": "Введите целое число от $min$ до $max$."
+  "swapExpiryRange": "Введите целое число от $min$ до $max$.",
+  "activityView": "Вид активности",
+  "activityViewOptions": "Параметры отображения",
+  "activityViewList": "Список",
+  "activityViewGroups": "Группы",
+  "activityGroupSwaps": "Обмены",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Прочая активность",
+  "activityGroupPartialCount": "$count$+"
 }

@@ -32,7 +32,8 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 // `app/icons/v2` is a heavy SVG barrel (coverage-ignored). Stub `Icon` to a
-// probe span and expose only the two IconName members this screen references.
+// probe span and expose only the IconName members this screen and the shared
+// page header reference.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className, fill }: { name: string; className?: string; fill?: string }) => (
     <span data-testid="icon" data-name={name} data-fill={fill} className={className} />

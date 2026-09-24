@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
@@ -30,9 +30,25 @@ jest.mock('components/DeadletteredNotesNotice', () => ({
 // `TabRootHeader`, which is the thing under test: that the page takes its title row and its
 // filter row from one component rather than assembling a row of its own.
 jest.mock('components/ui', () => ({
-  TabHeaderAction: ({ label, active, onClick }: { label: string; active?: boolean; onClick: () => void }) => (
-    <button type="button" aria-label={label} aria-pressed={active} onClick={onClick} />
-  ),
+  // `forwardRef`, like the real one: the view-switcher action is the popover's anchor, so the ref
+  // has to reach a real button for focus and positioning.
+  TabHeaderAction: jest
+    .requireActual<typeof import('react')>('react')
+    .forwardRef<
+      HTMLButtonElement,
+      { label: string; active?: boolean; onClick: () => void; 'data-testid'?: string }
+    >(function TabHeaderAction({ label, active, onClick, 'data-testid': dataTestId }, ref) {
+      return (
+        <button
+          ref={ref}
+          type="button"
+          aria-label={label}
+          aria-pressed={active}
+          data-testid={dataTestId}
+          onClick={onClick}
+        />
+      );
+    }),
   TabRootHeader:
     jest.requireActual<typeof import('components/ui/TabRootHeader')>('components/ui/TabRootHeader').TabRootHeader
 }));
@@ -91,6 +107,27 @@ jest.mock('app/templates/history/ActivityPendingHistory', () => ({
   }
 }));
 
+// The grouped view owns its own data (History + the address book) and has its own suite; stubbed
+// here so this one is about which view the tab shows and what it passes to it.
+jest.mock('app/templates/history/ActivityGroupedHistory', () => ({
+  // `filter` is NOT one of its props any more; reading it back as '' is how this suite pins that.
+  ActivityGroupedHistory: (props: {
+    programId?: string | null;
+    search: string;
+    filter?: string;
+    onInitialLoad?: () => void;
+  }) => (
+    <div
+      data-testid="grouped-history"
+      data-program-id={props.programId ?? ''}
+      data-search-query={props.search}
+      data-filter={props.filter ?? ''}
+    >
+      <button data-testid="grouped-history-loaded" onClick={() => props.onInitialLoad?.()} />
+    </div>
+  )
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
 }));
@@ -107,7 +144,8 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  useLocation: () => ({ pathname: '/history', hash: '' })
 }));
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
@@ -135,6 +173,7 @@ const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
     mockReducedMotion.value = false;
@@ -387,6 +426,162 @@ describe('AllHistory', () => {
       expect(telemetryPayload()).not.toContain('test-public-key');
       expect(telemetryPayload()).not.toContain('prog-42');
       expect(telemetryPayload()).not.toContain('3');
+    });
+
+    it('completes the flow when the grouped view has loaded', () => {
+      localStorage.setItem('activity_view_setting', 'groups');
+      render(<AllHistory />);
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('grouped-history-loaded'));
+
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the view switcher', () => {
+    const openMenu = () => fireEvent.click(screen.getByTestId('activity-view-button'));
+
+    it('keeps the menu closed until the header action opens it', () => {
+      render(<AllHistory />);
+      expect(screen.queryByTestId('activity-view-menu')).toBeNull();
+
+      openMenu();
+
+      const menu = screen.getByTestId('activity-view-menu');
+      expect(menu).toHaveAttribute('role', 'dialog');
+      expect(menu).toHaveAttribute('aria-label', 'activityViewOptions');
+      expect(screen.getByTestId('activity-view-button')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('offers the two views as radios, with List chosen by default', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      expect(screen.getByTestId('activity-view-list')).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByTestId('activity-view-groups')).toHaveAttribute('aria-checked', 'false');
+      expect(screen.getByRole('radiogroup', { name: 'activityView' })).toBeTruthy();
+    });
+
+    it('marks each view with the shared selection mark', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      const mark = (view: string) =>
+        screen.getByTestId(`activity-view-${view}`).querySelector('[data-slot="checkbox-indicator"]');
+      expect(mark('list')).toHaveAttribute('data-state', 'checked');
+      expect(mark('groups')).toHaveAttribute('data-state', 'unchecked');
+    });
+
+    it('holds the two views and nothing else: no filters, no divider', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      const menu = screen.getByTestId('activity-view-menu');
+      // One radio group in the panel, and exactly two radios in it.
+      expect(within(menu).getAllByRole('radiogroup')).toHaveLength(1);
+      expect(within(menu).getAllByRole('radio')).toHaveLength(2);
+      for (const id of ['all', 'pending', 'sent', 'received', 'faucet']) {
+        expect(screen.queryByTestId(`activity-filter-${id}`)).toBeNull();
+      }
+    });
+
+    it('switches to the grouped view, which replaces the feed and hides the filter row', async () => {
+      render(<AllHistory />);
+      openMenu();
+
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+      expect(screen.queryByTestId('history')).toBeNull();
+      expect(screen.queryByRole('radiogroup', { name: 'activityFilters' })).toBeNull();
+      expect(hapticSelection).toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+    });
+
+    it('passes the search query to the grouped view, and no filter at all', () => {
+      render(<AllHistory />);
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
+      fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'usdc' } });
+
+      const grouped = screen.getByTestId('grouped-history');
+      expect(grouped.getAttribute('data-search-query')).toBe('usdc');
+      // Grouping by counterparty is what this view narrows by: a filter with no visible control
+      // saying so would be an invisible narrowing.
+      expect(grouped.getAttribute('data-filter')).toBe('');
+    });
+
+    it("keeps the feed's own filter choice while the user is away in Groups", async () => {
+      render(<AllHistory />);
+      fireEvent.click(getFilterButton('sent'));
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-list'));
+
+      expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'true');
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+    });
+
+    it('ignores a tap on the view that is already chosen', () => {
+      render(<AllHistory />);
+      openMenu();
+
+      fireEvent.click(screen.getByTestId('activity-view-list'));
+
+      expect(hapticSelection).not.toHaveBeenCalled();
+      expect(screen.getByTestId('activity-view-menu')).toBeTruthy();
+      expect(screen.getByTestId('history')).toBeTruthy();
+    });
+
+    it('remembers the chosen view for the next visit', () => {
+      const first = render(<AllHistory />);
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+      first.unmount();
+
+      render(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+      expect(screen.queryByTestId('history')).toBeNull();
+    });
+
+    it('opens in the grouped view when that is what was stored', () => {
+      localStorage.setItem('activity_view_setting', 'groups');
+      render(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+    });
+
+    it('closes on Escape and on a tap outside, leaving the view alone', async () => {
+      render(<AllHistory />);
+      openMenu();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+      expect(screen.getByTestId('history')).toBeTruthy();
+
+      openMenu();
+      fireEvent.pointerDown(screen.getByTestId('history'));
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+      expect(screen.getByTestId('history')).toBeTruthy();
+    });
+
+    it('settles the menu instantly under reduced motion', async () => {
+      mockReducedMotion.value = true;
+      render(<AllHistory />);
+      openMenu();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('activity-view-menu').style.transform).toBe('none');
+        expect(screen.getByTestId('activity-view-menu').style.opacity).toBe('1');
+      });
     });
   });
 });

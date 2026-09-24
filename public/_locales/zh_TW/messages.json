@@ -5251,6 +5251,10 @@
     "message": "更改 QR Code 顏色",
     "englishSource": "Change the QR code color"
   },
+  "receiveAt": {
+    "message": "接收地址",
+    "englishSource": "Receive at"
+  },
   "durationUnitSeconds": {
     "message": "秒",
     "englishSource": "Sec"
@@ -5289,6 +5293,47 @@
       },
       "max": {
         "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "活動檢視",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "檢視選項",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "清單",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "群組",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "兌換",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "其他活動",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
       }
     }
   }

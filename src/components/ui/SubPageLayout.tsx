@@ -1,5 +1,6 @@
 import React, { createContext, useContext } from 'react';
 
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { PageHeader } from 'components/PageHeader';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { cn } from 'lib/ui/util';
@@ -36,6 +37,13 @@ export interface SubPageLayoutProps extends SubPageHeaderConfig {
   footer?: React.ReactNode;
   /** `stack` puts the footer's buttons one above the other, for labels too long to share a row. */
   footerLayout?: 'row' | 'stack';
+  /**
+   * The body element, for a page whose content pages itself as the body scrolls (an infinite
+   * list). Only the body scrolls, so it is the scroll parent such a list has to watch.
+   */
+  bodyRef?: React.RefObject<HTMLDivElement>;
+  /** Passed to `FlowFooter`: `false` where no tab bar is ever drawn over the page (onboarding). */
+  footerNavbarCushion?: boolean;
   'data-testid'?: string;
 }
 
@@ -55,6 +63,8 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   children,
   footer,
   footerLayout = 'row',
+  bodyRef,
+  footerNavbarCushion,
   onClose,
   'data-testid': dataTestId,
   ...header
@@ -76,17 +86,22 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
         />
       )}
 
-      <div data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pt-2 pb-4">
+      {/* No top padding: the 8px under the rule is `PageHeader`'s, the same gap a tab root's
+          body starts at. */}
+      <div ref={bodyRef} data-slot="body" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
         {children}
       </div>
 
       {footer && (
-        <div
+        // The flow's own pinned footer, so a sub-page's CTA rides the keyboard up and down on the
+        // same spring as the send and swap CTAs instead of jumping with the layout.
+        <FlowFooter
           data-slot="footer"
-          className={cn('flex shrink-0 gap-2.5 px-4 pt-3 pb-4', footerLayout === 'stack' && 'flex-col')}
+          navbarCushion={footerNavbarCushion}
+          className={cn('flex gap-2.5 px-4', footerLayout === 'stack' && 'flex-col')}
         >
           {footer}
-        </div>
+        </FlowFooter>
       )}
     </div>
   );

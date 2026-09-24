@@ -43,22 +43,30 @@ export interface TabHeaderProps {
  * search is open) and sets `aria-pressed`, so this action always reads as a toggle rather than a
  * one-shot button. 44px inside the 56px row, so it can never set the row's height.
  */
-export const TabHeaderAction: FC<{
-  label: string;
-  icon: IconName;
-  active?: boolean;
-  onClick: () => void;
-  'data-testid'?: string;
-}> = ({ label, icon, active = false, onClick, 'data-testid': dataTestId }) => (
-  <IconButton
-    icon={icon}
-    label={label}
-    appearance="filled"
-    active={active}
-    onClick={onClick}
-    data-testid={dataTestId}
-  />
-);
+export const TabHeaderAction = React.forwardRef<
+  HTMLButtonElement,
+  {
+    label: string;
+    icon: IconName;
+    active?: boolean;
+    onClick: () => void;
+    'data-testid'?: string;
+  }
+  // Forwards its ref so an action that opens a `Popover` can be the panel's anchor - that is
+  // what the panel measures its position from and hands focus back to when it closes.
+>(function TabHeaderAction({ label, icon, active = false, onClick, 'data-testid': dataTestId }, ref) {
+  return (
+    <IconButton
+      ref={ref}
+      icon={icon}
+      label={label}
+      appearance="filled"
+      active={active}
+      onClick={onClick}
+      data-testid={dataTestId}
+    />
+  );
+});
 
 /**
  * The title row of a top-level tab page: page title on the left, any `actions` on the right. The

@@ -1181,11 +1181,21 @@
   "guardianCardMeta": "Operado por $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Não foi possível verificar o método de desbloqueio desta carteira. Verifique sua conexão e tente novamente.",
   "receiveQrColorAction": "Alterar a cor do código QR",
+  "receiveAt": "Receber em",
   "durationUnitSeconds": "Seg.",
   "durationUnitMinutes": "Min.",
   "durationUnitHours": "Hora",
   "durationUnitDays": "Dia",
   "swapExpiryUnit": "Unidade de expiração",
   "moreInfoAbout": "Mais informações sobre $label$",
-  "swapExpiryRange": "Introduza um número inteiro de $min$ a $max$."
+  "swapExpiryRange": "Introduza um número inteiro de $min$ a $max$.",
+  "activityView": "Vista de atividade",
+  "activityViewOptions": "Opções de visualização",
+  "activityViewList": "Lista",
+  "activityViewGroups": "Grupos",
+  "activityGroupSwaps": "Trocas",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Outra atividade",
+  "activityGroupPartialCount": "$count$+"
 }

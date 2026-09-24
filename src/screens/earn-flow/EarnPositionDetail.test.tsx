@@ -253,7 +253,7 @@ describe('EarnPositionDetail', () => {
     const byLabel = (label: string) => cards.find(c => c.getAttribute('data-label') === label)!;
     expect(byLabel('earnMetricDeposited')).toHaveTextContent('$2,000.00');
     expect(byLabel('earnMetricTotalEarned')).toHaveTextContent('+$99.00');
-    expect(byLabel('earnMetricTotalEarned')).toHaveAttribute('data-valueclass', 'text-status-positive');
+    expect(byLabel('earnMetricTotalEarned')).toHaveAttribute('data-valueclass', 'text-positive-tint-ink');
     // The APY label goes through t() like its neighbours, so it is translated with them.
     expect(byLabel('earnApyLabel')).toHaveTextContent('9.99%');
     expect(byLabel('earnMetricDailyAvg')).toHaveTextContent('+$1.11');
@@ -363,7 +363,8 @@ describe('EarnPositionDetail', () => {
     // The `dot` render-prop returned exactly one <circle> for the last index.
     const circles = container.querySelectorAll('circle');
     expect(circles.length).toBeGreaterThanOrEqual(1);
-    expect(circles[0]).toHaveAttribute('fill', '#90BA89');
+    // The token, not the literal: the chart's green follows the theme.
+    expect(circles[0]).toHaveAttribute('fill', 'var(--status-positive)');
 
     // The `content` render-prop rendered the active-payload branch: formatted
     // value (toFixed(2)) + label.

@@ -45,15 +45,15 @@ describe('FlowLayout', () => {
     );
 
     const back = screen.getByTestId('flow-back');
-    // The shared pushed-page back button: an ink arrow on the 44px fill circle.
-    expect(back).toHaveClass('bg-fill', 'text-ink');
+    // The shared pushed-page back button: an ink arrow on the 44px round fill circle.
+    expect(back).toHaveClass('bg-fill', 'rounded-full', 'text-ink');
     expect(back).not.toHaveClass('text-accent-send');
     const glyph = back.querySelector('svg');
     expect(glyph).toHaveAttribute('data-name', 'arrow-left');
   });
 
   it("starts a tab-root step's content where a pushed step's starts: 36px above a 36px title", () => {
-    // A pushed step's content starts under the 60px PageHeader row, its 4px rule and pt-2: 72px.
+    // A pushed step's content starts under the 60px PageHeader row, its 4px rule and the 8px under it: 72px.
     render(
       <FlowLayout title="Send" tabRoot footer={<button>cta</button>}>
         <p>content</p>

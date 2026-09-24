@@ -3,14 +3,14 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
-import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { PrivateKeyPair } from 'components/PrivateKeyPair';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { Vault } from 'lib/miden/back/vault';
@@ -42,17 +42,8 @@ type GuardianKeysBundle = {
 
 // `font-sans` on every secret field below. Preflight sets `font: inherit` on
 // form controls, so a textarea with no font of its own picks up whatever the
-// page around it sets.
-//
-// The revealed secrets stay on FormField rather than TextField: FormField's
-// `secret` mode blurs the value until the field is tapped and re-blurs it when
-// the window loses focus, and TextField has no equivalent yet. Only their label
-// and description take the design system's type (13px bold `muted` label,
-// 14px `muted` copy), matching TextField's.
-const secretLabelClassName = 'mb-0 text-label text-muted';
-const secretDescription = (desc: React.ReactNode) => (
-  <div className="mb-3 font-sans text-sm leading-5 text-muted">{desc}</div>
-);
+// page around it sets — and this page is rendered inside Settings' `font-heading`.
+const secretFieldClassName = 'notranslate font-sans';
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const { t } = useTranslation();
@@ -90,8 +81,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // Block screenshots / screen recordings while raw key material is on screen
   // (#417) — the same protection `RevealSeedPhrase` already has, for material of
   // equal sensitivity: a private key, a Guardian COLD private key (the account's
-  // recovery material) or a hot key all confer spending authority. `FormField`'s
-  // `secret` prop only blurs the value while the field is unfocused; once tapped
+  // recovery material) or a hot key all confer spending authority. `TextField`'s
+  // `secret` mode only covers the value while the field is unfocused; once tapped
   // the plaintext sits in an ordinary DOM textarea, which is exactly what a
   // screenshot, an Android task-switcher thumbnail or a live screen recording
   // captures. The hook withholds `true` until the native guard is actually
@@ -267,42 +258,38 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       // in-progress screen recording would otherwise capture the first frames.
       if (!isGuardReady) return null;
       return (
-        <SubPageSection className="gap-5">
-          <FormField
+        <SubPageSection className="gap-5" description={texts.fieldDesc}>
+          <TextField
             ref={secretFieldRef}
             secret
-            textarea
+            multiline
             rows={3}
             readOnly
             label={t('coldPrivateKey')}
-            labelClassName={secretLabelClassName}
-            labelDescription={secretDescription(texts.fieldDesc)}
             id="reveal-guardian-cold-private"
             spellCheck={false}
-            className="resize-none notranslate font-sans"
+            className={secretFieldClassName}
             value={guardianBundle.coldPrivateKey}
           />
-          <FormField
-            textarea
+          <TextField
+            multiline
             rows={2}
             readOnly
             label={t('coldPublicKeyLabel')}
-            labelClassName={secretLabelClassName}
             id="reveal-guardian-cold-public"
             spellCheck={false}
-            className="resize-none notranslate font-sans"
+            className={secretFieldClassName}
             value={guardianBundle.coldPublicKey}
           />
           {guardianBundle.hotPublicKey && (
-            <FormField
-              textarea
+            <TextField
+              multiline
               rows={2}
               readOnly
               label={t('hotPublicKeyLabel')}
-              labelClassName={secretLabelClassName}
               id="reveal-guardian-hot-public"
               spellCheck={false}
-              className="resize-none notranslate font-sans"
+              className={secretFieldClassName}
               value={guardianBundle.hotPublicKey}
             />
           )}
@@ -314,19 +301,17 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       if (!isGuardReady) return null;
       if (reveal === 'hot-key') return <PrivateKeyPair payload={secret} />;
       return (
-        <SubPageSection>
-          <FormField
+        <SubPageSection description={texts.fieldDesc}>
+          <TextField
             ref={secretFieldRef}
             secret
-            textarea
+            multiline
             rows={4}
             readOnly
             label={texts.name}
-            labelClassName={secretLabelClassName}
-            labelDescription={secretDescription(texts.fieldDesc)}
             id="reveal-secret-secret"
             spellCheck={false}
-            className="resize-none notranslate font-sans"
+            className={secretFieldClassName}
             value={secret}
           />
         </SubPageSection>
@@ -338,12 +323,9 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         {hasHardwareProtector ? (
           <SubPageSection description={t('revealSecretUnlockDescription', { secretName: texts.name })}>
             {errors.password && (
-              <Alert
-                type="error"
-                title={t('error')}
-                description={errors.password.message || ''}
-                className="rounded-2xl"
-              />
+              <Notice tone="negative" role="alert" title={t('error')}>
+                {errors.password.message || ''}
+              </Notice>
             )}
           </SubPageSection>
         ) : usePasscodeEntry ? (
@@ -427,31 +409,27 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
       {requiresAcknowledge && showButton && (
         <SubPageSection>
-          <Alert
-            type="warn"
-            title={t('privateKeyRevealWarningTitle')}
-            description={<p>{t('privateKeyRevealWarningBody')}</p>}
-            className="rounded-2xl"
-          />
-          <label className="mt-3 flex cursor-pointer items-start gap-2 px-1 font-sans text-sm text-ink select-none">
-            <input
-              type="checkbox"
-              className="mt-0.5 accent-accent-primary"
-              checked={privateKeyAcknowledged}
-              onChange={e => setPrivateKeyAcknowledged(e.target.checked)}
-            />
-            <span>{t('privateKeyRevealAcknowledge')}</span>
-          </label>
+          <Notice tone="warning" title={t('privateKeyRevealWarningTitle')}>
+            {t('privateKeyRevealWarningBody')}
+          </Notice>
+          {/* The one selection mark the wallet draws, on the button that is itself the checkbox. */}
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={privateKeyAcknowledged}
+            className="mt-3 flex items-start gap-2 px-1 text-left select-none"
+            onClick={() => setPrivateKeyAcknowledged(prev => !prev)}
+          >
+            <CheckboxIndicator checked={privateKeyAcknowledged} />
+            <span className="text-body text-ink">{t('privateKeyRevealAcknowledge')}</span>
+          </button>
         </SubPageSection>
       )}
 
       {reveal === 'hot-key' && showButton && (
-        <Alert
-          type="warn"
-          title={t('hotKeyRevealWarningTitle')}
-          description={<p>{t('hotKeyRevealWarningBody')}</p>}
-          className="rounded-2xl"
-        />
+        <Notice tone="warning" title={t('hotKeyRevealWarningTitle')}>
+          {t('hotKeyRevealWarningBody')}
+        </Notice>
       )}
 
       {mainContent}

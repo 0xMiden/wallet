@@ -105,7 +105,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
         <div className="flex flex-col gap-5 px-4 pb-4">
           <Hero
             data-testid="token-detail-hero"
-            className="pt-3"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
             value={heroBalance}
             subtitle={scaleIsKnown ? `$${toAdaptiveFixed(fiatValue)}` : undefined}

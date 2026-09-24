@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { IconName } from 'app/icons/v2';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { TextAction } from 'components/ui/TextAction';
 import { navigate } from 'lib/woozie';
 import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
@@ -22,21 +23,26 @@ const Earn: FC = () => {
   return (
     <div className="h-full overflow-hidden bg-page" data-testid="earn-page">
       <div className="h-full overflow-y-auto">
-        <div className="flex flex-col gap-5 px-4 pt-3 pb-32">
+        {/* The 16px page margin, 20px between sections, and Explore's bottom clearance: the two
+            home-group tab pages end the same distance above the floating tab bar. */}
+        <div className="flex flex-col gap-5 px-4 pt-3 pb-24">
           {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
           {!(positions.length === 0 && (isLoading || loadFailed)) && (
             <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
           )}
 
-          <section className="flex flex-col gap-3" aria-labelledby="earn-positions-title">
-            <div className="flex items-center justify-between">
-              <h2 id="earn-positions-title" className="text-title-page text-ink">
-                {t('earnCurrentPositionsTitle')}
-              </h2>
-              <TextAction onClick={() => navigate('/earn/positions')} data-testid="earn-see-all">
-                {t('earnSeeAll')}
-              </TextAction>
-            </div>
+          <section aria-label={t('earnCurrentPositionsTitle')}>
+            {/* The tab root's section title, with its text action, through the shared header. */}
+            <SectionHeader
+              size="xl"
+              action={
+                <TextAction onClick={() => navigate('/earn/positions')} data-testid="earn-see-all">
+                  {t('earnSeeAll')}
+                </TextAction>
+              }
+            >
+              {t('earnCurrentPositionsTitle')}
+            </SectionHeader>
 
             {/* Only a load that settled with nothing says "no positions": while the first load is in
                 flight the slot stays empty, and a failed load says so and retries - in place of the
@@ -71,11 +77,10 @@ const Earn: FC = () => {
           {/* Fed by the same read as the positions: with no vaults, loading, failed or settled, there is
               nothing to feature, and a failure is already said once above. */}
           {vaults.length > 0 && (
-            <section className="flex flex-col gap-3" aria-labelledby="earn-vaults-title">
-              <h2 id="earn-vaults-title" className="text-title-page text-ink">
-                {t('earnVaultsTitle')}
-              </h2>
+            <section aria-label={t('earnVaultsTitle')}>
+              <SectionHeader size="xl">{t('earnVaultsTitle')}</SectionHeader>
 
+              {/* Cards in a list are separated by space, 12px, not hairlines. */}
               <div className="flex flex-col gap-3">
                 {vaults.map(vault => (
                   <VaultRow key={vault.id} vault={vault} />

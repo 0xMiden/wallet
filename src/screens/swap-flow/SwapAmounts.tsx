@@ -100,8 +100,8 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto no-scrollbar pt-6">
+    <div className="flex h-full min-h-0 flex-col bg-app-bg px-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-x-hidden overflow-y-auto no-scrollbar pt-6">
         <motion.div {...sideMotion(-24)} data-testid="swap-pay-side">
           <SelectAmount
             embedded

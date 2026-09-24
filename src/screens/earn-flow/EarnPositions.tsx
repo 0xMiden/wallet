@@ -27,11 +27,11 @@ const EarnPositions: FC = () => {
   const empty = !loadFailed && positions.length === 0 && !isLoading;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
+    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-positions-page">
       <PageHeader className="shrink-0 px-4" title={t('earnPositionsTitle')} onBack={goBack} />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col px-4 pb-8 pt-4">
+        <div className="flex flex-col px-4 pb-8">
           {showLoadError ? (
             <EarnLoadError onRetry={refetch} className="mt-10" />
           ) : pending ? null : empty ? (
@@ -73,23 +73,24 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="truncate text-base font-medium leading-none text-ink">
+          <div className="truncate text-row-title text-ink">
             {position.protocol} &bull; {position.asset}
           </div>
         </div>
-        <div className="shrink-0 rounded-full bg-green-100 px-3 py-1.5 text-xs font-bold leading-none text-status-positive">
-          {t('earnPositionsApy', { apy: position.apy })}
-        </div>
+        {/* The APY reads as a figure, like the tab page's card: the tinted ink, not the raw
+            #90BA89 fill, which is 2.2:1 under text. */}
+        <div className="shrink-0 text-value text-positive-tint-ink">{t('earnPositionsApy', { apy: position.apy })}</div>
       </div>
 
-      <div className="mt-4 font-heading text-[36px] font-bold leading-none text-ink">{position.amount}</div>
-      <div className="mt-3 text-base font-bold leading-none text-green-500">{position.rewards}</div>
+      <div className="mt-4 text-hero-value text-ink">{position.amount}</div>
+      <div className="mt-3 text-value text-positive-tint-ink">{position.rewards}</div>
 
-      <div className="mt-2 mb-4 h-px bg-[#2525251C]" />
+      {/* A hairline inside a card only divides its rows. */}
+      <div className="mt-2 mb-4 h-px bg-hairline" />
 
-      <div className="flex items-center justify-between gap-4 text-sm leading-none text-ink">
+      <div className="flex items-center justify-between gap-4 text-body-sm text-muted">
         <div>
-          {t('earnDeposited')} <span className="font-bold">{position.depositedAmount}</span>
+          {t('earnDeposited')} <span className="text-value text-ink">{position.depositedAmount}</span>
         </div>
         <div>{position.activeDuration}</div>
       </div>

@@ -7,9 +7,10 @@ import { Avatar, AvatarSize } from 'components/ui/Avatar';
 const TINTS = ['#8FA58A', '#94A3B8', '#7E7E96', '#D9885A', '#8A7DA6', '#6F9C9C', '#B08968', '#7C8CB5'];
 const DEFAULT_TINT = '#94A3B8';
 
-export type ContactAvatarSize = 'md' | 'xl';
+/** `sm` is the 24px avatar a page header's title can carry; `md` a row's; `xl` a hero's. */
+export type ContactAvatarSize = 'sm' | 'md' | 'xl';
 
-const AVATAR_SIZES: Record<ContactAvatarSize, AvatarSize> = { md: 40, xl: 88 };
+const AVATAR_SIZES: Record<ContactAvatarSize, AvatarSize> = { sm: 24, md: 40, xl: 88 };
 
 /** Stable per address, so the same contact keeps its color on every screen. */
 export function tintForAddress(address: string): string {

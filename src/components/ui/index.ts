@@ -99,6 +99,9 @@ export type { EmptyStateProps, EmptyStateSecondaryAction } from './EmptyState';
 export { IconButton } from './IconButton';
 export type { IconButtonProps, IconButtonAppearance } from './IconButton';
 
+export { Popover } from './Popover';
+export type { PopoverProps, PopoverAlign } from './Popover';
+
 export { Spinner } from './Spinner';
 export type { SpinnerProps, SpinnerSize } from './Spinner';
 

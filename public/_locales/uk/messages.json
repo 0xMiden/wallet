@@ -5251,6 +5251,10 @@
     "message": "Змінити колір QR-коду",
     "englishSource": "Change the QR code color"
   },
+  "receiveAt": {
+    "message": "Отримати на",
+    "englishSource": "Receive at"
+  },
   "durationUnitSeconds": {
     "message": "Сек.",
     "englishSource": "Sec"
@@ -5289,6 +5293,47 @@
       },
       "max": {
         "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Вигляд активності",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Параметри вигляду",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Список",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Групи",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Обміни",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Інша активність",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
       }
     }
   }

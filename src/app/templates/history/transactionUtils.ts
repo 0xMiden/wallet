@@ -117,12 +117,17 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   };
 };
 
-export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
+export const isFaucetRequest = (
+  entry: Pick<IHistoryEntry, 'transactionIcon' | 'faucetId' | 'secondaryAddress'> & {
+    txType?: IHistoryEntry['txType'];
+  }
+): boolean => {
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return false;
-  return (
-    entry.transactionIcon === 'RECEIVE' && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId
-  );
+  // A queued or processing claim's entry is built from the transaction row, which has no icon.
+  const receives =
+    entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume');
+  return receives && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId;
 };
 
 export const isCompletedTransaction = (message: string): boolean => {

@@ -1181,11 +1181,21 @@
   "guardianCardMeta": "Exploité par $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Impossible de vérifier la méthode de déverrouillage de ce portefeuille. Vérifiez votre connexion et réessayez.",
   "receiveQrColorAction": "Changer la couleur du QR code",
+  "receiveAt": "Recevoir sur",
   "durationUnitSeconds": "Sec.",
   "durationUnitMinutes": "Min.",
   "durationUnitHours": "Heure",
   "durationUnitDays": "Jour",
   "swapExpiryUnit": "Unité d'expiration",
   "moreInfoAbout": "Plus d'informations sur $label$",
-  "swapExpiryRange": "Saisissez un nombre entier compris entre $min$ et $max$."
+  "swapExpiryRange": "Saisissez un nombre entier compris entre $min$ et $max$.",
+  "activityView": "Vue de l'activité",
+  "activityViewOptions": "Options d'affichage",
+  "activityViewList": "Liste",
+  "activityViewGroups": "Groupes",
+  "activityGroupSwaps": "Échanges",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Autre activité",
+  "activityGroupPartialCount": "$count$+"
 }

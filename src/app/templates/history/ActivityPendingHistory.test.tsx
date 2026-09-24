@@ -52,20 +52,26 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
 }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
-const mockHistoryRenders: Array<{ pendingItems: PendingActivityItem[]; renderPendingItem: unknown }> = [];
+const mockHistoryRenders: Array<{
+  pendingItems: PendingActivityItem[];
+  drawnPendingItems?: PendingActivityItem[];
+  renderPendingItem: unknown;
+}> = [];
 jest.mock('./History', () => ({
   __esModule: true,
   default: ({
     pendingItems,
+    drawnPendingItems,
     renderPendingItem
   }: {
     pendingItems: PendingActivityItem[];
+    drawnPendingItems?: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
   }) => {
-    mockHistoryRenders.push({ pendingItems, renderPendingItem });
+    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem });
     return (
       <div data-testid="timeline">
-        {pendingItems.map(item => (
+        {(drawnPendingItems ?? pendingItems).map(item => (
           <div key={item.note.id} data-pending-note-id={item.note.id}>
             {renderPendingItem(item)}
           </div>
@@ -151,6 +157,16 @@ it('does not hide a transfer claimed while the decline dialog was open', async (
   rerender(<ActivityPendingHistory search="" filter="all" />);
   await act(async () => answer(true));
   expect(mockHide).not.toHaveBeenCalled();
+});
+
+it('hands History a claimed note a search hides, so its consume row stays hidden, without drawing its card', () => {
+  const [, , claimed] = mockItems;
+  if (!claimed) throw new Error('Missing note fixtures');
+  claimed.status = 'claimed';
+  render(<ActivityPendingHistory search="zzzz-nothing" filter="all" />);
+  const last = mockHistoryRenders[mockHistoryRenders.length - 1];
+  expect(last?.pendingItems.map(item => item.note.id)).toContain('third');
+  expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
 });
 
 it('hides pending notes when the activity filter excludes incoming transfers', () => {

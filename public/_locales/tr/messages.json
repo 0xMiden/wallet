@@ -5251,6 +5251,10 @@
     "message": "QR kodu rengini değiştir",
     "englishSource": "Change the QR code color"
   },
+  "receiveAt": {
+    "message": "Şu adrese al",
+    "englishSource": "Receive at"
+  },
   "durationUnitSeconds": {
     "message": "Sn.",
     "englishSource": "Sec"
@@ -5289,6 +5293,47 @@
       },
       "max": {
         "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Etkinlik görünümü",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Görünüm seçenekleri",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Liste",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Gruplar",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Takaslar",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Diğer etkinlikler",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
       }
     }
   }

@@ -168,14 +168,19 @@ describe('MetricCard', () => {
     expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('Value');
-    // Base value classes are always present; no valueClassName was supplied.
-    expect(valueEl).toHaveClass('font-bold', 'text-ink');
-    expect(valueEl).not.toHaveClass('text-[#0B0B0C]');
+    // The named row-value style, never a hand-assembled size and weight.
+    expect(valueEl).toHaveClass('text-value', 'text-ink');
+    expect(valueEl.className).not.toMatch(/text-\[|\btext-sm\b/);
   });
 
   it('merges valueClassName onto the value node and className onto the container', () => {
     const { container } = render(
-      <MetricCard label="Estimated Rewards" value="+$24.50" valueClassName="text-status-positive" className="my-card" />
+      <MetricCard
+        label="Estimated Rewards"
+        value="+$24.50"
+        valueClassName="text-positive-tint-ink"
+        className="my-card"
+      />
     );
 
     const card = container.firstChild as HTMLElement;
@@ -183,7 +188,7 @@ describe('MetricCard', () => {
     expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('+$24.50');
-    expect(valueEl).toHaveClass('text-status-positive');
+    expect(valueEl).toHaveClass('text-positive-tint-ink');
   });
 });
 

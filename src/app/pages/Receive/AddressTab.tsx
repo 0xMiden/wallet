@@ -36,7 +36,9 @@ const QR_FILE_NAME = 'miden-address.png';
  * own green, the colour the rest of the page is painted in, and then runs the other four account
  * card colours. Every one is a palette colour, so the modules never lighten past a scannable QR.
  */
-const QR_PALETTE_CYCLE: readonly QRPalette[] = ['green', 'orange', 'slate', 'blue', 'purple'];
+// The code rests on the brand orange and cycles from there: the wallet's own colour first, the
+// other account-card colours after it.
+const QR_PALETTE_CYCLE: readonly QRPalette[] = ['orange', 'green', 'slate', 'blue', 'purple'];
 
 /** Resolution of the shared QR image; on screen the QR scales to the room the layout leaves. */
 const QR_EXPORT_SIZE = 300;
@@ -180,13 +182,15 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
     <div
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+      className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
       style={{ touchAction: 'pan-y' }}
       data-testid="receive-page"
     >
       <div
         className={cn(
-          'mx-auto flex min-h-full w-full max-w-150 flex-col px-4 pt-4',
+          // `pt-9` and a title with no padding of its own: the same construction as a send step's
+          // tab-root header, so the two titles land on one line.
+          'mx-auto flex min-h-full w-full max-w-150 flex-col px-4 pt-9',
           // Clears the tab bar that overlays the page (TabLayout): 57px docked on an iPhone, 64px
           // floating elsewhere, plus the 16px gutter.
           isMobile() ? 'pb-18' : 'pb-20'
@@ -197,10 +201,18 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           {address}
         </span>
 
+        {/* The page's first line, in the same markup a send step's tab-root header uses, so the
+            title box starts at the identical offset on Send, Receive and Swap. */}
+        <header className="flex shrink-0 items-start justify-between gap-3">
+          <h1 data-testid="receive-title" className="min-w-0 text-title-tab text-ink">
+            {t('receiveAt')}
+          </h1>
+        </header>
+
         {/* The code, its network and the address: one centred block on the page itself, no card
             around it — the card only added an edge between the code and the actions below. */}
-        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-3 pt-2">
-          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-3">
+        <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2 pt-2">
+          <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
             {/* The QR is a fixed square (208px), not the leftover height: big enough to scan
                 across a table, small enough to leave the page room to breathe. */}
             <div data-testid="receive-qr-slot" className="relative w-full max-w-52">
@@ -255,7 +267,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           </div>
         </div>
 
-        <div className="mt-4 flex shrink-0 flex-col gap-3">
+        <div className="mt-2 flex shrink-0 flex-col gap-2">
           {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
               hairlines. */}
           <ListGroup data-testid="receive-actions">

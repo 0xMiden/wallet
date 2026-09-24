@@ -242,8 +242,8 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByTestId('area-chart')).toBeInTheDocument();
     expect(screen.getByText('TipLabel')).toBeInTheDocument();
     // The tooltip body formats the point value to 2dp with a % suffix.
-    // (The APY headline also reads "5.24%" but uses font-bold, not font-semibold.)
-    expect(screen.getByText('5.24%', { selector: 'div.font-heading.font-semibold' })).toBeInTheDocument();
+    // (The APY headline also reads "5.24%" but takes the display style.)
+    expect(screen.getByText('5.24%', { selector: 'div.text-badge' })).toBeInTheDocument();
   });
 
   it('renders the unaudited vault with flat chart data (padding fallback + "No")', () => {

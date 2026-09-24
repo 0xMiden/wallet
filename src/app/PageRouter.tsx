@@ -19,6 +19,7 @@ import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
+import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
 import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
 import { NewContactPage } from 'screens/contacts/NewContactPage';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
@@ -34,6 +35,7 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
@@ -57,6 +59,17 @@ interface RouteContext {
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
+
+// A hand-typed or truncated link can carry a stray `%`, and a URIError thrown here would take down the
+// whole route rather than send the user somewhere sensible.
+function decodeParam(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
 
 const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
@@ -171,6 +184,16 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <AllHistory programId={programId} />
       </TabLayout>
+    ))
+  ],
+  // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
+  // the counterparty's address and is absent for a category group (`/activity/group/swap`).
+  [
+    '/activity/group/:kind/:id?',
+    onlyReady(({ kind, id }) => (
+      <FullScreenPage key={`activity-group-${kind}-${id ?? ''}`} entrance="slide">
+        <ActivityGroupPage kind={kind ?? undefined} id={decodeParam(id)} />
+      </FullScreenPage>
     ))
   ],
   // Read-only "Network endpoints" screen, linked from the Settings row that's only
@@ -289,11 +312,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/contacts/:address',
-    onlyReady(({ address }) => (
-      <FullScreenPage key={`contact-${address}`} entrance="slide">
-        <ContactDetailPage address={decodeURIComponent(address!)} />
-      </FullScreenPage>
-    ))
+    onlyReady(({ address }) => {
+      const decoded = decodeParam(address);
+      if (decoded === undefined) return <Woozie.Redirect to={ADDRESS_BOOK_PATH} />;
+      return (
+        <FullScreenPage key={`contact-${address}`} entrance="slide">
+          <ContactDetailPage address={decoded} />
+        </FullScreenPage>
+      );
+    })
   ],
   [
     '/token-detail/:tokenId',

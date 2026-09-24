@@ -338,7 +338,8 @@ function buildRowProps(
   };
 }
 
-function shortAddr(addr: string): string {
+/** The wallet's one address ellipsis, shared with the Groups view so both read a row the same way. */
+export function shortAddr(addr: string): string {
   if (addr.length <= 12) return addr;
   const underscoreIdx = addr.indexOf('_');
   if (underscoreIdx === -1) return `${addr.slice(0, 6)}…${addr.slice(-4)}`;

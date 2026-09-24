@@ -8,7 +8,9 @@ import { accentForTransactionType } from 'components/flow/accent';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
+import { StatusBadge } from 'components/ui/StatusBadge';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
+import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
@@ -78,12 +80,21 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
             { label: t('route'), value: 'Sepolia → Miden' },
             {
               label: t('status'),
-              value:
-                inputs.phase === 'received'
-                  ? t('received')
-                  : inputs.phase === 'delivering'
-                    ? t('earnWithdrawStatusDelivering')
-                    : t('earnWithdrawStatusRedeeming')
+              // A status word is a `StatusBadge`, never a bare line of text: the closed set
+              // already carries these three and picks each one's tone and label.
+              value: (
+                <StatusBadge
+                  status={
+                    inputs.phase === 'received'
+                      ? 'received'
+                      : inputs.phase === 'delivering'
+                        ? 'delivering'
+                        : 'redeeming'
+                  }
+                  live
+                  data-testid="earn-withdraw-status-badge"
+                />
+              )
             }
           ]}
         />
@@ -101,7 +112,9 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
             name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
           />
           <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
-          <p className="mt-4 text-center text-sm font-medium text-ink">
+          {/* The `Hero`'s own secondary line; an error takes the negative ink, as on every other
+              screen that reports one. */}
+          <p className={cn('mt-4 text-center text-body-sm', failed ? 'text-negative-ink' : 'text-muted')}>
             {failed
               ? (inputs.error ?? t('transactionErrorDescription'))
               : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}

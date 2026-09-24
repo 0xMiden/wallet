@@ -1181,11 +1181,21 @@
   "guardianCardMeta": "Obsługiwany przez $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Nie udało się sprawdzić metody odblokowania tego portfela. Sprawdź połączenie i spróbuj ponownie.",
   "receiveQrColorAction": "Zmień kolor kodu QR",
+  "receiveAt": "Odbierz na",
   "durationUnitSeconds": "Sek.",
   "durationUnitMinutes": "Min.",
   "durationUnitHours": "Godz.",
   "durationUnitDays": "Dzień",
   "swapExpiryUnit": "Jednostka wygaśnięcia",
   "moreInfoAbout": "Więcej informacji o $label$",
-  "swapExpiryRange": "Wprowadź liczbę całkowitą od $min$ do $max$."
+  "swapExpiryRange": "Wprowadź liczbę całkowitą od $min$ do $max$.",
+  "activityView": "Widok aktywności",
+  "activityViewOptions": "Opcje widoku",
+  "activityViewList": "Lista",
+  "activityViewGroups": "Grupy",
+  "activityGroupSwaps": "Wymiany",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Inna aktywność",
+  "activityGroupPartialCount": "$count$+"
 }

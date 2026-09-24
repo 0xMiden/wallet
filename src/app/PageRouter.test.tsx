@@ -230,6 +230,15 @@ jest.mock('./templates/history/HistoryDetails', () => ({
   )
 }));
 
+jest.mock('./pages/ActivityGroup', () => ({
+  ActivityGroupPage: ({ kind, id }: { kind?: string; id?: string }) => (
+    <div data-testid="activity-group" data-kind={kind} data-id={id} />
+  )
+}));
+jest.mock('screens/contacts/ContactDetailPage', () => ({
+  ContactDetailPage: ({ address }: { address: string }) => <div data-testid="contact-detail" data-address={address} />
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -724,5 +733,28 @@ describe('app/PageRouter — app-lifecycle telemetry', () => {
     expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({ ready: false, locked: false, hydrated: false })
     );
+  });
+});
+
+describe('app/PageRouter - encoded route parameters', () => {
+  it('hands a malformed activity group id on as absent, which the group page redirects', () => {
+    renderAt('/activity/group/address/%', ready);
+    const page = screen.getByTestId('activity-group');
+    expect(page).toHaveAttribute('data-kind', 'address');
+    expect(page).not.toHaveAttribute('data-id');
+  });
+
+  it('redirects a contact whose address will not decode to the address book', () => {
+    renderAt('/contacts/%', ready);
+    expect(screen.queryByTestId('contact-detail')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/settings/address-book');
+  });
+
+  it('still decodes a well-formed address for both pages', () => {
+    const { unmount } = renderAt('/activity/group/address/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('activity-group')).toHaveAttribute('data-id', 'mtst1:abc');
+    unmount();
+    renderAt('/contacts/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-address', 'mtst1:abc');
   });
 });

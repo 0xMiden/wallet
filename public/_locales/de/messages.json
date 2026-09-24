@@ -5251,6 +5251,10 @@
     "message": "Farbe des QR-Codes ändern",
     "englishSource": "Change the QR code color"
   },
+  "receiveAt": {
+    "message": "Empfangen an",
+    "englishSource": "Receive at"
+  },
   "durationUnitSeconds": {
     "message": "Sek.",
     "englishSource": "Sec"
@@ -5289,6 +5293,47 @@
       },
       "max": {
         "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Aktivitätsansicht",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Ansichtsoptionen",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Liste",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Gruppen",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Swaps",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Sonstige Aktivität",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
       }
     }
   }

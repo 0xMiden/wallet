@@ -602,6 +602,14 @@ describe('History', () => {
     expect(entryKeys().length).toBe(9);
   });
 
+  it('finds a swap by the asset it asks for, which only its requestedToken names', async () => {
+    const { rerender } = await renderHistory();
+    await act(async () => {
+      rerender(<History address="0xme" searchQuery="S-REQTOK" />);
+    });
+    expect(entryKeys().sort()).toEqual(['completed-S', 'pending-PP'].sort());
+  });
+
   it('filters by sent / received / faucet / all and tolerates an unknown filter value', async () => {
     const { rerender } = await renderHistory();
     const doRerender = async (props: Record<string, unknown>) => {
@@ -1430,6 +1438,28 @@ it('suppresses legacy single-note consume rows behind a claimed card, keeps rows
   expect(entryKeys()).toEqual([]);
 });
 
+it('hides the consume row of every represented claim while drawing only the cards it is told to', async () => {
+  mockGetCompletedTransactions.mockResolvedValue([]);
+  mockGetUncompletedTransactions.mockResolvedValue([
+    { id: 'single', status: STATUS.Queued, type: 'consume', noteIds: ['note-one'], initiatedAt: 500 }
+  ]);
+  const item: PendingActivityItem = {
+    note: {
+      id: 'note-one',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'claimed'
+  };
+  await renderHistory({ pendingItems: [item], drawnPendingItems: [] });
+  expect(entryKeys()).toEqual([]);
+  expect(mockHistoryViewProps.pendingItems).toEqual([]);
+});
+
 it('hides a failed consume row while its failed card offers the retry, and shows it again once no card does', async () => {
   mockGetCompletedTransactions.mockResolvedValue([
     {
@@ -1566,4 +1596,71 @@ it('offers no more pages while its page is off screen', async () => {
     utils?.rerender(view(true));
   });
   expect(mockHistoryViewProps.hasMore).toBe(true);
+});
+
+describe('History narrowed and re-rendered by its caller', () => {
+  it('narrows the filtered, searched list by `predicate`', async () => {
+    // "sent" leaves the two send rows; the predicate keeps one of them.
+    await renderHistory({ filter: 'sent', predicate: (entry: any) => entry.secondaryAddress === '0xEEE' });
+
+    expect(entryKeys()).toEqual(['completed-SD']);
+  });
+
+  it('narrows the list without touching what was loaded, so paging is unchanged', async () => {
+    await renderHistory({ predicate: () => false });
+
+    expect(entryKeys()).toEqual([]);
+    expect(mockHistoryViewProps.hasMore).toBe(true);
+  });
+
+  it('hands `renderEntries` the same entries and paging state instead of the timeline', async () => {
+    let seen: any;
+    await act(async () => {
+      render(
+        <History
+          address="0xme"
+          renderEntries={(view: any) => {
+            seen = view;
+            return <div data-testid="custom-view" data-count={String(view.entries.length)} />;
+          }}
+        />
+      );
+    });
+    await waitFor(() => expect(seen.entries.length).toBeGreaterThan(0));
+
+    // The timeline is not rendered at all; the caller's own view is.
+    expect(screen.queryByTestId('history-view')).toBeNull();
+    expect(screen.getByTestId('custom-view')).toBeTruthy();
+    expect(seen.hasMore).toBe(true);
+    expect(seen.initialLoading).toBe(false);
+    expect(typeof seen.loadMore).toBe('function');
+  });
+
+  it('lets that view page the list the same way the timeline does', async () => {
+    let seen: any;
+    await act(async () => {
+      render(
+        <History
+          address="0xme"
+          renderEntries={(view: any) => {
+            seen = view;
+            return <div data-testid="custom-view" />;
+          }}
+        />
+      );
+    });
+    await waitFor(() => expect(seen.entries.length).toBeGreaterThan(0));
+
+    await act(async () => {
+      await seen.loadMore(1);
+    });
+
+    expect(mockGetCompletedTransactions).toHaveBeenCalledWith(
+      '0xme',
+      expect.any(Number),
+      expect.any(Number),
+      true,
+      undefined
+    );
+  });
 });

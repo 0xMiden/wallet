@@ -152,7 +152,7 @@ export const NewContactPage: React.FC = () => {
         }
       >
         <form
-          className="flex flex-col gap-5 pt-6 pb-4"
+          className="flex flex-col gap-5 pb-4"
           onSubmit={event => {
             event.preventDefault();
             void save();
@@ -236,7 +236,7 @@ export const NewContactPage: React.FC = () => {
           <ContactNameInput value={name} onChange={setName} />
 
           {saveError && (
-            <p role="alert" className="-mt-2 text-sm text-negative-ink">
+            <p role="alert" className="-mt-2 text-caption text-negative-ink">
               {saveError}
             </p>
           )}

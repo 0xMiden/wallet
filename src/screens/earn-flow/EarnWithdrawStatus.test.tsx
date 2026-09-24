@@ -200,7 +200,8 @@ describe('EarnWithdrawStatus', () => {
 
     expect(screen.getByTestId('success-layout')).toBeInTheDocument();
     expect(screen.getByText('withdrawalStarted')).toBeInTheDocument();
-    expect(screen.getByText('status: earnWithdrawStatusRedeeming')).toBeInTheDocument();
+    // The status row is a StatusBadge now, so the word is its own element.
+    expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('earnWithdrawStatusRedeeming');
     expect(mockSuccessProps?.footerDescription).toBe('withdrawalStartedDescription');
     // The receipt is the earn flow's own: its Done is earn (the layout colours its CTA from
     // `accent`), and the arrow is the earn slate like the processing state's.
@@ -239,13 +240,15 @@ describe('EarnWithdrawStatus', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'delivering' })), loaded: true };
     render(<EarnWithdrawStatus txId="withdraw-1" />);
 
-    expect(screen.getByText('status: earnWithdrawStatusDelivering')).toBeInTheDocument();
+    // The status row is a StatusBadge now, so the word is its own element.
+    expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('earnWithdrawStatusDelivering');
   });
 
   it('shows the received status after the Miden note is consumed', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'received' })), loaded: true };
     render(<EarnWithdrawStatus txId="withdraw-1" />);
 
-    expect(screen.getByText('status: received')).toBeInTheDocument();
+    // The status row is a StatusBadge now, so the word is its own element.
+    expect(screen.getByTestId('earn-withdraw-status-badge')).toHaveTextContent('received');
   });
 });

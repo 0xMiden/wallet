@@ -1181,11 +1181,21 @@
   "guardianCardMeta": "運営: $operator$ · $location$",
   "couldNotCheckUnlockMethod": "このウォレットのロック解除方法を確認できませんでした。接続状態を確認して、もう一度お試しください。",
   "receiveQrColorAction": "QRコードの色を変更",
+  "receiveAt": "受取先",
   "durationUnitSeconds": "秒",
   "durationUnitMinutes": "分",
   "durationUnitHours": "時間",
   "durationUnitDays": "日",
   "swapExpiryUnit": "有効期限の単位",
   "moreInfoAbout": "$label$ の詳細",
-  "swapExpiryRange": "$min$ から $max$ までの整数を入力してください。"
+  "swapExpiryRange": "$min$ から $max$ までの整数を入力してください。",
+  "activityView": "アクティビティ表示",
+  "activityViewOptions": "表示オプション",
+  "activityViewList": "リスト",
+  "activityViewGroups": "グループ",
+  "activityGroupSwaps": "スワップ",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "その他のアクティビティ",
+  "activityGroupPartialCount": "$count$+"
 }

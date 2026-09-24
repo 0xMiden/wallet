@@ -1181,11 +1181,21 @@
   "guardianCardMeta": "營運方：$operator$ · $location$",
   "couldNotCheckUnlockMethod": "無法驗證此錢包的解鎖方式。請檢查您的連線狀態並重試。",
   "receiveQrColorAction": "更改 QR Code 顏色",
+  "receiveAt": "接收地址",
   "durationUnitSeconds": "秒",
   "durationUnitMinutes": "分鐘",
   "durationUnitHours": "小時",
   "durationUnitDays": "天",
   "swapExpiryUnit": "到期單位",
   "moreInfoAbout": "關於$label$的更多資訊",
-  "swapExpiryRange": "請輸入 $min$ 到 $max$ 之間的整數。"
+  "swapExpiryRange": "請輸入 $min$ 到 $max$ 之間的整數。",
+  "activityView": "活動檢視",
+  "activityViewOptions": "檢視選項",
+  "activityViewList": "清單",
+  "activityViewGroups": "群組",
+  "activityGroupSwaps": "兌換",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "其他活動",
+  "activityGroupPartialCount": "$count$+"
 }

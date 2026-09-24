@@ -115,6 +115,10 @@ Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tab
 
 Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.
 
+### Shared components and layouts, not page-local styling
+
+A page supplies content; the design system supplies everything else. Before styling anything, look for the component that already does it — a page-local copy of a frame, row, field, error line, empty state or icon circle is a defect, not a shortcut, and the fix is to extend the shared component (a prop, a variant) rather than fork it. The same goes for the frame itself: pushed pages take `SubPageLayout`, flow steps take `FlowLayout` + `FlowFooter`, and the home-group panes share one shell, so titles, gutters, section gaps and pinned actions land in the same place on every screen. Spacing, type and colour come from the named styles and tokens; a literal padding or hex in a page means the token is missing, so add it. When two pages disagree, one of them is wrong — decide which and move both, instead of leaving a third variant behind.
+
 ### Mobile file downloads
 `<a download>` does nothing in WebView. Use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
 

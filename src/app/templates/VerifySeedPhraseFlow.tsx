@@ -3,13 +3,13 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
@@ -250,7 +250,11 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
               ))}
             </div>
           </div>
-          {authError && <Alert type="error" title={t('error')} description={authError} className="mt-3 rounded-2xl" />}
+          {authError && (
+            <Notice tone="negative" role="alert" title={t('error')} className="mt-3">
+              {authError}
+            </Notice>
+          )}
         </SubPageSection>
 
         <Hero
@@ -347,8 +351,8 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
                 <div className="grid grid-cols-3 gap-x-4 gap-y-5">
                   {words.map((word, idx) => (
                     <div key={idx} className="flex min-w-0 items-center gap-2">
-                      <span className="w-5 text-right font-sans text-xs text-muted">{idx + 1}.</span>
-                      <span data-testid={`seed-word-${idx}`} className="font-heading text-sm font-bold text-ink">
+                      <span className="w-5 text-right text-caption text-muted">{idx + 1}.</span>
+                      <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
                         {word}
                       </span>
                     </div>
@@ -401,7 +405,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
 
 /** An error under a section's content, in the negative ink. */
 const ErrorLine: FC<{ message: string }> = ({ message }) => (
-  <p role="alert" className="px-1 font-sans text-sm text-negative-ink select-text">
+  <p role="alert" className="px-1 text-caption text-negative-ink select-text">
     {message}
   </p>
 );

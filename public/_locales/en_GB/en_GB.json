@@ -1181,11 +1181,21 @@
   "guardianCardMeta": "Operated by $operator$ · $location$",
   "couldNotCheckUnlockMethod": "Couldn't check this wallet's unlock method. Check your connection and try again.",
   "receiveQrColorAction": "Change the QR code colour",
+  "receiveAt": "Receive at",
   "durationUnitSeconds": "Sec",
   "durationUnitMinutes": "Min",
   "durationUnitHours": "Hour",
   "durationUnitDays": "Day",
   "swapExpiryUnit": "Expiry unit",
   "moreInfoAbout": "More information about $label$",
-  "swapExpiryRange": "Enter a whole number from $min$ to $max$."
+  "swapExpiryRange": "Enter a whole number from $min$ to $max$.",
+  "activityView": "Activity view",
+  "activityViewOptions": "View options",
+  "activityViewList": "List",
+  "activityViewGroups": "Groups",
+  "activityGroupSwaps": "Swaps",
+  "activityGroupFaucet": "Faucet",
+  "activityGroupGuardian": "Guardian",
+  "activityGroupOther": "Other activity",
+  "activityGroupPartialCount": "$count$+"
 }

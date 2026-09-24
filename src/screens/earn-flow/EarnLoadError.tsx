@@ -3,7 +3,7 @@ import React, { FC } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { hapticLight } from 'lib/mobile/haptics';
+import { Button, ButtonVariant } from 'components/Button';
 
 /**
  * A positions load that did not fully succeed. It must not read as "you have no positions": that
@@ -25,18 +25,19 @@ export const EarnLoadError: FC<{ onRetry: () => void; className?: string; messag
       data-testid="earn-positions-load-error"
       role="alert"
     >
-      <p className="max-w-xs text-base leading-snug text-ink">{message ?? t('earnPositionsLoadError')}</p>
-      <button
+      <p className="max-w-xs text-body text-ink">{message ?? t('earnPositionsLoadError')}</p>
+      {/* The shared compact secondary button, which brings the tap haptic and the press motion
+          with it. */}
+      <Button
         type="button"
         data-testid="earn-positions-retry"
-        onClick={() => {
-          hapticLight();
-          onRetry();
-        }}
-        className="rounded-full bg-fill px-5 py-2.5 text-sm font-bold text-ink hover:bg-fill-pressed focus:bg-fill-pressed"
-      >
-        {t('retry')}
-      </button>
+        variant={ButtonVariant.Secondary}
+        size="sm"
+        title={t('retry')}
+        // `Button` fires the tap haptic itself; calling it here too would buzz twice.
+        onClick={onRetry}
+        className="w-auto"
+      />
     </div>
   );
 };

@@ -36,6 +36,7 @@ import { ListGroup } from './ListGroup';
 import { ListRow } from './ListRow';
 import { Notice } from './Notice';
 import { Pill } from './Pill';
+import { Popover } from './Popover';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
@@ -100,6 +101,7 @@ describe('components/ui barrel', () => {
     ActivityRow,
     EmptyState,
     IconButton,
+    Popover,
     Spinner,
     Skeleton,
     TextField,

@@ -2,9 +2,12 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
+
 import { SubPageHeaderProvider, SubPageLayout, SubPageSection } from './SubPageLayout';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('app/icons/v2', () => ({
   IconName: { ChevronLeft: 'chevron-left', Close: 'close' },
@@ -62,9 +65,47 @@ describe('SubPageLayout', () => {
     // A sibling after the scroller, not inside it: it stays put while the body scrolls.
     expect(pinned.parentElement).toBe(page);
     expect(pinned.previousElementSibling).toBe(body(page));
-    expect(pinned).toHaveClass('shrink-0', 'flex', 'gap-2.5', 'px-4', 'pb-4');
+    expect(pinned).toHaveClass('shrink-0', 'flex', 'gap-2.5', 'px-4');
+    // The flow footer's keyboard-aware cushion, not a flat `pb-4`: the docked bar draws over the
+    // page, so a sub-page's CTA clears it for as long as the bar is up, and `data-navbar-cushion`
+    // is what collapses the cushion once `body[data-hide-navbar]` says the bar is down.
+    expect(pinned.className).toContain('var(--keyboard-height,0px)');
+    expect(pinned.getAttribute('data-navbar-cushion')).toBe('true');
     expect(pinned).not.toHaveClass('flex-col');
     expect(within(pinned).getByRole('button', { name: 'Rotate' })).toBeInTheDocument();
+  });
+
+  it('pins it through the flow footer, so the CTA rides the keyboard instead of jumping', () => {
+    (useSlideOnReflow as jest.Mock).mockClear();
+    render(
+      <SubPageLayout title="Keys" data-testid="page" footer={<button type="button">Rotate</button>}>
+        <p>content</p>
+      </SubPageLayout>
+    );
+
+    const pinned = footer(screen.getByTestId('page'))!;
+    // FlowFooter's own spacing above the CTA, and its slide on every reflow the keyboard causes.
+    expect(pinned).toHaveClass('pt-3');
+    const observed = (useSlideOnReflow as jest.Mock).mock.calls.map(([ref]) => ref.current);
+    expect(observed).toContain(pinned);
+  });
+
+  it('keeps the flat 16px margin, with no navbar cushion, where no tab bar is drawn', () => {
+    render(
+      <SubPageLayout
+        title="Keys"
+        data-testid="page"
+        footerNavbarCushion={false}
+        footer={<button type="button">Rotate</button>}
+      >
+        <p>content</p>
+      </SubPageLayout>
+    );
+
+    const pinned = footer(screen.getByTestId('page'))!;
+    expect(pinned).toHaveClass('pb-4', 'pt-3');
+    expect(pinned.className).not.toContain('var(--keyboard-height,0px)');
+    expect(pinned).not.toHaveAttribute('data-navbar-cushion');
   });
 
   it('stacks the footer on request and renders none without one', () => {

@@ -342,6 +342,20 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
+  it('leads with the page title, where send puts "Send to" and swap "You Pay"', async () => {
+    const container = await renderReceive();
+
+    const title = container.querySelector('[data-testid="receive-title"]')!;
+    expect(title.tagName).toBe('H1');
+    expect(title.textContent).toBe('receiveAt');
+    // The same type style as the two tabs beside it, so the line does not move as you swipe.
+    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    // First in the column, above the code.
+    const block = container.querySelector('[data-testid="receive-qr-block"]')!;
+    expect(block.parentElement!.contains(title)).toBe(true);
+    expect(title.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('names the network in a NetworkChip and keeps the caption to the shared QR image', async () => {
     const container = await renderReceive();
 
@@ -370,7 +384,7 @@ describe('Receive - Address', () => {
     expect(card.contains(container.querySelector('[data-testid="receive-copy-address"]'))).toBe(true);
     // One column with the 16px gutter, clearing the floating tab bar off mobile.
     const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
-    expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-4', 'pb-20');
+    expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-9', 'pb-20');
   });
 
   it('clears the docked tab bar on mobile', async () => {
@@ -430,11 +444,11 @@ describe('Receive - Address', () => {
     const logo = (container: HTMLElement) => container.querySelector('[data-testid="receive-qr-logo"]')! as HTMLElement;
     const palette = () => mockQRCodeProps.mock.lastCall![0].palette;
 
-    it('opens on the flow green and walks the card palette, one tap at a time', async () => {
+    it('opens on the brand orange and walks the card palette, one tap at a time', async () => {
       const container = await renderReceive();
 
-      expect(palette()).toBe('green');
-      const order = ['orange', 'slate', 'blue', 'purple', 'green'];
+      expect(palette()).toBe('orange');
+      const order = ['green', 'slate', 'blue', 'purple', 'orange'];
       for (const next of order) {
         await act(async () => {
           fireEvent.click(logo(container));
@@ -488,46 +502,46 @@ describe('Receive - Address', () => {
       await act(async () => {
         fireEvent.click(logo(container));
       });
-      expect(palette()).toBe('orange');
+      expect(palette()).toBe('green');
     });
 
     it('retries the same palette on the next tap when a recolour never commits', async () => {
       const container = await renderReceive();
-      expect(palette()).toBe('green');
+      expect(palette()).toBe('orange');
 
       mockPaletteCommits = false;
       await act(async () => {
         fireEvent.click(logo(container));
       });
-      expect(palette()).toBe('orange');
+      expect(palette()).toBe('green');
 
-      // The 'orange' draw never landed, so the next tap asks for it again, not 'slate'.
+      // The 'green' draw never landed, so the next tap asks for it again, not 'slate'.
       mockPaletteCommits = true;
       await act(async () => {
         fireEvent.click(logo(container));
       });
-      expect(palette()).toBe('orange');
+      expect(palette()).toBe('green');
 
-      // Now that 'orange' has committed, the tap after it moves on.
+      // Now that 'green' has committed, the tap after it moves on.
       await act(async () => {
         fireEvent.click(logo(container));
       });
       expect(palette()).toBe('slate');
     });
 
-    it('goes back to the flow green once the page is no longer the one on screen', async () => {
+    it('goes back to the brand orange once the page is no longer the one on screen', async () => {
       const container = await renderReceive();
 
       await act(async () => {
         fireEvent.click(logo(container));
       });
-      expect(palette()).toBe('orange');
+      expect(palette()).toBe('green');
 
       // The tab stays mounted under another one, so leaving is a page-active change.
       await setPageActive(false);
-      expect(palette()).toBe('green');
+      expect(palette()).toBe('orange');
       await setPageActive(true);
-      expect(palette()).toBe('green');
+      expect(palette()).toBe('orange');
     });
   });
 
