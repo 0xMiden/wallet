@@ -336,7 +336,8 @@ describe('TextField — secret', () => {
         const documentAdd = jest.spyOn(document, 'addEventListener');
         const documentRemove = jest.spyOn(document, 'removeEventListener');
         const { field, rerender, unmount } = revealed();
-        const added = (spy: jest.SpyInstance, type: string) => spy.mock.calls.find(([name]) => name === type)?.[1];
+        const added = (spy: jest.SpyInstance, type: string) =>
+          spy.mock.calls.filter(([name]) => name === type).at(-1)?.[1];
         const blur = added(windowAdd, 'blur');
         const pagehide = added(windowAdd, 'pagehide');
         const visibility = added(documentAdd, 'visibilitychange');
@@ -363,9 +364,9 @@ describe('TextField — secret', () => {
         setVisibility('visible');
         rerender(<TextField secret value="my private key" onChange={jest.fn()} />);
         act(() => field.focus());
-        const blurAgain = windowAdd.mock.calls.filter(([name]) => name === 'blur').at(-1)?.[1];
-        const pagehideAgain = windowAdd.mock.calls.filter(([name]) => name === 'pagehide').at(-1)?.[1];
-        const visibilityAgain = documentAdd.mock.calls.filter(([name]) => name === 'visibilitychange').at(-1)?.[1];
+        const blurAgain = added(windowAdd, 'blur');
+        const pagehideAgain = added(windowAdd, 'pagehide');
+        const visibilityAgain = added(documentAdd, 'visibilitychange');
         unmount();
         expect(windowRemove).toHaveBeenCalledWith('blur', blurAgain);
         expect(windowRemove).toHaveBeenCalledWith('pagehide', pagehideAgain);
