@@ -2151,16 +2151,16 @@
     "englishSource": "Your account lives on this device"
   },
   "meetGuardianLocalStateBody": {
-    "message": "L’état du compte privé reste sur votre appareil. Le réseau ne voit jamais qu’un engagement.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
+    "message": "L'état privé du compte reste sur votre appareil. Le réseau ne voit jamais qu’un engagement cryptographique.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
   },
   "meetGuardianSeedPhraseTitle": {
     "message": "Une phrase de récupération ne suffit pas",
     "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "Votre phrase de récupération restaure vos clés, pas l’état de votre compte. Si vous perdez l’appareil, tout est perdu.",
-    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
+    "message": "Votre phrase de récupération restaure vos clés, et non l’état de votre compte. Si vous perdez l’appareil, cet état est perdu.",
+    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Un «Guardian» peut vous protéger",
@@ -2171,8 +2171,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "Actuellement l’opérateur le plus rapide de l’$operators$",
-    "englishSource": "Fastest of $operators$ operators right now",
+    "message": "L'opérateur le plus rapide à l'heure actuelle, parmi $operators$",
+    "englishSource": "Fastest operator right now, out of $operators$",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2184,24 +2184,24 @@
     "englishSource": "The operator on this network"
   },
   "meetGuardianCannotMoveFunds": {
-    "message": "Impossible de transférer vos fonds de manière autonome",
-    "englishSource": "Cannot move your funds on its own"
+    "message": "L’Guardiane ne peut pas transférer vos fonds de son propre chef",
+    "englishSource": "The Guardian can't move your funds on its own"
   },
   "meetGuardianBacksUpState": {
-    "message": "Sauvegarde l’état de votre compte",
-    "englishSource": "Backs up your account state"
+    "message": "L’Guardiane sauvegarde l’état de votre compte",
+    "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "Peut être modifié à l’aide de votre phrase de récupération",
-    "englishSource": "Can be switched with your recovery phrase"
+    "message": "Vous pouvez échanger un «Guardians» contre votre phrase de récupération.",
+    "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "Je vérifie quel opérateur répond le plus vite…",
     "englishSource": "Checking which operator answers fastest…"
   },
   "meetGuardianNoneReachable": {
-    "message": "Aucun opérateur d’Guardians n’est joignable pour le moment. Vérifiez votre connexion ou choisissez-en un autre pour réessayer.",
-    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+    "message": "Aucun opérateur «Guardian» n’est joignable sur ce réseau.",
+    "englishSource": "No Guardian operator is reachable on this network."
   },
   "meetGuardianFullyPrivateInstead": {
     "message": "Je préfère plutôt créer un compte entièrement privé",
@@ -2212,24 +2212,24 @@
     "englishSource": "Choose a different Guardian"
   },
   "guardianBioGeneric": {
-    "message": "An independent Guardian operator on Miden.",
-    "englishSource": "One of $operators$ independent Guardian operators on Miden."
+    "message": "Un opérateur indépendant d’Guardians sur Miden.",
+    "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden."
+    "message": "OpenZeppelin est une société de sécurité spécialisée dans l’blockchain, à l’origine de bibliothèques de contrats intelligents largement utilisées pour Ethereum.",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden."
+    "message": "Gateway.fm développe et exploite une infrastructure d’blockchains pour les réseaux et les rollups.",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden."
+    "message": "LambdaClass est une société d’ingénierie qui développe des infrastructures avancées de cryptographie et d’blockchain.",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
+    "message": "Korea Digital Asset (KODA) est un dépositaire d’actifs numériques réglementé en Corée du Sud.",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "En savoir plus sur l’Guardian",

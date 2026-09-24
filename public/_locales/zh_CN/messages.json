@@ -2151,16 +2151,16 @@
     "englishSource": "Your account lives on this device"
   },
   "meetGuardianLocalStateBody": {
-    "message": "私有账户状态始终保存在您的设备上。网络仅能看到相关承诺。",
-    "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
+    "message": "私有账户状态始终保存在您的设备上。网络仅能看到加密承诺。",
+    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
   },
   "meetGuardianSeedPhraseTitle": {
     "message": "仅凭恢复短语是不够的",
     "englishSource": "A recovery phrase isn't enough"
   },
   "meetGuardianSeedPhraseBody": {
-    "message": "您的助记词可恢复您的密钥，而非您的账户状态。一旦丢失设备，助记词即告丢失。",
-    "englishSource": "Your recovery phrase restores your keys, not your state. Lose the device and it is gone."
+    "message": "您的恢复短语可恢复您的密钥，而非账户状态。一旦丢失设备，该状态便不复存在。",
+    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
   },
   "meetGuardianProtectsTitle": {
     "message": "Guardian（资产保护协议）可为您提供保护",
@@ -2171,8 +2171,8 @@
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
   "meetGuardianFastestOf": {
-    "message": "目前$operators$中最快的运营商",
-    "englishSource": "Fastest of $operators$ operators right now",
+    "message": "目前最快的运算符，出自 $operators$",
+    "englishSource": "Fastest operator right now, out of $operators$",
     "placeholders": {
       "operators": {
         "content": "$1"
@@ -2184,24 +2184,24 @@
     "englishSource": "The operator on this network"
   },
   "meetGuardianCannotMoveFunds": {
-    "message": "无法自行转移您的资金",
-    "englishSource": "Cannot move your funds on its own"
+    "message": "Guardian无法自行转移您的资金",
+    "englishSource": "The Guardian can't move your funds on its own"
   },
   "meetGuardianBacksUpState": {
-    "message": "备份您的账户状态",
-    "englishSource": "Backs up your account state"
+    "message": "Guardian会备份您的账户状态",
+    "englishSource": "The Guardian backs up your account state"
   },
   "meetGuardianCanSwitch": {
-    "message": "可通过您的助记词进行切换",
-    "englishSource": "Can be switched with your recovery phrase"
+    "message": "你可以用恢复短语替换Guardians",
+    "englishSource": "You can switch Guardians with your recovery phrase"
   },
   "meetGuardianChecking": {
     "message": "正在测试哪位客服响应最快……",
     "englishSource": "Checking which operator answers fastest…"
   },
   "meetGuardianNoneReachable": {
-    "message": "目前无法联系到任何Guardian运营商。请检查您的网络连接，或选择其他运营商重试。",
-    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+    "message": "该网络上无法联系到任何 Guardian 运营商。",
+    "englishSource": "No Guardian operator is reachable on this network."
   },
   "meetGuardianFullyPrivateInstead": {
     "message": "我宁愿创建一个完全私密的账户",
@@ -2212,24 +2212,24 @@
     "englishSource": "Choose a different Guardian"
   },
   "guardianBioGeneric": {
-    "message": "An independent Guardian operator on Miden.",
-    "englishSource": "One of $operators$ independent Guardian operators on Miden."
+    "message": "Miden 上的独立 Guardian 运营商。",
+    "englishSource": "An independent Guardian operator on Miden."
   },
   "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum. One of $operators$ independent Guardian operators on Miden."
+    "message": "OpenZeppelin 是一家总部位于blockchain的安全公司，开发了以太坊上广泛使用的智能合约库。",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
   },
   "guardianBioGateway": {
-    "message": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups. One of $operators$ independent Guardian operators on Miden."
+    "message": "Gateway.fm 为网络和 Rollup 构建并运营 blockchain 基础设施。",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
   },
   "guardianBioLambdaClass": {
-    "message": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure. One of $operators$ independent Guardian operators on Miden."
+    "message": "LambdaClass 是一家致力于构建先进加密技术和 blockchain 基础设施的工程公司。",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
   },
   "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden."
+    "message": "Korea Digital Asset (KODA) 是韩国一家受监管的数字资产托管机构。",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "了解更多关于Guardian的信息",
