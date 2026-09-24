@@ -7,6 +7,20 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 import { PromptCard } from './PromptCard';
 
+// The real Card, with the props PromptCard hands it recorded: the card's surface is Card's to draw.
+const mockCardProps: Array<Record<string, unknown>> = [];
+jest.mock('./Card', () => {
+  const R = jest.requireActual('react');
+  const actual = jest.requireActual('./Card');
+  return {
+    ...actual,
+    Card: (props: Record<string, unknown>) => {
+      mockCardProps.push(props);
+      return R.createElement(actual.Card, props);
+    }
+  };
+});
+
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />,
   IconName: { Checkmark: 'Checkmark', ChevronRight: 'ChevronRight', Close: 'Close', Loader: 'Loader' }
@@ -63,7 +77,12 @@ describe('PromptCard', () => {
   });
 
   it('takes the `outline` surface: a hairline edge on `page`, not a grey block', () => {
+    mockCardProps.length = 0;
     const { container } = render(<PromptCard title="Fund your wallet" body="You need MIDEN." />);
+
+    // Drawn by Card, not spelled out: the root is Card's outline surface on PromptCard's own element.
+    expect(mockCardProps.at(-1)).toMatchObject({ asChild: true, surface: 'outline', padding: 'none' });
+    expect(container.firstChild as HTMLElement).toHaveClass('h-[72px]');
 
     const card = container.firstChild as HTMLElement;
     expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
