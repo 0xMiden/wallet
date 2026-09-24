@@ -101,14 +101,19 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
     return best?.option ?? null;
   }, [options, verdicts]);
 
-  // Locked in once, on the first full round: a re-probe refreshes the latency on the card and can
-  // take the operator offline, but never swaps it for another while the user reads about it.
-  useEffect(() => {
-    if (chosenId !== null || !allSettled || fastest === null) return;
-    onProgressChange(prev => (prev.chosenId === null ? { ...prev, chosenId: fastest.id } : prev));
-  }, [chosenId, allSettled, fastest, onProgressChange]);
-
   const chosen = options.find(option => option.id === chosenId) ?? null;
+
+  // Locked in once, on the first full round: a re-probe refreshes the latency on the card and can
+  // take the operator offline, but never swaps it for another while the user reads about it. A choice
+  // that matches no operator here counts as none, and the fastest is locked in as an auto-pick.
+  useEffect(() => {
+    if (chosen !== null || !allSettled || fastest === null) return;
+    onProgressChange(prev =>
+      options.some(option => option.id === prev.chosenId)
+        ? prev
+        : { ...prev, chosenId: fastest.id, pickedByUser: false }
+    );
+  }, [chosen, allSettled, fastest, options, onProgressChange]);
   const chosenVerdict = chosen ? verdicts[chosen.endpoint] : undefined;
   const chosenOnline = chosenVerdict?.status === 'online';
   // No operator on this network at all is terminal, not a round still out: the picker would be empty too.

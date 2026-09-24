@@ -267,6 +267,24 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
   });
 
+  it('replaces a choice that matches no operator with the fastest, as its own pick', () => {
+    const view = renderScreen({
+      initialProgress: {
+        checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
+        chosenId: 'custom',
+        pickedByUser: true
+      }
+    });
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
+    expect(screen.getByText('meetGuardianFastestOf:2')).toBeInTheDocument();
+    expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
+  });
+
   it('names the only operator without a count when the network has one', () => {
     mockGetGuardianOptions.mockReturnValue([{ ...OZ }]);
     const view = renderScreen();
