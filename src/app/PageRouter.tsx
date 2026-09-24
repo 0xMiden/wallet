@@ -30,6 +30,7 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
 import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
@@ -403,6 +404,8 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
+  // The retired Pending notes page: an old link or a restored URL still lands where it went.
+  ['/pending-notes', () => <Woozie.Redirect to={ACTIVITY_PENDING_PATH} />],
   ['*', () => <Woozie.Redirect to="/" />]
 ]);
 

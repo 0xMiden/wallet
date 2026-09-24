@@ -26,7 +26,7 @@
 
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
@@ -499,9 +499,14 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('import-account'));
   });
 
-  it('no longer routes /pending-notes: the page is gone and its link is the Activity Pending tab', () => {
+  it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.queryByTestId('pending')).toBeNull();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending');
+    cleanup();
+
+    // Where that redirect lands: the Activity page, which reads `filter` off the location.
+    renderAt('/history', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('all-history'));
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {
