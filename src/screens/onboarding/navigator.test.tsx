@@ -291,23 +291,21 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload });
   });
 
-  it('ChooseGuardian: forwards the dev-gated allow-no-guardian flag as showNoGuardianOption', () => {
-    mockAllowNoGuardian = true;
-    renderFlow({ step: OnboardingStep.ChooseGuardian });
-    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(true);
+  // The fully private account is dev-only: every screen that offers it follows the flag both ways.
+  it.each([
+    [OnboardingStep.ChooseGuardian, 'choose-guardian', true],
+    [OnboardingStep.ChooseGuardian, 'choose-guardian', false],
+    [OnboardingStep.MeetGuardian, 'meet-guardian', true],
+    [OnboardingStep.MeetGuardian, 'meet-guardian', false]
+  ])('%s: showNoGuardianOption follows the dev flag (%s, %s)', (step, name, flag) => {
+    mockAllowNoGuardian = flag;
+    renderFlow({ step });
+    expect(mockCaptured[name].showNoGuardianOption).toBe(flag);
   });
 
-  it('ChooseGuardian: hides the no-guardian option when the dev flag is off', () => {
-    mockAllowNoGuardian = false;
-    renderFlow({ step: OnboardingStep.ChooseGuardian });
-    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(false);
-  });
-
-  it('MeetGuardian: submits the picked guardian, opens the picker, and carries the dev flag', () => {
+  it('MeetGuardian: submits the picked guardian and opens the picker', () => {
     const onAction = jest.fn();
-    mockAllowNoGuardian = true;
     renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
-    expect(mockCaptured['meet-guardian'].showNoGuardianOption).toBe(true);
 
     const payload = { guardianId: 'g1', guardianEndpoint: 'https://guardian.example' };
     act(() => mockCaptured['meet-guardian'].onSubmit(payload));
