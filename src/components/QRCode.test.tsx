@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 
 import { QRCode, type QRCodeHandle } from './QRCode';
 
@@ -16,24 +16,38 @@ const mockConstructor = jest.fn();
 const mockAppend = jest.fn();
 const mockUpdate = jest.fn();
 const mockGetRawData = jest.fn();
+// Per-instance record, so a test can tell the painted instance from a staged one.
+const mockInstances: Array<{ container?: HTMLElement; rawData: string[]; updates: unknown[] }> = [];
 
 jest.mock('qr-code-styling', () => ({
   __esModule: true,
   default: class QRCodeStylingStub {
+    record: { container?: HTMLElement; rawData: string[]; updates: unknown[] } = { rawData: [], updates: [] };
     constructor(options: unknown) {
+      mockInstances.push(this.record);
       mockConstructor(options);
     }
     append(container: HTMLElement) {
+      this.record.container = container;
       return mockAppend(container);
     }
     update(options: unknown) {
+      this.record.updates.push(options);
       return mockUpdate(options);
     }
     getRawData(type: string) {
+      this.record.rawData.push(type);
       return mockGetRawData(type);
     }
   }
 }));
+
+const deferred = () => {
+  let resolve: (value: unknown) => void = () => undefined;
+  const promise = new Promise(r => (resolve = r));
+  return { promise, resolve };
+};
+const isShown = (el?: HTMLElement) => Boolean(el) && !el!.hidden && el!.isConnected;
 
 // The Miden logo is imported as `../../public/misc/brand/new-bread.svg?url`.
 // The `?url` query suffix means it does NOT match the jest `\.svg$` asset
@@ -51,6 +65,7 @@ const ctorOptions = () => mockConstructor.mock.calls[0][0] as Record<string, any
 describe('QRCode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockInstances.length = 0;
     // Keep the documentElement style clean between tests so the accent-color
     // resolution starts from a known (unset) state.
     document.documentElement.style.removeProperty('--accent-primary');
@@ -168,20 +183,84 @@ describe('QRCode', () => {
       }
     });
 
-    it('repaints when the palette changes', () => {
+    it('recolours on a palette tap without blanking the code: the new palette is drawn aside, then shown', async () => {
       const gcs = stubTokens();
+      const draw = deferred();
+      mockGetRawData.mockImplementation((type: string) => (type === 'svg' ? draw.promise : undefined));
       try {
         const { rerender } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
-        expect(mockUpdate).toHaveBeenCalledTimes(1);
-
+        const painted = mockInstances[0]!;
         rerender(<QRCode address={ADDRESS} size={200} palette="purple" />);
 
-        expect(mockConstructor).toHaveBeenCalledTimes(1);
-        expect(mockUpdate).toHaveBeenCalledTimes(2);
-        expect(mockUpdate.mock.calls[1][0].dotsOptions.color).toBe('resolved(--qr-purple)');
+        // The painted code is never torn down for a colour change.
+        expect(painted.updates).toHaveLength(1);
+        const staged = mockInstances[1]!;
+        expect(mockConstructor.mock.calls[1][0].dotsOptions.color).toBe('resolved(--qr-purple)');
+        expect(staged.rawData).toEqual(['svg']);
+        expect(isShown(painted.container)).toBe(true);
+        expect(isShown(staged.container)).toBe(false);
+
+        await act(async () => draw.resolve(undefined));
+        expect(isShown(staged.container)).toBe(true);
+        expect(isShown(painted.container)).toBe(false);
       } finally {
         gcs.mockRestore();
       }
+    });
+
+    it('settles on the last palette when taps outrun the drawing', async () => {
+      const draws = [deferred(), deferred()];
+      let n = 0;
+      mockGetRawData.mockImplementation((type: string) => (type === 'svg' ? draws[n++]!.promise : undefined));
+      const { rerender } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
+      rerender(<QRCode address={ADDRESS} size={200} palette="purple" />);
+      rerender(<QRCode address={ADDRESS} size={200} palette="blue" />);
+
+      await act(async () => draws[1]!.resolve(undefined));
+      await act(async () => draws[0]!.resolve(undefined));
+      expect(isShown(mockInstances[2]!.container)).toBe(true);
+      // Both staged draws used the same spare slot; what is committed (and exported) is the last one.
+      mockGetRawData.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+      const ref = React.createRef<QRCodeHandle>();
+      rerender(<QRCode ref={ref} address={ADDRESS} size={200} palette="blue" />);
+      await ref.current!.getImageBlob();
+      expect(mockInstances[2]!.rawData).toContain('png');
+      expect(mockInstances[1]!.rawData).not.toContain('png');
+    });
+
+    it('never shows or exports a colour drawn for an address the code no longer carries', async () => {
+      const draw = deferred();
+      mockGetRawData.mockImplementation((type: string) => (type === 'svg' ? draw.promise : undefined));
+      const ref = React.createRef<QRCodeHandle>();
+      const { rerender, getByTestId } = render(<QRCode ref={ref} address={ADDRESS} size={200} palette="green" />);
+      const painted = mockInstances[0]!;
+      rerender(<QRCode ref={ref} address={ADDRESS} size={200} palette="purple" />);
+      rerender(<QRCode ref={ref} address="mtst1other" size={200} palette="purple" />);
+
+      await act(async () => draw.resolve(undefined));
+      expect(isShown(painted.container)).toBe(true);
+      expect(isShown(mockInstances[1]!.container)).toBe(false);
+      expect(getByTestId('qr-code')).toHaveAttribute('data-qr-payload', 'miden:mtst1other');
+
+      mockGetRawData.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+      await ref.current!.getImageBlob();
+      expect(painted.rawData).toContain('png');
+      expect(mockInstances[1]!.rawData).not.toContain('png');
+    });
+
+    it('exports the code that is on screen after a colour change', async () => {
+      const draw = deferred();
+      mockGetRawData.mockImplementation((type: string) =>
+        type === 'svg' ? draw.promise : Promise.resolve(new Blob(['png'], { type: 'image/png' }))
+      );
+      const ref = React.createRef<QRCodeHandle>();
+      const { rerender } = render(<QRCode ref={ref} address={ADDRESS} size={200} palette="green" />);
+      rerender(<QRCode ref={ref} address={ADDRESS} size={200} palette="purple" />);
+      await act(async () => draw.resolve(undefined));
+
+      await ref.current!.getImageBlob();
+      expect(mockInstances[1]!.rawData).toContain('png');
+      expect(mockInstances[0]!.rawData).not.toContain('png');
     });
 
     it('paints the shared image caption in the treatment color', async () => {

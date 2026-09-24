@@ -137,7 +137,9 @@ async function composeCaptionedPng(qrPng: Blob, size: number, caption: string, c
 export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
   ({ address, size, caption, showCaption, fluid, palette }, ref) => {
     const qrValue = encodeAddress(address);
-    const containerRef = useRef<HTMLDivElement>(null);
+    // Two slots: the painted code stays on screen while a new colour is drawn into the other one.
+    const slotA = useRef<HTMLDivElement>(null);
+    const slotB = useRef<HTMLDivElement>(null);
 
     const options = useMemo<Options>(() => {
       const colors = paletteOptions(palette);
@@ -159,39 +161,78 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
       };
     }, [qrValue, size, palette]);
 
-    // Create the styling instance once; re-use across data/size changes via update().
-    const qrCode = useMemo(() => new QRCodeStyling(options), []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Create the first styling instance once; re-use it across data/size changes via update().
+    const firstInstance = useMemo(() => new QRCodeStyling(options), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // The instance on screen, its slot and palette: what is visible AND what a share exports.
+    const committed = useRef<{ instance: QRCodeStyling; slot: 0 | 1; palette: QRPalette }>({
+      instance: firstInstance,
+      slot: 0,
+      palette
+    });
+    const [shownSlot, setShownSlot] = useState<0 | 1>(0);
+    // What the committed instance was last drawn with, and a counter over every option change: a
+    // staged colour that finishes after a newer change (another tap, a new address) is dropped.
+    const applied = useRef<{ qrValue: string; size: number; palette: QRPalette } | null>(null);
+    const generation = useRef(0);
 
     // The payload the encoder was LAST handed — see the attribute comment below.
     const [paintedValue, setPaintedValue] = useState('');
 
     useEffect(() => {
-      const container = containerRef.current;
+      const container = slotA.current;
+      const other = slotB.current;
       if (!container) return;
       container.innerHTML = '';
-      qrCode.append(container);
+      firstInstance.append(container);
       return () => {
         container.innerHTML = '';
+        if (other) other.innerHTML = '';
       };
-    }, [qrCode]);
+    }, [firstInstance]);
 
     useEffect(() => {
-      qrCode.update(options);
+      const gen = ++generation.current;
+      const last = applied.current;
+      // A colour change alone never clears the painted code: qr-code-styling's update() empties its
+      // container and redraws asynchronously, so the new colour is drawn into the other slot and
+      // swapped in once it is complete.
+      if (last && last.qrValue === qrValue && last.size === size && last.palette !== palette) {
+        const slot = committed.current.slot === 0 ? 1 : 0;
+        const container = (slot === 0 ? slotA : slotB).current;
+        if (!container) return;
+        container.innerHTML = '';
+        const staged = new QRCodeStyling(options);
+        staged.append(container);
+        void Promise.resolve(staged.getRawData('svg'))
+          .then(() => {
+            if (gen !== generation.current) return;
+            committed.current = { instance: staged, slot, palette };
+            applied.current = { qrValue, size, palette };
+            setShownSlot(slot);
+          })
+          .catch(() => undefined);
+        return;
+      }
+      committed.current.instance.update(options);
+      committed.current = { ...committed.current, palette };
+      applied.current = { qrValue, size, palette };
       setPaintedValue(typeof options.data === 'string' ? options.data : '');
-    }, [qrCode, options]);
+    }, [options, qrValue, size, palette]);
 
     useImperativeHandle(
       ref,
       () => ({
         getImageBlob: async () => {
-          const data = await qrCode.getRawData('png');
+          const { instance, palette: shownPalette } = committed.current;
+          const data = await instance.getRawData('png');
           // In the browser getRawData resolves to a Blob; guard for the node Buffer path.
           if (!(data instanceof Blob)) return null;
           if (!caption) return data;
           try {
             // The caption is painted in the treatment's own leading colour, so a shared image
             // matches the QR the sender is looking at.
-            const composed = await composeCaptionedPng(data, size, caption, paletteOptions(palette).color);
+            const composed = await composeCaptionedPng(data, size, caption, paletteOptions(shownPalette).color);
             if (composed) return composed;
             // The shared image loses its network caption here; leave a trace.
             console.warn('[QRCode] caption compose unavailable, sharing the raw QR');
@@ -202,7 +243,7 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
           }
         }
       }),
-      [caption, palette, qrCode, size]
+      [caption, size]
     );
 
     return (
@@ -225,10 +266,17 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
         data-qr-payload={paintedValue || undefined}
         data-qr-palette={palette}
       >
-        {fluid ? (
-          <div ref={containerRef} className="aspect-square w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full" />
-        ) : (
-          <div ref={containerRef} style={{ width: size, height: size }} />
+        {([slotA, slotB] as const).map((slotRef, slot) =>
+          fluid ? (
+            <div
+              key={slot}
+              ref={slotRef}
+              hidden={shownSlot !== slot}
+              className="aspect-square w-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+            />
+          ) : (
+            <div key={slot} ref={slotRef} hidden={shownSlot !== slot} style={{ width: size, height: size }} />
+          )
         )}
         {caption && showCaption !== false && (
           <span
