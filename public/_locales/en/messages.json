@@ -4686,20 +4686,20 @@
     "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "Enter your seed phrase",
-    "englishSource": "Enter your seed phrase"
+    "message": "Enter your recovery phrase",
+    "englishSource": "Enter your recovery phrase"
   },
   "recoverySeedTemporaryDescription": {
     "message": "Use your paper backup. The phrase is used only for this action and is not saved on this device.",
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Enter a valid seed phrase.",
-    "englishSource": "Enter a valid seed phrase."
+    "message": "Enter a valid recovery phrase.",
+    "englishSource": "Enter a valid recovery phrase."
   },
   "wrongRecoverySeed": {
-    "message": "This seed phrase does not match this account.",
-    "englishSource": "This seed phrase does not match this account."
+    "message": "This recovery phrase does not match this account.",
+    "englishSource": "This recovery phrase does not match this account."
   },
   "recoveryActionUnavailable": {
     "message": "This recovery action is no longer available.",

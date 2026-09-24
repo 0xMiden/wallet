@@ -156,6 +156,15 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(loadFlat('es').close).toBe('Cerrar');
   });
 
+  it('calls the 12-word backup the recovery phrase in every English source value', () => {
+    // The product term is "recovery phrase": it restores the keys, while the
+    // Guardian backs up the account state recovery needs.
+    const seedPhraseKeys = Object.entries(enSource)
+      .filter(([, value]) => /seed phrase/i.test(value))
+      .map(([key]) => key);
+    expect(seedPhraseKeys).toEqual([]);
+  });
+
   it('regenerates the bundles as part of the translation pipeline', () => {
     // `format-locales.js` had no caller anywhere in the tree — not a package
     // script, not a workflow step — which is how the runtime bundles drifted
