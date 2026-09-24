@@ -79,16 +79,18 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
     [passwordValidation, passwordValue, verifyPassword]
   );
 
+  const canContinue = !!passwordValue && !!verifyPassword && !!fileName && isValidPassword;
+
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<TextFieldElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        if (isValidPassword) {
+        if (canContinue) {
           onGoNext();
         }
       }
     },
-    [isValidPassword, onGoNext]
+    [canContinue, onGoNext]
   );
 
   const DEFAULT_FILE_NAME = 'Encrypted Wallet File';
@@ -114,7 +116,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           title={t('continue')}
           className="flex-1 max-w-none"
           data-testid="export-file-submit"
-          disabled={!passwordValue || !verifyPassword || !fileName || !isValidPassword}
+          disabled={!canContinue}
         />
       }
     >

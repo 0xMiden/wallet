@@ -120,20 +120,20 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     ]
   );
 
+  const continueEnabled = hasHardwareProtector
+    ? !!confirmed && !isSubmitting
+    : !isDisabled && !!confirmed && !!walletPassword && !isSubmitting;
+
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<TextFieldElement>) => {
       if (e.key !== 'Enter') return;
       // Always swallowed: this step is now a page inside the flow's own form, whose submit
-      // handler only clears errors, and Enter must not fire it before the confirmation is ticked.
+      // handler only clears errors. Enter submits exactly when the button would.
       e.preventDefault();
-      if (confirmed) onSubmit();
+      if (continueEnabled) onSubmit();
     },
-    [onSubmit, confirmed]
+    [onSubmit, continueEnabled]
   );
-
-  const continueEnabled = hasHardwareProtector
-    ? !!confirmed && !isSubmitting
-    : !isDisabled && !!confirmed && !!walletPassword && !isSubmitting;
 
   // Non-hardware mobile wallets are protected by the 6-digit onboarding
   // passcode, so unlock with the numpad (auto-submits once six digits are

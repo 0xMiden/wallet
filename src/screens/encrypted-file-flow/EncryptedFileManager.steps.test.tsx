@@ -135,6 +135,10 @@ const advanceToExportStep = async () => {
   await waitFor(() => expect(screen.getByTestId('export-file-password')).toBeInTheDocument());
 };
 
+// The Navigator pushes a route on a setTimeout(0), so a step that stays mounted proves nothing
+// until that timer has had its turn.
+const flushNavigation = () => new Promise(resolve => setTimeout(resolve, 0));
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockUnlock.mockResolvedValue(undefined);
@@ -220,6 +224,62 @@ describe('EncryptedFileFlow Enter in the wallet-password field', () => {
     expect(mockUnlock).not.toHaveBeenCalled();
     expect(screen.getByTestId('encrypted-file-wallet-password')).toBeInTheDocument();
     expect(screen.queryByTestId('export-file-password')).not.toBeInTheDocument();
+  });
+
+  it('does not unlock on Enter with the consent ticked and no password, as the disabled CTA would not', async () => {
+    render(<EncryptedFileFlow />);
+    const input = await screen.findByTestId('encrypted-file-wallet-password-input');
+    fireEvent.click(screen.getByTestId('encrypted-file-wallet-password-consent'));
+    expect(screen.getByTestId('encrypted-file-wallet-password-submit')).toBeDisabled();
+
+    const enter = createEvent.keyDown(input, { key: 'Enter', cancelable: true });
+    await act(async () => {
+      fireEvent(input, enter);
+      await flushNavigation();
+    });
+
+    expect(enter.defaultPrevented).toBe(true);
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('encrypted-file-wallet-password')).toBeInTheDocument();
+  });
+
+  it('unlocks and advances on Enter once the consent is ticked and a password is in', async () => {
+    render(<EncryptedFileFlow />);
+    const input = await screen.findByTestId('encrypted-file-wallet-password-input');
+    fireEvent.change(input, { target: { value: 'Test1234!' } });
+    fireEvent.click(screen.getByTestId('encrypted-file-wallet-password-consent'));
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    expect(mockUnlock).toHaveBeenCalledWith('Test1234!');
+    await waitFor(() => expect(screen.getByTestId('export-file-password')).toBeInTheDocument());
+  });
+});
+
+describe('EncryptedFileFlow Enter in the export verify field', () => {
+  it('stays on the export step with matching valid passwords and no file name, as the disabled CTA would', async () => {
+    render(<EncryptedFileFlow />);
+    await screen.findByTestId('encrypted-file-wallet-password');
+    await advanceToExportStep();
+
+    const fileStep = screen.getByTestId('export-file-password');
+    fireEvent.change(within(fileStep).getByTestId('export-file-password-input'), {
+      target: { value: FILE_PASSWORD }
+    });
+    const verify = within(fileStep).getByTestId('export-file-password-verify-input');
+    fireEvent.change(verify, { target: { value: FILE_PASSWORD } });
+    await waitFor(() => expect(within(fileStep).getByText('itsAMatch')).toHaveClass('block'));
+    expect(within(fileStep).getByTestId('export-file-submit')).toBeDisabled();
+
+    await act(async () => {
+      fireEvent.keyDown(verify, { key: 'Enter' });
+      await flushNavigation();
+    });
+
+    expect(screen.getByTestId('export-file-password')).toBeInTheDocument();
+    expect(screen.queryByTestId('export-complete-step')).not.toBeInTheDocument();
   });
 });
 
