@@ -137,6 +137,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       rows,
       onFocus,
       onBlur,
+      autoComplete,
       'data-testid': dataTestId,
       ...rest
     },
@@ -158,17 +159,28 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     const covered = Boolean(secret) && hasValue && !focused;
 
     // A revealed secret gives itself back: after half a minute, or the moment the window goes
-    // away (a screenshot, a task switch, another app on top).
+    // away (a screenshot, a task switch, another app on top). A mobile app switch can hide the
+    // document without blurring the window, and the app-switcher snapshot is taken then.
     useEffect(() => {
       if (!secret || !focused) return undefined;
       const hide = () => fieldRef.current?.blur();
+      const hideIfHidden = () => {
+        if (document.visibilityState === 'hidden') hide();
+      };
       const timer = setTimeout(hide, SECRET_REVEAL_MS);
       window.addEventListener('blur', hide);
+      window.addEventListener('pagehide', hide);
+      document.addEventListener('visibilitychange', hideIfHidden);
       return () => {
         clearTimeout(timer);
         window.removeEventListener('blur', hide);
+        window.removeEventListener('pagehide', hide);
+        document.removeEventListener('visibilitychange', hideIfHidden);
       };
     }, [secret, focused]);
+
+    // Autofill and form memory would keep key material outside the field.
+    const fieldAutoComplete = secret ? 'off' : autoComplete;
 
     // A single callback ref forwarded to whichever tag renders, so the caller's ref (typed as the
     // union) can be handed straight to a concrete `<input>`/`<textarea>` ref prop without `as`.
@@ -237,6 +249,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               onBlur={handleBlur}
               aria-invalid={invalid}
               aria-describedby={describedBy}
+              autoComplete={fieldAutoComplete}
               data-testid={dataTestId}
               className={fieldClassName}
               {...rest}
@@ -258,6 +271,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
                 onBlur={handleBlur}
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
+                autoComplete={fieldAutoComplete}
                 data-testid={dataTestId}
                 className={fieldClassName}
                 {...rest}

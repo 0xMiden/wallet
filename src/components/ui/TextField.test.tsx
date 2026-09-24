@@ -278,6 +278,105 @@ describe('TextField — secret', () => {
     }
   });
 
+  it('keeps autofill off a secret input and textarea, whatever the caller asks for', () => {
+    const { unmount } = render(<TextField secret autoComplete="on" value="k" onChange={jest.fn()} />);
+    expect(screen.getByRole('textbox')).toHaveAttribute('autocomplete', 'off');
+    unmount();
+    render(<TextField secret multiline autoComplete="on" value="k" onChange={jest.fn()} />);
+    expect(screen.getByRole('textbox')).toHaveAttribute('autocomplete', 'off');
+  });
+
+  describe('when the document is hidden', () => {
+    const setVisibility = (state: DocumentVisibilityState) =>
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+
+    afterEach(() => {
+      setVisibility('visible');
+      jest.restoreAllMocks();
+    });
+
+    const revealed = () => {
+      const view = render(<TextField secret value="my private key" onChange={jest.fn()} />);
+      const field = screen.getByRole('textbox');
+      act(() => field.focus());
+      expect(field).toHaveFocus();
+      expect(cover()).toBeNull();
+      return { ...view, field };
+    };
+
+    it('covers a revealed secret again when the document becomes hidden', () => {
+      const { field } = revealed();
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(field).toHaveFocus();
+
+      setVisibility('hidden');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(field).not.toHaveFocus();
+      expect(cover()).toBeInTheDocument();
+    });
+
+    it('covers a revealed secret again on pagehide', () => {
+      const { field } = revealed();
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      expect(field).not.toHaveFocus();
+      expect(cover()).toBeInTheDocument();
+    });
+
+    it('removes every listener, and the timer, once the field leaves secret mode or unmounts', () => {
+      jest.useFakeTimers();
+      try {
+        const windowAdd = jest.spyOn(window, 'addEventListener');
+        const windowRemove = jest.spyOn(window, 'removeEventListener');
+        const documentAdd = jest.spyOn(document, 'addEventListener');
+        const documentRemove = jest.spyOn(document, 'removeEventListener');
+        const { field, rerender, unmount } = revealed();
+        const added = (spy: jest.SpyInstance, type: string) => spy.mock.calls.find(([name]) => name === type)?.[1];
+        const blur = added(windowAdd, 'blur');
+        const pagehide = added(windowAdd, 'pagehide');
+        const visibility = added(documentAdd, 'visibilitychange');
+        expect([blur, pagehide, visibility]).toEqual([
+          expect.any(Function),
+          expect.any(Function),
+          expect.any(Function)
+        ]);
+
+        rerender(<TextField value="my private key" onChange={jest.fn()} />);
+        expect(windowRemove).toHaveBeenCalledWith('blur', blur);
+        expect(windowRemove).toHaveBeenCalledWith('pagehide', pagehide);
+        expect(documentRemove).toHaveBeenCalledWith('visibilitychange', visibility);
+
+        setVisibility('hidden');
+        act(() => {
+          window.dispatchEvent(new Event('blur'));
+          window.dispatchEvent(new Event('pagehide'));
+          document.dispatchEvent(new Event('visibilitychange'));
+          jest.advanceTimersByTime(SECRET_REVEAL_MS);
+        });
+        expect(field).toHaveFocus();
+
+        setVisibility('visible');
+        rerender(<TextField secret value="my private key" onChange={jest.fn()} />);
+        act(() => field.focus());
+        const blurAgain = windowAdd.mock.calls.filter(([name]) => name === 'blur').at(-1)?.[1];
+        const pagehideAgain = windowAdd.mock.calls.filter(([name]) => name === 'pagehide').at(-1)?.[1];
+        const visibilityAgain = documentAdd.mock.calls.filter(([name]) => name === 'visibilitychange').at(-1)?.[1];
+        unmount();
+        expect(windowRemove).toHaveBeenCalledWith('blur', blurAgain);
+        expect(windowRemove).toHaveBeenCalledWith('pagehide', pagehideAgain);
+        expect(documentRemove).toHaveBeenCalledWith('visibilitychange', visibilityAgain);
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
   it('still reports focus and blur to the caller', () => {
     const onFocus = jest.fn();
     const onBlur = jest.fn();
