@@ -242,7 +242,10 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   // confirmed), then open the picker from Meet your Guardian the way a user does.
   await onboarding.getByRole('button', { name: 'Set up your passcode' }).click();
   await onboarding.getByTestId('onboarding-setup-passcode').waitFor({ state: 'visible' });
-  for (const digit of '135790135790') await onboarding.getByTestId(`numpad-${digit}`).click();
+  // The screen moves to its confirm phase on a short timer and ignores keys past six until then.
+  for (const digit of '135790') await onboarding.getByTestId(`numpad-${digit}`).click();
+  await onboarding.getByRole('heading', { name: 'Confirm your passcode' }).waitFor({ state: 'visible' });
+  for (const digit of '135790') await onboarding.getByTestId(`numpad-${digit}`).click();
   await openGuardianPickerFromMeetGuardian(onboarding);
   await capture(onboarding, guardian);
   await onboardingContext.browser()?.close();
