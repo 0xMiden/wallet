@@ -319,7 +319,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
   // WHY a quote is missing instead of on the "$" the fee happens to render.
   // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced
-  // or unscaled one, no amount, or no quote - and all paint the same "—", so a test gated on
+  // or unscaled one, no amount, or no quote - and all paint the same empty-value placeholder, so a test gated on
   // the rendered text cannot tell a quote-service outage from a token that never
   // loaded. `useEpochQuote` already captures the failure reason and nothing reads
   // it. Mirrors the __TEST_STORE__ / __TEST_SET_SHARE_PRIVATELY__ gate; zero
