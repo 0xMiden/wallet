@@ -170,6 +170,7 @@ describe('earn-flow/data', () => {
     it('every vault exposes the full EarnVault field set', () => {
       const expectedKeys = [
         'about',
+        'aprPercent',
         'apy',
         'apyChange24h',
         'asset',
@@ -186,12 +187,13 @@ describe('earn-flow/data', () => {
       });
     });
 
-    it('every vault string field is non-empty and audited is a boolean', () => {
+    it('every vault string field is non-empty, aprPercent is the number apy is formatted from, and audited is a boolean', () => {
       EARN_DATA.vaults.forEach(vault => {
-        const { chartData, audited, ...stringFields } = vault;
+        const { chartData, audited, aprPercent, ...stringFields } = vault;
         void chartData;
         expect(typeof audited).toBe('boolean');
         expect(audited).toBe(true);
+        expect(aprPercent).toBe(5.24);
         Object.values(stringFields).forEach(value => {
           expect(isNonEmptyString(value)).toBe(true);
         });
@@ -220,6 +222,7 @@ describe('earn-flow/data', () => {
           asset: 'USDC',
           network: 'Ethereum',
           apy: '5.24%',
+          aprPercent: 5.24,
           apyChange24h: '+0.12% (24h)',
           tvl: '$1.2B',
           risk: 'Low',

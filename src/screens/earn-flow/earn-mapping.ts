@@ -28,6 +28,11 @@ export function formatSignedUsd(value: number): string {
   return `+${formatUsd(value)}`;
 }
 
+/** The one shape every APY figure shares, static or animated: two decimals and a percent sign. */
+export function formatApy(apr: number): string {
+  return `${apr.toFixed(2)}%`;
+}
+
 /**
  * The formatter for an animated earn USD figure: `usdFormatterFor` its value, with the `+` of
  * `formatSignedUsd` when `signed`. A figure with no value renders its placeholder and never

@@ -3,6 +3,7 @@ import type { EarnPosition as LibEarnPosition, EarnVaultInfo } from 'lib/epoch';
 import {
   EARN_PLACEHOLDER,
   buildEarnSummary,
+  formatApy,
   formatUsd,
   mapEarnPosition,
   mapEarnVault,
@@ -43,6 +44,13 @@ describe('positionSlug', () => {
       positionSlug(libPosition({ owner: '0x0000000000000000000000000000000000000001' }))
     );
     expect(positionSlug(libPosition())).not.toBe(positionSlug(libPosition({ marketUid: 'OTHER:1:0x1' })));
+  });
+});
+
+describe('formatApy', () => {
+  it('formats to two decimals with a percent sign, the one shape every APY site shares', () => {
+    expect(formatApy(5)).toBe('5.00%');
+    expect(formatApy(5.244)).toBe('5.24%');
   });
 });
 

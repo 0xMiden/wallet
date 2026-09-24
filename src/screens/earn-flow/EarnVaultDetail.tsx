@@ -12,7 +12,7 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAssetMark, EarnHero, MetricCard } from './components';
-import { placeholderVault } from './earn-mapping';
+import { formatApy, placeholderVault } from './earn-mapping';
 import { ChartDotProps, EarnVault } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -65,7 +65,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
       <EarnHero
         labelId="earn-vault-apy-title"
         // The APY counts to each new rate; `vault.apy` is what shows before a rate has been read.
-        value={<AnimatedNumber value={vault.aprPercent} format={apr => `${apr.toFixed(2)}%`} placeholder={vault.apy} />}
+        value={<AnimatedNumber value={vault.aprPercent} format={formatApy} placeholder={vault.apy} />}
         valueClassName="text-positive-tint-ink"
         label={t('earnCurrentApy')}
         meta={vault.apyChange24h}

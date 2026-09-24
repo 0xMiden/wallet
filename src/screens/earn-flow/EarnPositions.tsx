@@ -11,7 +11,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel } from './components';
-import { usdFigureFormatter } from './earn-mapping';
+import { formatApy, usdFigureFormatter } from './earn-mapping';
 import { ProviderLogo } from './ProviderLogo';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
@@ -89,7 +89,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
         <AnimatedNumber
           className="shrink-0 text-value text-positive-tint-ink"
           value={position.aprPercent}
-          format={apr => t('earnPositionsApy', { apy: `${apr.toFixed(2)}%` })}
+          format={apr => t('earnPositionsApy', { apy: formatApy(apr) })}
           placeholder={t('earnPositionsApy', { apy: position.apy })}
         />
       </div>

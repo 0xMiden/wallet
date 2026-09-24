@@ -14,7 +14,7 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAssetMark, EarnSummaryPanel, MetricCard } from './components';
-import { placeholderPosition, usdFigureFormatter } from './earn-mapping';
+import { formatApy, placeholderPosition, usdFigureFormatter } from './earn-mapping';
 import { ChartDotProps, EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
@@ -186,9 +186,7 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
       <MetricCard label={t('earnMetricTotalEarned')} value={position.rewards} valueClassName="text-positive-tint-ink" />
       <MetricCard
         label="APY"
-        value={
-          <AnimatedNumber value={position.aprPercent} format={apr => `${apr.toFixed(2)}%`} placeholder={position.apy} />
-        }
+        value={<AnimatedNumber value={position.aprPercent} format={formatApy} placeholder={position.apy} />}
         valueClassName="text-positive-tint-ink"
       />
       <MetricCard
