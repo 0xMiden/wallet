@@ -90,8 +90,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // emphatic number in the wallet; an em dash says "not known" where a rendered
   // quantity would say "this is what you have".
   const scaleIsKnown = hasKnownScale(metadata);
-  // An em dash, not a translated phrase: this slot is a number in the hero,
-  // and the header above it already names the token.
   const formatBalance = adaptiveFormatterFor(balance ?? 0);
   const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
 
@@ -113,7 +111,15 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <Hero
             data-testid="token-detail-hero"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
-            value={<AnimatedNumber value={scaleIsKnown ? balance : null} format={formatBalance} placeholder="—" />}
+            value={
+              <AnimatedNumber
+                value={scaleIsKnown ? balance : null}
+                format={formatBalance}
+                // An em dash, not a translated phrase: this slot is a number in the hero,
+                // and the header above it already names the token.
+                placeholder="—"
+              />
+            }
             subtitle={
               scaleIsKnown ? <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} /> : undefined
             }
