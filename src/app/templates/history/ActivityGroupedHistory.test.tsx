@@ -42,11 +42,16 @@ jest.mock('./History', () => ({
 
 // The list itself has its own suite; here it only has to report what it was handed.
 jest.mock('./ActivityGroupList', () => ({
-  ActivityGroupList: (props: { entries: IHistoryEntry[]; nameOf: (address: string) => string | undefined }) => (
+  ActivityGroupList: (props: {
+    entries: IHistoryEntry[];
+    nameOf: (address: string) => string | undefined;
+    searchQuery?: string;
+  }) => (
     <div
       data-testid="group-list"
       data-count={String(props.entries.length)}
       data-keys={props.entries.map(e => e.key).join(',')}
+      data-search={props.searchQuery ?? ''}
       data-alice={props.nameOf('MTST1ALICE') ?? ''}
       data-stranger={props.nameOf('mtst1stranger') ?? ''}
     />
@@ -171,12 +176,13 @@ describe('ActivityGroupedHistory', () => {
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-keys', 'send-1');
   });
 
-  it('rolls up the loaded entries and passes the search straight through', () => {
+  it('rolls up the loaded entries and searches the groups rather than the entries', () => {
     loaded.push(entry(), entry({ key: 'entry-2' }));
     render(<ActivityGroupedHistory search="usdc" programId="prog-1" />);
 
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-count', '2');
-    expect(historyProps.searchQuery).toBe('usdc');
+    expect(historyProps.searchQuery).toBeUndefined();
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-search', 'usdc');
     expect(historyProps.programId).toBe('prog-1');
     expect(historyProps.address).toBe('0xme');
   });

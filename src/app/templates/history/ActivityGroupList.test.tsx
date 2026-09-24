@@ -206,4 +206,37 @@ describe('ActivityGroupList', () => {
     expect(list).not.toHaveClass('bg-fill');
     expect(list).not.toHaveClass('bg-page');
   });
+
+  describe('search', () => {
+    const ALICE = 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqaaaa';
+    const BOB = 'mtst1zzzzzzzzzzzzzzzzzzzzzzzzzzzzbbbb';
+    const searchable = () => [
+      entry({ timestamp: 900, secondaryAddress: ALICE }),
+      entry({ timestamp: 800, secondaryAddress: BOB, token: 'USDC' }),
+      entry({ timestamp: 700, txType: 'swap', message: 'Swapped' })
+    ];
+    const nameOf = (address: string) => (address === ALICE ? 'Alice' : undefined);
+    const shownIds = () => rows().map(row => row.getAttribute('data-group-id'));
+
+    it("keeps a group found only by its contact's name", () => {
+      renderList(searchable(), { nameOf, searchQuery: ' ALI ' });
+      expect(shownIds()).toEqual([ALICE]);
+    });
+
+    it('keeps a group found only by its category label', () => {
+      renderList(searchable(), { nameOf, searchQuery: 'GroupSwaps' });
+      expect(shownIds()).toEqual(['swap']);
+    });
+
+    it("keeps a group one of whose entries matches, by the entry's token", () => {
+      renderList(searchable(), { nameOf, searchQuery: 'usdc' });
+      expect(shownIds()).toEqual([BOB]);
+    });
+
+    it('shows the empty state when no group matches', () => {
+      renderList(searchable(), { nameOf, searchQuery: 'zzzz-nothing' });
+      expect(screen.queryByTestId('activity-group-row')).toBeNull();
+      expect(screen.getByText('noOperationsFound')).toBeTruthy();
+    });
+  });
 });

@@ -76,6 +76,19 @@ export interface HistoryEntriesView {
   loadMore: (page: number) => Promise<void>;
 }
 
+/** Whether an activity row answers a search; `query` is already lowercased. */
+export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): boolean {
+  return Boolean(
+    entry.message?.toLowerCase().includes(query) ||
+    entry.token?.toLowerCase().includes(query) ||
+    // A batch claim displays its secondary assets on the row, so searching
+    // for one has to find it, or typing a symbol the user can see hides
+    // the very row showing it.
+    entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
+    entry.secondaryAddress?.toLowerCase().includes(query)
+  );
+}
+
 // The chips above the activity list. `pending` shows only the notes that
 // wait for a claim, so it removes every settled history row.
 export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
@@ -261,16 +274,7 @@ const History = memo<HistoryProps>(
     );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
-      entries = entries.filter(
-        e =>
-          e.message?.toLowerCase().includes(query) ||
-          e.token?.toLowerCase().includes(query) ||
-          // A batch claim displays its secondary assets on the row, so searching
-          // for one has to find it — otherwise typing a symbol the user can see
-          // hides the very row showing it.
-          e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-          e.secondaryAddress?.toLowerCase().includes(query)
-      );
+      entries = entries.filter(e => historyEntryMatchesSearch(e, query));
     }
     if (filter && filter !== 'all') {
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),

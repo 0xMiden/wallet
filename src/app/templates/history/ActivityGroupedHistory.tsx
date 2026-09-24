@@ -20,7 +20,8 @@ interface ActivityGroupedHistoryProps {
  *
  * No filter is passed: grouping the whole history by counterparty is what this view narrows by,
  * and there is no filter row here to say otherwise. The header's search still applies, because its
- * field is on screen while it does.
+ * field is on screen while it does, but to the groups rather than the entries, so a group can be
+ * found by the name or category label its row shows.
  *
  * Incoming transfers waiting for a claim have no group to live in, so their cards sit above the
  * groups, as actionable here as in the List view.
@@ -60,7 +61,6 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
           fullHistory
           centerEmptyState
           scrollParentRef={scrollRef}
-          searchQuery={search}
           pendingItems={listItems}
           renderEntries={view => (
             <ActivityGroupList
@@ -70,6 +70,7 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
               hasMore={view.hasMore}
               loadMore={view.loadMore}
               scrollParentRef={scrollRef}
+              searchQuery={search}
             />
           )}
         />

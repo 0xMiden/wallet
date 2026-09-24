@@ -20,6 +20,7 @@ import {
   activityGroupPath,
   groupActivityEntries
 } from './activityGroups';
+import { historyEntryMatchesSearch } from './History';
 import { shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
 
@@ -96,6 +97,18 @@ export interface ActivityGroupListProps {
   hasMore: boolean;
   loadMore: (page: number) => Promise<void>;
   scrollParentRef?: RefObject<HTMLDivElement>;
+  searchQuery?: string;
+}
+
+/**
+ * A group answers a search by what its row shows (the name, the address, the category's label) or by any of its
+ * entries, the way the List view's rows would.
+ */
+function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): boolean {
+  const addresses = group.kind === 'address' ? [group.id, shortAddr(group.id)] : [];
+  const shown = [activityGroupTitle(group, t), group.name, ...addresses];
+  if (shown.some(value => value?.toLowerCase().includes(query))) return true;
+  return group.entries.some(entry => historyEntryMatchesSearch(entry, query));
 }
 
 /**
@@ -108,9 +121,13 @@ export interface ActivityGroupListProps {
  * exhausted (`hasMore` false) the `+` goes and the number is final.
  */
 export const ActivityGroupList = memo<ActivityGroupListProps>(
-  ({ entries, nameOf, initialLoading, hasMore, loadMore, scrollParentRef }) => {
+  ({ entries, nameOf, initialLoading, hasMore, loadMore, scrollParentRef, searchQuery }) => {
     const { t } = useTranslation();
-    const groups = useMemo(() => groupActivityEntries(entries, nameOf), [entries, nameOf]);
+    const query = searchQuery?.trim().toLowerCase() ?? '';
+    const groups = useMemo(() => {
+      const all = groupActivityEntries(entries, nameOf);
+      return query ? all.filter(group => groupMatchesSearch(group, query, t)) : all;
+    }, [entries, nameOf, query, t]);
 
     if (groups.length === 0) {
       if (initialLoading) {
