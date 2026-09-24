@@ -152,6 +152,17 @@ export type SelectRecoveryMethodAction = {
   payload: WalletType;
 };
 
+/**
+ * What the user has done on the Meet your Guardian step: the facts ticked and the operator locked in.
+ * The flow owns it, not the step, so opening the picker and coming back leaves it as it was.
+ */
+export interface MeetGuardianProgress {
+  checked: Readonly<Record<string, boolean>>;
+  chosenId: string | null;
+}
+
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { checked: {}, chosenId: null };
+
 /** Open the full operator picker from the Meet your Guardian step. */
 export type ChooseGuardianAction = {
   id: 'choose-guardian';

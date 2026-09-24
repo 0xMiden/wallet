@@ -29,7 +29,15 @@ import { ImportRecoveryMethodScreen } from './import-wallet-flow/ImportRecoveryM
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
 import { ImportWalletFileScreen } from './import-wallet-flow/ImportWalletFile';
 import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
-import { GuardianProbeState, ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
+import {
+  EMPTY_MEET_GUARDIAN_PROGRESS,
+  GuardianProbeState,
+  ImportType,
+  OnboardingAction,
+  OnboardingStep,
+  OnboardingType,
+  WalletType
+} from './types';
 
 export interface OnboardingFlowProps {
   wordslist: readonly string[];
@@ -144,6 +152,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   useEffect(() => {
     setProgressOverride(null);
   }, [step]);
+
+  // Meet your Guardian is left for the picker and come back to, so its ticks and locked operator live
+  // here for the whole create flow; returning to Welcome starts a new one.
+  const [meetGuardianProgress, setMeetGuardianProgress] = useState(EMPTY_MEET_GUARDIAN_PROGRESS);
+  useEffect(() => {
+    if (step === OnboardingStep.Welcome) setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
+  }, [step]);
   // The choose-protection step only exists where biometric can work (mobile).
   // On the extension/desktop it's skipped, so the create flow is one step
   // shorter — render 3 segments and shift every position down by one.
@@ -253,6 +268,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.MeetGuardian:
         return (
           <MeetGuardianScreen
+            progress={meetGuardianProgress}
+            onProgressChange={setMeetGuardianProgress}
             onSubmit={onChooseGuardianSubmit}
             onChooseDifferent={() => onForwardAction?.({ id: 'choose-guardian' })}
             showNoGuardianOption={getEffectiveAllowNoGuardian()}
@@ -329,6 +346,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     }
   }, [
     step,
+    meetGuardianProgress,
     isLoading,
     onForwardAction,
     seedPhrase,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -19,7 +19,7 @@ import { usePreset } from 'lib/animation';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { cn } from 'lib/ui/util';
-import { NO_GUARDIAN_ID } from 'screens/onboarding/types';
+import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
@@ -52,6 +52,9 @@ const OPERATOR_BIO_KEYS: Readonly<Record<string, string>> = {
 };
 
 export interface MeetGuardianScreenProps {
+  /** The ticks and the locked operator, owned by the flow so the picker round trip keeps them. */
+  progress: MeetGuardianProgress;
+  onProgressChange: React.Dispatch<React.SetStateAction<MeetGuardianProgress>>;
   /** The operator Continue picked, or the no-guardian sentinel from the private-account link. */
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
   /** "Choose a different Guardian": the host pushes the full picker. */
@@ -71,13 +74,15 @@ export interface MeetGuardianScreenProps {
  * operator at all says so and offers nothing to pick.
  */
 export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
+  progress,
+  onProgressChange,
   onSubmit,
   onChooseDifferent,
   showNoGuardianOption = false
 }) => {
   const { t } = useTranslation();
   const reveal = usePreset('reveal');
-  const [checked, setChecked] = useState<Readonly<Record<string, boolean>>>({});
+  const { checked, chosenId } = progress;
   const allChecked = MEET_GUARDIAN_POINTS.every(point => checked[point.id]);
 
   // Providers that run a Guardian on the active network, resolved to their endpoint on it.
@@ -98,11 +103,10 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   // Locked in once, on the first full round: a re-probe refreshes the latency on the card and can
   // take the operator offline, but never swaps it for another while the user reads about it.
-  const [chosenId, setChosenId] = useState<string | null>(null);
   useEffect(() => {
     if (chosenId !== null || !allSettled || fastest === null) return;
-    setChosenId(fastest.id);
-  }, [chosenId, allSettled, fastest]);
+    onProgressChange(prev => (prev.chosenId === null ? { ...prev, chosenId: fastest.id } : prev));
+  }, [chosenId, allSettled, fastest, onProgressChange]);
 
   const chosen = options.find(option => option.id === chosenId) ?? null;
   const chosenVerdict = chosen ? verdicts[chosen.endpoint] : undefined;
@@ -157,7 +161,9 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
             key={point.id}
             data-testid={`onboarding-meet-guardian-check-${point.id}`}
             checked={Boolean(checked[point.id])}
-            onCheckedChange={value => setChecked(prev => ({ ...prev, [point.id]: value }))}
+            onCheckedChange={value =>
+              onProgressChange(prev => ({ ...prev, checked: { ...prev.checked, [point.id]: value } }))
+            }
             title={t(point.titleKey)}
             description={t(point.bodyKey)}
           />
@@ -182,13 +188,14 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                       {chosen.name}
                     </span>
                   </div>
+                  {/* No verdict yet (the card was kept from before the picker): still checking, not offline. */}
                   {chosenVerdict?.status === 'online' ? (
                     <Pill size="xs" tone="positive" live data-testid="meet-guardian-latency">
                       {t('meetGuardianLatencyMs', { ms: String(chosenVerdict.latencyMs) })}
                     </Pill>
-                  ) : (
+                  ) : chosenVerdict?.status === 'offline' ? (
                     <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
-                  )}
+                  ) : null}
                 </div>
 
                 <ul className="flex flex-col gap-2">

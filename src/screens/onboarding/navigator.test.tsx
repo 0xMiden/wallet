@@ -317,6 +317,21 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian' });
   });
 
+  it('keeps the Meet your Guardian ticks and choice across the picker round trip, and clears them on Welcome', () => {
+    const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian });
+    const done = { checked: { 'local-state': true, 'seed-phrase': true, guardian: true }, chosenId: 'g1' };
+    act(() => mockCaptured['meet-guardian'].onProgressChange(done));
+    expect(mockCaptured['meet-guardian'].progress).toEqual(done);
+
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.ChooseGuardian} />);
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual(done);
+
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.Welcome} />);
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null });
+  });
+
   it('MeetGuardian and ChooseGuardian sit at the same progress position', () => {
     const { unmount } = renderFlow({ step: OnboardingStep.MeetGuardian, onboardingType: OnboardingType.Create });
     const meetProgress = screen.getByTestId('progress').getAttribute('data-current');

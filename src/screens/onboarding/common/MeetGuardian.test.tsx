@@ -3,7 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
-import { NO_GUARDIAN_ID } from 'screens/onboarding/types';
+import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { MeetGuardianScreen } from './MeetGuardian';
 
@@ -47,14 +47,24 @@ const CHECKS = ['local-state', 'seed-phrase', 'guardian'].map(id => `onboarding-
 
 const tickAll = () => CHECKS.forEach(id => fireEvent.click(screen.getByTestId(id)));
 
+type HarnessProps = Omit<React.ComponentProps<typeof MeetGuardianScreen>, 'progress' | 'onProgressChange'> & {
+  initialProgress?: MeetGuardianProgress;
+};
+
+/** Owns the step's progress the way OnboardingFlow does. */
+const Harness: React.FC<HarnessProps> = ({ initialProgress = { checked: {}, chosenId: null }, ...props }) => {
+  const [progress, setProgress] = React.useState<MeetGuardianProgress>(initialProgress);
+  return <MeetGuardianScreen {...props} progress={progress} onProgressChange={setProgress} />;
+};
+
 /** Re-render with new verdicts, as the hook would on a later ping round. */
-const renderScreen = (props: React.ComponentProps<typeof MeetGuardianScreen> = {}) => {
-  const view = render(<MeetGuardianScreen {...props} />);
+const renderScreen = (props: HarnessProps = {}) => {
+  const view = render(<Harness {...props} />);
   return {
     ...view,
     setVerdicts(next: Record<string, GuardianProbeVerdict>) {
       mockVerdicts = next;
-      act(() => view.rerender(<MeetGuardianScreen {...props} />));
+      act(() => view.rerender(<Harness {...props} />));
     }
   };
 };
@@ -208,17 +218,28 @@ describe('MeetGuardianScreen', () => {
 
   it('offers the fully private account only when dev-gated on and all facts are ticked', () => {
     const onSubmit = jest.fn();
-    const { rerender } = render(<MeetGuardianScreen onSubmit={onSubmit} />);
+    const { rerender } = render(<Harness onSubmit={onSubmit} />);
     tickAll();
     expect(screen.queryByTestId('meet-guardian-no-guardian')).toBeNull();
 
-    rerender(<MeetGuardianScreen onSubmit={onSubmit} showNoGuardianOption />);
+    rerender(<Harness onSubmit={onSubmit} showNoGuardianOption />);
     fireEvent.click(screen.getByTestId('meet-guardian-no-guardian'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
 
     // Untick one: the link goes with the card.
     fireEvent.click(screen.getByTestId(CHECKS[0]!));
     expect(screen.queryByTestId('meet-guardian-no-guardian')).toBeNull();
+  });
+
+  it('shows a card kept from before the picker at once, still checking rather than offline', () => {
+    renderScreen({
+      initialProgress: { checked: { 'local-state': true, 'seed-phrase': true, guardian: true }, chosenId: GATEWAY.id }
+    });
+
+    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
+    expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
+    expect(screen.queryByTestId('meet-guardian-latency')).toBeNull();
+    expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
   });
 
   it('names the only operator without a count when the network has one', () => {
