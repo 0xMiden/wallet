@@ -711,11 +711,13 @@ export const initiateReplaceHotKeyTransaction = async (
   }
   const dbTransaction = new ReplaceHotKeyTransaction(accountId, delegateTransaction);
   // Record the guardian now: the account's endpoint moves with any later switch, and the history row
-  // must keep naming the one this rotation ran under. No match leaves it unrecorded, never guessed.
-  const guardianEndpoint = (await guardianProvider.getAccounts()).find(account =>
-    sameWalletAccountId(account.publicKey, accountId)
-  )?.guardianEndpoint;
-  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
+  // resolves (the account's own, else the legacy key, else the network default), as the switch
+  // records its previous one. No matching account leaves it unrecorded, never guessed.
+  const account = (await guardianProvider.getAccounts()).find(candidate =>
+    sameWalletAccountId(candidate.publicKey, accountId)
+  );
+  if (account) dbTransaction.extraInputs = { guardianEndpoint: await resolveGuardianEndpoint(account) };
   return queueRecoveryChange(dbTransaction);
 };
 

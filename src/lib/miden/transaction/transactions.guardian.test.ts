@@ -14,6 +14,7 @@
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -3503,7 +3504,7 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 10 } };
@@ -3872,7 +3873,7 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const conflict = { status: 409, body: 'ConflictPendingDelta' };
@@ -5015,7 +5016,7 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const multisigService = {
@@ -5057,7 +5058,13 @@ describe('generateTransaction — Guardian routing', () => {
     const submittedRow = txStore.find(r => r.id === txId)!;
 
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5070,6 +5077,8 @@ describe('generateTransaction — Guardian routing', () => {
     expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace', undefined);
     // Persist newHotPublicKey on the transaction row so complete can find it.
     expect((submittedRow.extraInputs as { newHotPublicKey?: string }).newHotPublicKey).toBe('new-hot-pub');
+    // ...beside the guardian stamped at initiation, which the merge keeps.
+    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://old.guardian');
     // Replace-hot-key shares the confirming wait with switch-guardian.
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
   });
@@ -5195,7 +5204,13 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', status: ITransactionStatus.Queued });
 
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5244,10 +5259,16 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5264,8 +5285,9 @@ describe('generateTransaction — Guardian routing', () => {
     // On-chain rotation still succeeds; the miss is recorded, not failed.
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.reRegisterFailed).toBe(true);
-    // newHotPublicKey is preserved through the completion write.
+    // newHotPublicKey and the stamped guardian are preserved through the completion write.
     expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+    expect(row.extraInputs.guardianEndpoint).toBe('https://old.guardian');
   });
 
   it('Guardian replace-hot-key: records reRegisterFailed=false on a clean re-register (#619 gap 1)', async () => {
@@ -5274,6 +5296,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.reRegisterFailed).toBe(false);
     expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+    expect(row.extraInputs.guardianEndpoint).toBe('https://old.guardian');
   });
 
   it('switch-guardian apply-after-submit-failure re-registers + persists the endpoint instead of cancelling', async () => {
@@ -5864,6 +5887,31 @@ describe('initiateReplaceHotKeyTransaction', () => {
     };
     await initiateReplaceHotKeyTransaction('acc-1', false, provider);
     expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the guardian a legacy account resolves to when it names none of its own', async () => {
+    // An account from before per-account endpoints has no field; every guardian operation resolves it
+    // through the legacy key and then the network default, so the rotation ran under that one.
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      guardianEndpoint: getEffectiveDefaultGuardianEndpoint()
+    });
+  });
+
+  it('records no guardian when the provider has no such account', async () => {
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const provider = { ...makeGuardianProvider(true), getAccounts: async () => [] };
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect(
+      (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
+    ).toBeUndefined();
   });
 
   it('throws when the target account is not a Guardian account', async () => {

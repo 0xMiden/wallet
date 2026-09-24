@@ -485,8 +485,9 @@ export const completeReplaceHotKeyTransaction = async (
       ...feeFieldsFromResult(result),
       displayMessage: 'Device key rotated',
       completedAt: Math.floor(Date.now() / 1000),
-      // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
-      // extraInputs) and record whether the guardian re-register landed (#619 gap 1).
+      // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
+      // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
+      // guardian re-register landed (#619 gap 1).
       extraInputs: { ...tx.extraInputs, reRegisterFailed },
       // `result` is absent on the apply-after-submit-failed reconcile path: the
       // rotation is already on chain, we just lack the local TransactionResult.
