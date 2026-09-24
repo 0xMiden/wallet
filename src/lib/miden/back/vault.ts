@@ -1125,8 +1125,8 @@ export class Vault {
    * Spawn a wallet from existing Guardian hot and EVM private keys — the seed-less
    * import flow. No mnemonic exists or is generated: `mnemonicStrgKey` is
    * never written, so `fetchSeedPhraseStatus()` reports 'unavailable' and
-   * every seed-derived capability (HD account creation, seed /
-   * guardian-keys reveals) stays gated off by the existing seed-status checks.
+   * every seed-derived capability (HD account creation, the seed reveal)
+   * stays gated off by the existing seed-status checks.
    * Cold-signed recovery actions stay available: they prompt for the seed
    * phrase per transaction (`provideRecoverySeed`), which derives the cold key
    * against the on-chain cold signer and keeps it in memory only. Unlike seed
@@ -2671,44 +2671,6 @@ export class Vault {
       const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
       if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
       return encodePrivateKeyPair(pair);
-    });
-  }
-
-  /**
-   * Reveal the cold private key + both public keys for a 3-key Guardian
-   * account. Cold is the recovery material (HD-derived from the mnemonic and
-   * mirrored under `accColdSecretKey<coldPublicKey>` by `persistGuardianKeys`
-   * / `persistRecoveredGuardianColdKey`). The hot private is NOT included —
-   * use `revealHotKey` for that.
-   */
-  static async revealGuardianKeys(
-    accountPublicKey: string,
-    password?: string
-  ): Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }> {
-    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-    return withError('Failed to reveal guardian keys', async () => {
-      if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
-        throw new PublicError(getMessage('recoverySeedRequired'));
-      const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
-      const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
-      if (!account) {
-        throw new PublicError('Account not found');
-      }
-      if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
-        throw new PublicError('Not a Guardian account');
-      }
-      const coldPrivateKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
-        accColdSecretKeyStrgKey(account.coldPublicKey),
-        vaultKey
-      );
-      if (!coldPrivateKey) {
-        throw new PublicError('Cold key not found');
-      }
-      return {
-        coldPrivateKey,
-        coldPublicKey: account.coldPublicKey,
-        hotPublicKey: account.hotPublicKey
-      };
     });
   }
 
