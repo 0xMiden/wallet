@@ -27,6 +27,7 @@ import { useMidenNameRecord } from 'lib/miden/name/useMidenNameRecord';
 import { initiateConsumeTransactionFromId, tagConsumeAsMidenNameClaim } from 'lib/miden/transaction/initiate';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { formatAmount } from 'lib/shared/format';
+import { useConfirm } from 'lib/ui/dialog';
 import { cn } from 'lib/ui/util';
 import { navigate, Redirect } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -99,6 +100,7 @@ function heroStateOf(phaseFailed: boolean, owned: boolean): TransactionHeroState
 export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
+  const confirm = useConfirm();
   const accounts = useAllAccounts();
   const { row, loaded } = useTransactionRow(txId);
   const inputs = row ? registerNameInputsOf(row) : undefined;
@@ -142,9 +144,6 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
   const failureKey = failureKeyOf(row, claimRow);
   const owned = phase === 'owned';
   const showPublish = canPublish(row, publish);
-  const publishStep = steps.find(step => step.id === 'publishing');
-  // Say what a publish does for as long as the name is owned and the record is not live.
-  const showPublishExplainer = owned && publishStep !== undefined && publishStep.state !== 'complete';
   const terminal = owned || (phase === 'failed' && !needsRetry);
   const heroState = heroStateOf(failureKey !== undefined, owned);
   const accountName =
@@ -178,6 +177,13 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
 
   const handlePublish = async () => {
     if (isPublishing || !showPublish) return;
+    // A publish reveals the owner. Ask first, in the wallet's confirm sheet.
+    const accepted = await confirm({
+      title: t('midenNameStepPublishing'),
+      children: t('midenNamePublishExplainer', { name: formatMidenName(inputs.label) }),
+      confirmLabel: t('midenNamePublish')
+    });
+    if (!accepted) return;
     setIsPublishing(true);
     setPublishError(undefined);
     try {
@@ -272,12 +278,6 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
           {failureKey && (
             <Notice tone="negative" data-testid="miden-name-failure">
               {t(failureKey)}
-            </Notice>
-          )}
-
-          {showPublishExplainer && (
-            <Notice title={t('midenNameStepPublishing')} data-testid="miden-name-publish-explainer">
-              {t('midenNamePublishExplainer', { name: formatMidenName(inputs.label) })}
             </Notice>
           )}
         </section>

@@ -62,6 +62,9 @@ jest.mock('lib/miden/name/useMidenNameRecord', () => ({
 }));
 
 const mockPublishRegistryRecord = jest.fn<Promise<string>, [string, string]>();
+const mockConfirm = jest.fn();
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
+
 jest.mock('lib/miden/name/nfa', () => ({
   REGISTRY_CLEARING_SUPPORTED: false,
   publishRegistryRecord: (accountId: string, label: string) => mockPublishRegistryRecord(accountId, label)
@@ -129,6 +132,7 @@ describe('MidenNameSettings', () => {
     mockPublishes = [];
     mockLoaded = true;
     mockRecords = {};
+    mockConfirm.mockResolvedValue(true);
   });
 
   it('reads the registrations of the current account', () => {
@@ -230,7 +234,13 @@ describe('MidenNameSettings', () => {
 
     fireEvent.click(screen.getByTestId('miden-name-publish'));
 
-    expect(mockPublishRegistryRecord).toHaveBeenCalledWith('mtst1account', 'alice');
+    // The confirm sheet says what a publish reveals; the build starts after the answer.
+    await waitFor(() => expect(mockPublishRegistryRecord).toHaveBeenCalledWith('mtst1account', 'alice'));
+    expect(mockConfirm).toHaveBeenCalledWith({
+      title: 'midenNameStepPublishing',
+      children: 'midenNamePublishExplainer',
+      confirmLabel: 'midenNamePublish'
+    });
     // The button is busy while the registry note is built.
     await waitFor(() => expect(screen.getByTestId('miden-name-publish')).toBeDisabled());
     expect(screen.getByTestId('miden-name-publish')).toHaveTextContent('midenNamePublishing');
@@ -241,6 +251,16 @@ describe('MidenNameSettings', () => {
     expect(mockStartProcessing).toHaveBeenCalledTimes(1);
     expect(mockStartProcessing).toHaveBeenCalledWith(mockSignTransaction);
     await waitFor(() => expect(screen.getByTestId('miden-name-publish')).toBeEnabled());
+  });
+
+  it('a cancelled confirm sheet publishes nothing', async () => {
+    mockConfirm.mockResolvedValue(false);
+    mockRows = [registerRow('reg-1', 'alice', 'owned')];
+    render(<MidenNameSettings />);
+    fireEvent.click(screen.getByTestId('miden-name-publish'));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    expect(mockPublishRegistryRecord).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('logs a failed publish and enables the button again', async () => {

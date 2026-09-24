@@ -41,7 +41,7 @@ import {
 import { traceRegistryStep } from './debug';
 import { type Felts4, encodeDomainFelts, priceKeyFelts } from './encoding';
 import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
-import { feltsFromWord, idPartsFromHex, statusKeyFeltsForLabel, wordFromFelts } from './sdk-words';
+import { feltsFromWord, idPartsFromHex, nfasCarryLabel, statusKeyFeltsForLabel, wordFromFelts } from './sdk-words';
 
 const ZERO_FELTS: Felts4 = [0n, 0n, 0n, 0n];
 const QUOTE_CACHE_TTL_MS = 30_000;
@@ -305,18 +305,54 @@ export async function fetchRegistrationNoteState(noteIdHex: string): Promise<Reg
 }
 
 /**
+ * Of `noteIds`, the public notes that carry the name NFA of `label`. A note
+ * with no public body cannot be checked and is not returned: the registry
+ * sends every delivery and return note as a public P2ID note.
+ */
+async function notesCarryingLabel(
+  rpc: RpcClient,
+  noteIds: string[],
+  label: string,
+  registryHex: string
+): Promise<string[]> {
+  if (noteIds.length === 0) return [];
+  const fetched = await withRpcTimeout(
+    () => rpc.getNotesById(noteIds.map(id => NoteId.fromHex(id))),
+    'midenNameDeliveryNotes'
+  );
+  const matching: string[] = [];
+  for (const entry of fetched) {
+    const id = entry.noteId.toString();
+    const note = entry.note;
+    if (!note) {
+      console.warn('[miden-name] delivery note has no public body; it cannot be matched to a name', { noteId: id });
+      continue;
+    }
+    if (nfasCarryLabel(note.assets().nonFungibleAssets(), label, registryHex)) matching.push(id);
+  }
+  // Keep the chain order of the scan.
+  return noteIds.filter(id => matching.includes(id));
+}
+
+/**
  * Find the notes that the registry sent to an account in [fromBlock, toBlock]
  * (toBlock defaults to the chain tip). `syncNotes` can stop before the end of
  * the range, so this loops with a cursor until `blockTo()` reaches the end.
+ *
+ * With `label`, only the notes that carry the name NFA of that label are
+ * returned. The registry can deliver the notes of two names in any order, so
+ * a caller that follows one registration must pass its label.
  */
 export async function findRegistryDeliveryNoteIds({
   accountId,
   fromBlock,
-  toBlock
+  toBlock,
+  label
 }: {
   accountId: string;
   fromBlock: number;
   toBlock?: number;
+  label?: string;
 }): Promise<RegistryDeliveryScan> {
   const config = requireConfig();
   const registryHex = config.registryAccountIdHex.toLowerCase();
@@ -352,7 +388,8 @@ export async function findRegistryDeliveryNoteIds({
     cursor = reached + 1;
   }
 
-  return { noteIds, scannedTo };
+  if (label === undefined) return { noteIds, scannedTo };
+  return { noteIds: await notesCarryingLabel(rpc, noteIds, label, registryHex), scannedTo };
 }
 
 /** The chain tip block number. */

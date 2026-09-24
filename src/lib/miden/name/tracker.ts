@@ -250,14 +250,20 @@ function linkedRowIdOf(row: ITransaction): string | undefined {
   return claimOf(row)?.registerTxId ?? returnOf(row)?.publishTxId;
 }
 
-/** How the delivery scan sees one delivery note. */
+/**
+ * How the delivery scan sees one note. The scan returns only the notes that
+ * carry the name NFA of the row's label (`findRegistryDeliveryNoteIds` with
+ * `label`), so a consume row of that note with no name tag is a consume of
+ * THIS name: the realm closed between the queue of the consume and the write
+ * of its tag.
+ */
 type DeliveryNoteState =
-  /** A live consume row of this registration claims it. */
+  /** A live consume row of this row claims it. */
   | { kind: 'ours'; claimTxId: string }
-  /** A Completed consume row or a live claim of an other registration has it. */
+  /** A live consume row with no name tag has it: adopt it. */
+  | { kind: 'untagged'; claimTxId: string; completed: boolean }
+  /** A live consume row of an other register or publish row has it. */
   | { kind: 'settled' }
-  /** A live consume row with no claim tag has it. It can still fail. */
-  | { kind: 'busy' }
   /** No live consume row has it (Failed rows do not count). */
   | { kind: 'free' };
 
@@ -266,8 +272,11 @@ function deliveryNoteState(ownerRowId: string, consumeRows: ITransaction[]): Del
   const ours = live.find(row => linkedRowIdOf(row) === ownerRowId);
   if (ours) return { kind: 'ours', claimTxId: ours.id };
   if (live.length === 0) return { kind: 'free' };
-  const settled = live.some(row => row.status === ITransactionStatus.Completed || linkedRowIdOf(row) !== undefined);
-  return settled ? { kind: 'settled' } : { kind: 'busy' };
+  if (live.some(row => linkedRowIdOf(row) !== undefined)) return { kind: 'settled' };
+  // Prefer a Completed row: the name is already in the account.
+  const untagged = live.find(row => row.status === ITransactionStatus.Completed) ?? live[0];
+  if (!untagged) return { kind: 'free' };
+  return { kind: 'untagged', claimTxId: untagged.id, completed: untagged.status === ITransactionStatus.Completed };
 }
 
 async function markClaiming(
@@ -286,7 +295,8 @@ async function markClaiming(
 
 /**
  * Step 3: find the note with which the registry delivers the name, and queue a
- * consume of it.
+ * consume of it. The scan is filtered by the label of the row: the registry
+ * can deliver the notes of two names in any order.
  *
  * `deliveryScanFrom` moves forward only when the scan found no note that can
  * still need a claim. Else the next pass scans the same blocks again, so a
@@ -298,7 +308,7 @@ async function claimDeliveryNote(
   context: PassContext
 ): Promise<void> {
   const fromBlock = inputs.deliveryScanFrom ?? inputs.builtAtBlock;
-  const scan = await findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock });
+  const scan = await findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock, label: inputs.label });
 
   let canAdvance = true;
   for (const noteId of scan.noteIds) {
@@ -308,10 +318,21 @@ async function claimDeliveryNote(
         // A claim was queued, but the phase write did not occur (for example the realm closed).
         await markClaiming(row, noteId, state.claimTxId, context);
         return;
+      case 'untagged':
+        // A consume of this name's note lost its tag. Adopt it: with no tag the
+        // consume completion cannot move this row, and the scan would pass the note.
+        await tagConsumeAsMidenNameClaim(state.claimTxId, inputs.label, row.id);
+        if (state.completed) {
+          await patchRegisterNameExtraInputs(
+            row.id,
+            { phase: 'owned', deliveryNoteId: noteId, claimTxId: state.claimTxId },
+            { expectPhase: 'issued' }
+          );
+        } else {
+          await markClaiming(row, noteId, state.claimTxId, context);
+        }
+        return;
       case 'settled':
-        continue;
-      case 'busy':
-        canAdvance = false;
         continue;
       case 'free':
         canAdvance = false;
@@ -516,7 +537,7 @@ async function claimReturnNote(
   const fromBlock = inputs.returnScanFrom ?? inputs.builtAtBlock;
   const scan = await traceRegistryStep(
     'tracker.find-return-note',
-    () => findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock }),
+    () => findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock, label: inputs.label }),
     { rowId: row.id, fromBlock }
   );
   console.log('[registry-debug] tracker.return-note-scan', {
@@ -532,10 +553,20 @@ async function claimReturnNote(
       case 'ours':
         await markReturning(row, noteId, state.claimTxId, context);
         return;
+      case 'untagged':
+        // Same recovery as the claim: a return consume that lost its tag.
+        await tagConsumeAsMidenNameReturn(state.claimTxId, inputs.label, row.id);
+        if (state.completed) {
+          await patchPublishNameRecordExtraInputs(
+            row.id,
+            { phase: 'done', returnNoteId: noteId, returnTxId: state.claimTxId },
+            { expectPhase: 'recorded' }
+          );
+        } else {
+          await markReturning(row, noteId, state.claimTxId, context);
+        }
+        return;
       case 'settled':
-        continue;
-      case 'busy':
-        canAdvance = false;
         continue;
       case 'free':
         canAdvance = false;

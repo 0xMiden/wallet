@@ -15,11 +15,12 @@ import {
   findRegistryDeliveryNoteIds,
   getChainTip
 } from './reads';
-import { statusKeyFeltsForLabel } from './sdk-words';
+import { domainCommitment, statusKeyFeltsForLabel } from './sdk-words';
 import {
   AccountId,
   AccountStorageRequirements,
   KNOWN_ACCOUNTS,
+  NonFungibleAsset,
   NoteId,
   NoteTag,
   ROOT_WORDS,
@@ -94,7 +95,8 @@ function fakeProof(requirements: AccountStorageRequirements) {
 const rpc = {
   getAccountProof: jest.fn(async (_id: AccountId, requirements: AccountStorageRequirements) => fakeProof(requirements)),
   getNetworkNoteStatus: jest.fn<Promise<FakeNoteStatus>, [NoteId]>(),
-  syncNotes: jest.fn<Promise<ReturnType<typeof syncResult>>, [number, number, NoteTag[]]>()
+  syncNotes: jest.fn<Promise<ReturnType<typeof syncResult>>, [number, number, NoteTag[]]>(),
+  getNotesById: jest.fn<Promise<FakeFetchedNote[]>, [NoteId[]]>()
 };
 
 beforeEach(() => {
@@ -330,6 +332,19 @@ describe('fetchRegistrationNoteState', () => {
   });
 });
 
+/** A fetched note: `nfas` undefined = no public body. */
+interface FakeFetchedNote {
+  noteId: { toString: () => string };
+  note?: { assets: () => { nonFungibleAssets: () => NonFungibleAsset[] } };
+}
+
+function fetchedNote(id: string, nfas?: NonFungibleAsset[]): FakeFetchedNote {
+  return {
+    noteId: { toString: () => id },
+    ...(nfas ? { note: { assets: () => ({ nonFungibleAssets: () => nfas }) } } : {})
+  };
+}
+
 function syncResult(blockTo: number, blocks: Array<Array<{ sender: string; id: string }>>) {
   return {
     blockTo: () => blockTo,
@@ -396,6 +411,59 @@ describe('findRegistryDeliveryNoteIds', () => {
     const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 100, toBlock: 300 });
     expect(scan).toEqual({ noteIds: [], scannedTo: 99 });
     expect(rpc.syncNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('with a label, keeps only the public notes that carry the NFA of that label', async () => {
+    const registry = new AccountId(REGISTRY_HEX, REGISTRY.prefix, REGISTRY.suffix);
+    const commitment = domainCommitment('alice', REGISTRY);
+    const aliceNfa = new NonFungibleAsset(registry, [commitment[0], commitment[1], 7n, 8n]);
+    const bobCommitment = domainCommitment('bob', REGISTRY);
+    const bobNfa = new NonFungibleAsset(registry, [bobCommitment[0], bobCommitment[1], 7n, 8n]);
+    const foreignNfa = new NonFungibleAsset(new AccountId('0xother', 5n, 6n), [commitment[0], commitment[1], 0n, 0n]);
+    rpc.syncNotes.mockResolvedValueOnce(
+      syncResult(300, [
+        [
+          { sender: REGISTRY_HEX, id: '0xbob' },
+          { sender: REGISTRY_HEX, id: '0xprivate' },
+          { sender: REGISTRY_HEX, id: '0xforeign' },
+          { sender: REGISTRY_HEX, id: '0xalice' }
+        ]
+      ])
+    );
+    rpc.getNotesById.mockResolvedValueOnce([
+      fetchedNote('0xalice', [aliceNfa]),
+      fetchedNote('0xbob', [bobNfa]),
+      fetchedNote('0xprivate'),
+      fetchedNote('0xforeign', [foreignNfa])
+    ]);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const scan = await findRegistryDeliveryNoteIds({
+      accountId: ACCOUNT,
+      fromBlock: 100,
+      toBlock: 300,
+      label: 'alice'
+    });
+
+    expect(scan).toEqual({ noteIds: ['0xalice'], scannedTo: 300 });
+    const requested = rpc.getNotesById.mock.calls[0]?.[0].map(id => id.toString());
+    expect(requested).toEqual(['0xbob', '0xprivate', '0xforeign', '0xalice']);
+    // Every NFA that the read touched is freed.
+    expect([aliceNfa.freed, bobNfa.freed, foreignNfa.freed]).toEqual([1, 1, 1]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no public body'), { noteId: '0xprivate' });
+    warn.mockRestore();
+  });
+
+  it('with a label and no note found, does not fetch any note', async () => {
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(300, []));
+    const scan = await findRegistryDeliveryNoteIds({
+      accountId: ACCOUNT,
+      fromBlock: 100,
+      toBlock: 300,
+      label: 'alice'
+    });
+    expect(scan).toEqual({ noteIds: [], scannedTo: 300 });
+    expect(rpc.getNotesById).not.toHaveBeenCalled();
   });
 
   it('makes a new note tag for the retry', async () => {
