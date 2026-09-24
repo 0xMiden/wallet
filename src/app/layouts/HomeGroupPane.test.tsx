@@ -77,7 +77,7 @@ describe('HomeGroupPaneBody', () => {
 
   it('draws the pane title, so all four sit at the same height', () => {
     render(
-      <HomeGroupPaneBody title="Receive at" titleTestId="receive-title" titleAccessory={<span>chip</span>}>
+      <HomeGroupPaneBody title="Receive at" titleTestId="receive-title">
         <p>content</p>
       </HomeGroupPaneBody>
     );
@@ -85,7 +85,17 @@ describe('HomeGroupPaneBody', () => {
     const title = screen.getByTestId('receive-title');
     expect(title.tagName).toBe('H1');
     expect(title).toHaveClass('text-title-tab', 'text-ink');
-    expect(screen.getByText('chip')).toBeInTheDocument();
+  });
+
+  it('takes no title accessory: the title line is the h1 alone', () => {
+    render(
+      // @ts-expect-error titleAccessory is not a HomeGroupPaneBody prop; no pane passes one.
+      <HomeGroupPaneBody title="Receive at" titleAccessory={<span>chip</span>}>
+        <p>content</p>
+      </HomeGroupPaneBody>
+    );
+
+    expect(screen.queryByText('chip')).not.toBeInTheDocument();
   });
 
   it('clears the docked tab bar from the same expression the pinned CTA uses', () => {

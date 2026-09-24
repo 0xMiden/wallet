@@ -74,8 +74,6 @@ export interface HomeGroupPaneBodyProps {
   /** The pane's first line. Omitted where the content's own first line is the title (Swap). */
   title?: React.ReactNode;
   titleTestId?: string;
-  /** Sits opposite the title on the same line: a chip, a text action. */
-  titleAccessory?: React.ReactNode;
   top?: HomeGroupPaneTop;
   /** A pinned CTA under the body. Without one, the body itself clears the docked bar. */
   footer?: React.ReactNode;
@@ -90,7 +88,6 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
   testId,
   title,
   titleTestId,
-  titleAccessory,
   top = 'root',
   footer,
   children
@@ -112,11 +109,10 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
       )}
     >
       {title !== undefined && (
-        <header className="flex shrink-0 items-start justify-between gap-3">
+        <header className="shrink-0">
           <h1 data-testid={titleTestId} className="min-w-0 text-title-tab text-ink">
             {title}
           </h1>
-          {titleAccessory && <div className="flex shrink-0 items-center gap-2">{titleAccessory}</div>}
         </header>
       )}
       {children}
@@ -131,7 +127,7 @@ export interface HomeGroupPaneProps extends HomeGroupPaneBodyProps {
   paneTestId?: string;
 }
 
-/** Root and body together, for a pane with no `Navigator` between them (Receive, Earn). */
+/** Root and body together, for a pane with no `Navigator` between them (Earn; Receive composes the two itself). */
 export const HomeGroupPane: React.FC<HomeGroupPaneProps> = ({ paneTestId, ...body }) => (
   <HomeGroupPaneRoot testId={paneTestId}>
     <HomeGroupPaneBody {...body} />

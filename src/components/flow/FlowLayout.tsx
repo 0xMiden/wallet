@@ -6,8 +6,6 @@ import { PageHeader } from 'components/PageHeader';
 export interface FlowLayoutProps {
   /** Page title, e.g. "Choose recipient", "Review details", "Processing". */
   title: React.ReactNode;
-  /** Right side of the header row, e.g. a network chip or an Edit pill. */
-  titleAccessory?: React.ReactNode;
   /** Back button, top left. */
   onBack?: () => void;
   /** Close button, top right. */
@@ -37,7 +35,6 @@ export interface FlowLayoutProps {
  */
 export const FlowLayout: React.FC<FlowLayoutProps> = ({
   title,
-  titleAccessory,
   onBack,
   onClose,
   focusTitleOnMount,
@@ -55,7 +52,6 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
             title={title}
             onBack={onBack}
             onClose={onClose}
-            actions={titleAccessory}
             focusTitleOnMount={focusTitleOnMount}
             backTestId="flow-back"
             closeTestId="flow-close"
@@ -66,12 +62,7 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
       {/* A tab root's title is not a navigation bar: it is the first line of the page, above the
           field it names, exactly where the swap page puts "You Pay" — so the pane shell draws it,
           at the one offset every home-group pane's first line sits at. */}
-      <HomeGroupPaneBody
-        title={tabRoot ? title : undefined}
-        titleAccessory={tabRoot ? titleAccessory : undefined}
-        top={tabRoot ? 'root' : 'header'}
-        footer={footer}
-      >
+      <HomeGroupPaneBody title={tabRoot ? title : undefined} top={tabRoot ? 'root' : 'header'} footer={footer}>
         {children}
       </HomeGroupPaneBody>
     </div>
