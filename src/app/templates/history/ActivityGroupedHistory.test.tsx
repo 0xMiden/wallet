@@ -22,6 +22,8 @@ let historyProps: Record<string, unknown> = {};
 // Set by a case that needs History's own filtering rather than the stub below.
 let mockRealHistory = false;
 const mockLatest: IHistoryEntry[] = [];
+// What the stubbed History reports about paging.
+const mockView = { hasMore: false };
 
 jest.mock('./History', () => ({
   __esModule: true,
@@ -34,7 +36,7 @@ jest.mock('./History', () => ({
     const render = props.renderEntries as (view: unknown) => React.ReactNode;
     return (
       <div data-testid="history">
-        {render({ entries: loaded, initialLoading: false, hasMore: false, loadMore: jest.fn() })}
+        {render({ entries: loaded, initialLoading: false, hasMore: mockView.hasMore, loadMore: jest.fn() })}
       </div>
     );
   }
@@ -45,11 +47,13 @@ jest.mock('./ActivityGroupList', () => ({
   ActivityGroupList: (props: {
     entries: IHistoryEntry[];
     nameOf: (address: string) => string | undefined;
+    hasMore: boolean;
     searchQuery?: string;
   }) => (
     <div
       data-testid="group-list"
       data-count={String(props.entries.length)}
+      data-has-more={String(props.hasMore)}
       data-keys={props.entries.map(e => e.key).join(',')}
       data-search={props.searchQuery ?? ''}
       data-alice={props.nameOf('MTST1ALICE') ?? ''}
@@ -140,6 +144,7 @@ describe('ActivityGroupedHistory', () => {
     historyProps = {};
     mockRealHistory = false;
     mockLatest.length = 0;
+    mockView.hasMore = false;
     mockClaims.items = [];
     mockHidden.ids = new Set();
     mockConfirm.mockResolvedValue(true);
@@ -200,6 +205,13 @@ describe('ActivityGroupedHistory', () => {
     expect(screen.getByTestId('group-list')).toHaveAttribute('data-search', 'usdc');
     expect(historyProps.programId).toBe('prog-1');
     expect(historyProps.address).toBe('0xme');
+  });
+
+  it("gives the groups final counts, since History's first read already holds the whole history", () => {
+    mockView.hasMore = true;
+    render(<ActivityGroupedHistory search="" />);
+
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-has-more', 'false');
   });
 
   it('narrows by nothing else: grouping the whole history is what this view filters by', () => {

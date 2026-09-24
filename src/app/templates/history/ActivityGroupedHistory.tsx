@@ -67,7 +67,9 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
               entries={view.entries}
               nameOf={nameOf}
               initialLoading={view.initialLoading}
-              hasMore={view.hasMore}
+              // History's first read already holds the whole history (get.ts), so a count is final and
+              // there is nothing more to page.
+              hasMore={false}
               loadMore={view.loadMore}
               scrollParentRef={scrollRef}
               searchQuery={search}
