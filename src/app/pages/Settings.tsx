@@ -315,7 +315,6 @@ const HIDDEN_TABS: Tab[] = [
     Component: RevealSeedPhraseFlow,
     requiresSeedPhrase: true,
     reportsSeedState: true,
-    testID: SettingsSelectors.RevealSeedPhraseButton,
     hasOwnLayout: true
   },
   {
