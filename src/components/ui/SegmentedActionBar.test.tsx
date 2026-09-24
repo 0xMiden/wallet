@@ -156,6 +156,13 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(pillIn(getTab('Receive'))).toBeNull();
   });
 
+  it('sets the active tab label in bold and gives an inactive tab no label', () => {
+    renderBar({ activeId: 'send' });
+
+    expect(screen.getByText('Send')).toHaveClass('font-bold');
+    expect(getTab('Receive')).not.toHaveTextContent('Receive');
+  });
+
   it('draws the active pill as a raised, fully round bubble that sinks while pressed', () => {
     renderBar({ activeId: 'send' });
 
