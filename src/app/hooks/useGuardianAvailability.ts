@@ -69,7 +69,7 @@ type ProbeTrigger = 'reconnect' | 'other';
  * endpoint set actually changes, so an inline (fresh-identity) array from the
  * caller cannot put the reset-state effect into a render loop.
  */
-export function useGuardianProbe(endpoints: readonly string[]): Record<string, GuardianProbeVerdict> {
+export function useGuardianPings(endpoints: readonly string[]): Record<string, GuardianProbeVerdict> {
   const [availability, setAvailability] = useState<Record<string, GuardianProbeVerdict>>({});
 
   // URLs cannot contain a newline, so the join round-trips losslessly.
@@ -203,12 +203,12 @@ export function useGuardianProbe(endpoints: readonly string[]): Record<string, G
 }
 
 /**
- * The status half of {@link useGuardianProbe}, for the picker: it disables an
+ * The status half of {@link useGuardianPings}, for the picker: it disables an
  * offline card and never shows a number. Same map, same probing, same absence
  * for "no verdict yet".
  */
 export function useGuardianAvailability(endpoints: readonly string[]): Record<string, GuardianAvailability> {
-  const verdicts = useGuardianProbe(endpoints);
+  const verdicts = useGuardianPings(endpoints);
   return useMemo(
     () => Object.fromEntries(Object.entries(verdicts).map(([endpoint, verdict]) => [endpoint, verdict.status])),
     [verdicts]

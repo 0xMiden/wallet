@@ -23,7 +23,7 @@ jest.mock('lib/miden-chain/constants', () => ({
 // Probe verdicts — controlled per test so no real pings go out.
 let mockVerdicts: Record<string, GuardianProbeVerdict> = {};
 jest.mock('app/hooks/useGuardianAvailability', () => ({
-  useGuardianProbe: () => mockVerdicts
+  useGuardianPings: () => mockVerdicts
 }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));

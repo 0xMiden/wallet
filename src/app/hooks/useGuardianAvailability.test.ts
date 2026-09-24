@@ -6,14 +6,16 @@
  */
 import { act, renderHook } from '@testing-library/react';
 
-import { GUARDIAN_AVAILABILITY_REPROBE_MS, useGuardianAvailability } from './useGuardianAvailability';
+import { GUARDIAN_AVAILABILITY_REPROBE_MS, useGuardianAvailability, useGuardianPings } from './useGuardianAvailability';
 
-// The hook reads the latency probe; these tests speak in the boolean the picker
-// sees, so a `true` becomes a 0 ms round trip and a `false` no round trip at all.
+// The hook reads the latency probe; most tests speak in the boolean the picker sees, so a `true`
+// becomes a 0 ms round trip and a `false` no round trip at all. A number passes through as the round trip.
 const mockPing = jest.fn();
 jest.mock('lib/miden/guardian/availability', () => ({
   pingGuardianEndpointLatency: (...args: unknown[]) =>
-    Promise.resolve(mockPing(...args)).then((online: boolean) => (online ? 0 : null))
+    Promise.resolve(mockPing(...args)).then((result: boolean | number) =>
+      typeof result === 'number' ? result : result ? 0 : null
+    )
 }));
 
 /** One controllable ping per endpoint, resolved manually by tests. */
@@ -42,6 +44,25 @@ function deferredRejectingPings(): Map<string, (reason: unknown) => void> {
 
 beforeEach(() => {
   jest.clearAllMocks();
+});
+
+describe('useGuardianPings', () => {
+  it('carries each online round trip and reports a failed or rejected ping as offline', async () => {
+    mockPing.mockImplementation((endpoint: string) =>
+      endpoint === 'https://c.example.com'
+        ? Promise.reject(new Error('unreachable'))
+        : Promise.resolve(endpoint === 'https://a.example.com' ? 42 : false)
+    );
+    const endpoints = ['https://a.example.com', 'https://b.example.com', 'https://c.example.com'];
+    const { result } = renderHook(() => useGuardianPings(endpoints));
+
+    await act(async () => {});
+    expect(result.current).toEqual({
+      'https://a.example.com': { status: 'online', latencyMs: 42 },
+      'https://b.example.com': { status: 'offline' },
+      'https://c.example.com': { status: 'offline' }
+    });
+  });
 });
 
 describe('useGuardianAvailability', () => {

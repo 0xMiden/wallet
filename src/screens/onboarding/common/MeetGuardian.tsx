@@ -3,7 +3,7 @@ import React, { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { useGuardianProbe } from 'app/hooks/useGuardianAvailability';
+import { useGuardianPings } from 'app/hooks/useGuardianAvailability';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
@@ -64,8 +64,8 @@ export interface MeetGuardianScreenProps {
 }
 
 /**
- * The create flow's guardian step. The user ticks the three facts about a private account (the
- * same checklist the test-network notice uses); once all three are ticked the card of the fastest
+ * The create flow's guardian step. The user ticks the three facts about a private account; once
+ * all three are ticked the card of the fastest
  * reachable operator appears and Continue opens. The operator is chosen once, when every
  * operator has answered its first ping, so the card does not change under the user while later
  * rounds refresh the number on it. An operator that later goes offline closes Continue and says
@@ -88,7 +88,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   // Providers that run a Guardian on the active network, resolved to their endpoint on it.
   const options = useMemo(() => getGuardianOptionsForNetwork(), []);
   const endpoints = useMemo(() => options.map(option => option.endpoint), [options]);
-  const verdicts = useGuardianProbe(endpoints);
+  const verdicts = useGuardianPings(endpoints);
 
   const allSettled = options.length > 0 && options.every(option => verdicts[option.endpoint] !== undefined);
   const fastest = useMemo(() => {

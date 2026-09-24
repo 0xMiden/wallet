@@ -230,9 +230,8 @@ const Welcome: FC = () => {
   // unmounts. An action that awaits the hardware-security check acts on its answer only while nothing newer happened:
   // otherwise the user has moved on, and may have confirmed inputs the stale answer would overwrite.
   const transitionGenerationRef = useRef(0);
-  // Tracks which protection screen the user came through; needed so ChooseGuardian
-  // back navigation and the create-password→confirmation routing pick the right
-  // origin without colliding with the legacy create flow.
+  // Tracks which protection screen the user came through, so back from the Meet your
+  // Guardian step returns to it.
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
   const { importWalletFromClient, registerWallet, registerWalletFromHotKey } = useMidenContext();
   // Guardian auto-detection (issue #418): kicked off in the background the
