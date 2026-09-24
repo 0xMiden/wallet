@@ -15,7 +15,7 @@ interface GuardianTransitionHeroProps {
 
 /**
  * The vertical provider transition on the Guardian rotation review: the current provider on `fill`
- * above the one being adopted on `accent`. Activity's completed switch uses the compact horizontal
+ * above the one being adopted on `accent`. Activity's completed switch uses the compact, top-down
  * `GuardianChangeSummary` instead.
  */
 export const GuardianTransitionHero: FC<GuardianTransitionHeroProps> = ({
