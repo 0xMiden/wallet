@@ -538,7 +538,8 @@ export const completeReplaceHotKeyTransaction = async (
 export const completeUpdateProcedureThresholdTransaction = async (
   tx: UpdateProcedureThresholdTransaction,
   result: TransactionResult,
-  guardianProvider: GuardianAccountProvider,
+  // Unread since the service cache is keyed canonically; kept so `service` keeps its position.
+  _guardianProvider: GuardianAccountProvider,
   // The cold MultisigService used to drive the threshold change, so we can push
   // the new state to the guardian (the OZ lib doesn't re-register it).
   service?: MultisigService
