@@ -138,6 +138,9 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       onFocus,
       onBlur,
       autoComplete,
+      spellCheck,
+      autoCorrect,
+      autoCapitalize,
       'data-testid': dataTestId,
       ...rest
     },
@@ -179,8 +182,11 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       };
     }, [secret, focused]);
 
-    // Autofill and form memory would keep key material outside the field.
-    const fieldAutoComplete = secret ? 'off' : autoComplete;
+    // Autofill, form memory, spellcheck and autocorrect would each hand key material to something
+    // outside the field (a saved-form store, a dictionary, a spelling service).
+    const textAssist = secret
+      ? { autoComplete: 'off', spellCheck: false, autoCorrect: 'off', autoCapitalize: 'none' }
+      : { autoComplete, spellCheck, autoCorrect, autoCapitalize };
 
     // A single callback ref forwarded to whichever tag renders, so the caller's ref (typed as the
     // union) can be handed straight to a concrete `<input>`/`<textarea>` ref prop without `as`.
@@ -249,7 +255,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               onBlur={handleBlur}
               aria-invalid={invalid}
               aria-describedby={describedBy}
-              autoComplete={fieldAutoComplete}
+              {...textAssist}
               data-testid={dataTestId}
               className={fieldClassName}
               {...rest}
@@ -271,7 +277,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
                 onBlur={handleBlur}
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
-                autoComplete={fieldAutoComplete}
+                {...textAssist}
                 data-testid={dataTestId}
                 className={fieldClassName}
                 {...rest}

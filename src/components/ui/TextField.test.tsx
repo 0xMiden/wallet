@@ -286,6 +286,31 @@ describe('TextField — secret', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('autocomplete', 'off');
   });
 
+  it('keeps spellcheck, autocorrect and autocapitalize off a secret input and textarea, whatever the caller asks for', () => {
+    const asked = { spellCheck: true, autoCorrect: 'on', autoCapitalize: 'sentences' } as const;
+    render(
+      <>
+        <TextField secret {...asked} value="k" onChange={jest.fn()} />
+        <TextField secret multiline {...asked} value="k" onChange={jest.fn()} />
+      </>
+    );
+    const fields = screen.getAllByRole('textbox');
+    expect(fields.map(field => field.tagName)).toEqual(['INPUT', 'TEXTAREA']);
+    for (const field of fields) {
+      expect(field).toHaveAttribute('spellcheck', 'false');
+      expect(field).toHaveAttribute('autocorrect', 'off');
+      expect(field).toHaveAttribute('autocapitalize', 'none');
+    }
+  });
+
+  it("leaves an ordinary field's spellcheck, autocorrect and autocapitalize to the caller", () => {
+    render(<TextField spellCheck autoCorrect="on" autoCapitalize="sentences" value="k" onChange={jest.fn()} />);
+    const field = screen.getByRole('textbox');
+    expect(field).toHaveAttribute('spellcheck', 'true');
+    expect(field).toHaveAttribute('autocorrect', 'on');
+    expect(field).toHaveAttribute('autocapitalize', 'sentences');
+  });
+
   describe('when the document is hidden', () => {
     const setVisibility = (state: DocumentVisibilityState) =>
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
