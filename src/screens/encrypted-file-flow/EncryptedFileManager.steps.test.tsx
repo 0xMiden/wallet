@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+
 import { EncryptedFileFlow } from './EncryptedFileManager';
 
 /**
@@ -21,6 +23,8 @@ import { EncryptedFileFlow } from './EncryptedFileManager';
 // Module mocks: every boundary outside the flow's own markup.
 // ---------------------------------------------------------------------------
 const mockUnlock = jest.fn();
+let mockIsMobile = false;
+let mockHasHardwareProtector = false;
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -67,7 +71,7 @@ jest.mock('framer-motion', () => {
 });
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => false,
+  isMobile: () => mockIsMobile,
   isIOS: () => false,
   isAndroid: () => false,
   isExtension: () => true
@@ -82,7 +86,7 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => Promise.resolve(false) }
+  Vault: { hasHardwareProtector: () => Promise.resolve(mockHasHardwareProtector) }
 }));
 
 jest.mock('lib/miden/front', () => {
@@ -125,6 +129,8 @@ const advanceToExportStep = async () => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockUnlock.mockResolvedValue(undefined);
+  mockIsMobile = false;
+  mockHasHardwareProtector = false;
 });
 
 describe('EncryptedFileFlow step containment', () => {
@@ -180,5 +186,47 @@ describe('EncryptedFileFlow step containment', () => {
       target: { value: FILE_PASSWORD }
     });
     await waitFor(() => expect(submit).toBeEnabled());
+  });
+});
+
+// Settings opens the flow inside its own provider, which hands down focusTitleOnMount; the flow's
+// provider sets only the title and the back, so the host's focus policy has to survive it.
+describe('EncryptedFileFlow focus on entry under the Settings host', () => {
+  const renderInHost = () =>
+    render(
+      <SubPageHeaderProvider value={{ focusTitleOnMount: true }}>
+        <EncryptedFileFlow />
+      </SubPageHeaderProvider>
+    );
+
+  it('focuses the page title when a hardware protector leaves the step with no field', async () => {
+    mockHasHardwareProtector = true;
+    renderInHost();
+    await screen.findByTestId('encrypted-file-wallet-password');
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+
+  it('focuses the page title on mobile, where the password field does not autofocus', async () => {
+    mockIsMobile = true;
+    renderInHost();
+    await screen.findByTestId('encrypted-file-wallet-password');
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+
+  it('leaves focus in the password field on desktop without a protector', async () => {
+    renderInHost();
+    const input = await screen.findByTestId('encrypted-file-wallet-password-input');
+
+    expect(input).toHaveFocus();
+  });
+
+  it('leaves focus in the filename field once the export step opens', async () => {
+    renderInHost();
+    await screen.findByTestId('encrypted-file-wallet-password');
+    await advanceToExportStep();
+
+    expect(screen.getByTestId('export-file-name-input')).toHaveFocus();
   });
 });

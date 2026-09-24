@@ -130,6 +130,20 @@ describe('SubPageLayout', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Own title' })).toBeInTheDocument();
   });
 
+  it('keeps the focus policy of the provider above a nested one that sets only a title', () => {
+    render(
+      <SubPageHeaderProvider value={{ focusTitleOnMount: true }}>
+        <SubPageHeaderProvider value={{ title: 'Nested' }}>
+          <SubPageLayout>
+            <p>content</p>
+          </SubPageLayout>
+        </SubPageHeaderProvider>
+      </SubPageHeaderProvider>
+    );
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Nested' })).toHaveFocus();
+  });
+
   it('omits the header row when there is neither a title nor a back button', () => {
     render(
       <SubPageLayout data-testid="page">

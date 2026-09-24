@@ -145,6 +145,8 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     // the layout, and the flow above hands it the title and the back.
     <SubPageLayout
       data-testid="encrypted-file-wallet-password"
+      // The title takes focus only where no field does: the desktop password field autofocuses.
+      focusTitleOnMount={isMobile() || hasHardwareProtector}
       footer={
         usePasscodeEntry ? undefined : (
           <Button

@@ -105,6 +105,8 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
   return (
     <SubPageLayout
       data-testid="export-file-password"
+      // The filename field autofocuses; the title taking focus after it would take it away.
+      focusTitleOnMount={false}
       footer={
         <Button
           variant={ButtonVariant.Primary}

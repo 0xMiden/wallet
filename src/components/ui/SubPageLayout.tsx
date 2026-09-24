@@ -19,11 +19,17 @@ const SubPageHeaderContext = createContext<SubPageHeaderConfig>({});
  * Hands a sub-page its header from the route that opened it. Settings owns each sub-page's title,
  * back fallback and focus policy (they are properties of the tab, not of the page), so it provides
  * them here and every page renders the same `SubPageLayout` without repeating them.
+ *
+ * A nested provider merges over the one above it, so a flow that sets only its own title and back
+ * keeps the host's focus policy.
  */
 export const SubPageHeaderProvider: React.FC<{ value: SubPageHeaderConfig; children: React.ReactNode }> = ({
   value,
   children
-}) => <SubPageHeaderContext.Provider value={value}>{children}</SubPageHeaderContext.Provider>;
+}) => {
+  const inherited = useContext(SubPageHeaderContext);
+  return <SubPageHeaderContext.Provider value={{ ...inherited, ...value }}>{children}</SubPageHeaderContext.Provider>;
+};
 
 export interface SubPageLayoutProps extends SubPageHeaderConfig {
   /** A close button at the header's right, for a page that is dismissed rather than popped. */
