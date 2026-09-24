@@ -50,7 +50,12 @@ const DEEPL_CONTEXT =
   'between blockchains, never a physical bridge ("bridge in progress" = a transfer is ' +
   'underway, not construction); "Withdraw" means taking funds out, never cancel; "Vault" ' +
   'is a secure asset store; "Accept"/"Decline" are what a user does with an incoming ' +
-  'transfer of money, and a "pending transfer" is money waiting to be accepted.';
+  'transfer of money, and a "pending transfer" is money waiting to be accepted. ' +
+  '"Everyday key" is the name of the account\'s day-to-day signing key, a noun like ' +
+  '"signing key": translate it as a kind of key, never as a frequency ("daily", ' +
+  '"regularly") and never as vocabulary or terminology; rotating it means replacing it ' +
+  'once, not on a schedule. "Recovery phrase" is the wallet\'s 12-word secret backup phrase ' +
+  '(a mnemonic): use the term wallets in that language usually use for it.';
 
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)
@@ -60,10 +65,6 @@ const englishFile = require(englishFilePath);
 // Product terms that must stay in English across every language (brand consistency).
 // All case variations we protect; order longest-first so e.g. "Notes" wins over "Note".
 const TECHNICAL_TERM_VARIANTS = [
-  'Seed Phrase',
-  'Seed phrase',
-  'seed phrase',
-  'SEED PHRASE',
   'Faucet',
   'faucet',
   'FAUCET',

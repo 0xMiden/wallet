@@ -7,7 +7,6 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 const KeysSettings: FC = () => {
@@ -15,9 +14,14 @@ const KeysSettings: FC = () => {
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
-  // Recovery actions (rotate guardian, replace hot key) are cold-signed. An
-  // account with no local cold key (seed removed, or a hot-key-only import)
-  // gets a seed phrase prompt for the one transaction instead of being hidden.
+  // Replacing the hot key is cold-signed. An account with no local cold key
+  // (seed removed, or a hot-key-only import) gets a seed phrase prompt for the
+  // one transaction instead of being hidden.
+  //
+  // Guardian rotation is NOT a row here: it is the CTA of Guardian Settings, and
+  // a second entry point on a keys page is one more place to reach a recovery
+  // action from. The cold key is not revealed either: nothing can import it, so
+  // showing it gives the user nothing to do with it.
   const isGuardian = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
 
@@ -27,8 +31,7 @@ const KeysSettings: FC = () => {
       path: isGuardian ? '/settings/reveal-hot-key' : '/settings/reveal-private-key',
       testId: 'keys-reveal-private-key',
       show: isGuardian ? hasActivatedHotKey : seedPhraseStatus === 'stored'
-    },
-    { titleI18nKey: 'rotateGuardian', path: '/rotate-guardian', testId: 'keys-rotate-guardian', show: isGuardian }
+    }
   ].filter(row => row.show);
 
   return (
@@ -37,14 +40,7 @@ const KeysSettings: FC = () => {
         <SubPageSection>
           <ListGroup surface="plain">
             {rows.map(row => (
-              <ListRow
-                key={row.titleI18nKey}
-                title={t(row.titleI18nKey)}
-                // No haptic here: ListRow fires one on every tap.
-                onClick={() => navigate(row.path)}
-                chevron
-                data-testid={row.testId}
-              />
+              <ListRow key={row.titleI18nKey} title={t(row.titleI18nKey)} to={row.path} data-testid={row.testId} />
             ))}
           </ListGroup>
         </SubPageSection>

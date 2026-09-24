@@ -49,11 +49,6 @@ jest.mock('lib/miden/back/actions', () => ({
   signWord: jest.fn().mockResolvedValue('word-signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
   revealHotKey: jest.fn().mockResolvedValue('hotkey-hex'),
-  revealGuardianKeys: jest.fn().mockResolvedValue({
-    coldPrivateKey: 'cold-priv',
-    coldPublicKey: 'cold-pub',
-    hotPublicKey: 'hot-pub'
-  }),
   persistNewHotKey: jest.fn().mockResolvedValue(undefined),
   swapHotKey: jest.fn().mockResolvedValue(undefined),
   setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
@@ -410,39 +405,6 @@ describe('MobileIntercomAdapter', () => {
       expect(response).toEqual({
         type: WalletMessageType.RevealHotKeyResponse,
         keyPairPayload: ''
-      });
-    });
-
-    it('handles RevealGuardianKeysRequest', async () => {
-      const response = await adapter.request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey: 'pub-key-123',
-        password: 'test123'
-      } as any);
-
-      expect(Actions.revealGuardianKeys).toHaveBeenCalledWith('pub-key-123', 'test123');
-      expect(response).toEqual({
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: 'cold-priv',
-        coldPublicKey: 'cold-pub',
-        hotPublicKey: 'hot-pub'
-      });
-    });
-
-    it('falls back to empty guardian keys when none are returned', async () => {
-      (Actions.revealGuardianKeys as jest.Mock).mockResolvedValueOnce(null);
-
-      const response = await adapter.request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey: 'pub-key-123',
-        password: 'test123'
-      } as any);
-
-      expect(response).toEqual({
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: '',
-        coldPublicKey: '',
-        hotPublicKey: undefined
       });
     });
 

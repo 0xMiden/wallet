@@ -1235,7 +1235,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
     await this.page.getByRole('button', { name: 'Show keys as text' }).click();
-    const hot = await this.page.getByLabel('Miden hot private key').inputValue();
+    const hot = await this.page.getByLabel('Miden everyday private key').inputValue();
     const evm = await this.page.getByLabel('EVM private key').inputValue();
     const pair = parsePrivateKeyPair(`${hot}:${evm}`);
     if (!pair) throw new Error('Reveal did not return a valid private key pair');

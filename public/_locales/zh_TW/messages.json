@@ -699,8 +699,8 @@
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "我的《Seed phrase》一書共有 $num$ 個單字",
-    "englishSource": "My Seed phrase is $num$ words",
+    "message": "我的恢復短語是$num$個單字",
+    "englishSource": "My recovery phrase is $num$ words",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -1031,11 +1031,11 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "掃描您的私鑰 QR 碼，或輸入您的 Miden 熱私鑰及 EVM 私鑰。您的熱私鑰將定位您的 Guardian 帳戶；提供的 EVM 私鑰則會還原其 EVM 地址；錢包無法驗證這些私鑰是否屬於同一個帳戶。",
-    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "message": "掃描您的私鑰 QR 碼，或輸入您的 Miden 日常私鑰和 EVM 私鑰。您的日常私鑰可定位您的 Guardian 帳戶。提供的 EVM 私鑰則可還原其 EVM 地址；錢包無法驗證這些私鑰是否屬於同一組。",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
-    "message": "日常金鑰 (十六進位)",
+    "message": "日常金鑰（十六進位）",
     "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
@@ -1043,8 +1043,8 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Miden 熱私鑰",
-    "englishSource": "Miden hot private key"
+    "message": "Miden 日常私鑰",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM 私鑰",
@@ -1107,7 +1107,7 @@
     "englishSource": "This looks like your recovery key. Paste the everyday key instead."
   },
   "importHotKeyNotActive": {
-    "message": "此金鑰對該帳戶已不再有效。請貼上當前的日常金鑰。",
+    "message": "此金鑰已不再適用於該帳戶。請貼上目前的日常金鑰。",
     "englishSource": "This key is no longer active for the account. Paste the current everyday key."
   },
   "recoveryActionsRequireRecoveryKey": {
@@ -1330,8 +1330,8 @@
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "Seed Phrase",
-    "englishSource": "Seed Phrase"
+    "message": "恢復短語",
+    "englishSource": "Recovery Phrase"
   },
   "keepSeedPhraseSecret": {
     "message": "請保密。",
@@ -1780,8 +1780,8 @@
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "驗證 Seed Phrase",
-    "englishSource": "Verify seed phrase"
+    "message": "驗證恢復短語",
+    "englishSource": "Verify recovery phrase"
   },
   "faucetPromptTitle": {
     "message": "為您的錢包充值",
@@ -1878,12 +1878,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "裝置金鑰需要輪替",
-    "englishSource": "Device key needs rotation"
+    "message": "日常金鑰需要輪替",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "此裝置無法再使用您的裝置（熱）鍵。請將其旋轉以恢復簽署功能——您的資金不會受到影響。",
-    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+    "message": "此裝置無法再使用您的日常金鑰。請進行金鑰輪替以恢復簽署功能——您的資金不受影響。",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "旋轉鑰匙",
@@ -2019,8 +2019,8 @@
     "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
   },
   "importWithSeedPhrase": {
-    "message": "使用 Seed Phrase 匯入",
-    "englishSource": "Import with seed phrase"
+    "message": "使用恢復短語匯入",
+    "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "請使用現有的 12 字復原短語。您也可以從其他錢包供應商匯入錢包。",
@@ -2147,8 +2147,8 @@
     "englishSource": "No guardian"
   },
   "noGuardianOptionSubtitle": {
-    "message": "高级 — 仅使用 seed phrase 进行恢复。没有监护人共同签署人。",
-    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+    "message": "進階 — 僅使用您的恢復短語進行恢復。無需 guardian 共同簽署人。",
+    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "營運單位：",
@@ -2271,12 +2271,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "請輸入您的錢包的 12 個單詞的「Seed phrase」。",
-    "englishSource": "Enter your wallet's 12-word seed phrase."
+    "message": "請輸入您的錢包的 12 字復原短語。",
+    "englishSource": "Enter your wallet's 12-word recovery phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "僅支援 Miden Seed 的短語。",
-    "englishSource": "Only Miden seed phrases are supported."
+    "message": "僅支援 Miden 復原短語。",
+    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "您的 錢包 已準備就緒！",
@@ -2363,8 +2363,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "您的「seed phrase」即是您的恢復金鑰——用於輪替裝置金鑰，而非用於日常交易。",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+    "message": "您的恢復短語用於還原您的金鑰。它用於輪替您的日常簽署金鑰，而非用於日常交易。",
+    "englishSource": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "選擇",
@@ -2423,8 +2423,8 @@
     "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
-    "message": "Miden 測試網已升級至 bech32 帳戶 ID，以提升您的使用體驗。若要繼續使用您的錢包，請從備份檔案或 seed phrase 還原，或建立一個新的錢包。",
-    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
+    "message": "Miden 測試網已升級為 bech32 帳戶 ID，以提升您的使用體驗。若要繼續使用您的錢包，請從備份檔案或恢復短語進行還原，或建立一個新的錢包。",
+    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
     "message": "對於造成的不便，我們深感抱歉。",
@@ -2443,16 +2443,16 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "除非您知道自己的 12 字密鑰（Seed phrase），或擁有加密的備份檔案，否則請勿登出。",
-    "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
+    "message": "除非您知道自己的 12 字恢復短語，或擁有加密的備份檔案，否則請勿登出。",
+    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
     "message": "需要透過生物辨識解鎖",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "此錢包僅支援生物辨識驗證。請使用 Face ID、Touch ID 或裝置密碼來解鎖。若要在其他裝置上存取您的錢包，請使用 12 字的「Seed phrase」。",
-    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
+    "message": "此錢包僅支援生物辨識驗證。請使用 Face ID、Touch ID 或裝置密碼來解鎖。若要在其他裝置上存取您的錢包，請使用您的 12 字恢復短語。",
+    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
     "message": "重設錢包",
@@ -2619,8 +2619,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "錢包金鑰（熱）",
-    "englishSource": "Wallet key (hot)"
+    "message": "日常金鑰",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "恢復短語（冷儲存）",
@@ -2635,40 +2635,40 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "裝置旋轉鍵",
-    "englishSource": "Rotate device key"
+    "message": "輪替日常金鑰",
+    "englishSource": "Rotate everyday key"
   },
   "newDeviceKey": {
-    "message": "新裝置金鑰",
-    "englishSource": "New device key"
+    "message": "新的日常金鑰",
+    "englishSource": "New everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "產生一個新的裝置（熱）鍵，並在區塊鏈上取代目前的裝置鍵。若您懷疑裝置已遭入侵，此功能將十分實用。",
-    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "message": "生成一個新的日常金鑰，並在鏈上替換當前的金鑰。若您懷疑裝置已遭入侵，此操作將十分有用。",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "此操作將使用您的恢復（冷）金鑰進行簽名。無需提供您的 seed phrase，您的資金和帳戶將保持不變。要繼續嗎？",
-    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+    "message": "此操作將使用您的恢復（冷）金鑰進行簽署。此過程無需輸入恢復短語，您的資金與帳戶狀態將保持不變。繼續嗎？",
+    "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
     "message": "確認旋轉方向",
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "旋轉裝置的鑰匙",
-    "englishSource": "Rotating your device key"
+    "message": "輪替您的日常金鑰",
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "您的裝置（熱）鍵正在進行輪替。這是設定已恢復帳戶時所需的步驟，以便該帳戶能進行同步與交易。",
-    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "message": "您的日常金鑰正在進行輪替。這是設定已還原帳戶時所需的步驟，以便該帳戶能夠同步資料並進行交易。",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "裝置金鑰輪替失敗",
-    "englishSource": "Device key rotation failed"
+    "message": "每日金鑰輪替失敗",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "在旋轉裝置金鑰時發生了錯誤。",
-    "englishSource": "Something went wrong while rotating your device key."
+    "message": "在輪替您的日常金鑰時發生了錯誤。",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "重試",
@@ -2707,40 +2707,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "顯示裝置金鑰",
-    "englishSource": "Reveal device key"
+    "message": "揭露日常金鑰",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "您可透過「設定」→「旋轉裝置金鑰」來旋轉裝置（熱）金鑰，因此與您的「seed phrase」相比，揭露此金鑰的風險較低——但只要有人持有該金鑰，便能在您進行旋轉之前簽署交易。",
-    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
-  },
-  "hotPrivateKey": {
-    "message": "裝置私密金鑰",
-    "englishSource": "Device Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "裝置公開金鑰",
-    "englishSource": "Device Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "復原（冷儲存）私鑰",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "復原（冷）公鑰",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "您的 Guardian 帳戶由三把金鑰保護：用於日常簽名的裝置（熱）金鑰、由您的 seed phrase 衍生出的用於帳戶管理操作的恢復（冷）金鑰，以及外部 guardian 共同簽署者。以下是您的冷私鑰以及兩把公鑰。若要顯示裝置私鑰，請使用「設定」→「顯示裝置金鑰」。",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+    "message": "您的「日常金鑰」可透過「設定」→「輪替日常金鑰」進行輪替，因此洩露此金鑰的風險低於洩露您的「恢復短語」——但任何持有此金鑰的人都能在您進行輪替前簽署交易。",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
     "message": "在您揭露私鑰之前",
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。輪替您的 Miden 裝置金鑰並不會改變或保護已外洩的 EVM 金鑰。",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
+    "message": "任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。輪替您的 Miden 每日金鑰並不會改變或保護已外洩的 EVM 金鑰。",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "請輸入以 http:// 或 https:// 開頭的有效網址",
@@ -3056,8 +3036,8 @@
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "匯入由您的 seed phrase 衍生的公開帳號。",
-    "englishSource": "Import the public account derived from your seed phrase."
+    "message": "匯入由您的恢復短語衍生的公開帳戶。",
+    "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
     "message": "Guardian URL",
@@ -3818,8 +3798,8 @@
     "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
-    "message": "透過「seed phrase」，您隨時都能還原您的公開帳戶。請從以下選項中選擇，快速解鎖您的錢包。",
-    "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+    "message": "只要擁有恢復短語，您隨時都能還原您的公開帳戶。請在下方選擇如何快速解鎖您的錢包。",
+    "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
     "message": "Faucet 請求",
@@ -4569,72 +4549,72 @@
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
-    "message": "移除 seed phrase",
-    "englishSource": "Remove seed phrase"
+    "message": "移除恢復短語",
+    "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "在移除您的 seed phrase 之前，請先將其記錄下來。日常交易仍可照常進行。若 Guardian 發生變更，或進行日常金鑰更換時，您將需要輸入 seed phrase。",
-    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+    "message": "在移除復原短語之前，請先將其記錄下來。日常交易仍可照常進行。Guardian 變更以及日常金鑰更換時，則需要您輸入復原短語。",
+    "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
     "message": "請將所有詞彙按此順序寫在紙上。將紙張存放在本裝置以外的安全地點。",
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "此操作將從本裝置上的此錢包中移除 seed phrase 和 Guardian 恢復金鑰。請妥善保管您的紙本備份。先前建立的備份並不會被刪除。",
-    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+    "message": "此操作將從本裝置上的此錢包中移除恢復短語及 Guardian 恢復金鑰。請妥善保存您的紙本備份。先前建立的備份不會被刪除。",
+    "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
     "message": "從此裝置中移除",
     "englishSource": "Remove from this device"
   },
   "seedPhraseRemoved": {
-    "message": "Seed phrase 已從此裝置移除",
-    "englishSource": "Seed phrase removed from this device"
+    "message": "已從此裝置移除恢復短語",
+    "englishSource": "Recovery phrase removed from this device"
   },
   "seedPhraseUnavailable": {
-    "message": "此錢包中並未儲存任何seed phrase。",
-    "englishSource": "There is no seed phrase stored in this wallet."
+    "message": "此錢包中未儲存任何恢復短語。",
+    "englishSource": "There is no recovery phrase stored in this wallet."
   },
   "seedRemovalIncomplete": {
     "message": "移除尚未完成。請再次解鎖錢包以完成恢復資料的移除。",
     "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
   "seedRemovalFailed": {
-    "message": "無法完成移除 seed phrase。請重新嘗試。",
-    "englishSource": "Could not finish removing the seed phrase. Try again."
+    "message": "無法完成移除恢復短語。請重試。",
+    "englishSource": "Could not finish removing the recovery phrase. Try again."
   },
   "seedRemovalBusy": {
-    "message": "請待當前交易完成後，再移除seed phrase。",
-    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+    "message": "請待當前交易完成後，再移除恢復短語。",
+    "englishSource": "Wait for the current transactions to finish before removing the recovery phrase."
   },
   "seedRemovalKeysNotReady": {
-    "message": "請在移除seed phrase之前，先完成帳戶恢復及日常金鑰啟用程序。",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "message": "請在移除恢復短語之前，先完成帳戶恢復及日常金鑰的啟用程序。",
+    "englishSource": "Finish account recovery and everyday key activation before removing the recovery phrase."
   },
   "seedRequiredForAccountCreation": {
-    "message": "建立帳戶需儲存seed phrase。目前尚無法為此操作提供臨時種子輸入。",
-    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+    "message": "建立帳戶需要預先儲存的恢復短語。目前尚無法僅為此操作而輸入該短語。",
+    "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "此操作需要您輸入恢復密碼：seed phrase。",
-    "englishSource": "This action requires your recovery seed phrase."
+    "message": "此操作需要您的恢復短語。",
+    "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "請輸入您的 seed phrase",
-    "englishSource": "Enter your seed phrase"
+    "message": "請輸入您的恢復短語",
+    "englishSource": "Enter your recovery phrase"
   },
   "recoverySeedTemporaryDescription": {
     "message": "請使用您的紙本備份。此短語僅用於此操作，且不會儲存於本裝置中。",
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "請輸入有效的 seed phrase。",
-    "englishSource": "Enter a valid seed phrase."
+    "message": "請輸入有效的恢復短語。",
+    "englishSource": "Enter a valid recovery phrase."
   },
   "wrongRecoverySeed": {
-    "message": "此 seed phrase 與該帳戶不符。",
-    "englishSource": "This seed phrase does not match this account."
+    "message": "此復原短語與此帳戶不符。",
+    "englishSource": "This recovery phrase does not match this account."
   },
   "recoveryActionUnavailable": {
     "message": "此復原操作已不再可用。",
@@ -5260,5 +5240,9 @@
   "activityUnread": {
     "message": "未讀",
     "englishSource": "Unread"
+  },
+  "revealRecoveryPhrase": {
+    "message": "顯示恢復短語",
+    "englishSource": "Reveal recovery phrase"
   }
 }

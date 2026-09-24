@@ -156,6 +156,15 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(loadFlat('es').close).toBe('Cerrar');
   });
 
+  it('calls the 12-word backup the recovery phrase in every English source value', () => {
+    // The product term is "recovery phrase": it restores the keys, while the
+    // Guardian backs up the account state recovery needs.
+    const seedPhraseKeys = Object.entries(enSource)
+      .filter(([, value]) => /seed phrase/i.test(value))
+      .map(([key]) => key);
+    expect(seedPhraseKeys).toEqual([]);
+  });
+
   it('regenerates the bundles as part of the translation pipeline', () => {
     // `format-locales.js` had no caller anywhere in the tree — not a package
     // script, not a workflow step — which is how the runtime bundles drifted
@@ -201,7 +210,7 @@ describe('es locale parity with en (#469)', () => {
   it('does not leave the fixed common UI terms in English', () => {
     // A curated subset of the entries this PR translated — guards against a
     // regression back to the English source. Excludes the repo's protected
-    // TECHNICAL_TERMS (Seed Phrase / Note(s) / Faucet), which generateLanguageFiles
+    // TECHNICAL_TERMS (Note(s) / Faucet), which generateLanguageFiles
     // intentionally keeps in English across every locale. (The broader
     // Spanish-quality audit is a native-speaker follow-up per the issue.)
     for (const key of ['withdrawalFailed', 'totalPaid', 'transactionComplete', 'depositIntentLabel']) {

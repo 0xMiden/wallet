@@ -1274,7 +1274,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000);
     this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
-    this.displayMessage = 'Rotating device key';
+    this.displayMessage = 'Rotating everyday key';
     this.extraInputs = {};
     this.delegateTransaction = delegateTransaction;
   }

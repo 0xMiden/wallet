@@ -460,7 +460,7 @@ const Welcome: FC = () => {
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
     } else {
-      throw new Error('Missing password or seed phrase');
+      throw new Error('Missing password or recovery phrase');
     }
   }, [
     password,

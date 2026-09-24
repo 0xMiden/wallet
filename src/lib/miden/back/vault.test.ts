@@ -943,7 +943,7 @@ describe('Vault.exportWalletBackupMaterial', () => {
     await removeMany([keys.mnemonic]);
 
     await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
-      'Wallet has no seed phrase to back up its derived accounts'
+      'Wallet has no recovery phrase to back up its derived accounts'
     );
     expect(mockExportDb).not.toHaveBeenCalled();
   });
@@ -1480,7 +1480,7 @@ describe('Vault.revealHotKey', () => {
       vaultKey
     );
 
-    await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).rejects.toThrow('Hot key ciphertext not found');
+    await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).rejects.toThrow('Everyday key ciphertext not found');
     expect(mockRevealHotKey).not.toHaveBeenCalled();
   });
 
@@ -1539,148 +1539,6 @@ describe('Vault.revealHotKey', () => {
     mockRevealHotKey.mockResolvedValue('00'.repeat(32));
 
     await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).rejects.toThrow('importHotKeyInvalid');
-  });
-});
-
-describe('Vault.revealGuardianKeys', () => {
-  it('returns coldPrivateKey + coldPublicKey + hotPublicKey for an activated Guardian account', async () => {
-    const vault = await seedVault('pw');
-    const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const account: WalletAccount = {
-      publicKey: 'guardian-acc-1',
-      name: 'Guardian 1',
-      isPublic: false,
-      type: WalletType.Guardian,
-      hdIndex: 0,
-      hotPublicKey: 'hot-pub-hex',
-      coldPublicKey: 'cold-pub-hex'
-    };
-    await encryptAndSaveMany(
-      [
-        [keys.accounts, [account]],
-        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX']
-      ],
-      vaultKey
-    );
-
-    const result = await Vault.revealGuardianKeys('guardian-acc-1', 'pw');
-
-    expect(result).toEqual({
-      coldPrivateKey: 'COLD_SECRET_HEX',
-      coldPublicKey: 'cold-pub-hex',
-      hotPublicKey: 'hot-pub-hex'
-    });
-  });
-
-  it('returns hotPublicKey undefined for a recovered Guardian account whose hot key is not yet activated', async () => {
-    const vault = await seedVault('pw');
-    const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const account: WalletAccount = {
-      publicKey: 'guardian-recovered',
-      name: 'Guardian Recovered',
-      isPublic: false,
-      type: WalletType.Guardian,
-      hdIndex: 0,
-      coldPublicKey: 'cold-pub-hex',
-      requiresHotKeyRotation: true
-    };
-    await encryptAndSaveMany(
-      [
-        [keys.accounts, [account]],
-        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX']
-      ],
-      vaultKey
-    );
-
-    const result = await Vault.revealGuardianKeys('guardian-recovered', 'pw');
-
-    expect(result.coldPrivateKey).toBe('COLD_SECRET_HEX');
-    expect(result.coldPublicKey).toBe('cold-pub-hex');
-    expect(result.hotPublicKey).toBeUndefined();
-  });
-
-  it('rejects when called on a non-Guardian account', async () => {
-    const vault = await seedVault('pw');
-    const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const account: WalletAccount = {
-      publicKey: 'acc-1',
-      name: 'OnChain 1',
-      isPublic: true,
-      type: WalletType.OnChain,
-      hdIndex: 0
-    };
-    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
-
-    await expect(Vault.revealGuardianKeys('acc-1', 'pw')).rejects.toThrow(PublicError);
-  });
-
-  it('refuses once the seed phrase has been removed locally', async () => {
-    // Cold material is the recovery half of a Guardian account, and a wallet
-    // whose seed was removed is one the user chose to keep un-backed-up. The
-    // check runs before the accounts record is even read, so a seedless wallet
-    // cannot reach the cold secret through a known account id.
-    const vault = await seedVault('pw');
-    const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const account: WalletAccount = {
-      publicKey: 'guardian-acc-1',
-      name: 'Guardian 1',
-      isPublic: false,
-      type: WalletType.Guardian,
-      hdIndex: 0,
-      hotPublicKey: 'hot-pub-hex',
-      coldPublicKey: 'cold-pub-hex'
-    };
-    await encryptAndSaveMany(
-      [
-        [keys.accounts, [account]],
-        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX']
-      ],
-      vaultKey
-    );
-    await removeMany([keys.mnemonic]);
-
-    await expect(Vault.revealGuardianKeys('guardian-acc-1', 'pw')).rejects.toThrow('recoverySeedRequired');
-  });
-
-  it('rejects when no account carries the requested public key', async () => {
-    const vault = await seedVault('pw');
-    const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const account: WalletAccount = {
-      publicKey: 'guardian-acc-1',
-      name: 'Guardian 1',
-      isPublic: false,
-      type: WalletType.Guardian,
-      hdIndex: 0,
-      coldPublicKey: 'cold-pub-hex'
-    };
-    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
-
-    await expect(Vault.revealGuardianKeys('guardian-acc-unknown', 'pw')).rejects.toThrow('Account not found');
-  });
-
-  it('rejects when the account names a cold key that decrypts to nothing', async () => {
-    // The account says it has cold material and the record under that commitment
-    // is empty. Returning it would hand the recovery screen an empty
-    // `coldPrivateKey` to render and offer the user as their backup.
-    const vault = await seedVault('pw');
-    const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const account: WalletAccount = {
-      publicKey: 'guardian-acc-1',
-      name: 'Guardian 1',
-      isPublic: false,
-      type: WalletType.Guardian,
-      hdIndex: 0,
-      coldPublicKey: 'cold-pub-hex'
-    };
-    await encryptAndSaveMany(
-      [
-        [keys.accounts, [account]],
-        [keys.accColdSecretKey('cold-pub-hex'), '']
-      ],
-      vaultKey
-    );
-
-    await expect(Vault.revealGuardianKeys('guardian-acc-1', 'pw')).rejects.toThrow('Cold key not found');
   });
 });
 
@@ -3234,7 +3092,6 @@ describe('Vault hardware branches', () => {
         [keys.accounts, [exportable, guardian]],
         [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT'],
         [keys.accAuthSecretKey('aabb'), '010203'],
-        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX'],
         [`${ck('accevmsecretkey')}_0xevm`, `0x${'cd'.repeat(32)}`]
       ],
       vaultKey
@@ -3243,15 +3100,11 @@ describe('Vault hardware branches', () => {
     mockDesktopSecureStorage.decryptWithHardwareKey.mockClear();
 
     await expect(Vault.revealHotKey('guardian-acc-1')).resolves.toBe(`${'ab'.repeat(32)}:${'cd'.repeat(32)}`);
-    await expect(Vault.revealGuardianKeys('guardian-acc-1')).resolves.toMatchObject({
-      coldPrivateKey: 'COLD_SECRET_HEX',
-      coldPublicKey: 'cold-pub-hex'
-    });
     await expect(
       Vault.withAccountFileKeyReader('acc-pub-key-1', undefined, async getKey => getKey(new Uint8Array([0xaa, 0xbb])))
     ).resolves.toEqual(new Uint8Array([1, 2, 3]));
     // One unwrap per authorization, and no path quietly reused a cached key.
-    expect(mockDesktopSecureStorage.decryptWithHardwareKey).toHaveBeenCalledTimes(3);
+    expect(mockDesktopSecureStorage.decryptWithHardwareKey).toHaveBeenCalledTimes(2);
   });
 });
 

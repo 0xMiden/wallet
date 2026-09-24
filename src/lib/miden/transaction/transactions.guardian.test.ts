@@ -6288,7 +6288,7 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Device key rotated');
+    expect(row.displayMessage).toBe('Everyday key rotated');
   });
 
   it('re-registers via a FRESH cold service (post-rotation allowlist) BEFORE swapping the hot pointer', async () => {
@@ -6505,7 +6505,7 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);
-    expect(row.displayMessage).toBe('Failed to rotate device key');
+    expect(row.displayMessage).toBe('Failed to rotate everyday key');
   });
 
   it('moves the hot pointer of the stored account when the row was queued under another spelling', async () => {

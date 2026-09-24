@@ -43,8 +43,6 @@ export enum WalletMessageType {
   ExportAccountFileResponse = 'EXPORT_ACCOUNT_FILE_RESPONSE',
   RevealHotKeyRequest = 'REVEAL_HOT_KEY_REQUEST',
   RevealHotKeyResponse = 'REVEAL_HOT_KEY_RESPONSE',
-  RevealGuardianKeysRequest = 'REVEAL_GUARDIAN_KEYS_REQUEST',
-  RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
   ExportWalletBackupMaterialRequest = 'EXPORT_WALLET_BACKUP_MATERIAL_REQUEST',
@@ -670,19 +668,6 @@ export interface RevealHotKeyResponse extends WalletMessageBase {
   keyPairPayload: string;
 }
 
-export interface RevealGuardianKeysRequest extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysRequest;
-  accountPublicKey: string;
-  password?: string;
-}
-
-export interface RevealGuardianKeysResponse extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysResponse;
-  coldPrivateKey: string;
-  coldPublicKey: string;
-  hotPublicKey?: string;
-}
-
 export interface RemoveSeedPhraseRequest extends WalletMessageBase {
   type: WalletMessageType.RemoveSeedPhraseRequest;
   password?: string;
@@ -1234,7 +1219,6 @@ export type WalletRequest =
   | RevealPrivateKeyRequest
   | ExportAccountFileRequest
   | RevealHotKeyRequest
-  | RevealGuardianKeysRequest
   | RemoveSeedPhraseRequest
   | ProvideRecoverySeedRequest
   | PrepareRecoveryRequest
@@ -1307,7 +1291,6 @@ export type WalletResponse =
   | RevealPrivateKeyResponse
   | ExportAccountFileResponse
   | RevealHotKeyResponse
-  | RevealGuardianKeysResponse
   | RemoveSeedPhraseResponse
   | ProvideRecoverySeedResponse
   | PrepareRecoveryResponse

@@ -17,8 +17,13 @@ import Settings from './Settings';
 // `mock`-prefixed so jest allows them inside the (hoisted) mock factories.
 // ---------------------------------------------------------------------------
 type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
-const mockWalletState: { currentAccount: MockAccount; seedPhraseStatus?: SeedPhraseStatus } = {
+const mockWalletState: {
+  currentAccount: MockAccount;
+  accounts: NonNullable<MockAccount>[];
+  seedPhraseStatus?: SeedPhraseStatus;
+} = {
   currentAccount: { type: 'on-chain' },
+  accounts: [{ type: 'on-chain' }],
   seedPhraseStatus: 'stored'
 };
 let mockIsMobile = false;
@@ -267,6 +272,10 @@ jest.mock('app/templates/VerifySeedPhraseFlow', () => ({
 jest.mock('screens/encrypted-file-flow/EncryptedFileManager', () => ({
   EncryptedFileFlow: () => <div data-testid="encrypted-file-flow" />
 }));
+jest.mock('app/templates/RecoveryPhraseSettings', () => ({
+  __esModule: true,
+  default: mockLayoutPage('recovery-phrase-settings')
+}));
 jest.mock('./AdvancedSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('advanced-settings')
@@ -285,8 +294,10 @@ const mockGoBack = goBack as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
 const mockGetCurrentLocale = getCurrentLocale as jest.Mock;
 
+// The wallet holds just this account unless a test adds more.
 function setAccount(account: MockAccount) {
   mockWalletState.currentAccount = account;
+  mockWalletState.accounts = account ? [account] : [];
 }
 
 beforeEach(() => {
@@ -315,7 +326,6 @@ describe('Settings page — root menu (non-guardian)', () => {
       render(<Settings tabSlug={null} />);
 
       expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('row-removeSeedPhrase')).not.toBeInTheDocument();
     }
   );
 
@@ -352,13 +362,11 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('removes the recovery phrase settings when the seed status changes', () => {
     const view = render(<Settings tabSlug={null} />);
     expect(screen.getByTestId('row-recoveryPhrase')).toBeInTheDocument();
-    expect(screen.getByTestId('row-removeSeedPhrase')).toBeInTheDocument();
 
     mockWalletState.seedPhraseStatus = 'removed';
     view.rerender(<Settings tabSlug={null} />);
 
     expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('row-removeSeedPhrase')).not.toBeInTheDocument();
   });
 
   it('renders the settings header and version footer', () => {
@@ -815,14 +823,30 @@ describe('Settings page — guardian account', () => {
 describe('Settings page — recovery phrase row', () => {
   // The row used to open a warning overlay on the Settings root, which is a tab
   // page, so the tab bar covered the overlay's Close and View. It now routes to
-  // its full-screen sub-page like every other row, and the warning is that
-  // page's first step (RevealSeedPhrase).
-  it('routes to /settings/reveal-seed-phrase like every other row', () => {
+  // the Recovery Phrase section like every other row; the reveal and the removal
+  // are that section's rows, and the warning is the reveal page's first step.
+  it('routes to /settings/recovery-phrase like every other row', () => {
     render(<Settings tabSlug={null} />);
 
     const row = screen.getByTestId('row-recoveryPhrase');
-    expect(row).toHaveAttribute('data-slug', '/settings/reveal-seed-phrase');
-    expect(row).toHaveAttribute('data-selector', 'Settings/RevealSeedPhraseButton');
+    expect(row).toHaveAttribute('data-slug', '/settings/recovery-phrase');
+    expect(row).toHaveAttribute('data-selector', 'Settings/RecoveryPhraseButton');
+  });
+
+  it('renders the Recovery Phrase section on its routed settings page', () => {
+    render(<Settings tabSlug="recovery-phrase" />);
+
+    expect(screen.getByTestId('recovery-phrase-settings')).toBeInTheDocument();
+  });
+
+  it('keeps the reveal and remove pages routable off the menu', () => {
+    mockNavigate.mockClear();
+    const view = render(<Settings tabSlug="reveal-seed-phrase" />);
+    expect(screen.getByTestId('reveal-seed-flow')).toBeInTheDocument();
+
+    view.rerender(<Settings tabSlug="remove-seed-phrase" />);
+    expect(screen.getByTestId('verify-seed-flow')).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalledWith('/settings', expect.anything());
   });
 
   it('renders no overlay on the Settings root when the row is tapped, with a single haptic', () => {
@@ -932,11 +956,15 @@ describe('Settings page — active tab routing', () => {
     expect(screen.getByTestId('reveal-secret')).toHaveTextContent('private-key');
   });
 
-  it('reveals the guardian keys for a guardian account', () => {
+  // The cold key has no import path, so a Guardian account has no private-key
+  // reveal at all: the route bounces instead of showing the cold-key bundle.
+  it('does not route the private-key reveal for a guardian account', () => {
     setAccount({ type: 'guardian' });
+    mockNavigate.mockClear();
     render(<Settings tabSlug="reveal-private-key" />);
 
-    expect(screen.getByTestId('reveal-secret')).toHaveTextContent('guardian-keys');
+    expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
   });
 
   it('reveals the hot key for a guardian with an activated hot key', () => {
@@ -1071,4 +1099,41 @@ it('has one rendering path for every sub-page: the page draws its own frame, the
 
     unmount();
   }
+});
+
+// The file is the only backup of an OffChain account's private state and of an
+// imported key; the recovery phrase restores neither. It exports every account,
+// so the gate reads the wallet's account list, not the current account.
+describe('Settings page — encrypted wallet file gate', () => {
+  it('offers the file for a Guardian account when the wallet also holds an imported account', () => {
+    setAccount({ type: 'guardian' });
+    mockWalletState.accounts = [{ type: 'guardian' }, { type: 'on-chain' }];
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.getByTestId('row-encryptedWalletFile')).toHaveAttribute(
+      'data-slug',
+      '/settings/encrypted-wallet-file'
+    );
+  });
+
+  it('offers neither the row nor the route when every account is a Guardian account', () => {
+    setAccount({ type: 'guardian' });
+    const view = render(<Settings tabSlug={null} />);
+    expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
+
+    mockNavigate.mockClear();
+    view.rerender(<Settings tabSlug="encrypted-wallet-file" />);
+    expect(screen.queryByTestId('encrypted-file-flow')).not.toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+  });
+
+  it('offers the row as soon as the wallet gains a non-Guardian account', () => {
+    setAccount({ type: 'guardian' });
+    const view = render(<Settings tabSlug={null} />);
+    expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
+
+    mockWalletState.accounts = [{ type: 'guardian' }, { type: 'on-chain' }];
+    view.rerender(<Settings tabSlug={null} />);
+    expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
+  });
 });

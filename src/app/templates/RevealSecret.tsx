@@ -30,14 +30,11 @@ type FormData = {
   password: string;
 };
 
+// No Guardian cold-key reveal: the cold key has no import path, so a screen that
+// shows it gives the user nothing to do with it. A Guardian account reveals its
+// everyday (hot) key through `hot-key`.
 type RevealSecretProps = {
-  reveal: 'private-key' | 'seed-phrase' | 'hot-key' | 'guardian-keys';
-};
-
-type GuardianKeysBundle = {
-  coldPrivateKey: string;
-  coldPublicKey: string;
-  hotPublicKey?: string;
+  reveal: 'private-key' | 'seed-phrase' | 'hot-key';
 };
 
 // `font-sans` on every secret field below. Preflight sets `font: inherit` on
@@ -56,7 +53,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     },
     [seedStatus]
   );
-  const { revealMnemonic, revealPrivateKey, revealHotKey, revealGuardianKeys } = useMidenContext();
+  const { revealMnemonic, revealPrivateKey, revealHotKey } = useMidenContext();
   const account = useAccount();
   const { fieldRef: secretFieldRef } = useCopyToClipboard();
 
@@ -71,33 +68,28 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
-  const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
   useEffect(() => {
-    if (revealUnavailable) {
-      setSecret(null);
-      setGuardianBundle(null);
-    }
+    if (revealUnavailable) setSecret(null);
   }, [revealUnavailable, setSecret]);
   // Block screenshots / screen recordings while raw key material is on screen
   // (#417) — the same protection `RevealSeedPhrase` already has, for material of
-  // equal sensitivity: a private key, a Guardian COLD private key (the account's
-  // recovery material) or a hot key all confer spending authority. `TextField`'s
+  // equal sensitivity: a private key or a hot key both confer spending authority. `TextField`'s
   // `secret` mode only covers the value while the field is unfocused; once tapped
   // the plaintext sits in an ordinary DOM textarea, which is exactly what a
   // screenshot, an Android task-switcher thumbnail or a live screen recording
   // captures. The hook withholds `true` until the native guard is actually
   // enabled, so the unprotected first frames are never rendered.
-  const isGuardReady = useScreenshotGuard(secret !== null || guardianBundle !== null);
+  const isGuardReady = useScreenshotGuard(secret !== null);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
-  // Private-key + guardian-keys reveals require the user to tick an "I
-  // understand" checkbox before the Continue button enables. The warning
-  // banner alone is passive; this gate forces one deliberate interaction
-  // before handing out recovery material. Hot-key reveal skips the gate
-  // because hot keys rotate from Settings → Rotate Device Key.
+  // The private-key reveal requires the user to tick an "I understand"
+  // checkbox before the Continue button enables. The warning banner alone is
+  // passive; this gate forces one deliberate interaction before handing out
+  // recovery material. Hot-key reveal skips the gate because everyday keys rotate
+  // from Settings → Rotate everyday key.
   const [privateKeyAcknowledged, setPrivateKeyAcknowledged] = useState(false);
-  const requiresAcknowledge = reveal === 'private-key' || reveal === 'guardian-keys';
+  const requiresAcknowledge = reveal === 'private-key';
   // Non-hardware mobile wallets are protected by the 6-digit passcode set
   // during onboarding, so prompt with the numpad; extension/desktop vault
   // secrets are typed passwords.
@@ -112,10 +104,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   useEffect(() => {
     if (account.publicKey) {
-      return () => {
-        setSecret(null);
-        setGuardianBundle(null);
-      };
+      return () => setSecret(null);
     }
     return undefined;
   }, [account.publicKey, setSecret]);
@@ -165,16 +154,18 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           if (generation === secretGeneration.current) setSecret(value);
         };
         const unlockPassword = hasHardwareProtector ? undefined : password;
-        if (reveal === 'private-key') {
-          const pubKeyCommitment = await getAccountPublicKeyCommitment(account.publicKey);
-          setCurrentSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
-        } else if (reveal === 'hot-key') {
-          setCurrentSecret(await revealHotKey(account.publicKey, unlockPassword));
-        } else if (reveal === 'guardian-keys') {
-          const bundle = await revealGuardianKeys(account.publicKey, unlockPassword);
-          if (generation === secretGeneration.current) setGuardianBundle(bundle);
-        } else {
-          setCurrentSecret(await revealMnemonic(unlockPassword));
+        switch (reveal) {
+          case 'private-key': {
+            const pubKeyCommitment = await getAccountPublicKeyCommitment(account.publicKey);
+            setCurrentSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
+            break;
+          }
+          case 'hot-key':
+            setCurrentSecret(await revealHotKey(account.publicKey, unlockPassword));
+            break;
+          case 'seed-phrase':
+            setCurrentSecret(await revealMnemonic(unlockPassword));
+            break;
         }
       } catch (err) {
         // Human delay.
@@ -195,7 +186,6 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       revealMnemonic,
       revealPrivateKey,
       revealHotKey,
-      revealGuardianKeys,
       setSecret,
       focusPasswordField,
       hasHardwareProtector,
@@ -245,62 +235,13 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           accountBanner: null,
           fieldDesc: t('revealHotKeyDescription')
         };
-
-      case 'guardian-keys':
-        return {
-          name: t('coldPrivateKey'),
-          accountBanner: null,
-          fieldDesc: t('guardianKeysRevealDescription')
-        };
     }
   }, [reveal, t, account]);
 
   const mainContent = useMemo(() => {
-    if (guardianBundle) {
+    if (secret) {
       // Withhold until the native guard reports the screen is protected — an
       // in-progress screen recording would otherwise capture the first frames.
-      if (!isGuardReady) return null;
-      return (
-        <SubPageSection className="gap-5" description={texts.fieldDesc}>
-          <TextField
-            ref={secretFieldRef}
-            secret
-            multiline
-            rows={3}
-            readOnly
-            label={t('coldPrivateKey')}
-            id="reveal-guardian-cold-private"
-            spellCheck={false}
-            className={secretFieldClassName}
-            value={guardianBundle.coldPrivateKey}
-          />
-          <TextField
-            multiline
-            rows={2}
-            readOnly
-            label={t('coldPublicKeyLabel')}
-            id="reveal-guardian-cold-public"
-            spellCheck={false}
-            className={secretFieldClassName}
-            value={guardianBundle.coldPublicKey}
-          />
-          {guardianBundle.hotPublicKey && (
-            <TextField
-              multiline
-              rows={2}
-              readOnly
-              label={t('hotPublicKeyLabel')}
-              id="reveal-guardian-hot-public"
-              spellCheck={false}
-              className={secretFieldClassName}
-              value={guardianBundle.hotPublicKey}
-            />
-          )}
-        </SubPageSection>
-      );
-    }
-
-    if (secret) {
       if (!isGuardReady) return null;
       if (reveal === 'hot-key') return <PrivateKeyPair payload={secret} />;
       return (
@@ -363,7 +304,6 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     onSubmit,
     register,
     secret,
-    guardianBundle,
     texts,
     clearErrors,
     secretFieldRef,
@@ -377,7 +317,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     reveal
   ]);
 
-  const showButton = !secret && !guardianBundle;
+  const showButton = !secret;
 
   if (revealUnavailable) return null;
 

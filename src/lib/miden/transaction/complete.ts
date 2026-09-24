@@ -508,7 +508,7 @@ export const completeReplaceHotKeyTransaction = async (
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       ...feeFieldsFromResult(result),
-      displayMessage: 'Device key rotated',
+      displayMessage: 'Everyday key rotated',
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
@@ -530,7 +530,7 @@ export const completeReplaceHotKeyTransaction = async (
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Failed to rotate device key',
+      displayMessage: 'Failed to rotate everyday key',
       completedAt: Math.floor(Date.now() / 1000),
       ...(result && { resultBytes: result.serialize() }),
       error: error instanceof Error ? error.message : String(error)

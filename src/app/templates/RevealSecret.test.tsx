@@ -28,7 +28,6 @@ const mockHasHardwareProtector = jest.fn();
 const mockRevealPrivateKey = jest.fn();
 const mockRevealMnemonic = jest.fn();
 const mockRevealHotKey = jest.fn();
-const mockRevealGuardianKeys = jest.fn();
 jest.mock(
   'qr-code-styling',
   () =>
@@ -91,8 +90,7 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
     revealMnemonic: mockRevealMnemonic,
     revealPrivateKey: mockRevealPrivateKey,
-    revealHotKey: mockRevealHotKey,
-    revealGuardianKeys: mockRevealGuardianKeys
+    revealHotKey: mockRevealHotKey
   })
 }));
 
@@ -130,7 +128,7 @@ jest.mock('lib/ui/useCopyToClipboard', () => ({
   default: () => ({ fieldRef: { current: null } })
 }));
 
-type Reveal = 'private-key' | 'seed-phrase' | 'hot-key' | 'guardian-keys';
+type Reveal = 'private-key' | 'seed-phrase' | 'hot-key';
 
 describe('RevealSecret', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
@@ -194,13 +192,12 @@ describe('RevealSecret', () => {
   const buttonWithText = (container: HTMLElement, text: string) =>
     Array.from(container.querySelectorAll('button')).find(b => b.textContent === text);
 
-  it.each<Reveal>(['private-key', 'guardian-keys', 'seed-phrase'])('hides %s after seed removal', async reveal => {
+  it.each<Reveal>(['private-key', 'seed-phrase'])('hides %s after seed removal', async reveal => {
     mockWalletState.seedPhraseStatus = 'removed';
     const container = await renderReveal(reveal);
 
     expect(container.childElementCount).toBe(0);
     expect(mockRevealPrivateKey).not.toHaveBeenCalled();
-    expect(mockRevealGuardianKeys).not.toHaveBeenCalled();
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
   });
 
@@ -211,7 +208,7 @@ describe('RevealSecret', () => {
     expect(container.childElementCount).toBeGreaterThan(0);
   });
 
-  // Private-key + guardian-keys reveals gate the action button behind an
+  // The private-key reveal gates the action button behind an
   // "I understand" checkbox; tick it so the button enables. It is the shared
   // selection mark on a `role="checkbox"` button, not a native input.
   const acknowledge = async (container: HTMLElement) => {
@@ -332,12 +329,6 @@ describe('RevealSecret', () => {
     expect(buttonWithText(container, 'continue')).toBeTruthy();
   });
 
-  it('renders the guardian-keys reveal without an account banner', async () => {
-    const container = await renderReveal('guardian-keys');
-    expect(container.textContent).not.toContain('My Test Account');
-    expect(buttonWithText(container, 'continue')).toBeTruthy();
-  });
-
   it('shows the Unlock button (no password field) when a hardware protector is present', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const container = await renderReveal('private-key');
@@ -437,30 +428,9 @@ describe('RevealSecret', () => {
     expect(mockSetSecret).toHaveBeenCalledWith('word1 word2 word3');
   });
 
-  it('reveals guardian keys into the bundle view on unlock', async () => {
-    mockHasHardwareProtector.mockResolvedValue(true);
-    mockRevealGuardianKeys.mockResolvedValue({
-      coldPrivateKey: 'COLD_PRIVATE',
-      coldPublicKey: 'COLD_PUBLIC',
-      hotPublicKey: 'HOT_PUBLIC'
-    });
-    const container = await renderReveal('guardian-keys');
-    await acknowledge(container);
-
-    const unlock = buttonWithText(container, 'unlock') as HTMLButtonElement;
-    await act(async () => {
-      unlock.click();
-    });
-    await flush();
-
-    expect(mockRevealGuardianKeys).toHaveBeenCalledWith(mockAccount.publicKey, undefined);
-    // Once the bundle is set the action button disappears (guardianBundle view).
-    expect(buttonWithText(container, 'unlock')).toBeFalsy();
-  });
-
   // #417 parity: RevealSeedPhrase blocks screenshots/recordings while the phrase
-  // is on screen. The private key, the Guardian COLD private key and the hot key
-  // are material of equal sensitivity (all confer spending authority) and used to
+  // is on screen. The private key and the hot key
+  // are material of equal sensitivity (both confer spending authority) and used to
   // render into a plain DOM textarea with no guard at all — screenshot-able,
   // visible in the Android task-switcher thumbnail, and captured by any live
   // screen recording or screen-share.
@@ -486,42 +456,6 @@ describe('RevealSecret', () => {
 
       expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
       expect(container.querySelector('#reveal-secret-secret')).toBeFalsy();
-    });
-
-    it('arms the guard for the Guardian cold-key bundle too', async () => {
-      mockHasHardwareProtector.mockResolvedValue(true);
-      mockRevealGuardianKeys.mockResolvedValue({
-        coldPrivateKey: 'COLD_PRIVATE',
-        coldPublicKey: 'COLD_PUBLIC',
-        hotPublicKey: 'HOT_PUBLIC'
-      });
-      const container = await renderReveal('guardian-keys');
-      await acknowledge(container);
-      await act(async () => {
-        (buttonWithText(container, 'unlock') as HTMLButtonElement).click();
-      });
-      await flush();
-
-      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
-      expect(container.querySelector('#reveal-guardian-cold-private')).toBeTruthy();
-    });
-
-    it('withholds the Guardian cold-key bundle until the guard is enabled', async () => {
-      mockGuardReady = false;
-      mockHasHardwareProtector.mockResolvedValue(true);
-      mockRevealGuardianKeys.mockResolvedValue({
-        coldPrivateKey: 'COLD_PRIVATE',
-        coldPublicKey: 'COLD_PUBLIC',
-        hotPublicKey: 'HOT_PUBLIC'
-      });
-      const container = await renderReveal('guardian-keys');
-      await acknowledge(container);
-      await act(async () => {
-        (buttonWithText(container, 'unlock') as HTMLButtonElement).click();
-      });
-      await flush();
-
-      expect(container.querySelector('#reveal-guardian-cold-private')).toBeFalsy();
     });
   });
 
