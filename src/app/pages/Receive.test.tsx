@@ -120,6 +120,9 @@ const mockQRCodeProps = jest.fn();
 let mockQrBlob: Blob | null = null;
 // Set to make rendering the QR image fail; the share then goes out text-only.
 let mockQrError: Error | null = null;
+// The real component only reports `onPaletteCommitted` once a recolour actually paints; false
+// simulates a staged draw that never lands, so the requested palette stays uncommitted.
+let mockPaletteCommits = true;
 jest.mock('components/QRCode', () => ({
   QRCode: React.forwardRef<unknown, Record<string, unknown>>((props, ref) => {
     mockQRCodeProps(props);
@@ -129,6 +132,10 @@ jest.mock('components/QRCode', () => ({
         return mockQrBlob;
       }
     }));
+    React.useEffect(() => {
+      if (mockPaletteCommits) (props.onPaletteCommitted as ((palette: unknown) => void) | undefined)?.(props.palette);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.palette, props.recolourAttempt]);
     return null;
   })
 }));
@@ -189,6 +196,7 @@ describe('Receive - Address', () => {
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
     mockQrError = null;
+    mockPaletteCommits = true;
     mockCopy.mockClear();
     mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
@@ -458,6 +466,30 @@ describe('Receive - Address', () => {
         fireEvent.click(logo(container));
       });
       expect(palette()).toBe('orange');
+    });
+
+    it('retries the same palette on the next tap when a recolour never commits', async () => {
+      const container = await renderReceive();
+      expect(palette()).toBe('green');
+
+      mockPaletteCommits = false;
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('orange');
+
+      // The 'orange' draw never landed, so the next tap asks for it again, not 'slate'.
+      mockPaletteCommits = true;
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('orange');
+
+      // Now that 'orange' has committed, the tap after it moves on.
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('slate');
     });
 
     it('goes back to the flow green once the page is no longer the one on screen', async () => {

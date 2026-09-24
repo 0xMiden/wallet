@@ -71,18 +71,33 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   // of `usePageActive`, not an unmount: reset the cycle there or the QR keeps a stray colour.
   const pageActive = usePageActive();
   const [paletteStep, setPaletteStep] = useState(0);
+  // Bumped on every tap, including a retry of the same step: a failed draw never changes
+  // `paletteStep`'s target, and QRCode's own redraw effect keys on its prop values, so asking for
+  // the same colour twice needs this to tell it a fresh attempt is wanted.
+  const [paletteAttempt, setPaletteAttempt] = useState(0);
+  // Mirrors the step QRCode last actually painted (via onPaletteCommitted), read when a tap asks
+  // for the next colour: a request whose draw fails never lands here, so the next tap asks for the
+  // same one again instead of skipping past a colour nobody saw.
+  const committedPaletteStepRef = useRef(0);
   const [logoPressed, setLogoPressed] = useState(false);
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (pageActive) return;
     setPaletteStep(0);
+    committedPaletteStepRef.current = 0;
     setLogoPressed(false);
   }, [pageActive]);
 
   const cyclePalette = useCallback(() => {
     hapticLight();
-    setPaletteStep(step => (step + 1) % QR_PALETTE_CYCLE.length);
+    setPaletteStep((committedPaletteStepRef.current + 1) % QR_PALETTE_CYCLE.length);
+    setPaletteAttempt(attempt => attempt + 1);
+  }, []);
+
+  const handlePaletteCommitted = useCallback((committedPalette: QRPalette) => {
+    const index = QR_PALETTE_CYCLE.indexOf(committedPalette);
+    if (index !== -1) committedPaletteStepRef.current = index;
   }, []);
 
   const releaseLogo = useCallback(() => setLogoPressed(false), []);
@@ -197,6 +212,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                   size={QR_EXPORT_SIZE}
                   fluid
                   palette={QR_PALETTE_CYCLE[paletteStep] ?? 'green'}
+                  recolourAttempt={paletteAttempt}
+                  onPaletteCommitted={handlePaletteCommitted}
                   // The page names the network in the chip below; the shared image still carries it.
                   caption={network ? t('qrNetworkCaption', { network }) : undefined}
                   showCaption={false}

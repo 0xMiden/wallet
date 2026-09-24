@@ -30,6 +30,19 @@ export interface QRCodeProps {
   fluid?: boolean;
   /** How the modules are coloured: one of the five account-card treatments. */
   palette: QRPalette;
+  /**
+   * Fires with the palette once a recolour actually paints: the initial paint, an address/size
+   * change, or a staged recolour once its draw lands. Never fires for a request whose draw fails,
+   * so a caller cycling palettes can tell a shown colour from a merely requested one and retry.
+   */
+  onPaletteCommitted?: (palette: QRPalette) => void;
+  /**
+   * Bump on every recolour request, including a repeat of the current `palette`. A failed staged
+   * draw never changes `applied` (below), so re-requesting the same colour leaves every value this
+   * component keys its redraw effect on unchanged; without this, the effect's dependency check
+   * would see nothing new and skip the retry entirely.
+   */
+  recolourAttempt?: number;
 }
 
 /**
@@ -139,7 +152,7 @@ const isUsableDraw = (data: unknown) =>
  * encoding the address in miden:<address> format via qr-code-styling.
  */
 export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
-  ({ address, size, caption, showCaption, fluid, palette }, ref) => {
+  ({ address, size, caption, showCaption, fluid, palette, onPaletteCommitted, recolourAttempt }, ref) => {
     const qrValue = encodeAddress(address);
     // Two slots: the painted code stays on screen while a new colour is drawn into the other one.
     const slotA = useRef<HTMLDivElement>(null);
@@ -225,6 +238,7 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
             applied.current = { qrValue, size, palette };
             setShownSlot(slot);
             setShownPalette(palette);
+            onPaletteCommitted?.(palette);
           })
           .catch(e => {
             console.warn('[QRCode] recolour draw failed, keeping the painted palette:', e);
@@ -236,7 +250,8 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
       applied.current = { qrValue, size, palette };
       setPaintedValue(typeof options.data === 'string' ? options.data : '');
       setShownPalette(palette);
-    }, [options, qrValue, size, palette]);
+      onPaletteCommitted?.(palette);
+    }, [options, qrValue, size, palette, recolourAttempt, onPaletteCommitted]);
 
     useImperativeHandle(
       ref,
