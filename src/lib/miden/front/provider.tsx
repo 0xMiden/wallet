@@ -59,6 +59,14 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // TokensMetadataProvider and FiatCurrencyProvider mount when the wallet turns ready and read these keys
+      // through suspending storage hooks. Uncached, that read suspended the whole app behind
+      // WalletStoreProvider's null fallback, and the screen went blank for about 120 ms between the passcode
+      // and Home. Reading them alongside the WASM init, and holding `ready` until they are cached, means no
+      // path (a warm-WASM page with the wallet already unlocked included) reaches those providers uncached.
+      const preloaded = preloadStorage([ALL_TOKENS_BASE_METADATA_STORAGE_KEY, FIAT_CURRENCY_STORAGE_KEY]).catch(err =>
+        console.warn('[MidenProvider] storage preload failed:', err)
+      );
       await loadEndpointOverrides();
       // Prime native-asset-id discovery on every page mount. On extension this
       // also happens on the SW side, but the SW can be killed before the popup
@@ -74,6 +82,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       // network's native faucet id, so balances showed a mismatched token.
       if (!cancelled) primeNativeAssetId();
       await ensureSdkWasmReady();
+      await preloaded;
       if (!cancelled) setReady(true);
     })();
     return () => {
@@ -88,17 +97,6 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // re-toggle.
   useEffect(() => {
     mirrorBackgroundSettings();
-  }, []);
-
-  // TokensMetadataProvider and FiatCurrencyProvider mount when the wallet turns ready, right after
-  // unlock, and read these keys through suspending storage hooks. Uncached, that read suspended the
-  // whole app behind WalletStoreProvider's null fallback, and the screen went blank for about 120 ms
-  // between the passcode and Home. Reading them now, while the lock screen is up, means they are
-  // cached before those providers mount.
-  useEffect(() => {
-    preloadStorage([ALL_TOKENS_BASE_METADATA_STORAGE_KEY, FIAT_CURRENCY_STORAGE_KEY]).catch(err =>
-      console.warn('[MidenProvider] storage preload failed:', err)
-    );
   }, []);
 
   // Eagerly initialize the Miden client singleton once overrides + WASM are

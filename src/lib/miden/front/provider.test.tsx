@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
 const _g = globalThis as any;
 _g.__providerTest = {
@@ -140,6 +140,40 @@ describe('MidenProvider', () => {
     );
     expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
     expect(mockPreloadStorage).toHaveBeenCalledWith(['tokens_base_metadata', 'fiat_currency']);
+  });
+
+  it('renders nothing until the storage preload settles', async () => {
+    const { ensureSdkWasmReady } = jest.requireMock('lib/miden-chain/constants');
+    let settle!: () => void;
+    mockPreloadStorage.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          settle = resolve;
+        })
+    );
+    const { queryByText, findByText } = render(
+      <MidenProvider>
+        <div>x</div>
+      </MidenProvider>
+    );
+    await waitFor(() => expect(ensureSdkWasmReady).toHaveBeenCalled());
+    // The WASM gate has resolved; only the pending preload can still hold the tree back.
+    await act(async () => {});
+    expect(queryByText('x')).toBeNull();
+    settle();
+    expect(await findByText('x')).toBeDefined();
+  });
+
+  it('still renders when the storage preload fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockPreloadStorage.mockImplementationOnce(() => Promise.reject(new Error('storage unavailable')));
+    const { findByText } = render(
+      <MidenProvider>
+        <div>x</div>
+      </MidenProvider>
+    );
+    expect(await findByText('x')).toBeDefined();
+    warn.mockRestore();
   });
 
   it('fetches prices while the wallet is still locked, so Home has them on its first frame', async () => {
