@@ -2127,6 +2127,124 @@
     "message": "Виберіть один із варіантів нижче",
     "englishSource": "Select an option below"
   },
+  "setUpYourAccount": {
+    "message": "Створіть свій обліковий запис",
+    "englishSource": "Set up your account"
+  },
+  "setUpYourAccountDescription": {
+    "message": "Ваш обліковий запис на Miden є приватним. Перевірте кожен пункт, щоб зрозуміти, як він захищений.",
+    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
+  },
+  "meetGuardianLocalStateTitle": {
+    "message": "Ваш обліковий запис зберігається на цьому пристрої",
+    "englishSource": "Your account lives on this device"
+  },
+  "meetGuardianLocalStateBody": {
+    "message": "Стан приватного облікового запису зберігається на вашому пристрої. Мережа бачить лише зобов’язання.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
+  },
+  "meetGuardianSeedPhraseTitle": {
+    "message": "Один «seed phrase» недостатньо",
+    "englishSource": "A seed phrase isn't enough"
+  },
+  "meetGuardianSeedPhraseBody": {
+    "message": "Ваше насіння відновлює ваші ключі, а не стан вашого облікового запису. Якщо ви втратите пристрій, ключі будуть втрачені назавжди.",
+    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+  },
+  "meetGuardianProtectsTitle": {
+    "message": "«Guardian» може захистити вас",
+    "englishSource": "A Guardian can protect you"
+  },
+  "meetGuardianProtectsBody": {
+    "message": "«Guardian» зберігає стан вашого рахунку та допомагає його відновити. Уявіть це як сервер, який створює резервну копію ваших даних, але він ніколи не має доступу до ваших коштів.",
+    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
+  },
+  "meetGuardianFastestOf": {
+    "message": "Найшвидший серед операторів $operators$",
+    "englishSource": "Fastest of $operators$ operators",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianOnlyOperator": {
+    "message": "Оператор цієї мережі",
+    "englishSource": "The operator on this network"
+  },
+  "meetGuardianLatencyMs": {
+    "message": "$ms$ ms",
+    "englishSource": "$ms$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianCannotMoveFunds": {
+    "message": "Неможливо самостійно переміщувати ваші кошти",
+    "englishSource": "Cannot move your funds on its own"
+  },
+  "meetGuardianCannotSeeState": {
+    "message": "Немає доступу до ваших залишків або приватних даних",
+    "englishSource": "Cannot see your balances or private state"
+  },
+  "meetGuardianCanSwitch": {
+    "message": "Переключайтеся в будь-який час за допомогою вашого seed phrase",
+    "englishSource": "Switch any time with your seed phrase"
+  },
+  "meetGuardianChecking": {
+    "message": "Перевіряємо, який оператор відповідає найшвидше…",
+    "englishSource": "Checking which operator answers fastest…"
+  },
+  "meetGuardianNoneReachable": {
+    "message": "Наразі жоден оператор Guardian недоступний. Перевірте з’єднання або виберіть іншого оператора, щоб спробувати ще раз.",
+    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+  },
+  "meetGuardianFullyPrivateInstead": {
+    "message": "Я б краще створив повністю приватний обліковий запис",
+    "englishSource": "I'd rather make a fully private account instead"
+  },
+  "chooseDifferentGuardian": {
+    "message": "Оберіть інший Guardian",
+    "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioOpenZeppelin": {
+    "message": "OpenZeppelin — це компанія з безпеки, що стоїть за стандартними бібліотеками контрактів Ethereum. Один із незалежних операторів $operators$ Guardian на Miden.",
+    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioGateway": {
+    "message": "Gateway.fm управляє інфраструктурою blockchain для мереж та рол-апів по всій Європі. Один із незалежних операторів Guardian на платформі $operators$, що працює на Miden.",
+    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioLambdaClass": {
+    "message": "LambdaClass — це інженерна компанія, що розробляє доказові схеми з нульовим розкриттям інформації та клієнти blockchain. Один із незалежних операторів Guardian на платформі Miden, що входить до мережі $operators$.",
+    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioKoda": {
+    "message": "Korea Digital Asset (Koda) — це регульований зберігач цифрових активів у Південній Кореї. Один із незалежних операторів «Guardian» від $operators$ на платформі Miden.",
+    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
   "learnMoreAboutGuardian": {
     "message": "Дізнайтеся більше про «Guardian»",
     "englishSource": "Learn more about the Guardian"

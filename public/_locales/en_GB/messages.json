@@ -2127,6 +2127,133 @@
     "message": "Select an option below",
     "englishSource": "Select an option below"
   },
+  "setUpYourAccount": {
+    "message": "Set up your account",
+    "englishSource": "Set up your account"
+  },
+  "setUpYourAccountDescription": {
+    "message": "Your account is private on Miden. Check each point once to understand how it is protected.",
+    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
+  },
+  "meetGuardianLocalStateTitle": {
+    "message": "Your account lives on this device",
+    "englishSource": "Your account lives on this device"
+  },
+  "meetGuardianLocalStateBody": {
+    "message": "Private account state stays on your device. The network only ever sees a commitment.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
+  },
+  "meetGuardianSeedPhraseTitle": {
+    "message": "A seed phrase isn't enough",
+    "englishSource": "A seed phrase isn't enough"
+  },
+  "meetGuardianSeedPhraseBody": {
+    "message": "Your seed restores your keys, not your state. Lose the device and it is gone.",
+    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+  },
+  "meetGuardianProtectsTitle": {
+    "message": "A Guardian can protect you",
+    "englishSource": "A Guardian can protect you"
+  },
+  "meetGuardianProtectsBody": {
+    "message": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds.",
+    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
+  },
+  "meetGuardianFastestOf": {
+    "message": "Fastest of $operators$ operators",
+    "englishSource": "Fastest of $operators$ operators",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianOnlyOperator": {
+    "message": "The operator on this network",
+    "englishSource": "The operator on this network"
+  },
+  "meetGuardianLatencyMs": {
+    "message": "$ms$ ms",
+    "englishSource": "$ms$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianCannotMoveFunds": {
+    "message": "Cannot move your funds on its own",
+    "englishSource": "Cannot move your funds on its own"
+  },
+  "meetGuardianCannotSeeState": {
+    "message": "Cannot see your balances or private state",
+    "englishSource": "Cannot see your balances or private state"
+  },
+  "meetGuardianCanSwitch": {
+    "message": "Switch any time with your seed phrase",
+    "englishSource": "Switch any time with your seed phrase"
+  },
+  "meetGuardianChecking": {
+    "message": "Checking which operator answers fastest…",
+    "englishSource": "Checking which operator answers fastest…"
+  },
+  "meetGuardianNoneReachable": {
+    "message": "No Guardian operator is reachable right now. Check your connection, or choose one to try again.",
+    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+  },
+  "meetGuardianFullyPrivateInstead": {
+    "message": "I'd rather make a fully private account instead",
+    "englishSource": "I'd rather make a fully private account instead"
+  },
+  "chooseDifferentGuardian": {
+    "message": "Choose a different Guardian",
+    "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioGeneric": {
+    "message": "One of $operators$ independent Guardian operators on Miden.",
+    "englishSource": "One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioOpenZeppelin": {
+    "message": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioGateway": {
+    "message": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioLambdaClass": {
+    "message": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioKoda": {
+    "message": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
   "learnMoreAboutGuardian": {
     "message": "Learn more about the Guardian",
     "englishSource": "Learn more about the Guardian"

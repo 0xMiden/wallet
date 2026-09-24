@@ -2127,6 +2127,133 @@
     "message": "Wählen Sie eine der folgenden Optionen aus",
     "englishSource": "Select an option below"
   },
+  "setUpYourAccount": {
+    "message": "Richten Sie Ihr Konto ein",
+    "englishSource": "Set up your account"
+  },
+  "setUpYourAccountDescription": {
+    "message": "Ihr Konto bei Miden ist privat. Sehen Sie sich jeden Punkt einmal an, um zu verstehen, wie es geschützt ist.",
+    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
+  },
+  "meetGuardianLocalStateTitle": {
+    "message": "Ihr Konto befindet sich auf diesem Gerät",
+    "englishSource": "Your account lives on this device"
+  },
+  "meetGuardianLocalStateBody": {
+    "message": "Der Status des privaten Kontos verbleibt auf Ihrem Gerät. Das Netzwerk sieht stets nur eine Verpflichtungserklärung.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
+  },
+  "meetGuardianSeedPhraseTitle": {
+    "message": "Ein „seed phrase“ reicht nicht aus",
+    "englishSource": "A seed phrase isn't enough"
+  },
+  "meetGuardianSeedPhraseBody": {
+    "message": "Ihr Seed stellt Ihre Schlüssel wieder her, nicht Ihren Kontostand. Verlieren Sie das Gerät, sind diese unwiederbringlich verloren.",
+    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+  },
+  "meetGuardianProtectsTitle": {
+    "message": "Ein „Guardian“ kann Sie schützen",
+    "englishSource": "A Guardian can protect you"
+  },
+  "meetGuardianProtectsBody": {
+    "message": "Ein „Guardian“ speichert den Status Ihres Kontos und hilft Ihnen, diesen wiederherzustellen. Stellen Sie sich das wie einen Server vor, der ein Backup für Sie erstellt, aber niemals Zugriff auf Ihr Guthaben hat.",
+    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
+  },
+  "meetGuardianFastestOf": {
+    "message": "Schnellster Anbieter von „$operators$“-Diensten",
+    "englishSource": "Fastest of $operators$ operators",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianOnlyOperator": {
+    "message": "Der Betreiber dieses Netzwerks",
+    "englishSource": "The operator on this network"
+  },
+  "meetGuardianLatencyMs": {
+    "message": "$ms$ ms",
+    "englishSource": "$ms$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianCannotMoveFunds": {
+    "message": "Kann Ihre Gelder nicht eigenständig bewegen",
+    "englishSource": "Cannot move your funds on its own"
+  },
+  "meetGuardianCannotSeeState": {
+    "message": "Ihre Guthaben oder privaten Daten sind nicht einsehbar",
+    "englishSource": "Cannot see your balances or private state"
+  },
+  "meetGuardianCanSwitch": {
+    "message": "Wechseln Sie jederzeit mit Ihrem „seed phrase“",
+    "englishSource": "Switch any time with your seed phrase"
+  },
+  "meetGuardianChecking": {
+    "message": "Mal sehen, welcher Betreiber am schnellsten antwortet…",
+    "englishSource": "Checking which operator answers fastest…"
+  },
+  "meetGuardianNoneReachable": {
+    "message": "Derzeit ist kein Betreiber von Guardian erreichbar. Überprüfen Sie Ihre Verbindung oder wählen Sie einen anderen Betreiber aus, um es erneut zu versuchen.",
+    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+  },
+  "meetGuardianFullyPrivateInstead": {
+    "message": "Ich würde lieber ein vollständig privates Konto einrichten",
+    "englishSource": "I'd rather make a fully private account instead"
+  },
+  "chooseDifferentGuardian": {
+    "message": "Wählen Sie eine andere „Guardian“",
+    "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioGeneric": {
+    "message": "Einer der unabhängigen „Guardian“-Betreiber von „$operators$“ auf Miden.",
+    "englishSource": "One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioOpenZeppelin": {
+    "message": "OpenZeppelin ist das Sicherheitsunternehmen hinter den Standard-Vertragsbibliotheken von Ethereum. Einer von $operators$ unabhängigen „Guardian“-Betreibern auf Miden.",
+    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioGateway": {
+    "message": "Gateway.fm betreibt eine „blockchain“-Infrastruktur für Netzwerke und Rollups in ganz Europa. Einer von $operators$ unabhängigen „Guardian“-Betreibern auf Miden.",
+    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioLambdaClass": {
+    "message": "LambdaClass ist ein Ingenieurbüro, das Zero-Knowledge-Prover und „blockchain“-Clients entwickelt. Einer v$operators$r unabhängiger „Guardian“-Betreiber auf Miden.",
+    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioKoda": {
+    "message": "Korea Digital Asset (Koda) ist ein regulierter Verwahrer digitaler Vermögenswerte in Südkorea. Einer v$operators$r unabhängiger „Guardian“-Betreiber auf Miden.",
+    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
   "learnMoreAboutGuardian": {
     "message": "Erfahren Sie mehr über das „Guardian“",
     "englishSource": "Learn more about the Guardian"

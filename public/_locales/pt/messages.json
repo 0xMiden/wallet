@@ -2127,6 +2127,133 @@
     "message": "Selecione uma das opções abaixo",
     "englishSource": "Select an option below"
   },
+  "setUpYourAccount": {
+    "message": "Configure sua conta",
+    "englishSource": "Set up your account"
+  },
+  "setUpYourAccountDescription": {
+    "message": "Sua conta é privada no Miden. Verifique cada ponto uma vez para entender como ela é protegida.",
+    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
+  },
+  "meetGuardianLocalStateTitle": {
+    "message": "Sua conta está neste dispositivo",
+    "englishSource": "Your account lives on this device"
+  },
+  "meetGuardianLocalStateBody": {
+    "message": "O estado da conta privada permanece no seu dispositivo. A rede apenas vê um compromisso.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
+  },
+  "meetGuardianSeedPhraseTitle": {
+    "message": "Um “seed phrase” não é suficiente",
+    "englishSource": "A seed phrase isn't enough"
+  },
+  "meetGuardianSeedPhraseBody": {
+    "message": "Sua semente restaura suas chaves, não seu estado. Se você perder o dispositivo, tudo se perde.",
+    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+  },
+  "meetGuardianProtectsTitle": {
+    "message": "Um “Guardian” pode proteger você",
+    "englishSource": "A Guardian can protect you"
+  },
+  "meetGuardianProtectsBody": {
+    "message": "Um “Guardian” armazena o estado da sua conta e ajuda você a recuperá-la. Pense nisso como um servidor que faz backup dos seus dados, mas que nunca tem acesso aos seus fundos.",
+    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
+  },
+  "meetGuardianFastestOf": {
+    "message": "A mais rápida entre as operadoras de “$operators$”",
+    "englishSource": "Fastest of $operators$ operators",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianOnlyOperator": {
+    "message": "O operador desta rede",
+    "englishSource": "The operator on this network"
+  },
+  "meetGuardianLatencyMs": {
+    "message": "$ms$ ms",
+    "englishSource": "$ms$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianCannotMoveFunds": {
+    "message": "Não é possível transferir seus fundos por conta própria",
+    "englishSource": "Cannot move your funds on its own"
+  },
+  "meetGuardianCannotSeeState": {
+    "message": "Não é possível visualizar seus saldos ou estado privado",
+    "englishSource": "Cannot see your balances or private state"
+  },
+  "meetGuardianCanSwitch": {
+    "message": "Mude a qualquer momento com seu seed phrase",
+    "englishSource": "Switch any time with your seed phrase"
+  },
+  "meetGuardianChecking": {
+    "message": "Verificando qual operador responde mais rápido…",
+    "englishSource": "Checking which operator answers fastest…"
+  },
+  "meetGuardianNoneReachable": {
+    "message": "Nenhum operador do Guardian está disponível no momento. Verifique sua conexão ou escolha outro para tentar novamente.",
+    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+  },
+  "meetGuardianFullyPrivateInstead": {
+    "message": "Prefiro criar uma conta totalmente privada",
+    "englishSource": "I'd rather make a fully private account instead"
+  },
+  "chooseDifferentGuardian": {
+    "message": "Escolha um Guardian diferente",
+    "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioGeneric": {
+    "message": "Um dos operadores independentes de Guardian, o “$operators$”, no Miden.",
+    "englishSource": "One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioOpenZeppelin": {
+    "message": "A OpenZeppelin é a empresa de segurança responsável pelas bibliotecas de contratos padrão do Ethereum. Um dos operadores independentes $operators$ Guardian no Miden.",
+    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioGateway": {
+    "message": "A Gateway.fm opera uma infraestruturblockchaine para redes e rollups em toda a Europa. É uma das operadoras independentes Guardian d$operators$s na Miden.",
+    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioLambdaClass": {
+    "message": "A LambdaClass é uma empresa de engenharia que desenvolve provadores de conhecimento zero e clientes blockchain. É uma das operadoras independentes Guardian d$operators$, na rede Miden.",
+    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioKoda": {
+    "message": "A Korea Digital Asset (Koda) é uma custódia de ativos digitais regulamentada na Coreia do Sul. Uma das operadoras independentes d$operators$, Guardian, na Miden.",
+    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
   "learnMoreAboutGuardian": {
     "message": "Saiba mais sobre a Guardian",
     "englishSource": "Learn more about the Guardian"

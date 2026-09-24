@@ -2127,6 +2127,133 @@
     "message": "아래에서 옵션을 선택하세요",
     "englishSource": "Select an option below"
   },
+  "setUpYourAccount": {
+    "message": "계정 설정하기",
+    "englishSource": "Set up your account"
+  },
+  "setUpYourAccountDescription": {
+    "message": "Miden에서 귀하의 계정은 비공개로 관리됩니다. 각 항목을 한 번씩 확인하여 계정이 어떻게 보호되는지 파악해 보십시오.",
+    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
+  },
+  "meetGuardianLocalStateTitle": {
+    "message": "귀하의 계정은 이 기기에 저장되어 있습니다",
+    "englishSource": "Your account lives on this device"
+  },
+  "meetGuardianLocalStateBody": {
+    "message": "개인 계정 상태는 사용자의 기기에만 저장됩니다. 네트워크는 오직 약속된 내역만 확인합니다.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a commitment."
+  },
+  "meetGuardianSeedPhraseTitle": {
+    "message": "seed phrase만으로는 충분하지 않습니다",
+    "englishSource": "A seed phrase isn't enough"
+  },
+  "meetGuardianSeedPhraseBody": {
+    "message": "시드(seed)는 상태를 복원하는 것이 아니라 키를 복원합니다. 기기를 분실하면 키도 영원히 사라집니다.",
+    "englishSource": "Your seed restores your keys, not your state. Lose the device and it is gone."
+  },
+  "meetGuardianProtectsTitle": {
+    "message": "Guardian는 여러분을 보호해 줄 수 있습니다",
+    "englishSource": "A Guardian can protect you"
+  },
+  "meetGuardianProtectsBody": {
+    "message": "Guardian는 귀하의 계정 상태를 저장하고 복구를 돕습니다. 이를 귀하의 데이터를 백업해 주는 서버라고 생각하시면 되지만, 이 지갑은 귀하의 자금을 절대 건드릴 수 없습니다.",
+    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
+  },
+  "meetGuardianFastestOf": {
+    "message": "$operators$ 운영사 중 가장 빠른 곳",
+    "englishSource": "Fastest of $operators$ operators",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianOnlyOperator": {
+    "message": "이 네트워크의 운영자",
+    "englishSource": "The operator on this network"
+  },
+  "meetGuardianLatencyMs": {
+    "message": "$ms$ ms",
+    "englishSource": "$ms$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianCannotMoveFunds": {
+    "message": "자체적으로 자금을 이동할 수 없음",
+    "englishSource": "Cannot move your funds on its own"
+  },
+  "meetGuardianCannotSeeState": {
+    "message": "사용자의 잔액이나 비공개 상태를 확인할 수 없습니다",
+    "englishSource": "Cannot see your balances or private state"
+  },
+  "meetGuardianCanSwitch": {
+    "message": "seed phrase를 통해 언제든지 전환할 수 있습니다.",
+    "englishSource": "Switch any time with your seed phrase"
+  },
+  "meetGuardianChecking": {
+    "message": "어느 운영자가 가장 빨리 응답하는지 확인해 보겠습니다…",
+    "englishSource": "Checking which operator answers fastest…"
+  },
+  "meetGuardianNoneReachable": {
+    "message": "현재 Guardian 운영자에게 연결할 수 없습니다. 연결 상태를 확인하거나, 다른 운영자를 선택하여 다시 시도해 주십시오.",
+    "englishSource": "No Guardian operator is reachable right now. Check your connection, or choose one to try again."
+  },
+  "meetGuardianFullyPrivateInstead": {
+    "message": "차라리 완전히 비공개 계정을 만드는 편이 낫겠습니다",
+    "englishSource": "I'd rather make a fully private account instead"
+  },
+  "chooseDifferentGuardian": {
+    "message": "다른 Guardian를 선택하세요",
+    "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioGeneric": {
+    "message": "Miden에서 활동하는 $operators$의 독립적인 Guardian 운영자 중 한 명입니다.",
+    "englishSource": "One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioOpenZeppelin": {
+    "message": "OpenZeppelin은 이더리움 표준 계약 라이브러리를 개발한 보안 기업입니다. Miden에서 $operators$의 독립적인 Guardian 운영사 중 하나입니다.",
+    "englishSource": "OpenZeppelin is the security firm behind Ethereum's standard contract libraries. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioGateway": {
+    "message": "Gateway.fm은 유럽 전역의 네트워크 및 롤업을 위한 blockchain 인프라를 운영합니다. Miden에서 $operators$의 독립적인 Guardian 운영자 중 하나입니다.",
+    "englishSource": "Gateway.fm runs blockchain infrastructure for networks and rollups across Europe. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioLambdaClass": {
+    "message": "LambdaClass는 제로 지식 증명기(zero-knowledge provers)와 익명 결제(blockchain) 클라이언트를 개발하는 엔지니어링 기업입니다. Miden에서 활동하는 $operators$의 독립적인 Guardian 운영자 중 하나입니다.",
+    "englishSource": "LambdaClass is an engineering firm building zero-knowledge provers and blockchain clients. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "guardianBioKoda": {
+    "message": "Korea Digital Asset(Koda)는 한국에서 규제를 받는 디지털 자산 수탁 기관입니다. Miden에서 $operators$의 독립적인 Guardian 운영사 중 하나입니다.",
+    "englishSource": "Korea Digital Asset (Koda) is a regulated digital asset custodian in South Korea. One of $operators$ independent Guardian operators on Miden.",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
   "learnMoreAboutGuardian": {
     "message": "Guardian에 대해 자세히 알아보기",
     "englishSource": "Learn more about the Guardian"
