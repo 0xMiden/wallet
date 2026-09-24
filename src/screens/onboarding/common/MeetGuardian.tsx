@@ -11,14 +11,12 @@ import { Card } from 'components/ui/Card';
 import { CheckboxRow } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
-import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { TextAction } from 'components/ui/TextAction';
 import { usePreset } from 'lib/animation';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
-import { cn } from 'lib/ui/util';
 import { NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { OnboardingStepLayout } from './OnboardingStepLayout';
@@ -37,10 +35,11 @@ export const MEET_GUARDIAN_POINTS: readonly MeetGuardianPoint[] = [
   { id: 'guardian', titleKey: 'meetGuardianProtectsTitle', bodyKey: 'meetGuardianProtectsBody' }
 ];
 
-/** What every operator guarantees, in the order the card lists them. */
-const GUARDIAN_GUARANTEES: readonly { key: string; tone: 'cannot' | 'can' }[] = [
-  { key: 'meetGuardianCannotMoveFunds', tone: 'cannot' },
-  { key: 'meetGuardianCanSwitch', tone: 'can' }
+/** What every operator guarantees, in the order the card lists them; each drawn with a check. */
+const GUARDIAN_GUARANTEE_KEYS: readonly string[] = [
+  'meetGuardianCannotMoveFunds',
+  'meetGuardianBacksUpState',
+  'meetGuardianCanSwitch'
 ];
 
 /** One line about each built-in operator; an operator without one gets the generic line. */
@@ -94,8 +93,8 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
     return best?.option ?? null;
   }, [options, verdicts]);
 
-  // Locked in once, on the first full round: a re-probe refreshes the latency on the card and can
-  // take the operator offline, but never swaps it for another while the user reads about it.
+  // Locked in once, on the first full round: the ranking is that moment's measurement. A re-probe
+  // can take the operator offline, but never swaps it for another while the user reads about it.
   const [chosenId, setChosenId] = useState<string | null>(null);
   useEffect(() => {
     if (chosenId !== null || !allSettled || fastest === null) return;
@@ -172,32 +171,25 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                       {chosen.name}
                     </span>
                   </div>
-                  {chosenVerdict?.status === 'online' ? (
-                    <Pill size="xs" tone="positive" live data-testid="meet-guardian-latency">
-                      {t('meetGuardianLatencyMs', { ms: String(chosenVerdict.latencyMs) })}
-                    </Pill>
-                  ) : (
-                    <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
-                  )}
+                  {/* A word, not the number: the ranking is one moment's measurement, and a figure
+                      that refreshes every round reads as a live meter it is not. */}
+                  <StatusBadge
+                    status={chosenOnline ? 'online' : 'offline'}
+                    live
+                    data-testid={chosenOnline ? 'meet-guardian-online' : 'meet-guardian-offline'}
+                  />
                 </div>
 
                 <ul className="flex flex-col gap-2">
-                  {GUARDIAN_GUARANTEES.map(guarantee => (
-                    <li key={guarantee.key} className="flex items-start gap-2">
+                  {GUARDIAN_GUARANTEE_KEYS.map(key => (
+                    <li key={key} className="flex items-start gap-2">
                       <span
                         aria-hidden="true"
-                        className={cn(
-                          'flex size-4.5 shrink-0 items-center justify-center',
-                          guarantee.tone === 'can' ? 'text-positive-ink' : 'text-accent-tint-ink'
-                        )}
+                        className="flex size-4.5 shrink-0 items-center justify-center text-positive-ink"
                       >
-                        <Icon
-                          name={guarantee.tone === 'can' ? IconName.Checkmark : IconName.Close}
-                          size="xs"
-                          fill="currentColor"
-                        />
+                        <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
                       </span>
-                      <span className="text-caption text-ink">{t(guarantee.key)}</span>
+                      <span className="text-caption text-ink">{t(key)}</span>
                     </li>
                   ))}
                 </ul>
