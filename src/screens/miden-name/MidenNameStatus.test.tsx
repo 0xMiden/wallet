@@ -8,6 +8,8 @@ import {
   ITransactionStatus,
   MidenNameFailure,
   MidenNamePhase,
+  MidenNamePublishPhase,
+  PublishNameRecordTransaction,
   RegisterNameTransaction
 } from 'lib/miden/db/types';
 
@@ -74,6 +76,20 @@ jest.mock('lib/miden/activity', () => ({
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }));
 
+let mockPublishRows: ITransaction[] = [];
+jest.mock('lib/miden/name/registrations', () => ({
+  ...jest.requireActual('lib/miden/name/registrations'),
+  useMidenNamePublishes: () => mockPublishRows
+}));
+let mockRecord = 'none';
+jest.mock('lib/miden/name/useMidenNameRecord', () => ({
+  useMidenNameRecord: () => mockRecord
+}));
+const mockPublishRegistryRecord = jest.fn();
+jest.mock('lib/miden/name/nfa', () => ({
+  publishRegistryRecord: (...args: unknown[]) => mockPublishRegistryRecord(...args)
+}));
+
 interface RowOptions {
   phase: MidenNamePhase;
   status?: ITransactionStatus;
@@ -124,6 +140,25 @@ function claimRow(id: string, status: ITransactionStatus): ITransaction {
   return row;
 }
 
+function publishRow(phase: MidenNamePublishPhase): ITransaction {
+  const row: ITransaction = new PublishNameRecordTransaction({
+    accountId: 'mtst1account',
+    label: 'alice',
+    network: 'testnet',
+    registryAccountId: 'mtst1registry',
+    nfaFaucetId: 'mtst1registry',
+    requestBytes: new Uint8Array([1]),
+    registryNoteId: '0xregistry',
+    reclaimHeight: 1300,
+    builtAtBlock: 1000,
+    action: 3n
+  });
+  row.id = 'pub-1';
+  row.extraInputs = { ...row.extraInputs, phase };
+  row.status = ITransactionStatus.Completed;
+  return row;
+}
+
 const stepState = (id: string) =>
   screen.getByTestId(`miden-name-step-${id}`).querySelector('[data-state]')?.getAttribute('data-state');
 
@@ -132,6 +167,9 @@ describe('MidenNameStatus', () => {
     jest.clearAllMocks();
     mockRows.clear();
     mockLoaded = true;
+    mockPublishRows = [];
+    mockRecord = 'none';
+    mockPublishRegistryRecord.mockResolvedValue('pub-1');
     mockInitiateConsume.mockResolvedValue('claim-2');
     mockTagConsume.mockResolvedValue(undefined);
   });
@@ -154,7 +192,7 @@ describe('MidenNameStatus', () => {
     expect(screen.queryByTestId('miden-name-status-page')).not.toBeInTheDocument();
   });
 
-  it('shows the name, the price and account, and four steps with the last one coming soon', () => {
+  it('shows the name, the price and account, and four steps with the last one waiting', () => {
     mockRows.set('reg-1', registerRow({ phase: 'submitted' }));
     render(<MidenNameStatus txId="reg-1" />);
     expect(screen.getByTestId('miden-name-status-hero')).toHaveTextContent('alice.miden');
@@ -164,8 +202,9 @@ describe('MidenNameStatus', () => {
     expect(stepState('request-sent')).toBe('complete');
     expect(stepState('issued')).toBe('active');
     expect(stepState('adding')).toBe('pending');
-    expect(stepState('publishing')).toBe('disabled');
-    expect(screen.getByTestId('miden-name-step-publishing')).toHaveTextContent('midenNameComingSoon');
+    expect(stepState('publishing')).toBe('pending');
+    expect(screen.queryByTestId('miden-name-publish')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('miden-name-publish-explainer')).not.toBeInTheDocument();
     expect(screen.getByTestId('hero-icon')).toHaveTextContent('processing');
     expect(screen.getByTestId('miden-name-status-done')).toHaveTextContent('hide');
   });
@@ -191,6 +230,65 @@ describe('MidenNameStatus', () => {
     expect(stepState('adding')).toBe('complete');
     expect(screen.getByTestId('hero-icon')).toHaveTextContent('success');
     expect(screen.queryByTestId('miden-name-failure')).not.toBeInTheDocument();
+  });
+
+  it('owned and not published: explains what publishing does and offers Publish', async () => {
+    mockRows.set('reg-1', registerRow({ phase: 'owned', claimTxId: 'claim-1' }));
+    mockRows.set('claim-1', claimRow('claim-1', ITransactionStatus.Completed));
+    render(<MidenNameStatus txId="reg-1" />);
+    expect(stepState('publishing')).toBe('pending');
+    expect(screen.getByTestId('miden-name-publish-explainer')).toHaveTextContent(
+      'midenNamePublishExplainer_alice.miden'
+    );
+    expect(screen.getByTestId('miden-name-status-done')).toHaveTextContent('midenNameDone');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('miden-name-publish'));
+    });
+    expect(mockPublishRegistryRecord).toHaveBeenCalledWith('mtst1account', 'alice');
+    expect(mockRequestSWProcessing).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/pub-1');
+  });
+
+  it('owned, record not read yet: no Publish button', () => {
+    mockRecord = 'checking';
+    mockRows.set('reg-1', registerRow({ phase: 'owned' }));
+    render(<MidenNameStatus txId="reg-1" />);
+    expect(stepState('publishing')).toBe('pending');
+    expect(screen.queryByTestId('miden-name-publish')).not.toBeInTheDocument();
+  });
+
+  it('shows the publish in flight as the active fourth step', () => {
+    mockPublishRows = [publishRow('recorded')];
+    mockRecord = 'here';
+    mockRows.set('reg-1', registerRow({ phase: 'owned' }));
+    render(<MidenNameStatus txId="reg-1" />);
+    expect(stepState('publishing')).toBe('active');
+    expect(screen.getByTestId('miden-name-publish-explainer')).toBeInTheDocument();
+    expect(screen.queryByTestId('miden-name-publish')).not.toBeInTheDocument();
+  });
+
+  it('shows a live record as the complete fourth step, with no explainer', () => {
+    mockPublishRows = [publishRow('done')];
+    mockRecord = 'here';
+    mockRows.set('reg-1', registerRow({ phase: 'owned' }));
+    render(<MidenNameStatus txId="reg-1" />);
+    expect(stepState('publishing')).toBe('complete');
+    expect(screen.queryByTestId('miden-name-publish-explainer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('miden-name-publish')).not.toBeInTheDocument();
+  });
+
+  it('shows a failed publish and offers Publish again; a build error is shown', async () => {
+    mockPublishRows = [publishRow('failed')];
+    mockRows.set('reg-1', registerRow({ phase: 'owned' }));
+    mockPublishRegistryRecord.mockRejectedValue(new Error('not held'));
+    render(<MidenNameStatus txId="reg-1" />);
+    expect(stepState('publishing')).toBe('failed');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('miden-name-publish'));
+    });
+    expect(screen.getByTestId('miden-name-publish-error')).toHaveTextContent('not held');
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('Retry claim queues a manual consume, tags it as the claim and starts processing', async () => {

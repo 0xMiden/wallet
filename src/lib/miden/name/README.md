@@ -182,10 +182,16 @@ Non-Guardian accounts and native platforms still need live validation. These che
   (the Publish tap fails with `MidenNameNotHeldError`), never a wrong note.
 
 Still open: the clear actions (`REGISTRY_CLEARING_SUPPORTED`), an automatic publish after
-`owned` (with consent shown once on the claim screen), the fourth step of the status page
-(it stays `disabled`; publish rows are not linked to their register row), and the on-chain
-check of the domain-side key of `domain_to_account` (the resolver tries the commitment key
-first, then the raw domain word).
+`owned` (with consent shown once on the claim screen), and the on-chain check of the
+domain-side key of `domain_to_account` (the resolver tries the commitment key first, then
+the raw domain word). The fourth step of the status page (`screens/miden-name/steps.ts`,
+`publishStepState`) is derived from the newest publish row OF THE SAME LABEL (publish rows
+are not linked to their register row by id) plus the on-chain record (`useMidenNameRecord`):
+`active` while a publish is in flight, `complete` when the record points to the account
+(also with no local row: published from an other device), `failed` for a failed publish with
+no record, else `pending` with a Publish button and an explainer that says a publish reveals
+the owner. The Publish button waits for the first record read (`record !== 'checking'`), so
+a tap cannot publish twice.
 
 ### 2. Exact ownership
 
