@@ -11,18 +11,25 @@
 
 ### Changes
 
+- [CHANGE][all] Lists and cards follow one rule about where they sit: a page that is a list (Settings and its sub-pages, the Address Book, Explore's app lists) draws its rows flush on the page margin with full-width dividers under a titled, iconed header; a group inside a page or a sheet keeps the grey card; and a card that has to stand on its own — Activity rows, pending transfers, Earn's cards and Home's prompt card — is outlined instead of filled.
+- [CHANGE][mobile] The pinned action on the send and swap pages glides to its new place when the keyboard opens or closes, instead of jumping: in one move on iOS, and in two smooth steps on Android, where the system resizes the page first.
+- [FIX][all] The pinned action on a flow page stays clear of the bottom nav bar for as long as the bar is showing, so it can always be tapped. On the send amount step the bar could come to rest on top of Confirm and swallow every tap on it.
+- [CHANGE][all] Activity, Explore and Settings share one header: the page title over the same thick divider, taking the same height as Home's action bar, with the filter row tight underneath. Filters are outlined pills, and the selected one is the bottom navigation bar's raised tab in light orange, its dark orange label fading in as the tab arrives. The search button is a round button like the rest of the app, and opening search no longer pushes the page down. Content on all three pages starts about 40px higher.
 - [CHANGE][mobile] Home's top action bar sits on its own light band that continues up through the status bar.
 - [CHANGE][all] The selected bottom-nav icon is drawn in the brand orange.
 - [CHANGE][all] Settings groups sit flush on the page under their section headers, with full-width dividers.
 - [CHANGE][all] Activity rows and pending transfers are outlined cards on the page instead of filled ones.
 - [CHANGE][all] Activity and Explore filters are pills, a light orange selection with a dark orange label beside outlined ones, under a thick inset rule that Settings' header now shares.
-- [CHANGE][all] Activity and Explore filters are pills, a solid orange selection beside outlined ones, under a thick inset rule.
 - [CHANGE][all] Earn shows a dashed "No active positions" card, outlined vault rows, and a See all action.
+- [CHANGE][all] Every Activity row is the same height: its title and its subtitle each keep to one line, so a long name or a Guardian row's two provider names are trimmed instead of making that row taller than the ones around it.
+- [CHANGE][all] Every segmented control - the Activity and Explore filters, the Token Detail timeframe, the settings choices and the swap expiry unit - draws its selection as the light orange raised pill with a dark orange label beside outlined options; the filters sit under a thick inset rule.
 - [CHANGE][all] Pushed pages open with a round back button, a larger title and an inset rule under it.
 - [CHANGE][all] Token detail: muted section titles, a larger price over an area chart, a bare copy control on the contract row and a dashed empty activity card.
 - [CHANGE][all] Settings sub-pages draw their groups as outlined cards and the rotate-key button as border-only.
 - [CHANGE][all] The swap page sits tighter, its You Pay and You Receive titles match Send's, its Review button waits on the quote with a wave of dots and lines up with Send's Confirm, and the page carries the swap colour throughout.
 - [CHANGE][all] The swap page sits tighter, with its You Pay and You Receive labels and status line on the shared type scale.
+- [CHANGE][all] The send and swap token sheets list tokens the way Home's Assets section does: taller rows on the sheet itself instead of a grey card, each showing the balance you hold of that token under its name and its value on the right where a price is known. The swap sheet lists every tradable token, including ones you hold none of, and still marks the token chosen for that side with the round check.
+- [CHANGE][all] Explore's categories are the same tabs as Activity's filters, and Receive's test-funds warning moves out from between the address and the actions to a quiet line under them.
 - [CHANGE][all] Action buttons are 48px instead of 52px, so a pinned action takes less of the page.
 - [CHANGE][all] Each home tab's colour now runs through its whole flow, buttons included: the send flow's Confirm and Send are blue, the swap flow's Review and Swap purple (with the direction glyph, the chosen token and the auto-consume switch to match), and earn's are slate, right through to the processing page and the receipt. Onboarding, settings and other app-wide screens keep the brand orange. On the swap review the amounts sit clear of the details card, the Rate and Max network fee explanations move behind a tappable (i), and Expires takes a number plus Seconds, Minutes, Hours or Days, held between 30 seconds and 7 days.
 - [CHANGE][all] The swap page sits tighter, its You Pay and You Receive titles match Send's, its Review button waits on the quote with a wave of dots and lines up with Send's Confirm, and the page carries the swap colour throughout.

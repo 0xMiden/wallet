@@ -26,13 +26,20 @@ jest.mock('components/DeadletteredNotesNotice', () => ({
 }));
 
 // `components/ui` is a barrel that pulls in many heavy sibling components
-// (BalanceCard, AccountsDrawer, …); mock it down to just the two pieces
-// AllHistory consumes, preserving the props under test (title/actions and
-// value/onChange/placeholder).
+// (BalanceCard, AccountsDrawer, …); mock it down to the action button and the REAL shared
+// `TabRootHeader`, which is the thing under test: that the page takes its title row and its
+// filter row from one component rather than assembling a row of its own.
 jest.mock('components/ui', () => ({
   TabHeaderAction: ({ label, active, onClick }: { label: string; active?: boolean; onClick: () => void }) => (
     <button type="button" aria-label={label} aria-pressed={active} onClick={onClick} />
   ),
+  TabRootHeader:
+    jest.requireActual<typeof import('components/ui/TabRootHeader')>('components/ui/TabRootHeader').TabRootHeader
+}));
+
+// The title row has its own suite; stubbed here so this one is about what the band puts under it,
+// while keeping the props the page passes through (title/actions and value/onChange/placeholder).
+jest.mock('components/ui/TabHeader', () => ({
   TabHeader: ({
     title,
     actions,
@@ -183,12 +190,17 @@ describe('AllHistory', () => {
   it('renders the filters as the shared segmented control: a labelled radiogroup, "all" selected', () => {
     render(<AllHistory />);
 
-    expect(screen.getByRole('radiogroup', { name: 'activityFilters' })).toHaveClass('overflow-x-auto');
+    const row = screen.getByRole('radiogroup', { name: 'activityFilters' });
+    expect(row).toHaveClass('overflow-x-auto');
+    // The header owns the row's padding: 16px page margin, 4px above and below the 40px items,
+    // with the 8px that separates it from the rule carried by the rule.
+    expect(row).toHaveClass('px-4', 'py-1');
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
     expect(getFilterButton('sent')).toHaveAttribute('aria-checked', 'false');
-    // Pills: the selection is a tinted accent pill with a tint-ink label; the rest are outlined on the page.
-    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-tint', 'rounded-full');
-    expect(getFilterButton('all')).toHaveClass('text-accent-tint-ink');
+    // The selection rides the bottom nav's raised bubble in the accent tint, with an
+    // `accent-tint-ink` label; the rest are outlined pills on the page.
+    expect(bubbleIn(getFilterButton('all'))).toHaveClass('bg-accent-tint', 'shadow-raised');
+    expect(getFilterButton('all')).toHaveClass('border', 'border-transparent', 'text-accent-tint-ink');
     expect(bubbleIn(getFilterButton('sent'))).toBeNull();
     expect(getFilterButton('sent')).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
   });

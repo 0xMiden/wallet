@@ -7,9 +7,10 @@ import { colorTransitionClass } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
-/** `bare`: a 24px glyph alone in a 44px hit area, `ink` - tab-root actions.
+/** `bare`: a 24px glyph alone in a 44px hit area, `ink` - the last few rows that have not moved.
  *  `circle`: a 32px (or 36px) circle on `fill`, `muted` small glyph - sheets and overlays.
- *  `filled`: a 44px circle on `fill` with an `ink` 24px glyph - a pushed page's back button. */
+ *  `filled`: a 44px circle on `fill` with an `ink` 24px glyph - a pushed page's back button and a
+ *  tab root's header actions. `active` fills it with `accent` and turns the glyph white. */
 export type IconButtonAppearance = 'bare' | 'circle' | 'filled';
 
 const iconButtonVariants = cva(
@@ -40,8 +41,15 @@ const iconButtonVariants = cva(
     compoundVariants: [
       { appearance: 'circle', circleSize: '32', class: 'h-8 w-8' },
       { appearance: 'circle', circleSize: '36', class: 'h-9 w-9' },
-      // `bare` only: the accent-colored selected state (e.g. TabHeader's active search action).
-      { appearance: 'bare', active: true, class: 'text-accent-primary' }
+      // `bare`: the accent-colored selected state, for the rows still on the bare glyph.
+      { appearance: 'bare', active: true, class: 'text-accent-primary' },
+      // `filled`: a held toggle fills the circle instead (a tab root's open search). White on
+      // `accent` is 3.0:1, which rule 6 allows for a glyph.
+      {
+        appearance: 'filled',
+        active: true,
+        class: 'bg-accent-primary text-pure-white hover:bg-accent-primary'
+      }
     ],
     defaultVariants: { appearance: 'bare', circleSize: '32', active: false }
   }
@@ -57,7 +65,7 @@ export interface IconButtonProps extends Omit<
   appearance?: IconButtonAppearance;
   /** `circle` only. 32px by default; 36px where the surrounding row needs a larger target. */
   circleSize?: '32' | '36';
-  /** `bare` only: renders the accent-colored selected state and `aria-pressed`, for a toggle
+  /** `bare` or `filled`: renders the selected state and `aria-pressed`, for a toggle
    *  action (e.g. TabHeader's search icon). Omit for a plain action button — no toggle
    *  semantics, no `aria-pressed`. */
   active?: boolean;

@@ -150,6 +150,23 @@ describe('DappLauncher', () => {
     expect(hapticLight).toHaveBeenCalledTimes(4);
   });
 
+  it('draws a list section on the Settings list components: a plain group of ListRows', async () => {
+    await renderLauncher();
+    const section = screen.getByTestId('explore-section-helper-tools');
+
+    const row = within(section).getAllByTestId('dapp-grid-card')[0]!;
+    // `plain`: no surface of its own, rows flush on the page margin, hairlines full width.
+    const group = row.parentElement!;
+    expect(group).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(group).not.toHaveClass('bg-fill');
+    // Still a ListRow, with the app's url for the E2E driver and Open as its trailing pill.
+    expect(row).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
+    expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('Faucet');
+    expect(within(row).getByText('exploreOpen')).toBeInTheDocument();
+    // The Open pill is the affordance, so the row carries no chevron beside it.
+    expect(row.querySelector('[data-slot="chevron"]')).toBeNull();
+  });
+
   it('filters the sections by category chip, with a selection haptic only when the choice changes', async () => {
     await renderLauncher();
 

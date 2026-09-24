@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { FlowFooter } from 'components/flow/FlowFooter';
 import { TokenLogo } from 'components/TokenLogo';
 import { Avatar } from 'components/ui/Avatar';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -262,7 +263,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true" data-flow-footer="">
+      <FlowFooter className={footerClassName}>
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
@@ -275,7 +276,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           data-testid="send-amount-confirm"
           className="w-full max-w-none"
         />
-      </div>
+      </FlowFooter>
     </div>
   );
 };

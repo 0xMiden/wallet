@@ -49,8 +49,30 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `page` | #FFFFFF | #191919 | The page, headers, sheets. |
 | `fill` | #F3F0EC | #262422 | Every contained element: list groups, detail cards, search, pills, inputs, secondary buttons, the sheet ✕. |
 | `fill-pressed` | #E9E5E0 | #33302D | A pressed or selected element on `fill`; the sheet handle. |
-| `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; a header once content scrolls under it. |
+| `hairline` | #3F3F3F at 10% | #FFFFFF at 9% | Dividers inside groups and detail cards; the outline on a segmented control's items; under Home's action bar; a pushed page's header once content scrolls under it. A tab root uses the 4px `fill` rule instead. |
 | `scrim` | #000 at 55% | same | The dim behind a sheet or an overlay. One value in both themes, and never blurred: the job is to dim the page, not to frost it. |
+
+#### The three list surfaces
+
+A group of rows or a card takes one of three surfaces, chosen by where it sits, not by what it
+holds. `ListGroup` and `Card` both declare it as `surface`. This replaces the earlier "every
+contained element is `fill`, borders never outline a card" rule: `fill` is now one of three, and
+the `outline` a card used to be forbidden is the right answer for a card that has to hold its own
+edge on the page.
+
+| Surface | Shape | Where | Replaces |
+| --- | --- | --- | --- |
+| `plain` | No surface. Rows sit on the page's own 16px margin, hairlines run the full width, each group introduced by a `SectionHeader size="lg"` with the group's glyph. | A page whose body IS the list: Settings root and every settings sub-page (General, Language, Networks, Keys, Advanced, Developer, Authorized DApps), the Address Book, Explore's app lists. | full-page lists drawn as one `fill` or `outline` card |
+| `fill` (default) | 16px radius on `fill`, hairlines inset past the leading visual. | A group embedded in a page or a sheet that has to read as one block: the Receive actions, detail and review cards, a sheet's choices, the add-contact sheet, a small group beside other content. | ad-hoc `rounded-2xl bg-fill` stacks |
+| `outline` | 16px radius, `bg-page` with a `hairline` border. | A card that has to separate itself where it sits: Activity's rows, pending transfers, Earn's cards, the home prompt card. | the same cards drawn as lone `fill` blocks on `page` |
+
+A `plain` group has no surface to anchor it, so its `SectionHeader` is load-bearing: the label is
+what says where the group starts. The one exception is a page whose whole body is a single list
+(Networks, Language, Keys) — there the page header is the label. Watch the four details that make
+`plain` work: rows flush to the page margin (the group sets `px-0` on its children), hairlines full
+width, the section label on the same margin rather than the 4px list inset (`SubPageSection` does
+both from its `icon` prop), and enough clearance under the last row that it does not touch a pinned
+CTA.
 
 ### Text
 
@@ -63,7 +85,7 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `accent` | #E77537 | #E77537 | Primary CTA fill, selected state, focus ring. White on it is 3.0:1: labels on it are 19px bold or larger. Never text: #E77537 is 2.64:1 on `fill` and 3.0:1 on white. |
+| `accent` | #E77537 | #E77537 | Primary CTA fill, a selected icon, focus ring, a held icon button. White on it is 3.0:1: that clears rule 6 at 19px bold (the CTA) and for a glyph (a `filled` `IconButton`'s active state), and nowhere else, so a 14px selected label sits on `accent-tint` instead. The colour is the same in both themes, so every ratio holds in both. Never text: #E77537 is 2.64:1 on `fill` and 3.0:1 on white. |
 | `accent-tint` | #FDEEE5 | #3A2418 | Selected pill fill. |
 | `accent-tint-ink` | #A84A18 | #F2A57A | Text on `accent-tint` (5.1:1), and every text action: Copy, Edit, See all, a header's text action. |
 | `positive` / `positive-ink` | #90BA89 / #3D7A34 | #90BA89 / #90BA89 | Fill / text for success. |
@@ -215,6 +237,7 @@ side by side sit 10px apart (`gap-2.5`), each `flex-1`.
 
 | Element | Height |
 | --- | --- |
+| Tab root band | 56px title row + the 4px rule = 60px (Home's action bar), then 8px, then 48px of filter row |
 | Page header | 60px row (taller for a two-line title), then the 4px rule |
 | CTA (`Button` lg) | 48px (label stays 19px bold: white on `accent` is 3.0:1, which only clears at 19px bold) |
 | Compact button (`Button` sm) | 36px |
@@ -244,10 +267,10 @@ segmented control's thumb and a raised bubble.
 
 Raised is only for interactive toggles and bubbles. Cards, list groups and detail cards stay flat.
 
-Cards and row cards are `fill` with no border, or `outline` (a hairline edge on `page`) where a card
-stands on its own on the page (Activity rows, pending transfers, Earn's cards). A list group can be
-outlined too, or `plain`: rows flush on the page margin with full-width hairlines, for a page that is
-itself a list. Inside a surface, hairlines only divide rows.
+Flat does not mean one fill: separation comes from whichever of the three list surfaces above the
+group sits on. A `hairline` border is the `outline` surface, not elevation, and it is how a card
+holds its edge on `page` (Activity's rows, pending transfers, Earn's cards, the home prompt card).
+Hairlines inside a group still only divide its rows. Nothing gets a shadow to separate it.
 
 ### Screen sizes
 
@@ -261,22 +284,22 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Element | Canonical (`components/ui`) | Anatomy | Replaces |
 | --- | --- | --- | --- |
 | Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 48px pill. `primary`: fill from `ACCENT_CLASSES[accent].cta` (`brand` by default), its `accent-{flow}-on` `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `ghost`: transparent on `page`, a `hairline` border, `ink` label, `fill` on hover, for a quiet action where a filled `secondary` is too heavy (Keys: Rotate device key). `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen, except TokenDetail's Send/Receive pair; two side by side are 10px apart. | `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
-| Icon button | `IconButton` | `bare`: a 24px `ink` glyph in a 44px hit area (tab-root actions). `circle`: a 32px (or 36px) circle on `fill`, `muted` glyph (sheets and overlays). `filled`: a 44px circle on `fill` with an `ink` 24px glyph (a pushed page's back button). | `NavButton`, `CircleButton`, ad-hoc round buttons |
+| Icon button | `IconButton` | Round wherever the wallet puts one. `filled`: a 44px circle on `fill` with a 24px `ink` glyph, the full 44px target (a pushed page's back button, a tab root's header actions). `circle`: a 32px (or 36px where the row needs a bigger target) circle on `fill`, `muted` glyph (sheets and overlays). A held toggle (a tab root's open search) fills the `filled` circle with `accent` and turns the glyph white: 3:1, which rule 6 allows for a glyph. Flat, never the raised bubble: that now means "selected". `bare` (a 24px `ink` glyph in a 44px hit area, no circle) is legacy, kept only for rows not yet moved. | `NavButton`, `CircleButton`, ad-hoc round buttons, the bare header glyph |
 | Pushed page header | `PageHeader` (`components/PageHeader`) | Row of at least 60px, growing for a two-line title: the `filled` `IconButton` back button (`ArrowLeft`), the `text-title-tab` title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last; then `HeaderRule`, the 4px rounded rule on `fill`, under the row. No horizontal padding of its own: `className` lands on the block holding the row and the rule, so a caller in an unpadded parent passes `className="px-4"` and both inset together. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), grey title bars |
-| Tab root header | `TabHeader` | `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px. Ends in the 4px `HeaderRule` on `fill`, inset to the page margin. | hand-built tab titles |
+| Tab root header | `TabRootHeader` | The whole top of a tab root - Activity, Explore, Settings - in one component, never hand-assembled. A 56px title row (`TabHeader`: `text-title-tab` title left, 44px `filled` `IconButton` actions right, the search field swapping into the title's place), then the 4px `HeaderRule` on `fill` inset to the page margin: 60px, what Home's `SegmentedActionBar` occupies, so the content line does not move between tabs. **The row carries no vertical padding** - in a column flex parent that padding made the 44px action the row's automatic minimum and pushed it to 64px - and both sides of the search swap are the same 36px box, so opening search moves nothing. 8px under the rule, then the optional filter row: `SegmentedControl` at `md`, 4px above and below, at the 16px page margin. The rule, that 8px and the row's padding are the header's; a page's body adds no top padding of its own, and passes only `items`, `value`, `onChange` and a label. | `TabHeader` used directly, per-page dividers, gaps and filter rows |
 | Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
 | Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, and every segment resizes on the same spring as the bubble. | — |
-| Segmented control | `SegmentedControl` | One choice out of a few, drawn like the tab bars (see below). `items` (`id`, label, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, settings choices); `appearance` `bubble` (default) or `pills`: an `accent-tint` selection with an `accent-tint-ink` label, the others outlined by a hairline on `page` (Activity's filters, Explore's categories). Always a radio group: arrow keys move focus and the selection together, and a settings choice takes `fill`. | the Activity filter pills, the token detail timeframe row, `TabPicker` (theme, developer endpoint preset and network id) |
+| Segmented control | `SegmentedControl` | One choice out of a few, drawn one way: no track, every item an outlined pill (`hairline` on `page`, `ink` label, 8px apart), and the selected one under the bottom nav's own raised bubble (`raisedBubbleClassName` and `useTabBarMotion` verbatim, reaching 1px past the item so it covers the outline, which goes transparent rather than away so the width never shifts), filled with `accent-tint` and lifted above the other pills while it slides. Its label is `accent-tint-ink`, the tested 4.5:1 pair (white on `accent` is 3:1, short of rule 6 at 14px), crossfading in over `durations.normal` (the settle time of the spring the bubble rides) and switching instantly under reduced motion. `items` (`id`, label, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, a few settings choices). Always a radio group: arrow keys move focus and the selection together, and a settings choice takes `fill`. On a tab root it is reached only through `TabRootHeader`. | the Activity and Explore filter pills, the token detail timeframe row, `TabPicker` (theme, developer endpoint preset and network id) |
 | Search | `SearchInput` | 44px pill on `fill`, no border, 16px glyph, left-aligned 16px text, clear button; a 1.5px `accent` ring while focused. | `SearchField`, `SearchAssetField` |
 | Text field | `TextField` | `text-label` `muted` label above; `text-body` text; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
 | Toggle | `Toggle` on Radix Switch (*planned*) | 51 × 31, `accent` when on. Until then `components/Toggle` (on the `press` preset) is the one to use. | `ToggleSwitch`, `SettingToggle` |
 | Checkbox | `CheckboxRow`, `CheckboxIndicator` (`components/ui/Checkbox`) | `CheckboxIndicator`: the one selection mark, 22px round, a `page` disc with a hairline edge (the same mark `ChoiceCardGroup` draws); checked, an `accent` fill springs in (`snappy`) and the check draws in (`pathLength`, tab-bar spring), reversed on uncheck, instant under reduced motion. `CheckboxRow`: a `ListGroup` row that is itself the `role="checkbox"` button (box leading, `text-row-title` title, `text-caption` `muted` description, inset hairline); tap, Space or Enter toggles it with `hapticSelection` and the press dip. A native `button` today; Radix Checkbox can replace the internals later. | `components/Checkbox` (deleted); still to migrate: atoms `Checkbox`, `FormCheckbox` |
-| List group | `ListGroup` | `surface` `fill` (default): 16px radius on `fill`, hairlines between rows inset past the leading visual. `outline`: the same shape as a hairline edge on `page`. `plain`: no surface, rows flush on the page margin with full-width hairlines (Settings' groups, under their coloured headers). | ad-hoc stacks |
+| List group | `ListGroup` | One of the three list surfaces (see Surfaces), set by `surface`: `plain` for a page that is a list, `fill` (default, 16px radius) for a group embedded in a page or a sheet, `outline` for a card that has to separate itself. Hairlines between rows, inset past the leading visual on `fill` and `outline`, full width on `plain`. | ad-hoc stacks, full-page lists drawn as one card |
 | List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, `text-row-title` over a `text-caption` `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
-| Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink` (Settings' coloured group headers). `tone="muted"` quiets an `lg` or `xl` title to the label colour. A caller removes the 4px inset with `className="px-0"` to sit flush with a `plain` group (Settings). | ~40 hand-styled headings, uppercase labels |
+| Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink`. `lg` + `icon` on the page margin is the standard header of a `plain` group, on Settings root, its sub-pages, the Address Book and Explore alike; `SubPageSection` takes the glyph as `icon` and applies the rest. `tone="muted"` quiets an `lg` or `xl` title to the label colour. A caller removes the 4px inset with `className="px-0"` to sit flush with a `plain` group. | ~40 hand-styled headings, uppercase labels |
 | Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; `text-body-sm` `muted` label, `text-value` `ink` value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
-| Card | `Card`, `CardButton` | `fill`, 16px radius, no border, on `page`; or `surface="outline"`, a hairline edge on `page`, for a card that stands on its own on the page; cards in a list are separated by space (12px). `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). What sits inside a card (an icon tile, a neutral icon circle) takes the surface the card is not, since grey on grey disappears: on a `fill` card it sits on `page`; on an `outline` card (itself on `page`) it sits on `fill`, as Earn's vault rows do. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
+| Card | `Card`, `CardButton` | 16px radius on `fill` (default) or `outline` (see Surfaces); cards in a list are separated by space (12px). The home prompt card (`PromptCard`, in `PromptCarousel`) is `outline`, like an Activity row - it is one actionable card on the page, not a grey block; its carousel dots are `hairline` so they read beside that edge. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). What sits inside a card (an icon tile, a neutral icon circle) takes the surface the card is not, since grey on grey disappears: on a `fill` card it sits on `page`; on an `outline` card (itself on `page`) it sits on `fill`, as Earn's vault rows do. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
 | Choice cards | `ChoiceCardGroup` | One choice out of a set of cards (a guardian operator, a recovery method, an import type): each a `Card`-look `fill` surface, 16px radius, no border, min 72px, all rows as tall as the tallest; leading 48px logo tile or icon, `text-row-title` title, `text-caption` `muted` subtitle or meta line, a badge top right (`Pill` "Current", `StatusBadge`), a trailing `CheckboxIndicator` as its radio mark. Chosen: a 2px inset `accent` ring and the mark filled `accent` with the drawn check (not raised: cards stay flat). Behaves like `SegmentedControl`: `radiogroup`/`radio`, roving tab stop, arrows and Home/End move focus and choice together, `hapticSelection` once per real change, tab-bar press dip and check pop, still under reduced motion. | the guardian picker's bordered tiles and grey header strip, outlined option buttons |
 | Text action | `TextAction` | `text-action` `accent-tint-ink`, no underline, 44px hit area, tap haptic: "Learn more", "Use a custom URL". | underlined `primary-500` links, hand-styled text buttons |
 | Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the `text-hero-value` or `text-hero-name`, then a `text-body-sm` `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
@@ -334,13 +357,13 @@ The bottom nav, the top action bar and every `SegmentedControl` move alike, thro
 `lib/animation/tab-bar.ts` (`useTabBarMotion`, `useTabIconPop`):
 
 - **Anatomy.** No strip behind the items: they sit on the page. The selected item carries the
-  raised bubble (`bg-raised` + `shadow-raised`, full radius), one bubble per control, drawn by the
-  shared `Highlight` (`components/ui/animate/highlight`) under the item's content; a `pills`
-  control draws an `accent-tint` pill there instead. A selected item is `ink` (the bottom nav's
-  icon is `accent-primary`, a pill's label `accent-tint-ink`), the others `muted`; a 2px focus ring
-  in `accent-primary` at 30%. A segmented control
-  keeps 4px above and below its items so a scrolling row clips neither the bubble's shadow nor the
-  ring.
+  raised bubble (`shadow-raised`, full radius), one bubble per control, drawn by the shared
+  `Highlight` (`components/ui/animate/highlight`) under the item's content: `bg-raised` in the tab
+  bars, `accent-tint` in a segmented control, whose items are all outlined pills. A selected item
+  is `ink` (the bottom nav's icon is `accent-primary`, a segmented label `accent-tint-ink`), the
+  others `muted` (`ink` on a segmented control's outlined pills); a 2px focus ring in
+  `accent-primary` at 30%. A segmented control keeps 4px above and below its items so a scrolling
+  row clips neither the bubble's shadow nor the ring.
 - **Switch.** The bubble slides to the new item on `springs.tabSwitch`, one visible overshoot; its
   `layoutId` is scoped to the control, so two mounted controls never trade bubbles.
 - **Pop.** The newly selected item's icon (a segmented control's whole content) rises to
@@ -370,7 +393,12 @@ step is `aria-hidden` and takes no pointer. Only mobile animates; reduced motion
 Home, Explore and the top action bar define the look and change only for consistency: card radii
 10px → 16px (prompt card) and 22px → full (action segments); Activity's 40px square icons → round;
 `opacity-50` text → `muted`; the hex literals #A8BBA3, #FFFFFF4D, #E5E5EA, #8E8E93, #ECEAE7 and
-`bg-red-500` → tokens; the TabHeader grey bar removed; Home and Explore bottom clearance unified.
+`bg-red-500` → tokens; Home and Explore bottom clearance unified. The 4px rule under a tab root's
+title stays — it is Ahmad's, and it is the divider every tab root uses.
+
+Home's action bar is also the ruler. Its 60px — 4px, 48px segments, 8px — is what every other tab
+root's title row plus its rule has to come to, so the content line never moves as tabs change.
+`TabRootHeader` is where that number lives, and the 56px title row is what pays for the rule.
 
 ## Migration order
 

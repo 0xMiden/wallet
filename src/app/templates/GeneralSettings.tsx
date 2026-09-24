@@ -2,6 +2,8 @@ import React, { FC, useCallback, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
@@ -95,8 +97,8 @@ const GeneralSettings: FC = () => {
 
   return (
     <SubPageLayout data-testid="general-settings">
-      <SubPageSection>
-        <ListGroup surface="outline">
+      <SubPageSection title={t('preferences')} icon={<GroupPreferencesIcon />}>
+        <ListGroup surface="plain">
           <ListRow
             title={t('theme')}
             trailing={
@@ -126,8 +128,12 @@ const GeneralSettings: FC = () => {
         </ListGroup>
       </SubPageSection>
 
-      <SubPageSection footnote={t('delegateProofSettingsDescription')}>
-        <ListGroup surface="outline">
+      <SubPageSection
+        title={t('advanced')}
+        icon={<Icon name={IconName.Hammer} fill="currentColor" />}
+        footnote={t('delegateProofSettingsDescription')}
+      >
+        <ListGroup surface="plain">
           <SettingToggle
             checked={delegateEnabled}
             onChange={handleDelegateChange}
@@ -138,8 +144,12 @@ const GeneralSettings: FC = () => {
         </ListGroup>
       </SubPageSection>
 
-      <SubPageSection footnote={t('autoConsumeSettingsDescription')}>
-        <ListGroup surface="outline">
+      <SubPageSection
+        title={t('notesSection')}
+        icon={<Icon name={IconName.PendingNotes} fill="currentColor" />}
+        footnote={t('autoConsumeSettingsDescription')}
+      >
+        <ListGroup surface="plain">
           <SettingToggle
             checked={consumeEnabled}
             onChange={handleAutoConsumeChange}
@@ -151,7 +161,7 @@ const GeneralSettings: FC = () => {
       </SubPageSection>
 
       <SubPageSection footnote={t('helpImproveWalletDescription')}>
-        <ListGroup surface="outline">
+        <ListGroup surface="plain">
           <SettingToggle
             checked={telemetryEnabled}
             onChange={handleTelemetryChange}

@@ -8,10 +8,16 @@ export interface ListGroupProps {
   /** `ListRow`s, as direct children: each draws the hairline above itself. */
   children: React.ReactNode;
   /**
-   * `fill` (default): the group is a 16px-radius `fill` surface. `outline`: the same shape as a
-   * hairline edge on `page`. `plain`: no surface — the rows sit
-   * flush on the page margin, divided by full-width hairlines (Settings' groups, under their
-   * coloured headers).
+   * Which of the three list surfaces this group takes (design-system.md, "Surfaces"):
+   *
+   * - `plain` — no surface. The rows sit flush on the page margin, divided by full-width
+   *   hairlines, under a `SectionHeader` in the Settings-root treatment. For a page whose body IS
+   *   the list: Settings and its sub-pages, the Address Book, Explore's app lists.
+   * - `fill` (default) — a 16px-radius `fill` surface, for a group embedded in a page or a sheet
+   *   that has to read as one block: the Receive actions, a sheet's choices, a small group beside
+   *   other content.
+   * - `outline` — a hairline edge on `page`, for a card that has to separate itself where it
+   *   sits: Activity's rows, pending transfers, Earn's cards, the home prompt card.
    */
   surface?: 'fill' | 'plain' | 'outline';
   /** Layout only (margins, width). */
@@ -21,8 +27,10 @@ export interface ListGroupProps {
 }
 
 /**
- * A group of list rows on the shared `fill`, with 16px corners. The rows draw the hairlines between
- * them, inset past their own leading visual, so the group itself is only the surface.
+ * A group of list rows. The rows draw the hairlines between them, inset past their own leading
+ * visual, so the group itself is only the surface — which `surface` picks: `plain` for a page that
+ * is a list, `fill` for a group embedded in a page or sheet, `outline` for a card that has to
+ * separate itself.
  */
 export const ListGroup: React.FC<ListGroupProps> = ({
   children,

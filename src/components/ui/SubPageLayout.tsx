@@ -97,6 +97,13 @@ export interface SubPageSectionProps {
   title?: React.ReactNode;
   /** The label's heading level: `h2` under the page title, `h3` under a hero's own `h2`. */
   titleAs?: 'h2' | 'h3';
+  /**
+   * The section's glyph, which also declares that its group is `plain`: the label then takes the
+   * Settings root's treatment (a 20px `ink` title behind the glyph's 32px circle) and lines up
+   * with rows that sit on the page margin, so every full-page list reads as one family. Leave it
+   * off for a section whose content carries its own surface — that label stays the 13px one.
+   */
+  icon?: React.ReactNode;
   /** A `muted` paragraph under the label, above the section's content (`text-body`). */
   description?: React.ReactNode;
   /** `muted` secondary copy under the content, such as what a toggle above it does (`text-body-sm`). */
@@ -109,7 +116,7 @@ export interface SubPageSectionProps {
 
 /** Copy on a sub-page, inset 4px like the section label above it: a description is a paragraph
  * (`text-body`), a footnote under a control is secondary (`text-body-sm`), both `muted`. */
-const noteClass = 'px-1 text-muted';
+const noteClass = 'text-muted';
 
 /**
  * One section of a sub-page: an optional label, optional explanatory copy, then its content (a
@@ -118,16 +125,26 @@ const noteClass = 'px-1 text-muted';
 export const SubPageSection: React.FC<SubPageSectionProps> = ({
   title,
   titleAs,
+  icon,
   description,
   footnote,
   children,
   className,
   'data-testid': dataTestId
-}) => (
-  <section data-testid={dataTestId} className={cn('flex flex-col', className)}>
-    {title && <SectionHeader as={titleAs}>{title}</SectionHeader>}
-    {description && <div className={cn(noteClass, 'text-body pb-3')}>{description}</div>}
-    {children}
-    {footnote && <div className={cn(noteClass, 'text-body-sm pt-2')}>{footnote}</div>}
-  </section>
-);
+}) => {
+  // A section with a glyph introduces a `plain` group, whose rows sit on the page margin: its
+  // label and copy line up with them instead of taking the 4px list inset.
+  const inset = icon ? 'px-0' : 'px-1';
+  return (
+    <section data-testid={dataTestId} className={cn('flex flex-col', className)}>
+      {title && (
+        <SectionHeader as={titleAs} size={icon ? 'lg' : undefined} icon={icon} className={inset}>
+          {title}
+        </SectionHeader>
+      )}
+      {description && <div className={cn(noteClass, inset, 'text-body pb-3')}>{description}</div>}
+      {children}
+      {footnote && <div className={cn(noteClass, inset, 'text-body-sm pt-2')}>{footnote}</div>}
+    </section>
+  );
+};

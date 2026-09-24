@@ -13,7 +13,7 @@ const NetworksSettings: FC = () => {
 
   return (
     <SubPageLayout data-testid="networks-settings">
-      <ListGroup surface="outline">
+      <ListGroup surface="plain">
         {NETWORKS.map(item => (
           <ListRow
             key={item.id}

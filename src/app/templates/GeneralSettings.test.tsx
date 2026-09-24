@@ -212,17 +212,21 @@ describe('GeneralSettings', () => {
     // A settings choice is a fill row: it never scrolls, so it can never scroll the page under it.
     expect(screen.getByRole('radiogroup', { name: 'theme' })).toHaveClass('w-full');
     expect(screen.getByRole('radiogroup', { name: 'theme' }).className).not.toMatch(/overflow-x-auto/);
-    expect(themeRow.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    // A `plain` group: no surface of its own, its rows flush on the page margin.
+    expect(themeRow.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(themeRow.parentElement).not.toHaveClass('bg-fill');
+    expect(themeRow.parentElement).not.toHaveClass('border');
     expect(themeRow.parentElement).toContainElement(
       screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
     );
-    // Every group on the page is outlined, the telemetry consent's included.
+    // Every group on the page is plain, the telemetry consent's included.
     for (const id of [
       GeneralSettingsSelectors.DelegateToggle,
       GeneralSettingsSelectors.AutoConsumeToggle,
       GeneralSettingsSelectors.TelemetryToggle
     ]) {
-      expect(screen.getByTestId(`${id}-row`).parentElement).toHaveClass('bg-page', 'border', 'border-hairline');
+      expect(screen.getByTestId(`${id}-row`).parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+      expect(screen.getByTestId(`${id}-row`).parentElement).not.toHaveClass('border');
     }
 
     // Descriptions are the muted 14px section footnote.

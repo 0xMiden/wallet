@@ -2,12 +2,13 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
-import { ReactComponent as CheckIcon } from 'app/icons/v2/checkmark.svg';
 import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
 import { ACCENT_CLASSES, type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { Link } from 'lib/woozie';
+
+import { SelectionCheck } from './SelectionCheck';
 
 interface ListRowBaseProps {
   title: React.ReactNode;
@@ -65,10 +66,11 @@ interface ListRowBaseProps {
   'aria-label'?: string;
   'data-testid'?: string;
   /**
-   * Identifies the value the row stands for, where the title and the test id cannot: two tokens
-   * can share a symbol, so a caller that has to address one exactly passes its id here.
+   * Extra `data-*` attributes on the row element, for a harness that addresses a row by its value
+   * rather than by a fixed testid — Explore's app rows all share one testid and carry the app's
+   * url here.
    */
-  'data-token-id'?: string;
+  dataAttributes?: Record<`data-${string}`, string>;
 }
 
 type Leading = 'none' | 'avatar' | 'icon';
@@ -143,7 +145,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
     className,
     'aria-label': ariaLabel,
     'data-testid': dataTestId,
-    'data-token-id': dataTokenId
+    dataAttributes
   },
   ref
 ) {
@@ -184,20 +186,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
       </span>
       {value !== undefined && <span className="shrink-0 text-body-sm text-muted">{value}</span>}
       {trailing !== undefined && <span className="flex shrink-0 items-center">{trailing}</span>}
-      {checked && (
-        <span
-          data-slot="check"
-          aria-hidden="true"
-          className={cn(
-            'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-accent-primary',
-            // A selected state is one of the things a flow's colour carries (design-system.md,
-            // "Action colours"), so an accented row's check is the flow's fill, not the brand's.
-            tone?.bg
-          )}
-        >
-          <CheckIcon className={cn('h-2 w-2.5', (tone ?? ACCENT_CLASSES.brand).onFill)} />
-        </span>
-      )}
+      {checked && <SelectionCheck accent={accent} />}
       {showChevron && (
         <ChevronRightIcon
           data-slot="chevron"
@@ -214,9 +203,9 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         to={to}
         testID={dataTestId}
         data-testid={dataTestId}
-        data-token-id={dataTokenId}
         aria-label={ariaLabel}
         className={classes}
+        {...dataAttributes}
       >
         {content}
       </Link>
@@ -232,8 +221,8 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         onClick={() => hapticLight()}
         aria-label={ariaLabel}
         data-testid={dataTestId}
-        data-token-id={dataTokenId}
         className={classes}
+        {...dataAttributes}
       >
         {content}
       </a>
@@ -242,13 +231,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
 
   if (htmlFor) {
     return (
-      <label
-        htmlFor={htmlFor}
-        aria-label={ariaLabel}
-        data-testid={dataTestId}
-        data-token-id={dataTokenId}
-        className={classes}
-      >
+      <label htmlFor={htmlFor} aria-label={ariaLabel} data-testid={dataTestId} className={classes} {...dataAttributes}>
         {content}
       </label>
     );
@@ -271,8 +254,8 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         aria-pressed={radio ? undefined : checked}
         aria-label={ariaLabel}
         data-testid={dataTestId}
-        data-token-id={dataTokenId}
         className={classes}
+        {...dataAttributes}
       >
         {content}
       </button>
@@ -280,7 +263,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
   }
 
   return (
-    <div aria-label={ariaLabel} data-testid={dataTestId} data-token-id={dataTokenId} className={classes}>
+    <div aria-label={ariaLabel} data-testid={dataTestId} className={classes} {...dataAttributes}>
       {content}
     </div>
   );

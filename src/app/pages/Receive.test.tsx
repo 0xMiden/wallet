@@ -297,22 +297,25 @@ describe('Receive - Address', () => {
     jest.useRealTimers();
   });
 
-  it('warns about test funds in a warning Notice before the share and bridge actions (#875)', async () => {
+  it('warns about test funds in a quiet caption under the share and bridge actions (#875)', async () => {
     const container = await renderReceive();
 
     const warning = container.querySelector('[data-testid="receive-test-funds-warning"]')!;
-    // The shared Notice: a tinted note on tokens, no dashed border, and the body alone (the
-    // network chip above already says which network).
+    // The shared Notice in its inline variant: the warning tone and its glyph, but no tinted block
+    // — between the address and the actions it was the loudest thing on the page.
     expect(warning).toHaveAttribute('role', 'note');
     expect(warning).toHaveAttribute('data-tone', 'warning');
-    expect(warning).toHaveClass('bg-status-pending/10', 'rounded-2xl');
-    expect(warning.className).not.toContain('border-dashed');
+    expect(warning).toHaveAttribute('data-variant', 'inline');
+    expect(warning.className).not.toMatch(/(^|\s)bg-|rounded-2xl|border-dashed/);
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('receiveTestFundsBody:testnet:');
-    expect(warning.querySelector('[data-slot="icon"]')).not.toBeNull();
+    expect(warning.querySelector('[data-slot="body"]')).toHaveClass('text-caption', 'text-muted');
+    expect(warning.querySelector('[data-slot="icon"]')).toHaveClass('text-pending-ink');
+    // Last on the page: code, address, actions, then the warning that qualifies them.
     const shareButton = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'share')!;
     const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
-    expect(warning.compareDocumentPosition(shareButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(warning.compareDocumentPosition(crossChain)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(warning.compareDocumentPosition(shareButton)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(warning.compareDocumentPosition(crossChain)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(container.querySelector('[data-testid="receive-actions"]')!.nextElementSibling).toBe(warning);
   });
 
   it('renders Share and Cross-chain as rows of one ListGroup, with one haptic per tap', async () => {

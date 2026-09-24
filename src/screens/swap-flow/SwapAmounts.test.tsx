@@ -1,15 +1,19 @@
 import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
+import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { SwapAmounts, SwapAmountsProps } from './SwapAmounts';
 
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
+
 // --- i18n: echo the key back so we can assert against raw translation keys.
 // The navbar is hidden while the keyboard is up; drive it per test.
-let mockNavbarHidden = false;
-jest.mock('lib/mobile/useNavbarHidden', () => ({ useNavbarHidden: () => mockNavbarHidden }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -377,30 +381,44 @@ describe('SwapAmounts', () => {
 });
 
 describe('SwapAmounts — CTA', () => {
-  it("sits on the same cushion as a send step, so both flows' buttons line up", () => {
+  // Not just the same padding: the same component, so the CTA gets the send steps' slide-on-reflow
+  // too. Building its own footer is why swap snapped twice on every keyboard close while send only
+  // hopped once.
+  it("pins its CTA with the same footer a send step uses, so both flows' buttons line up", () => {
     renderComponent();
-    const footer = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement;
-    // The send step's cushion class, not the old fixed pb-24 with a navbar-cushion tag.
-    expect(footer?.className).toContain('pb-[max(');
-    expect(footer?.getAttribute('data-navbar-cushion')).toBeNull();
+    const swapFooter = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement;
+
+    render(
+      <SendStepLayout tabRoot title="send" footer={<button>send cta</button>}>
+        <p>content</p>
+      </SendStepLayout>
+    );
+    const sendFooter = screen.getByText('send cta').parentElement;
+
+    expect(swapFooter).toHaveAttribute('data-flow-footer');
+    expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: swapFooter }));
+    expect(swapFooter?.className).toBe(sendFooter?.className);
+    // The keyboard-aware cushion, not the old fixed pb-24. It keeps the navbar-cushion tag: the
+    // docked bar draws over the page, so the CTA clears it for as long as it is up.
+    expect(swapFooter?.className).toContain('--keyboard-height');
+    expect(swapFooter?.getAttribute('data-navbar-cushion')).toBe('true');
   });
 
+  // The footer no longer reads the navbar flag itself: FlowFooter keeps the step cushion and tags
+  // the footer, and main.css collapses a tagged cushion to 16px while the navbar is hidden, in the
+  // same reflow as the keyboard inset.
   it('drops to a 16px cushion while the navbar is hidden (keyboard up), and keeps the step cushion otherwise', () => {
-    const footerOf = () => screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement!;
-    try {
-      mockNavbarHidden = true;
-      const { unmount } = renderComponent();
-      expect(footerOf()).toHaveClass('pb-4');
-      expect(footerOf().className).not.toContain('pb-[max(');
-      unmount();
+    renderComponent();
+    const footer = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement!;
+    expect(footer.className).toContain('pb-[max(');
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
 
-      mockNavbarHidden = false;
-      renderComponent();
-      expect(footerOf()).not.toHaveClass('pb-4');
-      expect(footerOf().className).toContain('pb-[max(');
-    } finally {
-      mockNavbarHidden = false;
-    }
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const collapse = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g), ([, selector = '', body = '']) => ({
+      selector: selector.trim(),
+      body: body.trim()
+    })).filter(rule => rule.selector === "body[data-hide-navbar] [data-navbar-cushion='true']");
+    expect(collapse.some(rule => /(^|;)\s*padding-bottom:\s*1rem\s*(;|$)/.test(rule.body))).toBe(true);
   });
 
   it('asks for an amount first, waits on the quote, then offers the review', () => {

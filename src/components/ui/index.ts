@@ -63,6 +63,7 @@ export { PromptCarousel } from './PromptCarousel';
 export type { PromptCarouselProps } from './PromptCarousel';
 
 export { AssetListItem } from './AssetListItem';
+export { SelectionCheck } from './SelectionCheck';
 export type { AssetListItemProps, AssetDeltaDirection } from './AssetListItem';
 
 export { SegmentedActionBar } from './SegmentedActionBar';
@@ -71,7 +72,7 @@ export type { SegmentedActionBarProps, SegmentedActionBarItem } from './Segmente
 export { SegmentedControl } from './SegmentedControl';
 // Only what something imports: the size and layout vocabularies have no importer, so they stay
 // internal until one exists.
-export type { SegmentedControlProps, SegmentedControlItem, SegmentedControlAppearance } from './SegmentedControl';
+export type { SegmentedControlProps, SegmentedControlItem } from './SegmentedControl';
 
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
@@ -79,6 +80,9 @@ export type { BottomNavProps, BottomNavItem } from './BottomNav';
 export { HeaderRule } from './HeaderRule';
 export { TabHeader, TabHeaderAction } from './TabHeader';
 export type { TabHeaderProps } from './TabHeader';
+
+export { TabRootHeader } from './TabRootHeader';
+export type { TabRootHeaderProps, TabRootFilter } from './TabRootHeader';
 
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';

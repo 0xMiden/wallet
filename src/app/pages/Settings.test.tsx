@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
@@ -363,7 +364,7 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 
-    // The root wears the same TabHeader as Activity and Explore — a plain
+    // The root wears the same TabRootHeader as Activity and Explore — a plain
     // heading, not the sub-page PageHeader.
     const heading = screen.getByRole('heading', { level: 1, name: 'settings' });
     expect(heading).toBeInTheDocument();
@@ -373,6 +374,23 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(header.nextElementSibling).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
     expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
+  });
+
+  // The Settings half of the tab-root parity check; Activity's and Explore's is
+  // `TabRootHeaderParity.test.tsx`, which compares against this same reference band.
+  it('draws the shared tab-root band, class for class, with no filter row of its own', () => {
+    const reference = render(<TabRootHeader title="settings" />);
+    const referenceHeader = reference.container.querySelector('header')!.className;
+    reference.unmount();
+
+    const { container } = render(<Settings tabSlug={null} />);
+
+    expect(container.querySelector('header')!.className).toBe(referenceHeader);
+    // The same 4px rule, and the same 8px under it, as Activity and Explore — from the shared
+    // header, not from the page.
+    expect(container.querySelector('header + div')).toHaveClass('mx-4', 'mb-2', 'h-1', 'rounded-full', 'bg-fill');
+    // Settings does not filter, so the band is the title row alone.
+    expect(screen.queryByRole('radiogroup')).toBeNull();
   });
 
   it('gives the root no back affordance, since it is a tab destination', () => {

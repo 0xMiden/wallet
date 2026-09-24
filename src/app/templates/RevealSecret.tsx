@@ -218,7 +218,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           name: t('privateKey'),
           // Which account's key this is: a plain row, like every other account row.
           accountBanner: (
-            <ListGroup surface="outline">
+            <ListGroup>
               <ListRow
                 icon={<Icon name={IconName.Wallet} fill="currentColor" size="sm" />}
                 title={account.name}

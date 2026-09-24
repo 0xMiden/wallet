@@ -596,7 +596,7 @@ describe('TokenDetail', () => {
       }
     });
 
-    it('renders the timeframes as the shared segmented control, the selected one on the raised bubble', () => {
+    it('renders the timeframes as the shared segmented control, the selected one on the accent-tint bubble', () => {
       renderPage();
 
       const option = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
@@ -609,7 +609,7 @@ describe('TokenDetail', () => {
       expect(option('1D')).toHaveAttribute('role', 'radio');
       expect(option('1D')).toHaveAttribute('aria-checked', 'true');
       expect(option('1W')).toHaveAttribute('aria-checked', 'false');
-      expect(bubbleIn('1D')).toHaveClass('bg-raised', 'shadow-raised');
+      expect(bubbleIn('1D')).toHaveClass('bg-accent-tint', 'shadow-raised');
       expect(bubbleIn('1W')).toBeNull();
 
       fireEvent.click(option('1W'));

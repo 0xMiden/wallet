@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
+
 import { KNOWN_SYMBOLS } from './constant';
 
 const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
@@ -83,6 +85,30 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
  */
 export function getTokenPrice(prices: TokenPrices, symbol: string): TokenPriceInfo {
   return prices[symbol] ?? DEFAULT_PRICE;
+}
+
+/**
+ * The feed's price for a symbol, or 0 when the feed does not list it. Never getTokenPrice's $1
+ * default: the send flow reads 0 as no price, so an unlisted token shows no fiat anywhere in it.
+ */
+export function listedPrice(prices: TokenPrices, symbol: string): number {
+  return prices[symbol]?.price ?? 0;
+}
+
+/**
+ * The fiat figure for a token picker's row, or none: only when the feed lists the symbol, the
+ * balance's scale is known and there is a balance to value. Never getTokenPrice's $1 default,
+ * which would turn every unlisted token into a dollar figure equal to its token count.
+ */
+export function listedFiat(
+  prices: TokenPrices,
+  symbol: string,
+  balance: number,
+  scaleIsKnown: boolean
+): string | undefined {
+  const price = listedPrice(prices, symbol);
+  if (!scaleIsKnown || !(price > 0) || !(balance > 0)) return undefined;
+  return `$${toAdaptiveFixed(balance * price)}`;
 }
 
 // --- Kline (candlestick) chart data ---

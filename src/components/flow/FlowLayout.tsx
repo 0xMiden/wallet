@@ -1,12 +1,10 @@
-import React, { useRef } from 'react';
+import React from 'react';
 
 import clsx from 'clsx';
 
 import { PageHeader } from 'components/PageHeader';
-import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 
-import { stepFooterCushionClass } from './footer-cushion';
-import { useSlideOnReflow } from './useSlideOnReflow';
+import { FlowFooter } from './FlowFooter';
 
 export interface FlowLayoutProps {
   /** Page title, e.g. "Choose recipient", "Review details", "Processing". */
@@ -22,6 +20,8 @@ export interface FlowLayoutProps {
   /**
    * The flow's first page is a tab root (Send's recipient step): its title is the tab's, drawn at
    * `text-title-tab` in the same 60px row as TabHeader's, not a pushed page's navigation bar.
+   * It says nothing about the CTA's cushion: every flow page clears the docked bar while the bar
+   * is up, because a pushed step inside TabLayout still has it drawn over the page (FlowFooter).
    */
   tabRoot?: boolean;
   children: React.ReactNode;
@@ -44,16 +44,8 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
   children,
   footer
 }) => {
-  // With the tab bar hidden (steps past the recipient, full-screen pages, or the keyboard up) the
-  // CTA sits at the bottom of the screen; with it showing, just above it.
-  const navbarHidden = useNavbarHidden();
-  // The keyboard and the tab bar move the CTA by snapping layout; slide it there instead.
-  const rootRef = useRef<HTMLDivElement>(null);
-  const footerRef = useRef<HTMLDivElement>(null);
-  useSlideOnReflow(footerRef, rootRef);
-
   return (
-    <div ref={rootRef} className="flex h-full min-h-0 flex-1 flex-col bg-app-bg px-6">
+    <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg px-6">
       {!tabRoot && (
         <PageHeader
           title={title}
@@ -78,9 +70,7 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
         {children}
       </div>
 
-      <div ref={footerRef} className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>
-        {footer}
-      </div>
+      <FlowFooter>{footer}</FlowFooter>
     </div>
   );
 };

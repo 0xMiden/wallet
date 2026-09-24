@@ -33,42 +33,33 @@ export interface SegmentedControlProps<T extends string = string> {
   onChange: (id: T) => void;
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
-  /**
-   * `bubble` (default): the tab bars' raised white bubble under the selection, `ink` on `muted`.
-   * `pills`: every item is a pill. The selection is an `accent-tint` pill with an `accent-tint-ink`
-   * label, the rest outlined by a hairline on `page` with an `ink` label (Activity's filters).
-   */
-  appearance?: SegmentedControlAppearance;
   'aria-label'?: string;
   /** Layout only (margins, padding, width); the look is the control's own. */
   className?: string;
   'data-testid'?: string;
 }
 
-export type SegmentedControlAppearance = 'bubble' | 'pills';
-
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
-// bubble's shadow and the focus ring, which a scrolling row would otherwise clip.
-
-const container = cva('flex items-center py-1', {
+// bubble's shadow and the focus ring, which a scrolling row would otherwise clip; 8px between the
+// items, because each one is outlined and two hairlines 4px apart read as one seam.
+const container = cva('flex items-center gap-2 py-1', {
   variants: {
-    appearance: {
-      bubble: 'gap-1',
-      pills: 'gap-2'
-    },
     layout: {
       scroll: 'overflow-x-auto no-scrollbar',
       fill: 'w-full'
     }
   },
-  defaultVariants: { appearance: 'bubble', layout: 'scroll' }
+  defaultVariants: { layout: 'scroll' }
 });
 
 const segment = cva(
   [
     // `group` drives the bubble's pressed shadow; no overflow clip, or it would cut the shadow off.
     'group flex items-center justify-center rounded-full text-pill whitespace-nowrap',
-    'transition-colors duration-200 motion-reduce:transition-none',
+    // The label crossfades to its selected colour as the bubble arrives rather than switching under
+    // it: 280ms is `durations.normal`, the settle time of the `tabSwitch` spring the bubble rides.
+    // `motion-reduce` drops it to an instant swap, as the bubble's own transition does.
+    'transition-colors duration-280 motion-reduce:transition-none',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
     'disabled:cursor-default disabled:opacity-50'
   ],
@@ -82,26 +73,19 @@ const segment = cva(
         scroll: 'shrink-0',
         fill: 'min-w-0 flex-1'
       },
+      // Every item is an outlined pill on the page; the selected one hands its outline over to
+      // the raised bubble that covers it, keeping the border transparent so the item's width,
+      // and so the row, never shifts as the selection moves. The selected label is
+      // `accent-tint-ink` on the `accent-tint` bubble, the tested 4.5:1 pairing: a 14px label
+      // needs text contrast, which white on the accent (3:1) does not meet.
       active: {
-        true: 'text-ink',
-        false: 'text-muted'
-      },
-      appearance: {
-        bubble: '',
-        pills: ''
+        true: 'border border-transparent text-accent-tint-ink',
+        false: 'border border-hairline bg-page text-ink'
       }
     },
-    compoundVariants: [
-      // A transparent 1px border on the selection keeps a pill's width the same in both states.
-      { appearance: 'pills', active: true, class: 'px-6 border border-transparent text-accent-tint-ink' },
-      { appearance: 'pills', active: false, class: 'px-6 border border-hairline bg-page text-ink' }
-    ],
-    defaultVariants: { size: 'md', layout: 'scroll', active: false, appearance: 'bubble' }
+    defaultVariants: { size: 'md', layout: 'scroll', active: false }
   }
 );
-
-// The pills look draws the selection as a tinted accent pill, not the raised bubble.
-const accentPillClassName = 'rounded-full bg-accent-tint';
 
 const content = cva('flex min-w-0 items-center', {
   variants: {
@@ -119,7 +103,6 @@ interface SegmentProps<T extends string> {
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
-  appearance: SegmentedControlAppearance;
   onSelect: (id: T) => void;
 }
 
@@ -128,7 +111,7 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, appearance, onSelect }: SegmentProps<T>) {
+function Segment<T extends string>({ item, active, focusable, size, layout, onSelect }: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active);
 
@@ -143,7 +126,7 @@ function Segment<T extends string>({ item, active, focusable, size, layout, appe
         data-testid={item['data-testid']}
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
-        className={segment({ size, layout, active, appearance })}
+        className={segment({ size, layout, active })}
       >
         <motion.span
           data-pop={pop.phase}
@@ -163,11 +146,12 @@ const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown']);
 const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
 
 /**
- * A single choice out of a few, drawn like the tab bars: no strip behind the items, the selected
- * one on a shape that slides between them on the tab-switch spring (the raised bubble by default,
- * a tinted pill in `pills`), its content popping as it lands, and a press that dips the item. One
- * selection haptic per real change. Under reduced motion the selection moves instantly, nothing
- * pops and a press does not scale.
+ * A single choice out of a few, drawn like the tab bars: no strip behind the items, each one an
+ * outlined pill on the page, and the selected one on the bottom nav's raised bubble
+ * (`raisedBubbleClassName` and `useTabBarMotion` verbatim, so the shadow, the pressed shadow and
+ * the spring it slides on are the bottom bar's, not a copy of them), filled with the accent tint.
+ * Its content pops as it lands and a press dips the item. One selection haptic per real change.
+ * Under reduced motion the bubble moves instantly, nothing pops and a press does not scale.
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
  * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
@@ -179,7 +163,6 @@ export function SegmentedControl<T extends string>({
   onChange,
   size = 'md',
   layout = 'scroll',
-  appearance = 'bubble',
   'aria-label': ariaLabel,
   className,
   'data-testid': dataTestId
@@ -263,21 +246,25 @@ export function SegmentedControl<T extends string>({
       // scrolls, so a row scrolled sideways does not throw the bubble off its item.
       layoutScroll={layout === 'scroll'}
       onKeyDown={handleKeyDown}
-      className={cn(container({ layout, appearance }), className)}
+      className={cn(container({ layout }), className)}
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
           control, so two mounted controls never trade bubbles. Controlled and click-free: `value`
-          decides where it sits. */}
+          decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
+          absolutely positioned against the item's PADDING box, so it has to reach 1px past it to
+          cover the item's border and match the outlined pills beside it edge for edge. The bottom
+          nav's bubble in every respect but its fill, the accent tint; shadow, pressed shadow and
+          spring are the shared ones. */}
       <Highlight
         controlledItems
         value={value}
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
-        // Unselected pills paint an opaque `page` fill, so the sliding pill is lifted above them;
+        // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
         // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
-        style={appearance === 'pills' ? { zIndex: 1 } : undefined}
-        className={cn('inset-0', appearance === 'pills' ? accentPillClassName : raisedBubbleClassName)}
+        style={{ zIndex: 1 }}
+        className={cn('-inset-px', raisedBubbleClassName, 'bg-accent-tint')}
       >
         {items.map((item, index) => (
           <Segment
@@ -287,7 +274,6 @@ export function SegmentedControl<T extends string>({
             focusable={index === focusIndex}
             size={size}
             layout={layout}
-            appearance={appearance}
             onSelect={select}
           />
         ))}

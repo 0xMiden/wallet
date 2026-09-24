@@ -17,7 +17,7 @@
  * every vaul duration to nothing, which covers these curves along with vaul's own.
  */
 
-import { springToLinearEasing } from './spring-easing';
+import { springToLinearEasing, supportsLinearEasing } from './spring-easing';
 import { springs } from './springs';
 
 /** Nominal sheet travel, near the 80vh cap `DrawerContent` sets on a phone. */
@@ -28,11 +28,13 @@ const FALLBACK = { durationMs: 500, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' };
 
 export interface SheetCurve {
   durationMs: number;
-  /** A CSS timing function: `linear(...)` tracing the spring. */
+  /** A CSS timing function: `linear(...)` tracing the spring, or the fallback cubic-bezier. */
   easing: string;
 }
 
 function curve(transition: Parameters<typeof springToLinearEasing>[0]): SheetCurve {
+  // An unparsed linear() is dropped from the declaration, which would leave the sheet no curve.
+  if (!supportsLinearEasing()) return FALLBACK;
   const solved = springToLinearEasing(transition, { distance: SHEET_TRAVEL_PX });
   return solved ? { durationMs: solved.duration, easing: solved.easing } : FALLBACK;
 }

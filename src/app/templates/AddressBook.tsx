@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { EmptyState } from 'components/ui/EmptyState';
@@ -69,9 +69,15 @@ const AddressBook: React.FC = () => {
           <>
             {(contacts.length > 0 || !query) && (
               <section>
-                <SectionHeader>{t('contacts')}</SectionHeader>
+                <SectionHeader
+                  size="lg"
+                  icon={<Icon name={IconName.ContactsBook} fill="currentColor" />}
+                  className="px-0"
+                >
+                  {t('contacts')}
+                </SectionHeader>
                 {contacts.length > 0 ? (
-                  <ListGroup surface="outline">
+                  <ListGroup surface="plain">
                     {contacts.map(contact => (
                       <ListRow
                         key={contact.address}
@@ -98,8 +104,10 @@ const AddressBook: React.FC = () => {
 
             {accounts.length > 0 && (
               <section>
-                <SectionHeader>{t('myAccounts')}</SectionHeader>
-                <ListGroup surface="outline">
+                <SectionHeader size="lg" icon={<Icon name={IconName.Wallet} fill="currentColor" />} className="px-0">
+                  {t('myAccounts')}
+                </SectionHeader>
+                <ListGroup surface="plain">
                   {accounts.map(account => (
                     <ListRow
                       key={account.address}
@@ -117,7 +125,7 @@ const AddressBook: React.FC = () => {
       </div>
 
       {/* Pinned to the bottom of the scrolling page, so it stays in reach under a long list. */}
-      <div className="sticky bottom-0 mt-auto bg-app-bg pt-2 pb-4">
+      <div className="sticky bottom-0 mt-auto bg-app-bg pt-3 pb-4">
         <Button
           title={t('newContact')}
           variant={ButtonVariant.Secondary}

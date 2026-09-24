@@ -23,7 +23,6 @@ import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -45,6 +44,7 @@ import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
+import { uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 
 /**
@@ -83,22 +83,15 @@ export const ReviewTransaction: React.FC = () => {
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
   const bridgeNetworkObj = getBridgeNetwork(network);
 
-  // Re-derive the UIToken from balances (same mapping as SendManager's
-  // preselect effect) — the URL only carries the token id.
+  // Re-derive the UIToken from balances with SendManager's builder; the URL
+  // only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
-    if (!match) return undefined;
-    return {
-      id: match.tokenId,
-      name: match.metadata.symbol,
-      decimals: match.metadata.decimals,
-      balance: match.balance,
-      fiatPrice: match.fiatPrice,
-      scaleIsKnown: hasKnownScale(match.metadata)
-    };
-  }, [balanceData, tokenId]);
+    return match && uiTokenFromBalance(match, tokenPrices);
+  }, [balanceData, tokenId, tokenPrices]);
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;

@@ -268,9 +268,9 @@ describe('SelectRecipient — mobile keyboard (regression)', () => {
   it('keeps the confirm footer at a fixed height that only the keyboard shrinks', () => {
     renderRecipient();
     const footer = screen.getByTestId('send-recipient-confirm').parentElement;
-    // No data-navbar-cushion: that CSS collapses the cushion whenever the tab bar
-    // hides, which would move the CTA between steps.
-    expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
+    // data-navbar-cushion: the CSS collapses the cushion when the tab bar hides, which is the
+    // only way the CTA is guaranteed to stay clear of a bar that draws over it.
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
     expect(footer?.className).toContain('var(--keyboard-height,0px)');
   });
 });

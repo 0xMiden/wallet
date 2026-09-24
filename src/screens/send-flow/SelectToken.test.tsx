@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
 
@@ -83,7 +85,9 @@ jest.mock('components/TokenLogo', () => ({
 // `lib/prices` reaches for the live price feed; the fiat column only needs a
 // deterministic price per symbol here.
 jest.mock('lib/prices', () => ({
-  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 0, percentageChange24h: 0 })
+  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 1, percentageChange24h: 0 }),
+  listedFiat: jest.requireActual('lib/prices/binance').listedFiat,
+  listedPrice: jest.requireActual('lib/prices/binance').listedPrice
 }));
 
 type Balance = {
@@ -111,6 +115,14 @@ const XYZ: Balance = {
   metadata: { symbol: 'XYZ', decimals: 6 },
   balance: 5,
   fiatPrice: 1
+};
+
+// A swap test token that stands for ETH, held under its registry faucet id.
+const IETH: Balance = {
+  tokenId: TOKEN_IETH.faucetId,
+  metadata: { symbol: 'IETH', decimals: 8 },
+  balance: 2,
+  fiatPrice: 0
 };
 
 const setBalances = (balances: Balance[]) => {
@@ -224,6 +236,7 @@ describe('SelectTokenDrawer', () => {
   });
 
   it('builds the UIToken, resets the search and closes the drawer on select', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
     setBalances([BTC, ETH]);
     const { onSelect, onOpenChange } = renderDrawer();
 
@@ -251,6 +264,16 @@ describe('SelectTokenDrawer', () => {
     expect(screen.getByTestId('send-token-ETH')).toBeInTheDocument();
   });
 
+  it('hands the amount step no price for a token the feed does not list, not the store $1 default', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
+    setBalances([XYZ]);
+    const { onSelect } = renderDrawer();
+
+    fireEvent.click(screen.getByTestId('send-token-XYZ'));
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 't-xyz', fiatPrice: 0 }));
+  });
+
   it('forwards the sheet onOpenChange handler to the drawer', () => {
     setBalances([BTC]);
     const { onOpenChange } = renderDrawer();
@@ -271,24 +294,47 @@ describe('SelectTokenDrawer', () => {
     expect(row).toBeInTheDocument();
   });
 
-  it('draws each row as a list row: 40px logo, name, balance and fiat value', () => {
+  it('draws each row like the home assets list: 36px logo, name, balance and fiat value', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
     setBalances([BTC]);
     renderDrawer();
 
     const row = screen.getByTestId('send-token-BTC');
-    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-size', 'lg');
+    // No explicit size: the home asset row's 36px default.
+    expect(within(row).getByTestId('token-logo')).not.toHaveAttribute('data-size');
     expect(within(row).getByText('Bitcoin')).toBeInTheDocument();
     expect(within(row).getByText('1.50 BTC')).toBeInTheDocument();
     expect(within(row).getByText('$3.00')).toBeInTheDocument();
   });
 
-  it('groups the rows on the shared fill with inset hairlines, not full-bleed rules', () => {
+  it('shows no fiat for a token the price feed does not list, rather than a $1-default figure', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
+    setBalances([ETH]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('values a swap token at the asset it stands for and hands the amount step that price', () => {
+    mockStoreState = { tokenPrices: { ETH: { price: 3 } } };
+    setBalances([IETH]);
+    const { onSelect } = renderDrawer();
+
+    const row = screen.getByTestId('send-token-IETH');
+    expect(within(row).getByText('$6.00')).toBeInTheDocument();
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TOKEN_IETH.faucetId, fiatPrice: 3 }));
+  });
+
+  it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
     setBalances([BTC, ETH]);
     renderDrawer();
 
-    const group = screen.getByTestId('send-token-BTC').parentElement!;
-    expect(group.className).toContain('bg-fill');
-    expect(group.className).toContain('rounded-2xl');
-    expect(screen.getByTestId('send-token-ETH').className).toContain('before:bg-hairline');
+    const list = screen.getByTestId('send-token-BTC').parentElement!;
+    expect(list.className).toContain('divide-y');
+    expect(list.className).toContain('divide-rule-default');
+    expect(list.className).not.toContain('bg-fill');
+    expect(list.className).not.toContain('rounded-2xl');
+    expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
   });
 });

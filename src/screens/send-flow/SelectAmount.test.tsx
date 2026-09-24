@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import fs from 'fs';
 import path from 'path';
 
+import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { PRIMARY_HEX } from 'utils/brand-colors';
@@ -33,6 +34,8 @@ jest.mock('lib/platform', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
+
+jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
@@ -565,5 +568,15 @@ describe('SelectAmount', () => {
       renderComponent({ token: baseToken({ balance: 0.00001234, fiatPrice: 0.2 }) });
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
     });
+  });
+
+  it('pins its CTA in a flow footer that slides and snaps its cushion, like every flow page', () => {
+    renderComponent();
+
+    const footer = screen.getByTestId('confirm-btn').parentElement!;
+    expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
+    expect(footer).toHaveAttribute('data-flow-footer');
+    expect(footer.className).not.toContain('transition-[padding-bottom]');
+    expect(useSlideOnReflow).toHaveBeenCalledWith(expect.objectContaining({ current: footer }));
   });
 });

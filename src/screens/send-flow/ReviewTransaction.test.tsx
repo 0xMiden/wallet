@@ -8,6 +8,7 @@ import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { deserializeError, serializeError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { goBack, navigate } from 'lib/woozie';
@@ -35,6 +36,7 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
 };
 
 const mockWalletStoreState = {
+  tokenPrices: { MDN: { price: 2 } } as Record<string, { price: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
   readSpendingLimit: jest.fn()
@@ -441,6 +443,35 @@ describe('ReviewTransaction — redirect guards', () => {
 // Rendering
 // ---------------------------------------------------------------------------
 describe('ReviewTransaction — rendering', () => {
+  it('draws no fiat line for a token the price feed does not list, not the store $1 default', async () => {
+    setValidRoute();
+    mockBalanceData = [{ tokenId: 'tok1', metadata: { symbol: 'UNLISTED', decimals: 8 }, balance: 100, fiatPrice: 1 }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    const hero = within(screen.getByTestId('review-amount'));
+    expect(hero.getByText('5 UNLISTED')).toBeInTheDocument();
+    expect(hero.queryByText('approxFiatValue')).not.toBeInTheDocument();
+  });
+
+  it('values a swap token at the asset it stands for', async () => {
+    mockSearch = `amount=5&to=0xrecipient&tokenId=${TOKEN_IETH.faucetId}`;
+    mockBalanceData = [
+      { tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
+    ];
+    mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
+    try {
+      render(<ReviewTransaction />);
+      await flush();
+
+      const hero = within(screen.getByTestId('review-amount'));
+      expect(hero.getByText('5 IETH')).toBeInTheDocument();
+      expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
+    } finally {
+      mockWalletStoreState.tokenPrices = { MDN: { price: 2 } };
+    }
+  });
+
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
     setValidRoute();
     render(<ReviewTransaction />);

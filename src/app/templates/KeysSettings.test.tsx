@@ -201,9 +201,12 @@ describe('KeysSettings — layout', () => {
 
     const reveal = screen.getByTestId('keys-reveal-private-key');
     const rotate = screen.getByTestId('keys-rotate-guardian');
-    // One outlined ListGroup holds both rows.
+    // One `plain` ListGroup holds both rows: the page IS the list, so it has no surface and its
+    // rows sit on the page margin.
     expect(reveal.parentElement).toBe(rotate.parentElement);
-    expect(reveal.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(reveal.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(reveal.parentElement).not.toHaveClass('bg-fill');
+    expect(reveal.parentElement).not.toHaveClass('border');
     // Rows are ListRows: the shared 16px title and a trailing chevron.
     expect(reveal.querySelector('[data-slot="title"]')).toHaveTextContent('revealPrivateKey');
     expect(rotate.querySelector('[data-slot="chevron"]')).not.toBeNull();

@@ -1,4 +1,22 @@
-import { sheetMotion, sheetMotionVars } from './sheet';
+type SheetModule = typeof import('./sheet');
+
+const originalCSS = window.CSS;
+/** sheet.ts solves its curves at import, so each engine loads its own copy. */
+const loadSheet = (supportsLinear: boolean): SheetModule => {
+  Object.defineProperty(window, 'CSS', {
+    value: { supports: () => supportsLinear },
+    configurable: true,
+    writable: true
+  });
+  let sheet!: SheetModule;
+  jest.isolateModules(() => {
+    sheet = require('./sheet');
+  });
+  Object.defineProperty(window, 'CSS', { value: originalCSS, configurable: true, writable: true });
+  return sheet;
+};
+
+const { sheetMotion, sheetMotionVars } = loadSheet(true);
 
 /** The `linear(a,b,c,...)` stops, as numbers. */
 const stops = (easing: string): number[] => {
@@ -41,5 +59,15 @@ describe('sheet motion', () => {
       '--sheet-close-duration': `${sheetMotion.close.durationMs}ms`,
       '--sheet-close-easing': sheetMotion.close.easing
     });
+  });
+});
+
+// An engine that cannot parse linear() drops the declaration, so the sheet would lose its curve;
+// it keeps vaul's own cubic-bezier instead.
+describe('sheet motion without linear() support', () => {
+  it('uses the cubic-bezier fallback for both curves', () => {
+    const fallback = loadSheet(false).sheetMotion;
+    expect(fallback.open.easing).toMatch(/^cubic-bezier\(/);
+    expect(fallback.close.easing).toMatch(/^cubic-bezier\(/);
   });
 });

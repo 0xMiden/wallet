@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
@@ -74,7 +76,24 @@ describe('FlowLayout', () => {
     expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 
-  it('pins the footer with the mobile cushion and no navbar-collapse hook', () => {
+  it('pins a tab root CTA with the keyboard-aware cushion', () => {
+    render(
+      <FlowLayout tabRoot title="Title" footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+
+    const footer = screen.getByText('cta').parentElement;
+    expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
+  });
+
+  // The docked bar draws over the page at `z-60` and reaches the screen edge, so a CTA at the
+  // bottom is UNDER it. A pushed step is not exempt: Send's amount step is pushed and still lives
+  // inside TabLayout. Dropping it to the bottom on the page's shape alone bet on `data-hide-navbar`
+  // being raised by someone else, and on the frames where that bet lost, the bar swallowed every
+  // click on the CTA (e2e: a visible, enabled, stable button, 30s of intercepted clicks). The
+  // cushion is unconditional now, and `body[data-hide-navbar]` is what collapses it, in CSS.
+  it('keeps a pushed page CTA clear of the docked bar, collapsing only when the bar is down', () => {
     render(
       <FlowLayout title="Title" footer={<button>cta</button>}>
         <p>content</p>
@@ -83,21 +102,31 @@ describe('FlowLayout', () => {
 
     const footer = screen.getByText('cta').parentElement;
     expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
-    expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+    // The flow footer snaps its cushion (the slide animates it), so it opts out of the padding transition.
+    expect(footer).toHaveAttribute('data-flow-footer');
   });
 
-  it('drops the CTA to the bottom when the tab bar is hidden', () => {
+  it("exempts a flow footer from main.css's cushion padding transition", () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
+    expect(css).toMatch(/\[data-navbar-cushion='true'\]\[data-flow-footer\]\s*\{\s*transition:\s*none;/);
+  });
+
+  // The keyboard raises `data-hide-navbar` too, but only after a round trip through two components'
+  // state — a frame or two AFTER the keyboard inset has already moved the page. Reading the flag
+  // here made the cushion a second, later reflow, so the CTA rode the keyboard down and then hopped
+  // back up by 3rem. The cushion is a function of `--keyboard-height` alone now, so both land in
+  // the same frame and the CTA makes one move.
+  it('keys its cushion on --keyboard-height, not on a React read of the navbar flag', () => {
     document.body.setAttribute('data-hide-navbar', '');
     try {
       render(
-        <FlowLayout title="Title" footer={<button>cta</button>}>
+        <FlowLayout tabRoot title="Title" footer={<button>cta</button>}>
           <p>content</p>
         </FlowLayout>
       );
 
-      const footer = screen.getByText('cta').parentElement;
-      expect(footer).toHaveClass('pb-4');
-      expect(footer?.className).not.toContain('4rem');
+      expect(screen.getByText('cta').parentElement).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
     } finally {
       document.body.removeAttribute('data-hide-navbar');
     }

@@ -6,8 +6,8 @@ import { IconName } from 'app/icons/v2';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
-import { TabHeader, TabHeaderAction } from 'components/ui';
-import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { TabHeaderAction, TabRootHeader } from 'components/ui';
+import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
@@ -71,7 +71,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <TabHeader
+      <TabRootHeader
         title={t('activity')}
         search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
         actions={
@@ -82,22 +82,15 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             onClick={toggleSearch}
           />
         }
+        filter={{ items: filters, value: filter, onChange: setFilter, 'aria-label': t('activityFilters') }}
       />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
           possibly the only copy of the funds, so surfaced where the user looks
           for their incoming activity, with the manual drain the dead-letter
-          store's contract assumes. Renders nothing while the store is empty. */}
-      <DeadletteredNotesNotice className="shrink-0 mx-4 mt-3" />
-
-      <SegmentedControl
-        items={filters}
-        value={filter}
-        onChange={setFilter}
-        appearance="pills"
-        aria-label={t('activityFilters')}
-        className="shrink-0 px-4 py-4"
-      />
+          store's contract assumes. Renders nothing while the store is empty.
+          Under the filter row, so an empty store costs the page nothing. */}
+      <DeadletteredNotesNotice className="shrink-0 mx-4 mt-2" />
 
       {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
       <ActivityPendingHistory

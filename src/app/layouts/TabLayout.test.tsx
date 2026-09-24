@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { hapticSelection } from 'lib/mobile/haptics';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
 
 import { PageActiveContext, PageOnScreenContext, usePageActive } from './page-active';
@@ -21,7 +22,6 @@ const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, is
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnclaimed = { value: false };
-const mockKeyboardVisible = { value: false };
 
 // `lib/woozie` pulls in the full location/history/analytics stack. Stub the two
 // symbols the layout uses: `navigate` (a spy) and `useLocation` (reads state).
@@ -34,6 +34,10 @@ jest.mock('lib/woozie', () => ({
 // buzz fires on a real tab change and stays silent on no-op re-taps.
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: jest.fn()
+}));
+
+jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
+  useHideNavbarWhileOpen: jest.fn()
 }));
 
 // Platform detectors are pure booleans in production; make them read the shared
@@ -55,13 +59,6 @@ jest.mock('app/env', () => ({
 
 jest.mock('app/hooks/useHasUnclaimedNotes', () => ({
   useHasUnclaimedNotes: () => mockHasUnclaimed.value
-}));
-
-// Mobile soft-keyboard visibility. Driven by mock state so the hide-navbar
-// wiring is testable; useHideNavbarWhileOpen is left REAL so it actually
-// toggles body[data-hide-navbar].
-jest.mock('lib/mobile/useKeyboardVisible', () => ({
-  useKeyboardVisible: () => mockKeyboardVisible.value
 }));
 
 // `springs` is animation config only; the value is irrelevant to behaviour.
@@ -196,7 +193,6 @@ beforeEach(() => {
   mockEnv.sidePanel = false;
   mockReturning.value = false;
   mockHasUnclaimed.value = false;
-  mockKeyboardVisible.value = false;
 });
 
 describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
@@ -871,23 +867,11 @@ describe('TabLayout — footer scaffolding', () => {
   });
 });
 
-describe('TabLayout — hides the bottom nav while the mobile keyboard is up', () => {
-  it('flags body[data-hide-navbar] when the keyboard is visible and clears it on unmount', () => {
-    mockKeyboardVisible.value = true;
+describe('TabLayout — the keyboard hides the bottom nav elsewhere', () => {
+  it('raises no navbar flag of its own: keyboard-inset holds it in the keyboard listener', () => {
     const { unmount } = renderLayout();
 
-    // useHideNavbarWhileOpen(useKeyboardVisible()) drives the
-    // body[data-hide-navbar] rule in main.css.
-    expect(document.body.hasAttribute('data-hide-navbar')).toBe(true);
-
+    expect(useHideNavbarWhileOpen).not.toHaveBeenCalled();
     unmount();
-    expect(document.body.hasAttribute('data-hide-navbar')).toBe(false);
-  });
-
-  it('leaves the bottom nav visible when the keyboard is down', () => {
-    mockKeyboardVisible.value = false;
-    renderLayout();
-
-    expect(document.body.hasAttribute('data-hide-navbar')).toBe(false);
   });
 });

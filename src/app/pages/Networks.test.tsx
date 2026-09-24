@@ -56,7 +56,7 @@ describe('NetworksSettings', () => {
     expect(testnet).toHaveTextContent('Testnet');
     expect(screen.getByTestId('networks-devnet')).toHaveTextContent('Devnet');
     expect(screen.getByTestId('networks-localnet')).toHaveTextContent('Localnet');
-    expect(testnet.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(testnet.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
     expect(testnet.parentElement).not.toHaveClass('bg-fill');
     expect(screen.getByTestId('networks-localnet').parentElement).toBe(testnet.parentElement);
   });
@@ -66,7 +66,7 @@ describe('NetworksSettings', () => {
 
     const body = screen.getByTestId('networks-settings').querySelector('[data-slot="body"]')!;
     expect(body).toHaveClass('px-4', 'overflow-y-auto');
-    expect(body.firstElementChild).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(body.firstElementChild).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
     expect(body.firstElementChild).not.toHaveClass('bg-fill');
   });
 

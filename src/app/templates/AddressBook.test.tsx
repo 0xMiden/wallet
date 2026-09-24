@@ -101,26 +101,28 @@ it('shows an empty state through EmptyState with the dashed surface, and opens t
   expect(navigateMock).toHaveBeenCalledWith('/contacts/new');
 });
 
-it('draws contacts and my-accounts as outline groups, not the shared fill', () => {
+it('draws contacts and my-accounts as plain groups, flush on the page margin with full-width hairlines', () => {
   render(<AddressBook />);
   const first = screen.getByTestId('address-book-contact-mtst1alice');
   const second = screen.getByTestId('address-book-contact-0xzed');
-  expect(first.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+  // The Address Book's body IS the list, so the group has no surface of its own.
+  expect(first.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
   expect(first.parentElement).not.toHaveClass('bg-fill');
   expect(second.parentElement).toBe(first.parentElement);
-  // The first row's hairline is hidden by `first:`; the rest start after the avatar.
+  // The first row's hairline is hidden by `first:`; the rest run the group's full width.
   expect(first).toHaveClass('first:before:hidden');
-  expect(second).toHaveClass('before:bg-hairline', 'before:left-[68px]');
+  expect(second).toHaveClass('before:bg-hairline');
 
   const account = screen.getByTestId('address-book-account-mtst1mine');
-  expect(account.parentElement).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+  expect(account.parentElement).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
   expect(account.parentElement).not.toHaveClass('bg-fill');
 });
 
 it('draws the rows and labels with the shared list components', () => {
   render(<AddressBook />);
 
-  expect(screen.getByRole('heading', { level: 2, name: 'contacts' })).toHaveClass('text-muted', 'text-label');
+  // The Settings-root header treatment: a 20px `ink` title behind the section's glyph.
+  expect(screen.getByRole('heading', { level: 2, name: 'contacts' })).toHaveClass('text-title-section', 'text-ink');
   const contact = screen.getByTestId('address-book-contact-0xzed');
   expect(contact.querySelector('[data-slot="chevron"]')).not.toBeNull();
   expect(screen.getByTestId('address-book-account-mtst1mine').querySelector('[data-slot="chevron"]')).toBeNull();

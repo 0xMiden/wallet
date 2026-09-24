@@ -256,17 +256,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
         </div>
 
         <div className="mt-4 flex shrink-0 flex-col gap-3">
-          {/* Test-funds warning sits before the share and bridge actions:
-              the funding decision point named in #875. */}
-          {network && (
-            <Notice
-              tone="warning"
-              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-              data-testid="receive-test-funds-warning"
-            >
-              {t('receiveTestFundsBody', { network })}
-            </Notice>
-          )}
           {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
               hairlines. */}
           <ListGroup data-testid="receive-actions">
@@ -293,6 +282,19 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               />
             )}
           </ListGroup>
+          {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
+              this qualifies all of it. A caption with the warning glyph, not a tinted block —
+              between the address and the actions it split the page in two. */}
+          {network && (
+            <Notice
+              tone="warning"
+              variant="inline"
+              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+              data-testid="receive-test-funds-warning"
+            >
+              {t('receiveTestFundsBody', { network })}
+            </Notice>
+          )}
         </div>
       </div>
       {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
