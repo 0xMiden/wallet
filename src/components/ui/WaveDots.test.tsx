@@ -21,6 +21,18 @@ jest.mock('framer-motion', () => {
   };
 });
 
+// Distinct token values, so the dots can only carry them by reading the shared tokens.
+const mockReducedTransition = { duration: 0.0042 };
+jest.mock('lib/animation', () => {
+  const actual = jest.requireActual('lib/animation');
+  return {
+    ...actual,
+    durations: { ...actual.durations, extraSlow: 9, fast: 7 },
+    easings: { ...actual.easings, easeInOut: [0.1, 0.2, 0.3, 0.4] },
+    reducedMotionTransition: mockReducedTransition
+  };
+});
+
 beforeEach(() => {
   mockReduce.value = false;
   mockDots.length = 0;
@@ -45,8 +57,20 @@ it('starts the wave on mount and plays all three keyframes as a looping tween, o
   });
 });
 
-it('holds still under reduced motion', () => {
+it('holds still under reduced motion, on the shared reduced-motion transition', () => {
   mockReduce.value = true;
   render(<WaveDots label="Calculating" />);
-  mockDots.forEach(dot => expect(dot.animate).toEqual({ y: 0 }));
+  mockDots.forEach(dot => {
+    expect(dot.animate).toEqual({ y: 0 });
+    expect(dot.transition).toBe(mockReducedTransition);
+  });
+});
+
+it('times the wave with the shared motion tokens', () => {
+  render(<WaveDots label="Calculating" />);
+  mockDots.forEach(dot => {
+    expect(dot.transition.duration).toBe(9);
+    expect(dot.transition.repeatDelay).toBe(7);
+    expect(dot.transition.ease).toEqual([0.1, 0.2, 0.3, 0.4]);
+  });
 });
