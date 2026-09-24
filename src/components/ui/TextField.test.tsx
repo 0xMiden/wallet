@@ -384,6 +384,33 @@ describe('TextField — secret', () => {
       expect(cover()).toBeInTheDocument();
     });
 
+    // Chromium fires the field's focusout before the window blur on a window switch, and the
+    // browser hands focus back to the same element on return, uncovering it without a tap.
+    describe('when focus leaves before the window event', () => {
+      it.each([
+        ['on the window blur', () => window.dispatchEvent(new Event('blur'))],
+        ['on pagehide', () => window.dispatchEvent(new Event('pagehide'))],
+        [
+          'when the document becomes hidden',
+          () => {
+            setVisibility('hidden');
+            document.dispatchEvent(new Event('visibilitychange'));
+          }
+        ]
+      ])('gives focus back %s', (_, windowEvent) => {
+        const { field } = revealed();
+        act(() => {
+          fireEvent.focusOut(field);
+        });
+        expect(field).toHaveFocus();
+        act(() => {
+          windowEvent();
+        });
+        expect(field).not.toHaveFocus();
+        expect(cover()).toBeInTheDocument();
+      });
+    });
+
     it('removes every listener, and the timer, once the field leaves secret mode or unmounts', () => {
       jest.useFakeTimers();
       try {

@@ -164,23 +164,31 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
 
     // A revealed secret gives itself back: after half a minute, or the moment the window goes
     // away (a screenshot, a task switch, another app on top). A mobile app switch can hide the
-    // document without blurring the window, and the app-switcher snapshot is taken then.
+    // document without blurring the window, and the app-switcher snapshot is taken then. The window
+    // listeners live as long as the secret, not the focus: Chromium fires the field's focusout
+    // before the window blur, and would hand the still-active field its focus back on return.
     useEffect(() => {
-      if (!secret || !focused) return undefined;
-      const hide = () => fieldRef.current?.blur();
+      if (!secret) return undefined;
+      const hide = () => {
+        if (fieldRef.current && document.activeElement === fieldRef.current) fieldRef.current.blur();
+      };
       const hideIfHidden = () => {
         if (document.visibilityState === 'hidden') hide();
       };
-      const timer = setTimeout(hide, SECRET_REVEAL_MS);
       window.addEventListener('blur', hide);
       window.addEventListener('pagehide', hide);
       document.addEventListener('visibilitychange', hideIfHidden);
       return () => {
-        clearTimeout(timer);
         window.removeEventListener('blur', hide);
         window.removeEventListener('pagehide', hide);
         document.removeEventListener('visibilitychange', hideIfHidden);
       };
+    }, [secret]);
+
+    useEffect(() => {
+      if (!secret || !focused) return undefined;
+      const timer = setTimeout(() => fieldRef.current?.blur(), SECRET_REVEAL_MS);
+      return () => clearTimeout(timer);
     }, [secret, focused]);
 
     // Autofill, form memory, spellcheck and autocorrect would each hand key material to something
