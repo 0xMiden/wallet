@@ -29,7 +29,7 @@ import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnVault } from './types';
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const CHART_GREEN = '#90BA89';
 
@@ -53,9 +53,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { vaults, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const loadFailed = Boolean(error);
-  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
-  const pending = isLoading && !found && !loadFailed;
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
 
   const { t } = useTranslation();
   const account = useAccount();

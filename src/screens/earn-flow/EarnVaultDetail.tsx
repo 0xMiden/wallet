@@ -4,17 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { PageHeader } from 'components/PageHeader';
-import { Pill } from 'components/ui/Pill';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { ChartContainer } from 'lib/ui/charts';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 
-import { MetricCard } from './components';
+import { EarnFlowHeader, MetricCard } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnVault } from './types';
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 type EarnTimeframe = '1D' | '1W' | '1M' | 'All';
 
@@ -36,23 +34,11 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const { vaults, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const loadFailed = Boolean(error);
-  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
-  const pending = isLoading && !found && !loadFailed;
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
-      <PageHeader
-        className="shrink-0 px-4"
-        // Until the vault is found the header names the route, never a placeholder vault or pill.
-        title={found ? `${found.protocol} • ${found.asset}` : t('earnDeposit')}
-        onBack={goBack}
-        actions={
-          found && (
-            <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: found.asset, network: found.network })}</Pill>
-          )
-        }
-      />
+      <EarnFlowHeader vault={found} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 pb-8 pt-8">

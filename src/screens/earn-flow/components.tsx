@@ -11,10 +11,10 @@ import { goBack } from 'lib/woozie';
 
 import { EarnSummary, EarnVault } from './types';
 
-/** Shared top bar for the vault deposit flow: the `PageHeader` with back, a "{protocol} • {asset}"
- *  title (the route name until the vault is found) and the "{asset} on {network}" pill. Used by the deposit-amount and deposit-review pages
- *  so their headers stay identical, and shaped like the vault and withdraw-review headers. Both
- *  pages are unpadded, so the header brings the 16px page margin itself. */
+/** Shared top bar for the vault pages: the `PageHeader` with back, a "{protocol} • {asset}"
+ *  title (the route name until the vault is found) and the "{asset} on {network}" pill. Used by the vault,
+ *  deposit-amount and deposit-review pages so their headers stay identical, and shaped like the
+ *  withdraw-review header. The pages are unpadded, so the header brings the 16px page margin itself. */
 export const EarnFlowHeader: FC<{ vault?: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 

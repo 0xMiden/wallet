@@ -13,13 +13,12 @@ import EarnVaultDetail from './EarnVaultDetail';
 // Mocks
 // ---------------------------------------------------------------------------
 
-// `./components` re-exports `MetricCard` alongside a module-level
-// `import aaveLogoUrl from '...aave.svg?url'` (a webpack `?url` query that
-// jest's `\.svg$` mapper does not match). Stub the module so we only pull in a
-// light `MetricCard` and never touch that asset import. The stub echoes its
-// props via data-* attributes so we can assert what `EarnVaultDetail` passed
-// (label / value / valueClassName), which is where the audited-branch styling
-// lives.
+// `./components` imports `...aave.svg?url` (a webpack `?url` query that jest's
+// `\.svg$` mapper does not match), so a virtual mock stands in for it. The
+// real `EarnFlowHeader` draws the page header; `MetricCard` is a stub that
+// echoes its props via data-* attributes so we can assert what
+// `EarnVaultDetail` passed (label / value / valueClassName), which is where the
+// audited-branch styling lives.
 // i18n: the component and the shared Button/IconButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
@@ -31,7 +30,10 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
+
 jest.mock('./components', () => ({
+  EarnFlowHeader: jest.requireActual<typeof import('./components')>('./components').EarnFlowHeader,
   MetricCard: ({
     label,
     value,
@@ -117,6 +119,7 @@ jest.mock('recharts', () => {
 //   - the unaudited vault — audited=false, all-equal chart values →
 //     `(max-min)*0.18` is 0, so the `|| 1` fallback branch runs.
 jest.mock('./useEarnPositions', () => ({
+  ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
     summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
     positions: [],

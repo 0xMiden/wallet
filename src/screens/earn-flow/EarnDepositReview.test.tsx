@@ -112,6 +112,7 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
 jest.mock('./useEarnPositions', () => {
   const { EARN_DATA } = jest.requireActual<typeof import('./data')>('./data');
   return {
+    ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
     useEarnPositions: () => ({
       summary: EARN_DATA.summary,
       positions: EARN_DATA.positions,

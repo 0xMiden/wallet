@@ -51,6 +51,7 @@ jest.mock('lib/woozie', () => ({
 }));
 
 jest.mock('./useEarnPositions', () => ({
+  ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
     summary: { totalRewards: '', blendedApy: '', totalDeposited: '', estimatedRewards: '' },
     positions: mockPositions,

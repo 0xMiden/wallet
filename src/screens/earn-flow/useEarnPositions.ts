@@ -8,6 +8,19 @@ import { buildEarnSummary, mapEarnPosition, mapEarnVault } from './earn-mapping'
 import type { EarnPosition, EarnSummary, EarnVault } from './types';
 
 /**
+ * What a detail screen for one earn item (a vault or a position) has: `loadFailed` when the last load
+ * errored, `pending` while the item is missing and a load may yet bring it. A failed load is never
+ * pending, so a screen shows its error rather than an empty page.
+ */
+export function earnItemLoadState(
+  found: unknown,
+  { isLoading, error }: { isLoading: boolean; error?: string }
+): { loadFailed: boolean; pending: boolean } {
+  const loadFailed = Boolean(error);
+  return { loadFailed, pending: isLoading && !found && !loadFailed };
+}
+
+/**
  * Live earn positions for the current account, mapped to the earn-flow display
  * shapes. Owners are the union of past earn-deposit rows (survives address
  * changes) and the wallet-derived `evmAddress` (survives reinstall/restore

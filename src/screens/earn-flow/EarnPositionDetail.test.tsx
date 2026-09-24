@@ -132,6 +132,7 @@ jest.mock('lib/mobile/haptics', () => ({
 // all-equal series, so this is the only way to reach the `|| 1` arm without
 // touching the source). Unknown ids fall through to `placeholderPosition()`.
 jest.mock('./useEarnPositions', () => ({
+  ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
     summary: {
       totalRewards: '$218.32',

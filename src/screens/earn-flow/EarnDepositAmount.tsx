@@ -15,7 +15,7 @@ import { UIToken } from 'screens/send-flow/types';
 import { EarnFlowHeader } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnDepositAmountProps {
   vaultId: string;
@@ -29,9 +29,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { vaults, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
-  const loadFailed = Boolean(error);
-  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
-  const pending = isLoading && !found && !loadFailed;
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);

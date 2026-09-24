@@ -15,7 +15,7 @@ import { EarnSummaryPanel, MetricCard, PositionLogo } from './components';
 import { placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnPosition } from './types';
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 type EarnTimeframe = '1D' | '1W' | '1M' | 'All';
 
@@ -37,9 +37,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { summary, positions, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
-  const loadFailed = Boolean(error);
-  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
-  const pending = isLoading && !found && !loadFailed;
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">

@@ -6,7 +6,7 @@ import { SWRConfig } from 'swr';
 import type { EarnPositionsResult } from 'lib/epoch';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const mockAccount: { publicKey: string; evmAddress?: string } = {
   publicKey: 'miden-account',
@@ -188,6 +188,34 @@ describe('useEarnPositions', () => {
 
       expect(result.current.positions).toEqual([]);
       expect(result.current.vaults).toEqual([]);
+    });
+  });
+});
+
+describe('earnItemLoadState', () => {
+  it('has the item: neither failed nor pending, even while a refresh loads', () => {
+    expect(earnItemLoadState({}, { isLoading: true })).toEqual({ loadFailed: false, pending: false });
+  });
+
+  it('is pending while the item is missing and the load has not settled', () => {
+    expect(earnItemLoadState(undefined, { isLoading: true })).toEqual({ loadFailed: false, pending: true });
+  });
+
+  it('has failed when the item is missing and the load errored', () => {
+    expect(earnItemLoadState(undefined, { isLoading: false, error: 'boom' })).toEqual({
+      loadFailed: true,
+      pending: false
+    });
+  });
+
+  it('is neither when the item is missing after a clean load', () => {
+    expect(earnItemLoadState(undefined, { isLoading: false })).toEqual({ loadFailed: false, pending: false });
+  });
+
+  it('is failed and not pending when the item is missing, still loading and errored', () => {
+    expect(earnItemLoadState(undefined, { isLoading: true, error: 'boom' })).toEqual({
+      loadFailed: true,
+      pending: false
     });
   });
 });

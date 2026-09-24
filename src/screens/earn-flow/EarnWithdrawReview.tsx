@@ -17,7 +17,7 @@ import { truncateAddress } from 'utils/string';
 
 import { placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
-import { useEarnPositions } from './useEarnPositions';
+import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 interface EarnWithdrawReviewProps {
   positionId: string;
@@ -35,9 +35,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
   const { positions, isLoading, error, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
-  const loadFailed = Boolean(error);
-  // Until a load settles, a missing item may yet arrive: draw no placeholder in its place.
-  const pending = isLoading && !found && !loadFailed;
+  const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
   const account = useAccount();
   const withdrawSymbol = 'USDC';
   const amountValue = Number(position.withdrawable) || 0;
