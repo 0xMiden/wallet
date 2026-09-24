@@ -12,8 +12,10 @@ import type { EarnPosition, EarnSummary, EarnVault } from './types';
  * shapes. Owners are the union of past earn-deposit rows (survives address
  * changes) and the wallet-derived `evmAddress` (survives reinstall/restore
  * before any local activity exists). First load yields an empty list + an
- * empty-state summary; `keepPreviousData` holds last-good data across the
- * 10s refresh.
+ * empty-state summary. A failed refresh keeps the last data this key loaded (SWR
+ * keeps a key's data across its own revalidations); `keepPreviousData` is NOT
+ * set, because the key carries the account and it would serve the previous
+ * account's positions after a switch.
  */
 export function useEarnPositions(): {
   summary: EarnSummary;
@@ -39,7 +41,7 @@ export function useEarnPositions(): {
       const owners = [...new Set(walletAddress ? [...fromActivity, walletAddress] : fromActivity)];
       return fetchEarnPositions({ accountId: account.publicKey, owners });
     },
-    { revalidateOnMount: true, refreshInterval: 10_000, dedupingInterval: 3_000, keepPreviousData: true }
+    { revalidateOnMount: true, refreshInterval: 10_000, dedupingInterval: 3_000 }
   );
 
   return useMemo(

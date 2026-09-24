@@ -1,4 +1,7 @@
-import { renderHook } from '@testing-library/react';
+import React from 'react';
+
+import { renderHook, waitFor } from '@testing-library/react';
+import { SWRConfig } from 'swr';
 
 import type { EarnPositionsResult } from 'lib/epoch';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
@@ -131,8 +134,7 @@ describe('useEarnPositions', () => {
     expect(receivedConfig).toEqual({
       revalidateOnMount: true,
       refreshInterval: 10_000,
-      dedupingInterval: 3_000,
-      keepPreviousData: true
+      dedupingInterval: 3_000
     });
     expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
@@ -159,6 +161,33 @@ describe('useEarnPositions', () => {
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
       owners: ['0xhistorical']
+    });
+  });
+
+  describe('across an account switch, with the real SWR', () => {
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(SWRConfig, { value: { provider: () => new Map(), dedupingInterval: 0 } }, children);
+
+    afterEach(() => {
+      mockAccount.publicKey = 'miden-account';
+      mockAccount.evmAddress = '0xABCDEF';
+    });
+
+    it("never shows the previous account's positions while the next account's load is pending", async () => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+      jest.mocked(fetchEarnPositions).mockResolvedValueOnce(liveResult);
+      const { result, rerender } = renderHook(() => useEarnPositions(), { wrapper });
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      jest.mocked(fetchEarnPositions).mockReturnValueOnce(new Promise(() => undefined));
+      mockAccount.publicKey = 'another-account';
+      mockAccount.evmAddress = '0x123456';
+      rerender();
+
+      expect(result.current.positions).toEqual([]);
+      expect(result.current.vaults).toEqual([]);
     });
   });
 });

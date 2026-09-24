@@ -111,6 +111,8 @@ const History = memo<HistoryProps>(
     // transaction reads run only while neither holds.
     const reading = onScreen && filter !== 'pending';
 
+    // No `keepPreviousData`: both keys carry the address and token, so it would show another
+    // account's (or token's) rows while this one loads; a key's own refresh keeps its data anyway.
     const {
       data: latestTransactions,
       isLoading: transactionsLoading,
@@ -123,7 +125,6 @@ const History = memo<HistoryProps>(
         revalidateOnMount: true,
         refreshInterval: 10_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true,
         isPaused: () => !reading
       }
     );
@@ -139,7 +140,6 @@ const History = memo<HistoryProps>(
         revalidateOnMount: true,
         refreshInterval: 5_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true,
         isPaused: () => !reading
       }
     );

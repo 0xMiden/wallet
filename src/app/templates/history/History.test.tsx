@@ -32,6 +32,8 @@ const mockResolveConsumeExtraAmounts = jest.fn();
 let mockHistoryViewProps: any;
 // Each SWR read's mutate, by the first element of its key, so a test can see which reads a Retry re-runs.
 const mockSwrMutates: Record<string, jest.Mock> = {};
+// Each SWR read's config, by the first element of its key.
+const mockSwrConfigs: Record<string, unknown> = {};
 
 // ---------------------------------------------------------------------------
 // `lib/swr` — a real hook implementation that runs the fetcher on mount (and on
@@ -40,7 +42,8 @@ const mockSwrMutates: Record<string, jest.Mock> = {};
 // `fetchPendingTransactionsAsHistoryEntries` helpers.
 // ---------------------------------------------------------------------------
 const mockUseRetryableSWR = jest.fn(
-  (key: unknown, fetcher: () => Promise<unknown>, _config?: { isPaused?: () => boolean }) => {
+  (key: unknown, fetcher: () => Promise<unknown>, config?: { isPaused?: () => boolean }) => {
+    mockSwrConfigs[String((key as unknown[])[0])] = config;
     const keyStr = JSON.stringify(key);
     const [state, setState] = React.useState<{ data: unknown; isLoading: boolean; error?: unknown }>({
       data: undefined,
@@ -487,6 +490,15 @@ describe('History', () => {
 
       await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
       expect(mockHistoryViewProps.loadError).toBe(false);
+    });
+
+    it("never carries another account's rows across a switch: neither read keeps the previous key's data", async () => {
+      await renderHistory();
+
+      for (const read of ['latest-transactions', 'latest-pending-transactions']) {
+        expect(mockSwrConfigs[read]).toBeDefined();
+        expect(mockSwrConfigs[read]).not.toHaveProperty('keepPreviousData');
+      }
     });
 
     it('forwards no load error when both reads succeed', async () => {
