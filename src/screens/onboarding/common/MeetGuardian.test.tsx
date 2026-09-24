@@ -110,8 +110,8 @@ describe('MeetGuardianScreen', () => {
       [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
     });
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    // A status word, never the number: the ranking is one moment's measurement.
-    expect(screen.getByTestId('meet-guardian-online')).toBeInTheDocument();
+    // No status and no number while it is up: the ranking is one moment's measurement.
+    expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
     expect(screen.queryByText(/42/)).toBeNull();
     expect(screen.getByText('meetGuardianFastestOf:2')).toBeInTheDocument();
     expect(screen.getByText('guardianBioGateway:2')).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe('MeetGuardianScreen', () => {
       [GATEWAY.endpoint]: { status: 'online', latencyMs: 90 }
     });
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    expect(screen.getByTestId('meet-guardian-online')).toBeInTheDocument();
+    expect(screen.queryByTestId('meet-guardian-offline')).toBeNull();
 
     view.setVerdicts({
       [OZ.endpoint]: { status: 'online', latencyMs: 10 },

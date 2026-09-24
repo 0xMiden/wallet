@@ -171,13 +171,9 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
                       {chosen.name}
                     </span>
                   </div>
-                  {/* A word, not the number: the ranking is one moment's measurement, and a figure
-                      that refreshes every round reads as a live meter it is not. */}
-                  <StatusBadge
-                    status={chosenOnline ? 'online' : 'offline'}
-                    live
-                    data-testid={chosenOnline ? 'meet-guardian-online' : 'meet-guardian-offline'}
-                  />
+                  {/* Nothing while it is up: being on the card already says it answered. The badge
+                      appears only when a later round loses it, which is why Continue closed. */}
+                  {!chosenOnline && <StatusBadge status="offline" live data-testid="meet-guardian-offline" />}
                 </div>
 
                 <ul className="flex flex-col gap-2">
