@@ -131,6 +131,8 @@ jest.mock('./SendAmount', () => ({
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
       <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
       <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
+      <span data-testid="sa-decimals">{props.token ? String(props.token.decimals) : ''}</span>
+      <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
@@ -1259,6 +1261,16 @@ describe('token preselection', () => {
       expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^11$/);
     });
 
+    it('applies the same preselection again after it went away', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      mockSearch = '';
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      mockSearch = '?tokenId=T1';
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    });
+
     it('applies a new preselected token once', () => {
       const { rerender } = preselectT1ThenPickT2();
       mockSearch = '?tokenId=T3';
@@ -1272,6 +1284,44 @@ describe('token preselection', () => {
       useAllBalancesMock.mockReturnValue({ data: threeTokens() });
       rerender(<SendFlow isLoading={false} />);
       expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+    });
+  });
+
+  describe('when the token row gains its real scale', () => {
+    const placeholderRow = {
+      tokenId: 'T2',
+      metadata: { symbol: 'TK2', decimals: 6, scaleIsUnknown: true },
+      balance: 7
+    };
+    const resolvedRow = { tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 8 }, balance: 7 };
+
+    it('rebuilds a preselected token from the resolved row', () => {
+      mockSearch = '?tokenId=T2';
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      useAllBalancesMock.mockReturnValue({ data: [placeholderRow] });
+      const { rerender } = renderFlow();
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^6$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent('false');
+      useAllBalancesMock.mockReturnValue({ data: [resolvedRow] });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^8$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent('true');
+    });
+
+    it('rebuilds a token picked in the drawer from the resolved row', () => {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 6, balance: 7, fiatPrice: 0, scaleIsKnown: false };
+      useAllBalancesMock.mockReturnValue({ data: [placeholderRow] });
+      const { rerender } = renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^6$/);
+      useAllBalancesMock.mockReturnValue({ data: [resolvedRow] });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^8$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent('true');
     });
   });
 

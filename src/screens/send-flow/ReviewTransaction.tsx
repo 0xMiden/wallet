@@ -21,17 +21,14 @@ import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/mid
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   SpendingLimitAssessment,
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
-import { listedPrice } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
@@ -43,6 +40,7 @@ import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from 
 import { clearSendDraft } from './send-draft';
 import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
+import { uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 
 /**
@@ -81,22 +79,14 @@ export const ReviewTransaction: React.FC = () => {
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
   const bridgeNetworkObj = getBridgeNetwork(network);
 
-  // Re-derive the UIToken from balances (same mapping as SendManager's
-  // preselect effect) — the URL only carries the token id.
+  // Re-derive the UIToken from balances with SendManager's builder; the URL
+  // only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
-    if (!match) return undefined;
-    return {
-      id: match.tokenId,
-      name: match.metadata.symbol,
-      decimals: match.metadata.decimals,
-      balance: match.balance,
-      fiatPrice: listedPrice(tokenPrices, priceSymbolFor(match.tokenId, match.metadata.symbol)),
-      scaleIsKnown: hasKnownScale(match.metadata)
-    };
+    return match && uiTokenFromBalance(match, tokenPrices);
   }, [balanceData, tokenId, tokenPrices]);
 
   const amountBaseUnits = useMemo(() => {

@@ -13,13 +13,10 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
-import { listedPrice } from 'lib/prices';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
@@ -47,9 +44,9 @@ import {
   SendFlowAction,
   SendFlowActionId,
   SendFlowForm,
-  SendFlowStep,
-  UIToken
+  SendFlowStep
 } from './types';
+import { sameUIToken, uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 import { useRecentRecipients } from './useRecentRecipients';
 import { WalletType } from '../onboarding/types';
@@ -358,32 +355,26 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
-  // refresh only updates whichever token is in the form; re-applying it undid the user's pick.
+  // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
+  // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
   const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!preselectedTokenId) appliedPreselectionRef.current = null;
     if (!balanceData) return;
     if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
       const match = balanceData.find(t => t.tokenId === preselectedTokenId);
       if (match) {
         appliedPreselectionRef.current = preselectedTokenId;
-        const uiToken: UIToken = {
-          id: match.tokenId,
-          name: match.metadata.symbol,
-          decimals: match.metadata.decimals,
-          balance: match.balance,
-          fiatPrice: listedPrice(tokenPrices, priceSymbolFor(match.tokenId, match.metadata.symbol)),
-          scaleIsKnown: hasKnownScale(match.metadata)
-        };
-        setValue('token', uiToken);
+        setValue('token', uiTokenFromBalance(match, tokenPrices));
         return;
       }
     }
     const current = getValues('token');
     const held = current && balanceData.find(t => t.tokenId === current.id);
     if (!current || !held) return;
-    const fiatPrice = listedPrice(tokenPrices, priceSymbolFor(held.tokenId, held.metadata.symbol));
-    if (held.balance === current.balance && fiatPrice === current.fiatPrice) return;
-    setValue('token', { ...current, balance: held.balance, fiatPrice });
+    const refreshed = uiTokenFromBalance(held, tokenPrices);
+    if (sameUIToken(refreshed, current)) return;
+    setValue('token', refreshed);
   }, [preselectedTokenId, balanceData, tokenPrices, setValue, getValues]);
 
   // What the user may actually send. The fee is withdrawn from this account's own

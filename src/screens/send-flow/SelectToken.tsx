@@ -9,11 +9,12 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
-import { listedFiat, listedPrice } from 'lib/prices';
+import { listedFiat } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 import { UIToken } from './types';
+import { uiTokenFromBalance } from './ui-token';
 
 export interface SelectTokenDrawerProps {
   open: boolean;
@@ -84,16 +85,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                     price={listedFiat(tokenPrices, priceSymbol, b.balance, scaleIsKnown)}
                     data-testid={`send-token-${b.metadata.symbol}`}
                     data-token-id={b.tokenId}
-                    onClick={() =>
-                      onSelectToken({
-                        id: b.tokenId,
-                        name: b.metadata.symbol,
-                        decimals: b.metadata.decimals,
-                        balance: b.balance,
-                        fiatPrice: listedPrice(tokenPrices, priceSymbol),
-                        scaleIsKnown
-                      })
-                    }
+                    onClick={() => onSelectToken(uiTokenFromBalance(b, tokenPrices))}
                   />
                 );
               })}
