@@ -422,6 +422,17 @@ const bridgeEarnCases = (): Case[] => [
     type: 'bridged-send',
     row: {
       type: 'bridged-send',
+      faucetId: 'f',
+      amount: '3',
+      requestBytes: new Uint8Array([6, 6]),
+      extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
+    },
+    complete: mockComplete.bridged
+  },
+  {
+    type: 'bridged-send',
+    row: {
+      type: 'bridged-send',
       secondaryAccountId: 'r',
       faucetId: 'f',
       amount: '3',
@@ -2157,8 +2168,9 @@ describe('guardian bridged-send / earn-deposit errorCode preservation → classi
   // reach this point, so its Failed outcome is pinned in transactions.guardian.test.ts
   // ('Guardian bridged-send: submit lands but local apply fails') instead.
   const applyCases = () => [
-    { label: 'earn-deposit', ...bridgeEarnCases()[1]!, expected: ITransactionStatus.Failed },
-    { label: 'bridged-send (agglayer)', ...bridgeEarnCases()[0]!, expected: ITransactionStatus.Completed }
+    { label: 'earn-deposit', ...bridgeEarnCases()[2]!, expected: ITransactionStatus.Failed },
+    { label: 'bridged-send (agglayer)', ...bridgeEarnCases()[1]!, expected: ITransactionStatus.Completed },
+    { label: 'bridged-send (usdcx)', ...bridgeEarnCases()[0]!, expected: ITransactionStatus.Completed }
   ];
 
   it.each(applyCases())(

@@ -49,11 +49,17 @@ export const USDCX_REMOTE_DOMAIN = 10005;
 export const USDCX_STANDIN_RECIPIENT: Hex | undefined =
   '0x937866b6f6983c030bbb31603017276fbe3c46c33b0763380e706c505da447c9';
 
-/** The USDCx faucet on Miden testnet (deployed 2026-09-17). */
-export const USDCX_FAUCET_ID_BECH32 = 'mtst1aqte7ay7ugefuvtajmlra4d2lyqvraz7';
-export const USDCX_FAUCET_ID_HEX = '0x179f749ee2329e317d96fe3ed5aaf9';
+/** The single USDCx faucet. Currently the self-controlled testnet deployment. */
+export const USDCX_FAUCET_ID_BECH32 = 'mtst1ap50kfl4v7nmlufupa2akrh345e0hfke';
 export const USDCX_SYMBOL = 'USDCx';
 export const USDCX_DECIMALS = 6;
+
+/** BURN root recorded by the faucet deployment; checked against the running SDK before sending. */
+export const USDCX_BURN_SCRIPT_ROOT = '0x1106bde3e27e3ba82096917427fe798c54ce0bb5997a145d8e8157fe22b70935';
+export const USDCX_BURN_TAG = 0x4255524e;
+export const USDCX_MIN_BURN_SLOT = 'miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount';
+/** Circle domains are not EVM chain ids or Miden remote-domain ids. */
+export const USDCX_WITHDRAWAL_DESTINATION = { chainId: 11155111, domain: 0 };
 
 /** The fee ceiling passed to `depositToRemote`. Circle's fee for Miden is not confirmed yet. */
 export const USDCX_DEPOSIT_MAX_FEE = 0n;

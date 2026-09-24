@@ -8,6 +8,7 @@ import {
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
+  IUsdcxBurn,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 
@@ -118,6 +119,7 @@ export interface IHistoryEntry {
 
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;
+  usdcxBurn?: IUsdcxBurn;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
   bridgeClaimStatus?: IBridgeClaimStatus;

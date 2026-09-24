@@ -70,6 +70,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  bridgeBadgeStatusOf,
   earnWithdrawAmountFields,
   formatBridgeOutputAmount,
   formatDate,
@@ -138,9 +139,13 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
       <span className="min-w-0 text-text-muted">{inSymbol}</span>
-      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
-      <span className="min-w-0 text-ink">{displayedOutAmount}</span>
-      <span className="min-w-0 text-text-muted">{outSymbol}</span>
+      {entry.bridgeProvider !== 'usdcx' && (
+        <>
+          <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
+          <span className="min-w-0 text-ink">{displayedOutAmount}</span>
+          <span className="min-w-0 text-text-muted">{outSymbol}</span>
+        </>
+      )}
     </div>
   );
 };
@@ -413,6 +418,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillTxHash: bridge?.fillTxHash,
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
+          usdcxBurn: bridge?.usdcxBurn,
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
@@ -690,7 +696,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     status={
                       usdcxAttested && entry.txId === row?.id && bridgeStatusOf(entry) === 'pending'
                         ? 'confirmed'
-                        : bridgeStatusOf(entry)
+                        : bridgeBadgeStatusOf(entry)
                     }
                     data-testid="history-status-pill"
                   />

@@ -586,6 +586,52 @@ describe('transactions utilities', () => {
       );
     });
 
+    it('atomically persists the USDCx burn identity alongside its replayable request', async () => {
+      const requestBytes = new Uint8Array([1, 2, 3]);
+      const burn: { noteId: string; destinationDomain: number; phase: 'pending' } = {
+        noteId: 'burn-note',
+        destinationDomain: 0,
+        phase: 'pending'
+      };
+      await initiateBridgedSendTransaction(
+        'account-a',
+        1_000_000n,
+        'faucet-a',
+        '0xrecipient',
+        11155111,
+        'usdcx',
+        requestBytes,
+        true,
+        undefined,
+        authorization,
+        burn
+      );
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'bridged-send',
+          requestBytes,
+          extraInputs: expect.objectContaining({ provider: 'usdcx', usdcxBurn: burn })
+        }),
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        authorization
+      );
+    });
+
+    it('never queues an untrackable USDCx burn', async () => {
+      await expect(
+        initiateBridgedSendTransaction(
+          'account-a',
+          1n,
+          'faucet-a',
+          '0xrecipient',
+          11155111,
+          'usdcx',
+          new Uint8Array([1])
+        )
+      ).rejects.toThrow('persisted request and note id');
+      expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
+    });
+
     it('routes Earn deposit through the atomic outgoing queue with its authorization', async () => {
       await initiateEarnDepositTransaction(
         'account-a',

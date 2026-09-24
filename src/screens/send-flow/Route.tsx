@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { ChoiceCardGroup } from 'components/ui/ChoiceCard';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -13,6 +14,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { BridgeRoute } from './types';
 
 export interface RouteStepProps {
+  usdcxAvailable?: boolean;
   route: BridgeRoute;
   onRouteChange: (route: BridgeRoute) => void;
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
@@ -60,7 +62,7 @@ export const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect,
 
 export type RouteOptionsProps = Pick<
   RouteStepProps,
-  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
+  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice' | 'usdcxAvailable'
 > & { accent?: FlowAccent };
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
@@ -70,6 +72,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   fastFeeUsd,
   fastQuoteLoading,
   notice,
+  usdcxAvailable,
   accent = 'brand'
 }) => {
   const { t } = useTranslation();
@@ -79,6 +82,27 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     hapticLight();
     onRouteChange(next);
   };
+
+  if (usdcxAvailable) {
+    return (
+      <div className="mt-6 flex flex-col gap-4">
+        <ChoiceCardGroup
+          items={[
+            {
+              id: 'usdcx',
+              title: t('usdcxRouteLabel'),
+              subtitle: t('usdcxMidenFees'),
+              'data-testid': 'bridge-route-usdcx'
+            }
+          ]}
+          value={route === 'usdcx' ? 'usdcx' : null}
+          onChange={() => onRouteChange('usdcx')}
+          aria-label={t('route')}
+        />
+        <p className="text-caption text-muted">{t('usdcxBurnTestNotice')}</p>
+      </div>
+    );
+  }
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
@@ -122,6 +146,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
  * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, any token).
  */
 export const Route: React.FC<RouteStepProps> = ({
+  usdcxAvailable,
   route,
   onRouteChange,
   fastFeeUsd,
@@ -139,6 +164,7 @@ export const Route: React.FC<RouteStepProps> = ({
         <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('route')}</span>
 
         <RouteOptions
+          usdcxAvailable={usdcxAvailable}
           route={route}
           onRouteChange={onRouteChange}
           fastFeeUsd={fastFeeUsd}

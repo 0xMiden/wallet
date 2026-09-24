@@ -46,7 +46,7 @@ import {
   ERC20_APPROVE_ABI,
   ERC20_BALANCE_OF_ABI,
   USDCX_DECIMALS,
-  USDCX_FAUCET_ID_HEX,
+  USDCX_FAUCET_ID_BECH32,
   USDCX_STANDIN_RECIPIENT,
   USDCX_SYMBOL,
   XRESERVE_ABI,
@@ -759,7 +759,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           case 'epoch':
             return MIDEN_USDC_FAUCET_ID;
           case 'usdcx':
-            return USDCX_FAUCET_ID_HEX;
+            return USDCX_FAUCET_ID_BECH32;
           case 'agglayer':
           default:
             return '';
