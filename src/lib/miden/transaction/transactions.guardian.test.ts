@@ -5286,7 +5286,11 @@ describe('generateTransaction — Guardian routing', () => {
       mockIsGuardianAccount.mockResolvedValue(true);
       mockGetMidenClient.mockResolvedValue({
         syncState: jest.fn(async () => {}),
-        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+        // The local client knows the account only by its stored id, so a read under
+        // the queued bare id finds nothing and never reaches the cold build.
+        getAccount: jest.fn(async (id: string) =>
+          id === 'acc-1_suffix' ? { id: () => ({ toString: () => 'acc-1' }) } : undefined
+        ),
         waitForTransactionCommit: jest.fn(async () => {}),
         client: makeClientApi(makeResult())
       });
@@ -5354,6 +5358,7 @@ describe('generateTransaction — Guardian routing', () => {
         compositeProvider() as never
       ).catch(() => undefined);
 
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
       expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch');
     });
 

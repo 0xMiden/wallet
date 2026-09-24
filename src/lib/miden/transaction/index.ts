@@ -1523,7 +1523,7 @@ const buildColdServiceForAccount = async (
   if (!walletAccount) {
     throw new Error(`Guardian account ${accountId} not found in provider`);
   }
-  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(accountId));
+  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
   if (!sdkAccount) {
     throw new Error(`Guardian account ${accountId} not found in local client`);
   }
@@ -2305,7 +2305,7 @@ const generateGuardianTransaction = async (
       if (!walletAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
       }
-      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
+      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
       if (!sdkAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
@@ -2572,7 +2572,7 @@ const generateGuardianTransaction = async (
     if (!walletAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
     }
-    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
+    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
     if (!sdkAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
     }
