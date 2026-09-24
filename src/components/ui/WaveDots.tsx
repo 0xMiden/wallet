@@ -1,13 +1,17 @@
 import React from 'react';
 
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion, type Transition, useReducedMotion } from 'framer-motion';
 
-import { springs } from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
 const DOTS = [0, 1, 2];
 /** Each dot starts a beat after the one before it, so the row reads as a wave, not a blink. */
 const STAGGER_S = 0.14;
+/**
+ * One rise and fall. A tween, not a spring: a spring runs between two values only, so a three-point
+ * wave on one would play (or assert) as a flat line.
+ */
+const WAVE: Transition = { duration: 0.6, times: [0, 0.5, 1], ease: 'easeInOut', repeat: Infinity, repeatDelay: 0.18 };
 
 export interface WaveDotsProps {
   /** Announced in place of the dots, e.g. "Calculating". */
@@ -31,13 +35,11 @@ export const WaveDots: React.FC<WaveDotsProps> = ({ label, className }) => {
           key={index}
           aria-hidden="true"
           className="size-1.5 rounded-full bg-current"
-          initial={false}
+          // Starts on mount: `initial={false}` would skip the first animation, and a loop that never
+          // starts never repeats.
+          initial={{ y: 0 }}
           animate={reduce ? { y: 0 } : { y: [0, -4, 0] }}
-          transition={
-            reduce
-              ? { duration: 0 }
-              : { ...springs.snappy, repeat: Infinity, repeatDelay: 0.18, delay: index * STAGGER_S }
-          }
+          transition={reduce ? { duration: 0 } : { ...WAVE, delay: index * STAGGER_S }}
         />
       ))}
     </span>
