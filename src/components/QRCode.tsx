@@ -129,6 +129,10 @@ async function composeCaptionedPng(qrPng: Blob, size: number, caption: string, c
   return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'));
 }
 
+const isUsableDraw = (data: unknown) =>
+  (data instanceof Blob && data.size > 0) ||
+  (typeof Buffer !== 'undefined' && Buffer.isBuffer(data) && data.length > 0);
+
 /**
  * QR code display component for Miden addresses.
  * Renders a styled QR (circular dots in the `palette` treatment, Miden logo centered)
@@ -211,8 +215,12 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
         const staged = new QRCodeStyling(options);
         staged.append(container);
         void Promise.resolve(staged.getRawData('svg'))
-          .then(() => {
+          .then(drawn => {
             if (gen !== generation.current) return;
+            // A draw can settle without drawing; committing it would swap a working code for a blank slot.
+            if (!isUsableDraw(drawn) || !container.firstElementChild) {
+              throw new Error('recolour draw produced no code');
+            }
             committed.current = { instance: staged, slot, palette };
             applied.current = { qrValue, size, palette };
             setShownSlot(slot);
