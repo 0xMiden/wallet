@@ -629,6 +629,12 @@ body[data-hide-navbar]::after {
     --accent-swap: var(--action-swap);
     --accent-swap-tint: var(--action-swap-tint);
     --accent-swap-ink: var(--action-swap-ink);
+    /* What a flow draws ON its fill (a glyph, the toggle thumb, the CTA label) needs 3:1 there. */
+    --accent-brand-on: #ffffff;
+    --accent-send-on: #ffffff;
+    --accent-receive-on: #ffffff;
+    --accent-earn-on: #ffffff;
+    --accent-swap-on: #ffffff;
     /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
     --network-miden-tint: #fff3ec;
     --network-miden-border: #f7d6c2;
@@ -763,6 +769,12 @@ body[data-hide-navbar]::after {
     --action-receive-ink: var(--action-receive);
     --action-earn-ink: #8d8a9a;
     --action-swap-ink: var(--action-swap);
+    /* Dark mode's send, receive and swap fills are pastels, where white falls under 3:1. */
+    --accent-brand-on: #ffffff;
+    --accent-send-on: #191919;
+    --accent-receive-on: #191919;
+    --accent-earn-on: #ffffff;
+    --accent-swap-on: #191919;
     --network-miden-tint: #3a2418;
     --network-miden-border: #5c3622;
     --network-miden-text: #f2a57a;

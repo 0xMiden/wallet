@@ -50,7 +50,9 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} className={className} />
+  ),
   IconName: { ChevronDown: 'chevron-down', ChevronRightLucide: 'chevron-right', Globe: 'Globe' }
 }));
 
@@ -214,6 +216,15 @@ describe('SelectAmount', () => {
     it('uses the confirmTitle override for the CTA', () => {
       renderComponent({ confirmTitle: 'Swap Now' });
       expect(screen.getByTestId('confirm-btn')).toHaveTextContent('Swap Now');
+    });
+
+    // 12px text needs 4.5:1, which white on the light fills never reaches: the flow's ink on its tint.
+    it('draws the network pill in the flow ink on its tint', () => {
+      renderComponent({ accent: 'send' });
+
+      const pill = screen.getByText('miden');
+      expect(pill).toHaveClass('bg-accent-send-tint', 'text-accent-send-ink');
+      expect(pill).not.toHaveClass('text-pure-white', 'bg-accent-send');
     });
 
     it('hides the network pill when showNetworkPill is false', () => {
@@ -505,6 +516,8 @@ describe('SelectAmount', () => {
       const circle = globeIcon?.parentElement as HTMLElement;
       expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
       expect(circle.className).not.toContain('bg-primary-500');
+      expect(globeIcon).toHaveClass('text-accent-brand-on');
+      expect(globeIcon).not.toHaveClass('text-pure-white');
     });
   });
 

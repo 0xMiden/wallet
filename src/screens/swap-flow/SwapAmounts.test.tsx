@@ -325,6 +325,16 @@ describe('SwapAmounts', () => {
     });
   });
 
+  describe('direction toggle colour', () => {
+    it('draws the arrow in the swap on-colour, never a fixed white', () => {
+      renderComponent();
+
+      const toggle = screen.getAllByRole('button', { name: 'swapDirection' }).at(-1)!;
+      expect(toggle).toHaveClass('bg-accent-swap', 'text-accent-swap-on');
+      expect(toggle).not.toHaveClass('text-pure-white');
+    });
+  });
+
   describe('status message', () => {
     it('renders nothing when no status message is provided', () => {
       renderComponent({ statusMessage: undefined });

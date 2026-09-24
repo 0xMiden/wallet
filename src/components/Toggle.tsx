@@ -55,7 +55,11 @@ export const Toggle: React.FC<ToggleProps> = ({
           theme token, and animating to one would mean pinning a literal hex per flow. The position
           still springs; the colour cross-fades on the shared CSS micro-interaction. */}
       <motion.div
-        className={classNames('w-3 h-3 rounded-full', colorTransitionClass, value ? 'bg-white' : accentClasses.bg)}
+        className={classNames(
+          'w-3 h-3 rounded-full',
+          colorTransitionClass,
+          value ? classNames('bg-current', accentClasses.on) : accentClasses.bg
+        )}
         layout={!isExtension()}
         transition={isExtension() ? { duration: 0 } : resolveTransition(reduceMotion, presets.press.transition)}
       />

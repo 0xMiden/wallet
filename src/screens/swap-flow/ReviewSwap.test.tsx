@@ -138,6 +138,13 @@ describe('ReviewSwap', () => {
       expect(container.querySelector('svg')).not.toBeNull();
     });
 
+    it('draws the swap-arrows glyph in the swap on-colour', () => {
+      const { container } = renderComponent();
+      const arrows = container.querySelector('.bg-accent-swap');
+      expect(arrows).toHaveClass('text-accent-swap-on');
+      expect(arrows).not.toHaveClass('text-pure-white');
+    });
+
     it('owns its own dividers, so ReviewLayout adds neither the orange hero bar nor an outer row-list divide-y', () => {
       const { container } = renderComponent();
       // The swap hero draws its own pair of horizontal rules around the arrow glyph; the layout

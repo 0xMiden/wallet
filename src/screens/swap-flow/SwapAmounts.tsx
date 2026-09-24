@@ -5,8 +5,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { WaveDots } from 'components/ui';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
+import { WaveDots } from 'components/ui';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -131,7 +131,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             {...motionTokens.press}
             animate={{ rotate: reduceMotion ? 0 : flips * 180 }}
             transition={flipTransition}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-swap text-pure-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-swap text-accent-swap-on"
             aria-label={t('swapDirection')}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

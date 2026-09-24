@@ -175,7 +175,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       >
         <Avatar
           size={36}
-          icon={<Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />}
+          icon={<Icon name={IconName.Globe} size="sm" className={ACCENT_CLASSES.brand.on} fill="currentColor" />}
           color={PRIMARY_HEX}
         />
         <div className="flex flex-col">
@@ -250,8 +250,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {showNetworkPill && !isBridge && (
           <span
             className={clsx(
-              'self-start text-xs font-semibold text-pure-white px-3 py-1 rounded-full mb-3',
-              accentClasses.bg
+              'self-start text-xs font-semibold px-3 py-1 rounded-full mb-3',
+              accentClasses.tint,
+              accentClasses.ink
             )}
           >
             {t('miden')}

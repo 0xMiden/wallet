@@ -369,6 +369,33 @@ describe.each([':root', '.dark'] as const)('action colour contrast in %s', selec
   });
 });
 
+// A glyph, the toggle thumb or the 19px bold CTA label on a flow's fill is drawn in the flow's
+// on-colour and needs 3:1. Small text in a flow's colour (the network pill) takes the ink on the tint
+// instead: no one on-colour reads at 4.5:1 on every fill.
+const FLOW_FILLS = [
+  ['brand', 'accent-primary'],
+  ['send', 'accent-send'],
+  ['receive', 'accent-receive'],
+  ['earn', 'accent-earn'],
+  ['swap', 'accent-swap']
+] as const;
+
+describe.each([':root', '.dark'] as const)('flow on-colours in %s', selector => {
+  const value = (name: string) => resolved(selector, name);
+
+  it.each(FLOW_FILLS)('%s draws on its fill at 3:1', (flow, fill) => {
+    expect(contrast(value(`accent-${flow}-on`), value(fill))).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(FLOWS)('%s ink reads at 4.5:1 on its own tint', flow => {
+    expect(contrast(value(`accent-${flow}-ink`), value(`accent-${flow}-tint`))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+it.each(FLOW_FILLS)('maps accent-%s-on to a Tailwind color', flow => {
+  expect(config).toContain(`'accent-${flow}-on': 'var(--accent-${flow}-on)'`);
+});
+
 // The QR palette. The modules are always drawn on a white tile, so these five never flip with the
 // theme: they are the light card colors, pinned.
 describe('QR palette', () => {

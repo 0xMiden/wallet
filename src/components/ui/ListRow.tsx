@@ -185,7 +185,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
             tone?.bg
           )}
         >
-          <CheckIcon className="h-2 w-2.5 fill-pure-white" />
+          <CheckIcon className={cn('h-2 w-2.5', (tone ?? ACCENT_CLASSES.brand).onFill)} />
         </span>
       )}
       {showChevron && (

@@ -68,7 +68,7 @@ function formatFillsIn(t: TFunction, swapEta?: SwapEta): string {
 }
 
 const SwapArrows: React.FC = () => (
-  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-swap text-pure-white">
+  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-swap text-accent-swap-on">
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M5.5 13V4M5.5 4L3 6.5M5.5 4L8 6.5"

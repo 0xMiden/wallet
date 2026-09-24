@@ -126,8 +126,8 @@ describe('Toggle', () => {
       render(<Toggle data-testid="toggle" value />);
 
       const thumb = getThumb();
-      expect(thumb).toHaveClass('bg-white', colorTransitionClass);
-      expect(thumb).not.toHaveClass('bg-primary-500');
+      expect(thumb).toHaveClass('bg-current', 'text-accent-brand-on', colorTransitionClass);
+      expect(thumb).not.toHaveClass('bg-white', 'bg-primary-500');
       expect(JSON.parse(thumb.getAttribute('data-animate') as string)).toBeNull();
     });
   });
@@ -141,6 +141,13 @@ describe('Toggle', () => {
 
       rerender(<Toggle data-testid="toggle" accent="swap" value={false} />);
       expect(getThumb()).toHaveClass('bg-accent-swap');
+    });
+
+    it('draws the on thumb in the flow on-colour, which reads on the dark pastel fill', () => {
+      render(<Toggle data-testid="toggle" accent="swap" value />);
+
+      expect(getThumb()).toHaveClass('bg-current', 'text-accent-swap-on');
+      expect(getThumb()).not.toHaveClass('bg-white');
     });
 
     it('keeps the brand orange when no accent is given', () => {

@@ -106,7 +106,7 @@ describe('Button', () => {
     it('primary (default): accent fill, white label', () => {
       render(<Button />);
 
-      expect(screen.getByRole('button')).toHaveClass('bg-accent-primary', 'text-text-on-accent');
+      expect(screen.getByRole('button')).toHaveClass('bg-accent-primary', 'text-accent-brand-on');
     });
 
     it('secondary: fill, ink label', () => {
@@ -136,13 +136,25 @@ describe('Button', () => {
       render(<Button accent={accent} />);
 
       const button = screen.getByRole('button');
-      expect(button).toHaveClass(fill, 'text-text-on-accent');
+      expect(button).toHaveClass(fill);
       // The brand set has to be REPLACED, not merged with: a surviving
       // `dark:disabled:` would repaint the flow's disabled button orange.
       expect(button).not.toHaveClass('bg-accent-primary');
       expect(button).not.toHaveClass('dark:disabled:bg-primary-disabled-dark');
       expect(button).toHaveClass(`disabled:${fill}/40`);
     });
+
+    // The dark theme's send, receive and swap fills are pastels, so the label follows its fill.
+    it.each(['brand', 'send', 'receive', 'earn', 'swap'] as const)(
+      'primary draws its label in the %s on-colour',
+      accent => {
+        render(<Button accent={accent} />);
+
+        const button = screen.getByRole('button');
+        expect(button).toHaveClass(`text-accent-${accent}-on`);
+        expect(button).not.toHaveClass('text-text-on-accent');
+      }
+    );
 
     it('leaves a non-primary variant on `fill` whatever the flow', () => {
       render(<Button variant={ButtonVariant.Secondary} accent="swap" />);
@@ -186,7 +198,7 @@ describe('Button', () => {
       expect(screen.getByRole('button')).toHaveClass(
         'disabled:bg-primary-disabled',
         'dark:disabled:bg-primary-disabled-dark',
-        'text-text-on-accent'
+        'text-accent-brand-on'
       );
     });
 

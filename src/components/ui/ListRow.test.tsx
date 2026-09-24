@@ -123,6 +123,9 @@ it('renders a trailing value, a custom trailing control and a check', () => {
   expect(screen.getByTestId('value-row').querySelector('[data-slot="chevron"]')).not.toBeNull();
   expect(screen.getByTestId('toggle')).toBeInTheDocument();
   expect(screen.getByTestId('checked-row').querySelector('[data-slot="check"]')).not.toBeNull();
+  expect(screen.getByTestId('checked-row').querySelector('[data-slot="check"] svg')).toHaveClass(
+    'fill-accent-brand-on'
+  );
   expect(screen.getByTestId('checked-row')).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByTestId('unchecked-row').querySelector('[data-slot="check"]')).toBeNull();
   expect(screen.getByTestId('unchecked-row')).toHaveAttribute('aria-pressed', 'false');
@@ -222,6 +225,8 @@ it('paints its glyph, chevron, check and hairline in a flow accent, leaving the 
   // A selected state is the flow's own colour too, not the brand fill.
   expect(row.querySelector('[data-slot="check"]')).toHaveClass('bg-accent-receive');
   expect(row.querySelector('[data-slot="check"]')).not.toHaveClass('bg-accent-primary');
+  expect(row.querySelector('[data-slot="check"] svg')).toHaveClass('fill-accent-receive-on');
+  expect(row.querySelector('[data-slot="check"] svg')).not.toHaveClass('fill-pure-white');
   // The accent never reaches the copy: it is under 4.5:1 as text.
   expect(row.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
   expect(screen.getByText('From Sepolia')).toHaveClass('text-muted');

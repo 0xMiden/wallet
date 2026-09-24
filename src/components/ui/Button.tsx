@@ -12,7 +12,7 @@ import { cn } from 'lib/ui/util';
 import { IconOrComponent } from 'utils/icon-or-component';
 
 export enum ButtonVariant {
-  /** The one main action on a screen: accent fill, white label. */
+  /** The one main action on a screen: accent fill, the accent's on-colour label. */
   Primary = 'primary',
   /** Every other action: `fill`, `ink` label. */
   Secondary = 'secondary',
@@ -53,10 +53,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // The fill is applied separately, from `ACCENT_CLASSES[accent].cta`: the flow's set has to
-        // REPLACE the brand's rest/hover/disabled classes wholesale, and merging them one modifier
-        // at a time leaves the brand's `dark:disabled:` behind.
-        [ButtonVariant.Primary]: 'text-text-on-accent',
+        // The fill and label are applied separately, from `ACCENT_CLASSES[accent].cta`: the flow's
+        // set has to REPLACE the brand's rest/hover/disabled classes wholesale, and merging them one
+        // modifier at a time leaves the brand's `dark:disabled:` behind.
+        [ButtonVariant.Primary]: '',
         [ButtonVariant.Secondary]: 'bg-fill text-ink hover:bg-fill-pressed disabled:bg-fill disabled:text-muted',
         [ButtonVariant.Destructive]:
           'bg-fill text-negative-ink hover:bg-fill-pressed disabled:bg-fill disabled:text-muted',
