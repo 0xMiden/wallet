@@ -2264,12 +2264,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "Enter your wallet's 12-word seed phrase.",
-    "englishSource": "Enter your wallet's 12-word seed phrase."
+    "message": "Enter your wallet's 12-word recovery phrase.",
+    "englishSource": "Enter your wallet's 12-word recovery phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Only Miden seed phrases are supported.",
-    "englishSource": "Only Miden seed phrases are supported."
+    "message": "Only Miden recovery phrases are supported.",
+    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Your wallet is ready!",
@@ -2356,8 +2356,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate your everyday key, not for day-to-day transactions."
+    "message": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions.",
+    "englishSource": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "Select",
@@ -2416,8 +2416,8 @@
     "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
-    "message": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one.",
-    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
+    "message": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one.",
+    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
     "message": "We’re sorry for the inconvenience.",
@@ -2436,8 +2436,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file.",
-    "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
+    "message": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file.",
+    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
     "message": "Biometric Unlock Required",
