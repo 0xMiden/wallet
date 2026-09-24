@@ -14,6 +14,7 @@ import { IBridgedReceiveExtraInputs, IBridgeProvider } from 'lib/miden/db/types'
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { fetchXReserveAttestations, findAttestationForDomain } from 'lib/usdcx/attestation';
 import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
+import { ATTESTATION_POLL_MS } from 'lib/usdcx/use-attestation';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -23,9 +24,6 @@ interface EvmBridgeDepositStatusProps {
   txId: string;
   onDone: () => void;
 }
-
-/** Circle signs the attestation minutes after the Sepolia receipt; poll gently while the screen is on. */
-const ATTESTATION_POLL_MS = 10_000;
 
 /**
  * The deposit hash to poll Circle's attestation API for. Only a USDCx row that
