@@ -78,6 +78,10 @@ type HistoryProps = {
 export interface HistoryEntriesView {
   entries: IHistoryEntry[];
   initialLoading: boolean;
+  /** Either read behind `entries` failed. */
+  loadError: boolean;
+  /** Re-runs both reads. */
+  onRetry: () => void;
   /** False once the history is exhausted — which is when a count over `entries` is final. */
   hasMore: boolean;
   loadMore: (page: number) => Promise<void>;
@@ -337,12 +341,24 @@ const History = memo<HistoryProps>(
       entries = entries.slice(0, maxIndex);
     }
 
+    // Under Pending both reads are paused, and one that never ran reports loading until they resume.
+    // One list, so it is loading until both reads have answered once.
+    const initialLoading = filter !== 'pending' && (transactionsLoading || pendingLoading);
+    // The list is both reads together, so either failing is a failed load, and Retry re-runs both.
+    const loadError = filter !== 'pending' && Boolean(latestError || pendingError);
+    const onRetry = () => {
+      void mutateLatest();
+      void mutateTx();
+    };
+
     if (renderEntries) {
       return (
         <>
           {renderEntries({
             entries,
-            initialLoading: filter !== 'pending' && transactionsLoading,
+            initialLoading,
+            loadError,
+            onRetry,
             hasMore: reading && hasMore,
             loadMore
           })}
@@ -353,15 +369,9 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
-        // Under Pending both reads are paused, and one that never ran reports loading until they resume.
-        // One list, so it is loading until both reads have answered once.
-        initialLoading={filter !== 'pending' && (transactionsLoading || pendingLoading)}
-        // The list is both reads together, so either failing is a failed load, and Retry re-runs both.
-        loadError={filter !== 'pending' && Boolean(latestError || pendingError)}
-        onRetry={() => {
-          void mutateLatest();
-          void mutateTx();
-        }}
+        initialLoading={initialLoading}
+        loadError={loadError}
+        onRetry={onRetry}
         loadMore={loadMore}
         // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
         // row is filtered out, and off screen.

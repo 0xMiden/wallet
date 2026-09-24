@@ -23,7 +23,7 @@ import {
 } from './activityGroups';
 import { isActivityGroupUnread } from './activityUnread';
 import { historyEntryMatchesSearch } from './History';
-import { shortAddr } from './HistoryView';
+import { HistoryLoadErrorCard, HistoryLoadErrorNotice, shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -80,6 +80,10 @@ export interface ActivityGroupListProps {
   /** Resolves a counterparty to a contact's or an own account's name. */
   nameOf: ActivityCounterpartyName;
   initialLoading: boolean;
+  /** A read behind `entries` failed: shown in place of the empty state, or above the groups. */
+  loadError?: boolean;
+  /** Re-runs the failed reads; backs the load-error Retry. */
+  onRetry?: () => void;
   hasMore: boolean;
   loadMore: (page: number) => Promise<void>;
   scrollParentRef?: RefObject<HTMLDivElement>;
@@ -107,7 +111,7 @@ function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): 
  * exhausted (`hasMore` false) the `+` goes and the number is final.
  */
 export const ActivityGroupList = memo<ActivityGroupListProps>(
-  ({ entries, nameOf, initialLoading, hasMore, loadMore, scrollParentRef, searchQuery }) => {
+  ({ entries, nameOf, initialLoading, loadError, onRetry, hasMore, loadMore, scrollParentRef, searchQuery }) => {
     const { t } = useTranslation();
     const readState = useActivityReadState();
     const query = searchQuery?.trim().toLowerCase() ?? '';
@@ -117,6 +121,14 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
     }, [entries, nameOf, query, t]);
 
     if (groups.length === 0) {
+      // As in the List view, a failed read outranks one still loading and never reads as "no activity".
+      if (loadError) {
+        return (
+          <div className="flex flex-col pt-4">
+            <HistoryLoadErrorCard onRetry={onRetry} />
+          </div>
+        );
+      }
       if (initialLoading) {
         return (
           <div className="flex h-8 justify-center pt-5">
@@ -178,6 +190,7 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
 
     return (
       <div className="flex w-full flex-col pb-6">
+        {loadError && <HistoryLoadErrorNotice onRetry={onRetry} />}
         {scrollParentRef ? (
           <InfiniteScroll
             loadMore={loadMore}

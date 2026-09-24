@@ -167,6 +167,37 @@ describe('ActivityGroupList', () => {
     expect(screen.queryByTestId('activity-group-list')).toBeNull();
   });
 
+  it('says a failed read failed, with Retry, instead of showing an empty history', () => {
+    const onRetry = jest.fn();
+    renderList([], { loadError: true, onRetry });
+
+    const card = screen.getByTestId('history-load-error');
+    expect(card).toHaveAttribute('role', 'alert');
+    expect(within(card).getByText('tokenActivityLoadError')).toBeTruthy();
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    screen.getByTestId('history-load-retry').click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a failed read outrank one still loading', () => {
+    renderList([], { initialLoading: true, loadError: true, onRetry: jest.fn() });
+    expect(screen.getByTestId('history-load-error')).toBeTruthy();
+  });
+
+  it('keeps the groups it has and says above them that a read failed', () => {
+    const onRetry = jest.fn();
+    renderList([entry({ secondaryAddress: 'mtst1alice' })], { loadError: true, onRetry });
+
+    const notice = screen.getByTestId('history-load-error-notice');
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(
+      notice.compareDocumentPosition(screen.getByTestId('activity-group-list')) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(rows()).toHaveLength(1);
+    within(notice).getByTestId('history-load-retry').click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it('renders one row per group, newest first, each linking to its own page', () => {
     renderList([
       entry({ timestamp: 900, secondaryAddress: 'mtst1alice' }),

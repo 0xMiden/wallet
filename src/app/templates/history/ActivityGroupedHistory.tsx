@@ -75,6 +75,8 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
                 entries={view.entries}
                 nameOf={nameOf}
                 initialLoading={view.initialLoading}
+                loadError={view.loadError}
+                onRetry={view.onRetry}
                 // History's first read already holds the whole history (get.ts), so a count is final and
                 // there is nothing more to page.
                 hasMore={false}

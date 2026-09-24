@@ -24,6 +24,11 @@ let mockRealHistory = false;
 const mockLatest: IHistoryEntry[] = [];
 // What the stubbed History reports about paging.
 const mockView = { hasMore: false };
+// Set by a case that needs the real list, to see what the reads' state draws.
+let mockRealGroupList = false;
+// Each read's state, keyed by its SWR key's first element.
+const mockReads: Record<string, { isLoading: boolean; error?: Error; mutate: jest.Mock }> = {};
+const mockRead = (key: string) => (mockReads[key] ??= { isLoading: false, mutate: jest.fn() });
 
 jest.mock('./History', () => ({
   __esModule: true,
@@ -49,19 +54,32 @@ jest.mock('./ActivityGroupList', () => ({
     nameOf: (address: string) => string | undefined;
     hasMore: boolean;
     searchQuery?: string;
-  }) => (
-    <div
-      data-testid="group-list"
-      data-count={String(props.entries.length)}
-      data-has-more={String(props.hasMore)}
-      data-keys={props.entries.map(e => e.key).join(',')}
-      data-search={props.searchQuery ?? ''}
-      data-alice={props.nameOf('MTST1ALICE') ?? ''}
-      data-stranger={props.nameOf('mtst1stranger') ?? ''}
-      data-blank={String(props.nameOf('mtst1blank'))}
-    />
-  )
+  }) => {
+    if (mockRealGroupList) {
+      const Real = jest.requireActual('./ActivityGroupList').ActivityGroupList;
+      return <Real {...props} />;
+    }
+    return <MockGroupList {...props} />;
+  }
 }));
+
+const MockGroupList = (props: {
+  entries: IHistoryEntry[];
+  nameOf: (address: string) => string | undefined;
+  hasMore: boolean;
+  searchQuery?: string;
+}) => (
+  <div
+    data-testid="group-list"
+    data-count={String(props.entries.length)}
+    data-has-more={String(props.hasMore)}
+    data-keys={props.entries.map(e => e.key).join(',')}
+    data-search={props.searchQuery ?? ''}
+    data-alice={props.nameOf('MTST1ALICE') ?? ''}
+    data-stranger={props.nameOf('mtst1stranger') ?? ''}
+    data-blank={String(props.nameOf('mtst1blank'))}
+  />
+);
 
 const contacts = {
   value: [
@@ -74,11 +92,15 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
 }));
 
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: (key: unknown[]) => ({
-    data: key[0] === 'latest-transactions' ? mockLatest : [],
-    isLoading: false,
-    mutate: jest.fn()
-  })
+  useRetryableSWR: (key: unknown[]) => {
+    const read = mockRead(String(key[0]));
+    return {
+      data: read.isLoading || read.error ? undefined : key[0] === 'latest-transactions' ? mockLatest : [],
+      isLoading: read.isLoading,
+      error: read.error,
+      mutate: read.mutate
+    };
+  }
 }));
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: jest.fn(),
@@ -157,6 +179,8 @@ describe('ActivityGroupedHistory', () => {
     mockRealHistory = false;
     mockLatest.length = 0;
     mockView.hasMore = false;
+    mockRealGroupList = false;
+    for (const key of Object.keys(mockReads)) delete mockReads[key];
     mockClaims.items = [];
     mockClaims.isLoadingNotes = false;
     mockHidden.ids = new Set();
@@ -279,5 +303,29 @@ describe('ActivityGroupedHistory', () => {
     expect(list).toHaveAttribute('data-alice', 'Alice');
     expect(list).toHaveAttribute('data-stranger', '');
     expect(list).toHaveAttribute('data-blank', 'undefined');
+  });
+  it('spins, rather than reporting no activity, while the pending read has not answered yet', () => {
+    mockRealHistory = true;
+    mockRealGroupList = true;
+    mockRead('latest-pending-transactions').isLoading = true;
+    render(<ActivityGroupedHistory search="" />);
+
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    expect(screen.queryByTestId('history-load-error')).toBeNull();
+    expect(screen.getByTestId('activity-groups').querySelector('svg')).toBeTruthy();
+  });
+
+  it('says a failed pending read failed, and Retry re-runs both reads', () => {
+    mockRealHistory = true;
+    mockRealGroupList = true;
+    mockRead('latest-pending-transactions').error = new Error('boom');
+    render(<ActivityGroupedHistory search="" />);
+
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    const card = screen.getByTestId('history-load-error');
+    expect(card).toHaveAttribute('role', 'alert');
+    fireEvent.click(within(card).getByTestId('history-load-retry'));
+    expect(mockRead('latest-transactions').mutate).toHaveBeenCalledTimes(1);
+    expect(mockRead('latest-pending-transactions').mutate).toHaveBeenCalledTimes(1);
   });
 });

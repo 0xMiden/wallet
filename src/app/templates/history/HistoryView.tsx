@@ -341,6 +341,46 @@ function buildRowProps(
   };
 }
 
+/** A failed history read with nothing on screen: says so, with Retry, in place of "no activity". */
+export const HistoryLoadErrorCard: React.FC<{ surface?: 'fill' | 'dashed'; onRetry?: () => void }> = ({
+  surface = 'fill',
+  onRetry
+}) => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      role="alert"
+      icon={IconName.ArrowUpDown}
+      surface={surface}
+      title={t('tokenActivityLoadError')}
+      secondaryAction={
+        onRetry ? { label: t('retry'), onClick: onRetry, 'data-testid': 'history-load-retry' } : undefined
+      }
+      className="w-full"
+      data-testid="history-load-error"
+    />
+  );
+};
+
+/** A failed history read under rows already on screen: they are not the whole history. */
+export const HistoryLoadErrorNotice: React.FC<{ onRetry?: () => void }> = ({ onRetry }) => {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="alert"
+      data-testid="history-load-error-notice"
+      className="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-fill px-4 py-3"
+    >
+      <span className="text-body-sm text-ink">{t('tokenActivityLoadError')}</span>
+      {onRetry && (
+        <TextAction onClick={onRetry} data-testid="history-load-retry">
+          {t('retry')}
+        </TextAction>
+      )}
+    </div>
+  );
+};
+
 /** The wallet's one address ellipsis, shared with the Groups view so both read a row the same way. */
 export function shortAddr(addr: string): string {
   if (addr.length <= 12) return addr;
@@ -401,17 +441,7 @@ const HistoryView = memo<HistoryViewProps>(
       // A failed read with nothing to show must not read as "no activity": in every empty mode the
       // card says the load failed and offers Retry instead.
       const loadErrorCard = loadError ? (
-        <EmptyState
-          role="alert"
-          icon={IconName.ArrowUpDown}
-          surface={tokenId ? 'dashed' : 'fill'}
-          title={t('tokenActivityLoadError')}
-          secondaryAction={
-            onRetry ? { label: t('retry'), onClick: onRetry, 'data-testid': 'history-load-retry' } : undefined
-          }
-          className="w-full"
-          data-testid="history-load-error"
-        />
+        <HistoryLoadErrorCard surface={tokenId ? 'dashed' : 'fill'} onRetry={onRetry} />
       ) : null;
       if (centerEmptyState) {
         // Sits right under the filters, at the same top offset the first date
@@ -447,20 +477,7 @@ const HistoryView = memo<HistoryViewProps>(
     }
 
     // Rows on screen with a failed read behind them are not the whole history: say so above them.
-    const loadErrorNotice = loadError ? (
-      <div
-        role="alert"
-        data-testid="history-load-error-notice"
-        className="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-fill px-4 py-3"
-      >
-        <span className="text-body-sm text-ink">{t('tokenActivityLoadError')}</span>
-        {onRetry && (
-          <TextAction onClick={onRetry} data-testid="history-load-retry">
-            {t('retry')}
-          </TextAction>
-        )}
-      </div>
-    ) : null;
+    const loadErrorNotice = loadError ? <HistoryLoadErrorNotice onRetry={onRetry} /> : null;
 
     // Summary view (used outside the full Activity page) keeps the legacy
     // HistoryItem look — small list of recent entries, no grouping or chrome.
