@@ -10,3 +10,7 @@ export const TERMS_OF_USE_URL = 'https://0xmiden.github.io/wallet/privacy/';
 // Hosted feedback form opened from Settings › About. Rendered in a native
 // in-app browser overlay on mobile and a new tab on desktop / extension.
 export const FEEDBACK_URL = 'https://miden-feedback-form.miden-feedback-relay.workers.dev/';
+
+// Miden support site opened from Settings › About. Same in-app webview /
+// new-tab treatment as FEEDBACK_URL.
+export const SUPPORT_URL = 'https://support.miden.xyz/';

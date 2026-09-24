@@ -63,7 +63,7 @@ export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
  * Spendable vault balance for exactly one token symbol, in base units.
  *
  * Reads ONLY the store's `balances` projection (consumed assets actually in the
- * vault) — never the pending-note cache. Symbol match is case-insensitive.
+ * vault) - never the pending-note cache. Symbol match is case-insensitive.
  *
  * The symbol resolves from the row's own metadata, falling back to `assetsMetadata`, because a row
  * carries `metadata` only when `fetchTokenMetadata` succeeded. This MUST agree with

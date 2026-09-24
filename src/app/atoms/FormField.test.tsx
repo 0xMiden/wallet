@@ -2,8 +2,6 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-
 import FormField, { PASSWORD_ERROR_CAPTION } from './FormField';
 
 // i18n: return the key so we can assert on stable strings.
@@ -11,44 +9,15 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// FormField calls useCopyToClipboard() directly and forwards `copy` to the
-// CopyIcon onClick. A stable jest.fn (captured in the factory closure) lets us
-// assert it was invoked without depending on the real clipboard plumbing.
-jest.mock('lib/ui/useCopyToClipboard', () => {
-  const copy = jest.fn();
-  return {
-    __esModule: true,
-    default: jest.fn(() => ({ copy, fieldRef: { current: null }, copied: false, setCopied: jest.fn() }))
-  };
-});
-
 // Stub the child atoms so the test exercises FormField's own branches without
-// dragging in tippy / analytics / haptics. The stubs preserve the props
-// FormField relies on (onClick, style, text, children).
+// dragging in tippy / analytics / haptics. The stub preserves the props
+// FormField relies on (onClick).
 jest.mock('app/atoms/CleanButton', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
     default: ({ onClick }: { onClick: () => void }) =>
       ReactLib.createElement('button', { type: 'button', 'data-testid': 'clean-button', onClick })
-  };
-});
-
-jest.mock('app/atoms/CopyButton', () => {
-  const ReactLib = require('react');
-  return {
-    __esModule: true,
-    default: ({ children, text, style }: any) =>
-      ReactLib.createElement(
-        'div',
-        {
-          'data-testid': 'copy-button',
-          'data-text': String(text),
-          'data-bottom': style?.bottom,
-          'data-right': style?.right
-        },
-        children
-      )
   };
 });
 
@@ -148,6 +117,21 @@ describe('FormField', () => {
   });
 
   describe('password handling', () => {
+    // `off` is the one value browsers override on a password-type input, which is exactly the
+    // field this default exists to protect, so a password field needs `new-password`. Same rule
+    // and same shape in `TextField`, which replaces this component.
+    it('suppresses the password manager with new-password, not off', () => {
+      const { container } = render(<FormField type="password" />);
+
+      expect(getInput(container)).toHaveAttribute('autocomplete', 'new-password');
+    });
+
+    it('lets a caller override it, for a field that wants the stored password', () => {
+      const { container } = render(<FormField type="password" autoComplete="current-password" />);
+
+      expect(getInput(container)).toHaveAttribute('autocomplete', 'current-password');
+    });
+
     it('shows the password toggle when a value is present and toggles the input type', () => {
       const { container } = render(<FormField type="password" defaultValue="secret" />);
 
@@ -205,83 +189,6 @@ describe('FormField', () => {
       const { container } = render(<FormField />);
 
       expect(container.querySelector('.text-red-500')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('secret textarea banner', () => {
-    it('shows the banner for a secret textarea with a value and focuses the field on click', () => {
-      const { container } = render(<FormField textarea secret defaultValue="mnemonic words" />);
-
-      const textarea = getTextarea(container);
-      expect(textarea.className).toContain('border-border-light');
-
-      const banner = screen.getByText('clickToRevealField');
-      expect(banner).toBeInTheDocument();
-      expect(container.querySelector('svg')).toHaveClass('text-heading-gray');
-
-      act(() => {
-        fireEvent.click(banner);
-      });
-      // handleSecretBannerClick -> getFieldEl().focus()
-      expect(document.activeElement).toBe(textarea);
-    });
-
-    it('derives the initial value from `value` when provided', () => {
-      render(<FormField textarea secret value="controlled" onChange={() => undefined} />);
-
-      expect(screen.getByText('clickToRevealField')).toBeInTheDocument();
-    });
-
-    it('does not show the banner when secret is set but textarea is not', () => {
-      render(<FormField secret defaultValue="not a textarea" />);
-
-      expect(screen.queryByText('clickToRevealField')).not.toBeInTheDocument();
-    });
-
-    it('does not show the banner for an empty secret textarea', () => {
-      render(<FormField textarea secret />);
-
-      expect(screen.queryByText('clickToRevealField')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('secret textarea auto-blur effect', () => {
-    beforeEach(() => {
-      jest.useFakeTimers();
-    });
-    afterEach(() => {
-      jest.runOnlyPendingTimers();
-      jest.useRealTimers();
-    });
-
-    it('registers a window blur listener and a 30s timeout, then cleans up', () => {
-      const addSpy = jest.spyOn(window, 'addEventListener');
-      const removeSpy = jest.spyOn(window, 'removeEventListener');
-
-      const { container, unmount } = render(<FormField textarea secret defaultValue="secret value" />);
-      const textarea = getTextarea(container);
-
-      act(() => {
-        fireEvent.focus(textarea);
-      });
-      expect(addSpy).toHaveBeenCalledWith('blur', expect.any(Function));
-
-      // window-blur path -> handleLocalBlur -> getFieldEl().blur()
-      act(() => {
-        window.dispatchEvent(new Event('blur'));
-      });
-
-      // let the 30s timeout fire -> handleLocalBlur again
-      act(() => {
-        jest.advanceTimersByTime(30_000);
-      });
-
-      // unmount tears the effect down -> clearTimeout + removeEventListener
-      unmount();
-      expect(removeSpy).toHaveBeenCalledWith('blur', expect.any(Function));
-
-      addSpy.mockRestore();
-      removeSpy.mockRestore();
     });
   });
 
@@ -349,40 +256,6 @@ describe('FormField', () => {
       render(<FormField />);
 
       expect(screen.queryByTestId('clean-button')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Copyable', () => {
-    it('renders a copy button and invokes copy() when the icon is clicked (no cleanable offset)', () => {
-      const copy = (useCopyToClipboard as unknown as jest.Mock)().copy;
-
-      render(<FormField copyable value="copy me" onChange={() => undefined} />);
-
-      const copyButton = screen.getByTestId('copy-button');
-      expect(copyButton).toHaveAttribute('data-text', 'copy me');
-      // cleanable falsy -> bottom 0px / right 5px
-      expect(copyButton).toHaveAttribute('data-bottom', '0px');
-      expect(copyButton).toHaveAttribute('data-right', '5px');
-
-      const icon = copyButton.querySelector('svg') as SVGElement;
-      act(() => {
-        fireEvent.click(icon);
-      });
-      expect(copy).toHaveBeenCalled();
-    });
-
-    it('offsets the copy button when the field is also cleanable', () => {
-      render(<FormField copyable cleanable value="copy me" onChange={() => undefined} />);
-
-      const copyButton = screen.getByTestId('copy-button');
-      expect(copyButton).toHaveAttribute('data-bottom', '3px');
-      expect(copyButton).toHaveAttribute('data-right', '30px');
-    });
-
-    it('renders no copy button when copyable is false', () => {
-      render(<FormField />);
-
-      expect(screen.queryByTestId('copy-button')).not.toBeInTheDocument();
     });
   });
 

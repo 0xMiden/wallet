@@ -86,8 +86,8 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
   if (account.guardianSyncStatus !== 'needs-user-input') return null;
 
   return (
-    <div className={classNames('w-full bg-surface-input rounded-10 flex flex-col gap-3 px-4 py-3', className)}>
-      <div className="text-black">
+    <div className={classNames('w-full bg-fill rounded-10 flex flex-col gap-3 px-4 py-3', className)}>
+      <div className="text-ink">
         <div className="text-base font-bold font-heading leading-tight">{t('guardianChangedTitle')}</div>
         <div className="text-xs font-normal mt-1">{t('guardianChangedBody')}</div>
       </div>
@@ -115,12 +115,7 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
           {error}
         </p>
       )}
-      <Button
-        title={submitting ? t('loading') : t('continue')}
-        onClick={onSubmit}
-        disabled={submitting}
-        className="h-10"
-      />
+      <Button size="sm" title={submitting ? t('loading') : t('continue')} onClick={onSubmit} disabled={submitting} />
     </div>
   );
 };

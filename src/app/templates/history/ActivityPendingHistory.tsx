@@ -1,141 +1,135 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 
-import classNames from 'clsx';
-import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { useActivityClaims } from 'app/hooks/useActivityClaims';
-import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button, ButtonVariant } from 'components/Button';
-import { durations, useMotion } from 'lib/animation';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
-import { useConfirm } from 'lib/ui/dialog';
-import { useLocation } from 'lib/woozie';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
+import { usdFormatterFor } from 'lib/i18n/numbers';
+import { markActivityRead } from 'lib/settings/activity-read';
+import { useWalletStore } from 'lib/store';
+import { getPendingNotesUsdTotal } from 'lib/wallet-prompts';
 
+import { ClaimsLoadingBar } from './ActivityClaimsStatus';
+import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
-import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
+import { useActivityClaimList } from './useActivityClaimList';
 
 interface ActivityPendingHistoryProps {
   search: string;
   filter: ActivityFilter;
   programId?: string | null;
+  /** Forwarded to the list below, which owns the loading state the caller reports on. */
+  onInitialLoad?: () => void;
 }
 
-function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boolean {
-  if (item.status === 'checking' || item.status === 'unavailable') return false;
-  return !hiddenIds.has(item.note.id) || item.status === 'claimed' || item.status === 'claiming';
-}
-
-export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPendingHistoryProps) => {
+export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
-  const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
-  const reducedMotion = useReducedMotion();
-  const loadingTransition = useMotion({
-    duration: durations.extraSlow * 2,
-    ease: 'linear',
-    repeat: reducedMotion ? 0 : Infinity
-  });
-  const hidden = useActivityHiddenNotes(account.publicKey);
-  const confirm = useConfirm();
+  const { representedItems, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden, hiddenCount } =
+    useActivityClaimList(search, filter);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const currentItems = useRef(items);
-  currentItems.current = items;
 
-  const query = search.trim().toLowerCase();
-  // Memoized with the card renderer below, so a render that changes no pending item keeps
-  // History's props identical and the timeline does not re-render.
-  const listItems = useMemo(
-    () =>
-      items.filter(item => {
-        if (!isShown(item, hidden.ids)) return false;
-        if (filter === 'sent' || filter === 'faucet') return false;
-        if (filter === 'pending' && item.status === 'claimed') return false;
-        return (
-          !query ||
-          [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>
-            value?.toLowerCase().includes(query)
-          )
-        );
-      }),
-    [items, hidden.ids, filter, query]
-  );
-  // Declined transfers that could still be accepted. The Decline dialog promises they can be
-  // brought back, so the Pending filter offers Restore while any exist.
-  const hiddenCount = items.filter(
-    item => hidden.ids.has(item.note.id) && (item.status === 'pending' || item.status === 'failed')
-  ).length;
-  // Claim All on the Pending tab takes every listed note that can be accepted.
+  // Accept All takes every listed transfer that can be accepted - whatever the asset, whoever
+  // sent it. It is the ONE bulk action on this tab; there is no per-asset or per-sender variant.
   const claimableNotes = listItems
     .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
-  // Accept All is the page's primary action, so it sits at the bottom edge in
-  // place of the tab navbar, the way the send flow pins its CTA. It follows the
-  // listed notes, search included, so a search that lists nothing gives the
-  // navbar back. The navbar is hidden only while the Activity tab is the ACTIVE
-  // route: TabLayout keeps a visited tab mounted under the others, so without the
-  // route gate a pending list on a hidden Activity tab would hide the navbar on Home.
-  const showAcceptAll = filter === 'pending' && listItems.length > 0;
-  const { pathname } = useLocation();
-  const onActivityTab = pathname.split('/')[1] === 'history';
-  useHideNavbarWhileOpen(showAcceptAll && onActivityTab);
-
-  const reject = async (note: NoteWithMetadata) => {
-    const accepted = await confirm({ title: t('activityRejectTransfer'), children: t('activityRejectExplanation') });
-    if (!accepted) return;
-    const latest = currentItems.current.find(item => item.note.id === note.id);
-    if (!latest || (latest.status !== 'pending' && latest.status !== 'failed')) return;
-    await hidden.hide(note.id);
-  };
-  const acceptRef = useRef(accept);
-  acceptRef.current = accept;
-  const rejectRef = useRef(reject);
-  rejectRef.current = reject;
-  const hiddenLoaded = hidden.loaded;
-  const renderPendingItem = useCallback(
-    (item: PendingActivityItem) => (
-      <PendingActivityCard
-        item={item}
-        onAccept={note => acceptRef.current(note)}
-        onReject={hiddenLoaded ? note => rejectRef.current(note) : undefined}
-      />
-    ),
-    [hiddenLoaded]
+  // Every acceptable transfer is already in flight: the action stays, in its loading state, so it
+  // does not vanish from under the tap that started it.
+  const acceptingAll = claimingCount > 0 && claimableNotes.length === 0;
+  const showAcceptAll = filter === 'pending' && (claimableNotes.length > 0 || acceptingAll);
+  // Restore is offered only while a declined transfer could still be accepted.
+  const showRestore = filter === 'pending' && hiddenCount > 0;
+  // What the row's left side says. The money is the whole point of the row - it is what Accept
+  // All is about to accept - so it is read off the SAME list the cards below come from, which is
+  // `isShown`'s, and a declined transfer is not on it. `HomePrompts` reads the same set through
+  // the same store, which is what makes the banner and this row agree.
+  const waitingTotalUsd = useMemo(
+    () =>
+      getPendingNotesUsdTotal(
+        listItems.map(item => item.note),
+        tokenPrices
+      ),
+    [listItems, tokenPrices]
   );
+  // Pinned to the total's own precision, so a figure travelling towards a dust total does not
+  // change width on the way (`AnimatedNumber`).
+  const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd), [waitingTotalUsd]);
+  // One line, one lockup, the same one the home banner uses for this money: the count in the
+  // caption style, the total as a value on `ink`. When transfers are also hidden that fact joins
+  // the SAME sentence as a clause rather than becoming a second line - and it is the clause the
+  // truncation eats first, so the figure survives a 360px row. With nothing waiting at all there
+  // is no money to report and the hidden count takes the slot on its own.
+  const waitingCount = listItems.length;
+  const summary =
+    waitingCount === 0
+      ? t('activityHiddenTransfers', { count: hiddenCount })
+      : hiddenCount > 0
+        ? t('activityPendingWaitingHidden', { count: waitingCount, hidden: hiddenCount })
+        : t('activityPendingWaiting', { count: waitingCount });
+
+  // Accepting everything listed: reading them all, then the one batch-claim path. The Accept All
+  // button in the row beside Restore is its only caller.
+  const acceptAll = () => {
+    for (const note of claimableNotes) {
+      markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
+    }
+    acceptMany(claimableNotes);
+  };
 
   return (
     <>
-      <div className="mx-4 h-0.5 shrink-0 overflow-hidden rounded-full">
-        {isLoadingNotes && (
-          <motion.div
-            role="progressbar"
-            aria-label={t('loading')}
-            className={reducedMotion ? 'h-full w-full bg-accent-primary' : 'h-full w-1/3 bg-accent-primary'}
-            initial={false}
-            animate={{ x: reducedMotion ? '0%' : ['-100%', '300%'] }}
-            transition={loadingTransition}
-          />
-        )}
-      </div>
+      <ClaimsLoadingBar loading={isLoadingNotes} />
 
-      {/* `pb-28` clears the floating navbar; with the Accept All footer in its
-          place the list only needs its own bottom breathing room. */}
-      <div ref={scrollRef} className={classNames('flex-1 min-h-0 overflow-y-auto', showAcceptAll ? 'pb-4' : 'pb-28')}>
+      {/* `pb-28` clears the floating navbar. There is no pinned footer any more: Accept All sits
+          in the row below, so the tab keeps its navbar the way every other tab does. */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
         {hidden.failed && (
           <p role="alert" className="px-4 py-2 text-xs text-status-negative">
             {t('activityHiddenNotesError')}
           </p>
         )}
-        {filter === 'pending' && hiddenCount > 0 && (
-          <div className="flex items-center justify-between gap-2 px-4 pt-3 text-xs text-text-secondary-token">
-            <span>{t('activityHiddenTransfers', { count: hiddenCount })}</span>
-            <Button
-              variant={ButtonVariant.Secondary}
-              className="w-auto px-3 py-2 text-xs"
-              title={t('activityRestoreTransfers')}
-              onClick={() => hidden.restore()}
-            />
+        {(showRestore || showAcceptAll) && (
+          // One actions row above the list: what is waiting on the left, the actions on the
+          // right. The left side is never empty - Accept All only appears while something is
+          // listed - so the button is never an orphan floating against a band of empty space.
+          <div className="flex items-center gap-2 px-4 pt-3">
+            {/* The summary gives up its width first, so two buttons beside it cannot wrap the
+                row on a 360px phone; the figure and the labels themselves never break. */}
+            <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="min-w-0 truncate text-caption text-muted">{summary}</span>
+              {waitingCount > 0 && (
+                <AnimatedNumber
+                  data-testid="pending-row-total"
+                  className="shrink-0 text-value text-ink"
+                  // No price for any of these assets is not a total of zero: say nothing rather
+                  // than put a false $0.00 next to the button that accepts them.
+                  value={waitingTotalUsd > 0 ? waitingTotalUsd : null}
+                  format={formatWaitingTotal}
+                />
+              )}
+            </div>
+            {showRestore && (
+              <Button
+                variant={ButtonVariant.Secondary}
+                size="sm"
+                className="w-auto shrink-0"
+                title={t('activityRestoreTransfers')}
+                onClick={() => hidden.restore()}
+              />
+            )}
+            {showAcceptAll && (
+              <Button
+                size="sm"
+                className="w-auto shrink-0"
+                data-testid="pending-row-accept-all"
+                title={acceptingAll ? t('claiming') : t('acceptAll')}
+                disabled={claimableNotes.length === 0 && !acceptingAll}
+                isLoading={acceptingAll}
+                onClick={() => acceptAll()}
+              />
+            )}
           </div>
         )}
         <div className="px-4">
@@ -147,23 +141,13 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             scrollParentRef={scrollRef}
             searchQuery={search}
             filter={filter}
-            pendingItems={listItems}
+            pendingItems={representedItems}
+            drawnPendingItems={listItems}
             renderPendingItem={renderPendingItem}
+            onInitialLoad={onInitialLoad}
           />
         </div>
       </div>
-
-      {showAcceptAll && (
-        <div className="shrink-0 px-4 pt-3 pb-4">
-          <Button
-            className="max-w-none"
-            title={claimingCount > 0 && claimableNotes.length === 0 ? t('claiming') : t('acceptAll')}
-            disabled={claimableNotes.length === 0}
-            isLoading={claimingCount > 0 && claimableNotes.length === 0}
-            onClick={() => acceptMany(claimableNotes)}
-          />
-        </div>
-      )}
     </>
   );
 };

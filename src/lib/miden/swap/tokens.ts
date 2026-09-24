@@ -1,6 +1,7 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
@@ -25,6 +26,11 @@ export interface SwapToken {
   decimals: number;
   /** Symbol understood by `TokenLogo` (MIDEN/ETH/USDC/BTC) for the round logo. */
   logoSymbol: string;
+  /**
+   * The asset this token stands for, as the price feed names it. Set only where the feed prices
+   * that asset; absent means unpriced. Never inferred from `logoSymbol`, which is only a logo.
+   */
+  priceSymbol?: string;
 }
 
 export const SWAP_TOKEN_DECIMALS = 8;
@@ -39,13 +45,15 @@ export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
   faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
   decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'ETH'
+  logoSymbol: 'ETH',
+  priceSymbol: 'ETH'
 };
 export const TOKEN_IBTC: SwapToken = {
   symbol: 'IBTC',
   faucetId: 'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x',
   decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'BTC'
+  logoSymbol: 'BTC',
+  priceSymbol: 'BTC'
 };
 export const TOKEN_IUSDT: SwapToken = {
   symbol: 'IUSDT',
@@ -109,6 +117,38 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
+
+// Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
+// stringify. A failed parse is not cached, so it is retried once the SDK can parse the id.
+const normalizedFaucetIds = new Map<string, string>();
+
+/** Test-only: forget every cached conversion. */
+export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
+
+/** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
+export function normalizedFaucetId(faucetId: string): string {
+  const key = `${getEffectiveNetworkName()}:${faucetId}`;
+  const cached = normalizedFaucetIds.get(key);
+  if (cached !== undefined) return cached;
+  try {
+    const normalized = getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
+    normalizedFaucetIds.set(key, normalized);
+    return normalized;
+  } catch {
+    return faucetId;
+  }
+}
+
+/**
+ * The symbol to look a held token's price up under: a swap token's `priceSymbol` (IETH at ETH),
+ * matched by faucet in either id encoding as the swap picker matches balances, else its own symbol.
+ */
+export function priceSymbolFor(faucetId: string, symbol: string): string {
+  const swapToken = getSwapTokens().find(
+    token => token.faucetId === faucetId || normalizedFaucetId(token.faucetId) === faucetId
+  );
+  return swapToken?.priceSymbol ?? symbol;
+}
 
 /**
  * A single quote for an (offered, requested) pair from the DEX `swap-eta`

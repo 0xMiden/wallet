@@ -42,6 +42,14 @@ describe('AssetListItem', () => {
     expect((container.firstChild as HTMLElement).className).toContain('my-extra-class');
   });
 
+  it('renders the amount in the muted token rather than opacity-50', () => {
+    renderItem();
+
+    const amount = screen.getByText('12.5 MIDEN');
+    expect(amount.className).toContain('text-muted');
+    expect(amount.className).not.toContain('opacity-50');
+  });
+
   describe('chart rendering', () => {
     it('renders the chart node when provided', () => {
       renderItem({ chart: <div data-testid="chart" /> });
@@ -80,19 +88,19 @@ describe('AssetListItem', () => {
     it('applies the positive color for an explicit positive direction', () => {
       renderItem({ delta: { value: '+2.5%', direction: 'positive' } });
 
-      expect(screen.getByText('+2.5%').className).toContain('text-status-positive');
+      expect(screen.getByText('+2.5%').className).toContain('text-positive-tint-ink');
     });
 
     it('defaults to the positive color when direction is undefined', () => {
       renderItem({ delta: { value: '+1.0%' } });
 
-      expect(screen.getByText('+1.0%').className).toContain('text-status-positive');
+      expect(screen.getByText('+1.0%').className).toContain('text-positive-tint-ink');
     });
 
     it('applies the negative color for a negative direction', () => {
       renderItem({ delta: { value: '-3.1%', direction: 'negative' } });
 
-      expect(screen.getByText('-3.1%').className).toContain('text-status-negative');
+      expect(screen.getByText('-3.1%').className).toContain('text-negative-tint-ink');
     });
 
     it('applies the tertiary color for a neutral direction', () => {
@@ -102,12 +110,64 @@ describe('AssetListItem', () => {
     });
   });
 
+  it('truncates a long name before it pushes the price or the check out of the row', () => {
+    renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', name: 'A very long token name' });
+
+    const nameColumn = screen.getByText('A very long token name').parentElement!;
+    expect(nameColumn).toHaveClass('min-w-0');
+    expect(nameColumn).not.toHaveClass('shrink-0');
+    const leading = nameColumn.parentElement!;
+    expect(leading).toHaveClass('min-w-0', 'flex-1');
+    const trailing = screen.getByText('$2.50').closest('[data-slot="trailing"]');
+    expect(trailing).toHaveClass('shrink-0');
+  });
+
+  it('truncates a long amount on one line, so it never runs under the price or the check', () => {
+    renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
+
+    expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+  });
+
+  describe('selection', () => {
+    it('renders no check and reports no pressed state when selected is undefined', () => {
+      const { container } = renderItem({ onClick: jest.fn() });
+
+      expect(container.querySelector('[data-slot="check"]')).toBeNull();
+      expect(screen.getByRole('button')).not.toHaveAttribute('aria-pressed');
+    });
+
+    it('renders the round check in the brand accent and reports aria-pressed when selected', () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: true });
+
+      const check = container.querySelector('[data-slot="check"]')!;
+      expect(check).toBeTruthy();
+      expect(check.className).toContain('bg-accent-primary');
+      expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it("fills the check with a flow's own colour when an accent is given", () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: true, accent: 'swap' });
+
+      const check = container.querySelector('[data-slot="check"]')!;
+      expect(check.className).toContain('bg-accent-swap');
+      expect(check.className).not.toContain('bg-accent-primary');
+    });
+
+    it('renders no check on an unselected row but still reports the pressed state', () => {
+      const { container } = renderItem({ onClick: jest.fn(), selected: false });
+
+      expect(container.querySelector('[data-slot="check"]')).toBeNull();
+      expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+
   describe('onClick / interaction', () => {
-    it('exposes a button role, fires haptics then onClick when clicked', () => {
+    it('is a native button, fires haptics then onClick when clicked', () => {
       const onClick = jest.fn();
       renderItem({ onClick });
 
       const button = screen.getByRole('button');
+      expect(button.tagName).toBe('BUTTON');
       expect(button.className).toContain('cursor-pointer');
 
       fireEvent.click(button);

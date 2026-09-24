@@ -298,7 +298,7 @@ describe('Vault instance signData — Guardian account (word kind)', () => {
     });
     const data = u8ToB64(new Uint8Array(32).fill(0x22));
 
-    await expect(vault.signData('some-commitment', data, 'word', addr)).rejects.toThrow(/device key/i);
+    await expect(vault.signData('some-commitment', data, 'word', addr)).rejects.toThrow(/everyday key/i);
   });
 
   it('still uses the default key path for a non-Guardian account when accountId is passed', async () => {

@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import clsx from 'clsx';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
+import { WaveDots } from 'components/ui';
+import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -69,7 +72,24 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
+  const motionTokens = useTabBarMotion();
+  // Each press turns the arrow another half turn and lifts the two sides past each other, so the
+  // switch reads as the two fields trading places. Same springs as the tab bars, so a press here
+  // feels like a press there.
+  const [flips, setFlips] = useState(0);
+  const flipTransition = resolveTransition(reduceMotion, tabBarMotion.highlight);
+  const sideMotion = (from: number) => ({
+    key: flips,
+    initial: flips === 0 ? false : { y: from, opacity: 0 },
+    animate: { y: 0, opacity: 1 },
+    transition: flipTransition
+  });
+  // Each side is titled like a tab root's page title, the same weight as Send's "Send to".
+  const fieldLabel = (text: string) => <span className="text-title-tab text-ink">{text}</span>;
+  // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
+  const awaitingAmount = !(offerAmountValue > 0);
   const offerAmountExceedsBalance = offerAmountValue > offerBalance;
   // Missing the fee asset outranks an over-balance amount: no amount at all is
   // sendable, so telling the user to lower it would send them in a loop.
@@ -80,19 +100,42 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
-      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto no-scrollbar pt-10">
-        <SelectAmount
-          embedded
-          label={t('youPay')}
-          token={swapTokenToUIToken(offerToken, offerBalance)}
-          logoSymbol={offerToken.logoSymbol}
-          amount={offerAmount}
-          isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
-          error={offerAmountError}
-          onAmountChange={onOfferAmountChange}
-          onSelectToken={onSelectOfferToken}
-        />
+    // The shared home-group pane body: the page margin, the offset to the first line ("You Pay",
+    // which SelectAmount draws as its label), the scroll and gesture contract, and the pinned CTA
+    // - the same frame Send's recipient step, Receive and Earn are drawn in.
+    <HomeGroupPaneBody
+      footer={
+        <Button
+          title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
+          // The dots below replace the label while the quote loads, so the button is named by its action.
+          aria-label={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
+          variant={ButtonVariant.Primary}
+          // The whole flow is the swap colour, CTA included (design-system.md, "Action colours").
+          accent="swap"
+          onClick={onConfirm}
+          disabled={!canProceed}
+          data-testid="swap-review-submit"
+          className="w-full max-w-none"
+        >
+          {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        <motion.div {...sideMotion(-24)} data-testid="swap-pay-side">
+          <SelectAmount
+            embedded
+            label={fieldLabel(t('youPay'))}
+            accent="swap"
+            token={swapTokenToUIToken(offerToken, offerBalance)}
+            logoSymbol={offerToken.logoSymbol}
+            amount={offerAmount}
+            isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
+            error={offerAmountError}
+            onAmountChange={onOfferAmountChange}
+            onSelectToken={onSelectOfferToken}
+          />
+        </motion.div>
 
         <div className="flex items-center gap-3">
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
@@ -100,10 +143,13 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             type="button"
             onClick={() => {
               hapticLight();
+              setFlips(count => count + 1);
               onSwapDirection();
             }}
-            whileTap={{ scale: 0.9 }}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white"
+            {...motionTokens.press}
+            animate={{ rotate: reduceMotion ? 0 : flips * 180 }}
+            transition={flipTransition}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-swap text-accent-swap-on"
             aria-label={t('swapDirection')}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -119,38 +165,33 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
         </div>
 
-        <SelectAmount
-          embedded
-          // "You Receive" is the swap output — the user's balance of that token
-          // isn't the spendable amount here, so no available-balance helper.
-          showBalanceHelper={false}
-          label={t('youReceive')}
-          token={swapTokenToUIToken(requestToken)}
-          logoSymbol={requestToken.logoSymbol}
-          amount={requestAmount}
-          isValidAmount={Number(requestAmount) > 0}
-          loading={requestLoading}
-          onAmountChange={onRequestAmountChange}
-          onSelectToken={onSelectRequestToken}
-        />
+        <motion.div {...sideMotion(24)} data-testid="swap-receive-side">
+          <SelectAmount
+            embedded
+            // "You Receive" is the swap output — the user's balance of that token
+            // isn't the spendable amount here, so no available-balance helper.
+            showBalanceHelper={false}
+            label={fieldLabel(t('youReceive'))}
+            accent="swap"
+            token={swapTokenToUIToken(requestToken)}
+            logoSymbol={requestToken.logoSymbol}
+            amount={requestAmount}
+            isValidAmount={Number(requestAmount) > 0}
+            loading={requestLoading}
+            onAmountChange={onRequestAmountChange}
+            onSelectToken={onSelectRequestToken}
+          />
+        </motion.div>
 
         {statusMessage && (
-          <span className={clsx('text-sm font-medium', statusIsError ? 'text-status-negative' : 'text-[#808080]')}>
+          <span
+            className={clsx('text-body-sm', statusIsError ? 'text-negative-tint-ink' : 'text-muted')}
+            data-testid="swap-status-message"
+          >
             {statusMessage}
           </span>
         )}
       </div>
-
-      <div className="shrink-0 pt-4 pb-24" data-navbar-cushion="true">
-        <Button
-          title={t('reviewSwap')}
-          variant={ButtonVariant.Primary}
-          onClick={onConfirm}
-          disabled={!canProceed}
-          data-testid="swap-review-submit"
-          className="w-full max-w-none rounded-full text-base font-semibold"
-        />
-      </div>
-    </div>
+    </HomeGroupPaneBody>
   );
 };

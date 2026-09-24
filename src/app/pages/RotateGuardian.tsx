@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import PageLayout from 'app/layouts/PageLayout';
-import { NavigationHeader } from 'components/NavigationHeader';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { navigate } from 'lib/woozie';
@@ -48,13 +47,10 @@ const RotateGuardian: FC = () => {
 
   return (
     <PageLayout hideToolbar>
-      {/* No title: ChooseGuardianScreen renders its own h1 ("Choose your
-          Guardian") plus the description and the "What is a Guardian?" link, and
-          titling the header too gave the page two level-1 headings and two
-          stacked titles. Hiding the picker's header instead would drop the
-          description and the info affordance with it. */}
-      <NavigationHeader onBack={handleBack} variant="prominent" titleAlign="left" />
+      {/* The picker draws the page: the shared header (back, "Choose your Guardian"), its
+          explainer and cards in the body, and Continue pinned under it. */}
       <ChooseGuardianScreen
+        onBack={handleBack}
         onSubmit={handleSubmit}
         currentEndpoint={currentEndpoint}
         allowCustomEndpoint

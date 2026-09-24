@@ -56,7 +56,6 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => (
     <div data-testid="spending-limit-challenge">
       <span>{props.assessment.revision}</span>
-      <span>{props.asset.symbol}</span>
       <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
         authenticate-limit
       </button>
@@ -98,13 +97,11 @@ const limitedTransactionRequest = () =>
     transactionMessages: ['Send 5 MIDEN'],
     spendingLimitAssessment: {
       accountId: FULL_ACCOUNT_ID,
-      faucetId: 'mtst1faucet',
-      amount: 5n,
+      usdAmount: 5_000_000n,
       revision: 'revision-1',
       assessedAt: 100,
-      breaches: [{ period: '24h', spent: 8n, proposedTotal: 13n, limit: 10n, overBy: 3n, resetAt: 200 }]
-    },
-    spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+      breach: { spent: 8_000_000n, proposedTotal: 13_000_000n, limit: 10_000_000n, overBy: 3_000_000n, resetAt: 200 }
+    }
   });
 
 describe('DappConfirmationModal', () => {
@@ -220,7 +217,6 @@ describe('DappConfirmationModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
 
     expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
-    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('MIDEN');
     expect(onResolve).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));

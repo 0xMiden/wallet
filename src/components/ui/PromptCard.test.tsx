@@ -7,6 +7,20 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 import { PromptCard } from './PromptCard';
 
+// The real Card, with the props PromptCard hands it recorded: the card's surface is Card's to draw.
+const mockCardProps: Array<Record<string, unknown>> = [];
+jest.mock('./Card', () => {
+  const R = jest.requireActual('react');
+  const actual = jest.requireActual('./Card');
+  return {
+    ...actual,
+    Card: (props: Record<string, unknown>) => {
+      mockCardProps.push(props);
+      return R.createElement(actual.Card, props);
+    }
+  };
+});
+
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />,
   IconName: { Checkmark: 'Checkmark', ChevronRight: 'ChevronRight', Close: 'Close', Loader: 'Loader' }
@@ -53,6 +67,29 @@ describe('PromptCard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReduceMotion = false;
+  });
+
+  it('uses the design-system 16px card radius, not the retired 10px token', () => {
+    const { container } = render(<PromptCard title="Fund your wallet" />);
+
+    expect(container.querySelector('.rounded-2xl')).not.toBeNull();
+    expect(container.querySelector('.rounded-10')).toBeNull();
+  });
+
+  it('takes the `outline` surface: a hairline edge on `page`, not a grey block', () => {
+    mockCardProps.length = 0;
+    const { container } = render(<PromptCard title="Fund your wallet" body="You need MIDEN." />);
+
+    // Drawn by Card, not spelled out: the root is Card's outline surface on PromptCard's own element.
+    expect(mockCardProps.at(-1)).toMatchObject({ asChild: true, surface: 'outline', padding: 'none' });
+    expect(container.firstChild as HTMLElement).toHaveClass('h-[72px]');
+
+    const card = container.firstChild as HTMLElement;
+    expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl');
+    expect(card).not.toHaveClass('bg-fill');
+    // The named type styles, so the card reads like every other row on the page.
+    expect(screen.getByText('Fund your wallet')).toHaveClass('text-row-title');
+    expect(screen.getByText('You need MIDEN.')).toHaveClass('text-caption', 'text-muted');
   });
 
   it('runs the card action when its content is clicked', () => {
@@ -178,6 +215,46 @@ describe('PromptCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
     expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the card draws every icon in one bubble', () => {
+    // The hero used to be the odd one out: a 28px `rounded-lg` square on a SOLID accent fill with a
+    // white glyph, beside three round siblings on a tinted fill in the tint's own ink. Brian, on
+    // the Funding prompt: the icon should be in a bubble, like the rest of the wallet.
+    const bubble = (el: HTMLElement | null) => el?.parentElement ?? null;
+
+    it('gives the hero the round tinted bubble its siblings wear', () => {
+      const hero = { icon: IconName.Loader, label: 'Funding', subLabel: 'soon', tone: 'accent' } as const;
+      render(<PromptCard title="Fund your wallet" hero={hero} status="loading" />);
+
+      // The glyph sits inside the flip wrapper, which sits inside the bubble.
+      const mark = bubble(bubble(screen.getByTestId('icon-Loader')));
+      expect(mark).toHaveClass('rounded-full', 'bg-accent-primary/15', 'text-accent-primary', 'h-9', 'w-9');
+      expect(mark?.className).not.toMatch(/rounded-lg|text-pure-white/);
+      // The tone still splits accent from positive — as the tinted pair, not a solid fill.
+      expect(mark?.className).not.toMatch(/(^|\s)bg-accent-primary(\s|$)/);
+    });
+
+    it('gives a positive hero the status tint rather than a solid green tile', () => {
+      const hero = { icon: IconName.Checkmark, label: 'Funds deposited', tone: 'positive' } as const;
+      render(<PromptCard title="Fund your wallet" hero={hero} status="success" />);
+
+      const mark = bubble(bubble(screen.getAllByTestId('icon-Checkmark')[0]!));
+      expect(mark).toHaveClass('rounded-full', 'bg-status-positive/15', 'text-status-positive');
+    });
+
+    it('draws the leading icon and the status marks as the same bubble', () => {
+      const { container } = render(
+        <PromptCard title="Fund your wallet" icon={IconName.ChevronRight} status="success" />
+      );
+
+      // The card draws the same glyph again as its trailing chevron; the leading one comes first.
+      const leading = bubble(screen.getAllByTestId('icon-ChevronRight')[0]!);
+      expect(leading).toHaveClass('rounded-full', 'bg-accent-primary/15', 'text-accent-primary', 'h-9', 'w-9');
+
+      const status = container.querySelector('[role="status"][aria-label="success"]');
+      expect(status).toHaveClass('rounded-full', 'bg-status-positive/15', 'text-status-positive', 'h-6', 'w-6');
+    });
   });
 
   it('does not loop the funding animations when the user asks for reduced motion', () => {

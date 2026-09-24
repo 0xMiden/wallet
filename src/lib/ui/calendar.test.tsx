@@ -50,12 +50,11 @@ describe('Calendar', () => {
     expect(container.querySelector('.my-month-class')).not.toBeNull();
   });
 
-  it('honours an explicit buttonVariant and showOutsideDays=false', () => {
-    const { container } = render(<Calendar buttonVariant="outline" showOutsideDays={false} />);
+  it('styles the month arrows as quiet square buttons and honours showOutsideDays=false', () => {
+    const { container } = render(<Calendar showOutsideDays={false} />);
 
-    // The outline variant class lands on the previous/next nav buttons.
     const navButton = container.querySelector('.rdp-button_previous');
-    expect(navButton?.getAttribute('class')).toContain('border-border-light');
+    expect(navButton).toHaveClass('inline-flex', 'rounded-lg', 'hover:bg-fill-pressed', 'size-(--cell-size)');
     expect(container.querySelector('[data-slot="calendar"]')).not.toBeNull();
   });
 
@@ -139,14 +138,13 @@ describe('Calendar', () => {
 });
 
 describe('CalendarDayButton', () => {
-  it('renders a ghost/icon button carrying the localized data-day and default single-day data attrs', () => {
+  it('renders a quiet button carrying the localized data-day and default single-day data attrs', () => {
     const date = new Date(2024, 0, 15);
     render(<CalendarDayButton day={makeDay(date)} modifiers={{} as never} aria-label="day-15" />);
 
     const btn = screen.getByRole('button', { name: 'day-15' });
-    expect(btn).toHaveAttribute('data-slot', 'button');
-    expect(btn).toHaveAttribute('data-variant', 'ghost');
-    expect(btn).toHaveAttribute('data-size', 'icon');
+    expect(btn).toHaveAttribute('type', 'button');
+    expect(btn).toHaveClass('rounded-lg', 'hover:bg-fill-pressed');
     // No locale -> toLocaleDateString(undefined).
     expect(btn).toHaveAttribute('data-day', date.toLocaleDateString(undefined));
     // With no modifiers, `modifiers.selected && ...` short-circuits to
@@ -182,14 +180,11 @@ describe('CalendarDayButton', () => {
     expect(btn).toHaveAttribute(`data-${modKey.replace('_', '-')}`, 'true');
   });
 
-  it('runs the focus effect when modifiers.focused is true without crashing', () => {
-    // Button is a plain function component (no forwardRef in React 18), so the
-    // ref stays null and `ref.current?.focus()` is a safe no-op — this exercises
-    // the truthy branch of the focus effect.
+  it('focuses the day when modifiers.focused is true (keyboard navigation)', () => {
     const { rerender } = render(
       <CalendarDayButton day={makeDay(new Date(2024, 0, 15))} modifiers={{ focused: true } as never} aria-label="d" />
     );
-    expect(screen.getByRole('button', { name: 'd' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'd' })).toHaveFocus();
 
     // Re-render with focused=false to cover the falsy branch of the effect.
     rerender(

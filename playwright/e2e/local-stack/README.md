@@ -87,7 +87,7 @@ E2E_NETWORK=localhost yarn test:e2e:blockchain:run
 `playwright.e2e.config.ts` ignores `guardian-*.spec.ts` and the `swap/`, `bridge/`, `earn/`
 and `resilience/` subsuites, so this is the core set: `wallet-lifecycle`, `mint-and-balance`,
 `send-public`, `send-public-local-prove`, `send-private`, `multi-account`, `multi-claim`,
-`recall-reclaim`, `contacts-send`, `group-claim`, `history-cancel`, `receive-address`,
+`recall-reclaim`, `contacts-send`, `history-cancel`, `receive-address`,
 `settings-toggles`, `unlock-lockout`.
 
 ### 5. (Tier-2) Guardian specs — optional, currently quarantined
@@ -122,7 +122,7 @@ pkill -f 'miden-(node|validator|ntx-builder|remote-prover)'   # the host-process
 | `NODE_SRC_REPO` / `NODE_SRC_REF` | from `versions.env` | miden-client repo + rev the test node is built from |
 | `NOTE_TRANSPORT_REPO` / `NOTE_TRANSPORT_REF` | from `versions.env` | note-transport repo + tag `run-note-transport.sh` builds |
 | `MIDEN_NTX_AUTH` | `e2e-ntx-secret` | Shared auth header: sequencer `--rpc.network-tx-auth-header-value` = ntx-builder `--rpc.auth-header-value` |
-| `MIDEN_NODE_BLOCK_INTERVAL` / `MIDEN_NODE_BATCH_INTERVAL` | node defaults | Block/batch cadence; the CI matrix runs a `500ms` leg for the timing-critical private-note specs |
+| `MIDEN_NODE_BLOCK_INTERVAL` / `MIDEN_NODE_BATCH_INTERVAL` | node defaults | Block/batch cadence; local-e2e CI sets `500ms` |
 | `RUNNER_TEMP` | `/tmp` | Where the note-transport build cache lives (set automatically by GitHub Actions) |
 | `GUARDIAN_IMAGE_TAG` | from `versions.env` | ghcr.io/openzeppelin/guardian tag (Tier-2 `guardian` profile) |
 | `GUARDIAN_URL` | `http://localhost:3000` | Guardian endpoint the guardian specs point the wallet at |

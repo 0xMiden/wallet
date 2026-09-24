@@ -77,11 +77,10 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
     return receiptRows;
   }, [amountText, feeText, market, onViewExplorer, t, txHash]);
 
-  const accent = accentForTransactionType(transaction?.type);
-
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={t('youreEarning', { defaultValue: "You're Earning!" })}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
@@ -92,7 +91,7 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       onClose={onDoneClick}
     >
       <SuccessSummaryPill lhs={amountText} rhs={market} separator={<EarnDepositArrowGlyph />} />
-      <ReceiptRows accent={accent} rows={rows} className="mt-6" />
+      <ReceiptRows rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

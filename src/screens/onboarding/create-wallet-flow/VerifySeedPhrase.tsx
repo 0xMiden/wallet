@@ -5,12 +5,17 @@ import { shuffle } from 'lodash';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
-import { Chip } from 'components/Chip';
 import { Toggle } from 'components/Toggle';
-import { hapticLight } from 'lib/mobile/haptics';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { Pill } from 'components/ui/Pill';
+import { SubPageSection } from 'components/ui/SubPageLayout';
 
-export interface VerifySeedPhraseScreenProps extends React.ButtonHTMLAttributes<HTMLDivElement> {
+import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
+
+export interface VerifySeedPhraseScreenProps {
   seedPhrase: string[];
+  'data-testid'?: string;
   useBiometric?: boolean;
   isHardwareSecurityAvailable?: boolean;
   showIntro?: boolean;
@@ -24,9 +29,8 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
   isHardwareSecurityAvailable = false,
   showIntro = true,
   onBiometricChange,
-  className,
   onSubmit,
-  ...props
+  'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
   const shuffledWords = useMemo(() => shuffle(seedPhrase), [seedPhrase]);
@@ -35,7 +39,6 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
   const onSelectWord = useCallback(
     (index: number) => {
-      hapticLight();
       // we select first word if index was not selected before
       if (firstSelectedWordIndex === null && index !== secondSelectedWordIndex) {
         setFirstSelectedWord(index);
@@ -83,77 +86,87 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
       : { key: 'verifyStepWrong', tone: 'error' };
   }, [firstSelectedWordIndex, secondSelectedWordIndex, isCorrectWordSelected]);
 
-  return (
-    <div
-      className={classNames('flex flex-col flex-1', 'bg-app-bg gap-6 px-4 pt-4', className)}
-      data-testid="verify-seed-phrase"
-      {...props}
-    >
-      {showIntro && (
-        <div className="flex flex-col items-center gap-2 text-heading-gray">
-          <header className="text-[28px] font-medium">{t('verifySeedPhrase')}</header>
-          <p className="text-sm font-normal text-center">{t('verifyMessagePrefix')}</p>
-        </div>
-      )}
-
+  const quiz = (
+    <>
       {/* Always-visible progressive guidance — shown in BOTH the onboarding
           (showIntro) and the re-verify (showIntro=false) flows, so the user
           always knows which word to tap next and whether their pick was right. */}
       <p
         data-testid="verify-seed-prompt"
+        role="status"
         className={classNames(
-          'text-center text-sm font-medium',
+          'px-1 font-sans text-[15px] leading-[22px]',
           stepPrompt.tone === 'error'
-            ? 'text-red-500'
+            ? 'text-negative-ink'
             : stepPrompt.tone === 'success'
-              ? 'text-green-500'
-              : 'text-heading-gray'
+              ? 'text-positive-ink'
+              : 'text-ink'
         )}
       >
         <Trans i18nKey={stepPrompt.key} components={{ b: <span className="font-bold" /> }} />
       </p>
 
-      <article className="grid grid-cols-3 gap-2 w-full">
-        {shuffledWords.map((word, index) => (
-          <div className="relative" key={`seed-word-${index}`}>
-            {(!!firstSelectedWordIndex || firstSelectedWordIndex === 0) && index === firstSelectedWordIndex && (
-              <div className="absolute -top-4 left-2 -translate-x-3 bg-primary-500 text-pure-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
-                {t('first')}
-              </div>
-            )}
-            {(!!secondSelectedWordIndex || secondSelectedWordIndex === 0) && index === secondSelectedWordIndex && (
-              <div className="absolute -top-4 left-2 -translate-x-3 bg-primary-500 text-pure-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
-                {t('last')}
-              </div>
-            )}
-            <button onClick={() => onSelectWord(index)} className="w-full">
-              <Chip
-                className="w-[104px] h-8 cursor-pointer"
-                selected={firstSelectedWordIndex === index || secondSelectedWordIndex === index}
-                label={word}
-              />
-            </button>
-          </div>
-        ))}
+      <article className="grid grid-cols-3 gap-x-2 gap-y-4 pt-2">
+        {shuffledWords.map((word, index) => {
+          const order =
+            index === firstSelectedWordIndex ? t('first') : index === secondSelectedWordIndex ? t('last') : null;
+          return (
+            <div className="relative" key={`seed-word-${index}`}>
+              {/* Which pick this word is, tagged over its corner. */}
+              {order && (
+                <Pill size="xs" tone="inverse" className="pointer-events-none absolute -top-2.5 left-1 z-10">
+                  {order}
+                </Pill>
+              )}
+              <Pill
+                className="w-full justify-center"
+                tone={order ? 'selected' : 'word'}
+                selected={order !== null}
+                onClick={() => onSelectWord(index)}
+                data-testid={`verify-quiz-word-${index}`}
+              >
+                {word}
+              </Pill>
+            </div>
+          );
+        })}
       </article>
 
-      <div className="flex-1" />
+      {isHardwareSecurityAvailable && (
+        <SubPageSection title={t('unlockWallet')} description={t('unlockWalletDescription')}>
+          <ListGroup>
+            <ListRow
+              title={t('passwordsCanBeInsecure')}
+              trailing={<Toggle value={useBiometric} onChangeValue={onBiometricChange} />}
+            />
+          </ListGroup>
+        </SubPageSection>
+      )}
+    </>
+  );
 
-      <div className="flex flex-col gap-4 self-center w-full">
-        {isHardwareSecurityAvailable && (
-          <>
-            <div className="flex flex-col gap-1 px-2">
-              <h3 className="text-lg font-semibold">{t('unlockWallet')}</h3>
-              <p className="text-sm text-text-muted">{t('unlockWalletDescription')}</p>
-            </div>
-            <div className="flex items-center justify-between gap-3 px-2">
-              <p className="text-sm text-text-muted flex-1">{t('passwordsCanBeInsecure')}</p>
-              <Toggle value={useBiometric} onChangeValue={onBiometricChange} />
-            </div>
-          </>
-        )}
-        <Button disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} className="" />
+  const continueButton = (
+    <Button className="max-w-none" disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} />
+  );
+
+  // Embedded (the Settings re-verify flow draws its own page): the quiz and its button, no frame.
+  if (!showIntro) {
+    return (
+      <div className="flex flex-col gap-5" data-testid={dataTestId ?? 'verify-seed-phrase'}>
+        {quiz}
+        {continueButton}
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <OnboardingStepLayout
+      data-testid={dataTestId ?? 'verify-seed-phrase'}
+      title={t('verifySeedPhrase')}
+      description={t('verifyMessagePrefix')}
+      footer={continueButton}
+    >
+      {quiz}
+    </OnboardingStepLayout>
   );
 };

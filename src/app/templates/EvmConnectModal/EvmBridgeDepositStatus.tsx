@@ -2,9 +2,11 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { PageHeader } from 'components/PageHeader';
+import { Hero } from 'components/ui/Hero';
+import { Spinner } from 'components/ui/Spinner';
 import { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -22,7 +24,12 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
 
-  if (!loaded || !row) return <ActivitySpinner />;
+  if (!loaded || !row)
+    return (
+      <div className="flex h-8 justify-center pt-5">
+        <Spinner />
+      </div>
+    );
 
   const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
   const failed = inputs.phase === 'failed';
@@ -50,9 +57,13 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
         }
         onClose={onDone}
       >
+        {/* A bridge-in row wears the bridge slate in Activity and on its detail page, so its
+            arrow does too — the badge's default is the Send blue, which is another flow's colour
+            on a screen about money arriving. */}
         <TransactionSummaryBadge
           lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`}
           rhs={inputs.outputAmount ? `${inputs.outputAmount} ${inputs.outputSymbol ?? ''}`.trim() : 'Miden'}
+          fillForArrow={TRANSACTION_COLORS.bridge}
           className="mt-4"
         />
         <ReceiptRows
@@ -75,16 +86,21 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
-      <ScreenHeader title={t('transactionProcessingHeader')} closeLabel={t('close')} onClose={onDone} />
+    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-ink">
+      <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
       <main className="flex flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center pt-5">
-          <TransactionHeroIcon state={failed ? 'failed' : 'processing'} />
-          <h2 className="mt-6 text-center font-heading text-[2rem] font-bold leading-none">
-            {failed ? t('bridgeDepositFailed') : t('bridgeDepositProcessing')}
-          </h2>
-          <TransactionSummaryBadge lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`} rhs="Miden" className="mt-4" />
-          <p className="mt-4 text-center text-sm font-medium text-heading-gray">
+          <Hero
+            visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+            name={failed ? t('bridgeDepositFailed') : t('bridgeDepositProcessing')}
+          />
+          <TransactionSummaryBadge
+            lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`}
+            rhs="Miden"
+            fillForArrow={TRANSACTION_COLORS.bridge}
+            className="mt-4"
+          />
+          <p className="mt-4 text-center text-sm font-medium text-ink">
             {failed ? (inputs.error ?? t('transactionErrorDescription')) : t('bridgeDepositProcessingDescription')}
           </p>
         </section>

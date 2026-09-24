@@ -684,12 +684,12 @@ async function runSync(force: boolean): Promise<void> {
 
       if (!intercom.hasClients() && newIds.length > 0) {
         // No popup open and new notes arrived — show desktop notification
-        const title = getMessage('noteReceivedTitle') || 'You have received a note';
+        const title = getMessage('noteReceivedTitle') || 'You have an incoming transfer';
         const message =
           newIds.length === 1
-            ? getMessage('noteReceivedClickToClaim') || 'Click to view and claim it'
+            ? getMessage('noteReceivedClickToClaim') || 'Click to review and accept it'
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
-              `You have ${newIds.length} new notes to claim`;
+              `You have ${newIds.length} new transfers to accept`;
         showBackgroundNotification(title, message, 'miden-note-received');
       }
 

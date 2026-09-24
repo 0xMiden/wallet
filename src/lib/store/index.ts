@@ -339,20 +339,6 @@ export const useWalletStore = create<WalletStore>()(
       return res.keyPairPayload;
     },
 
-    revealGuardianKeys: async (accountPublicKey, password) => {
-      const res = await request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey,
-        password
-      });
-      assertResponse(res.type === WalletMessageType.RevealGuardianKeysResponse);
-      return {
-        coldPrivateKey: res.coldPrivateKey,
-        coldPublicKey: res.coldPublicKey,
-        hotPublicKey: res.hotPublicKey
-      };
-    },
-
     importAccount: async (privateKey, name) => {
       const res = await request({
         type: WalletMessageType.ImportAccountRequest,
@@ -386,13 +372,13 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
-    listSpendingLimits: async accountId => {
+    readSpendingLimit: async accountId => {
       const res = await request({
-        type: WalletMessageType.GetSpendingLimitsRequest,
+        type: WalletMessageType.GetSpendingLimitRequest,
         accountId
       });
-      assertResponse(res.type === WalletMessageType.GetSpendingLimitsResponse);
-      return res.configurations.map(parsePersistedSpendingLimit);
+      assertResponse(res.type === WalletMessageType.GetSpendingLimitResponse);
+      return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
     },
 
     saveSpendingLimit: async (draft, observedRevision, strictlyAuthenticated) => {
@@ -406,12 +392,11 @@ export const useWalletStore = create<WalletStore>()(
       return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
     },
 
-    assessSpendingLimit: async (accountId, faucetId, amount) => {
+    assessSpendingLimit: async (accountId, spends) => {
       const res = await request({
         type: WalletMessageType.AssessSpendingLimitRequest,
         accountId,
-        faucetId,
-        amount: amount.toString()
+        spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: spend.amount.toString() }))
       });
       assertResponse(res.type === WalletMessageType.AssessSpendingLimitResponse);
       return res.assessment === undefined ? undefined : parseSerializedSpendingLimitAssessment(res.assessment);
@@ -972,6 +957,53 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       } finally {
         await Repo.transactions.bulkDelete(candidates.map(candidate => candidate.id));
       }
+    }
+  );
+  // A dApp custom/execute request is opaque base64 `TransactionRequest` bytes, which only the SDK
+  // can produce - a fixture dApp page has no SDK and no vault. Built here through the very builder
+  // every wallet send uses, so the bytes the suite hands to `requestTransaction` are the shape a
+  // real dApp sends: one P2ID output note moving `amountBaseUnits` out of the current account.
+  Reflect.set(
+    globalThis,
+    '__TEST_BUILD_CUSTOM_TRANSACTION_REQUEST__',
+    async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
+      const [
+        { NoteType },
+        { accountRefToSdk, buildSendTransactionRequest, randomFeeSalt, walletAccountIdToSdk },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { u8ToB64 }
+      ] = await Promise.all([
+        import('@miden-sdk/miden-sdk/lazy'),
+        import('lib/miden/sdk/helpers'),
+        import('lib/miden/sdk/miden-client'),
+        import('lib/shared/helpers')
+      ]);
+      const accountId = useWalletStore.getState().currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('Custom-request hook found no current account');
+
+      const requestBytes = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the client build');
+          const account = await client.getAccount(walletAccountIdToSdk(accountId).toString());
+          // The Account is borrowed from the client's RefCell and the build reads its vault.
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the account read');
+          return buildSendTransactionRequest(
+            account ?? undefined,
+            walletAccountIdToSdk(accountId),
+            accountRefToSdk(input.recipientAddress),
+            input.faucetId,
+            BigInt(input.amountBaseUnits),
+            NoteType.Public,
+            undefined,
+            // Declared, like every wallet-built request: since protocol 0.16 `fee::pay_fee` reads
+            // the conversion salt from the auth args and aborts without one.
+            randomFeeSalt()
+          ).serialize();
+        },
+        { label: 'e2e-custom-request' }
+      );
+      return u8ToB64(requestBytes);
     }
   );
   Reflect.set(globalThis, '__TEST_SIGN_ACCOUNT_WORD__', async (accountPublicKey: string, wordHex: string) => {

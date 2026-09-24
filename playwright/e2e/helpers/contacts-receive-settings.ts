@@ -23,13 +23,13 @@
  *     gone. The helpers below still drive them by CLICKING the menu row, which
  *     is what a user does and exercises the row wiring as well as the page.
  *
- *  2. `AddressBook/AddNewContact` is a PHANTOM selector. It is written as
- *     `testID` on `FormSubmitButton`, but `FormSubmitButton` destructures
- *     `testID` out and only uses it for `trackEvent` — it never renders it. Grep
- *     finds it; the DOM does not have it. This module uses the raw
- *     `address-book-add-contact` data-testid instead. The same is true of every
- *     `General Settings/*Toggle` string, which is why `ToggleSwitch` now emits
- *     its `testID` as a data-testid too.
+ *  2. A `testID` prop is not always a DOM selector. It was analytics-only
+ *     convention across several components (the now-retired `FormSubmitButton`
+ *     destructured it and only ever passed it to `trackEvent`, never to the
+ *     DOM): grep finds it, the DOM does not have it. Every
+ *     `General Settings/*Toggle` string was one of these, which is why
+ *     `ToggleSwitch` now emits its `testID` as a data-testid too. This module
+ *     drives raw data-testids only.
  *
  *  3. Contact identity is ADDRESS-KEYED and self-healing:
  *     `use-filtered-contacts.hook.ts` silently deletes (during render!) any
@@ -37,10 +37,13 @@
  *     A contact must therefore point at the OTHER wallet, and `addContact`
  *     PREPENDS — so nothing here may assume list ordering.
  *
- *  4. Deleting a contact goes through `useConfirm()`, i.e. the app-wide
- *     ConfirmationModal, and only rows with `accountInWallet === false` are
- *     clickable at all. "Click the first row" is a no-op on a wallet's own
- *     account row.
+ *  4. Adding and deleting happen on their own pages, not in the list. The list's
+ *     "New contact" button opens `/contacts/new`, which returns to the list on
+ *     save. A contact row opens `/contacts/<address>`; Delete sits in that page's
+ *     Edit mode and goes through `useConfirm()`, i.e. the app-wide
+ *     confirm sheet. The wallet's own accounts are listed under
+ *     `address-book-account-*` and are not links, so they are never mistaken for
+ *     a contact here.
  */
 import { type Locator, type Page } from '@playwright/test';
 
@@ -151,21 +154,34 @@ export async function addContact(
 ): Promise<Locator> {
   const book = wallet.page.getByTestId('address-book');
   await book.waitFor({ state: 'visible', timeout: timeoutMs });
+  await book.getByTestId('address-book-new-contact').click({ timeout: timeoutMs });
 
-  await book.getByTestId('address-book-name-input').fill(contact.name);
-  await book.getByTestId('address-book-address-input').fill(contact.address);
-
-  const submit = book.getByTestId('address-book-add-contact');
+  const form = wallet.page.getByTestId('contact-new');
   try {
-    await submit.waitFor({ state: 'visible', timeout: timeoutMs });
+    await form.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `addContact("${contact.name}"): clicked New contact but the new-contact page ` +
+        `([data-testid="contact-new"]) never appeared within ${timeoutMs}ms. URL: ${wallet.page.url()}`
+    );
+  }
+
+  await form.getByTestId('address-book-address-input').fill(contact.address);
+  await form.getByTestId('address-book-name-input').fill(contact.name);
+
+  const submit = form.getByTestId('address-book-add-contact');
+  try {
     await submit.click({ timeout: timeoutMs });
   } catch {
     throw new Error(
       `addContact("${contact.name}"): could not click [data-testid="address-book-add-contact"] ` +
-        `within ${timeoutMs}ms — the Add Contact button stays disabled until BOTH name and address ` +
-        `are non-empty. Drawer text: ${await safeText(book)}`
+        `within ${timeoutMs}ms — it stays disabled until the address is valid, not already saved, ` +
+        `and a name is typed. Page text (carries any address message): ${await safeText(form)}`
     );
   }
+
+  // Saving returns to the list.
+  await book.waitFor({ state: 'visible', timeout: timeoutMs });
 
   const row = wallet.page.getByTestId(`${CONTACT_ROW_PREFIX}${contact.address}`);
   try {
@@ -174,7 +190,7 @@ export async function addContact(
     throw new Error(
       `addContact("${contact.name}", ${contact.address}): no contact row appeared within ${timeoutMs}ms. ` +
         `Addresses in the book: ${JSON.stringify(await listAddressBookContacts(wallet.page))}. ` +
-        `Drawer text (carries any validation message): ${await safeText(book)}`
+        `Address book text: ${await safeText(book)}`
     );
   }
 
@@ -189,10 +205,11 @@ export async function addContact(
 }
 
 /**
- * Delete a contact from the OPEN address-book drawer, going through the real
- * confirmation modal (see trap 4).
+ * Delete a contact from the OPEN address book: open its page, enter Edit, tap
+ * Delete and go through the real confirmation modal (see trap 4).
  *
- * Postcondition: the row for `address` is gone from the DOM.
+ * Postcondition: the page returned to the address book, and the row for
+ * `address` is gone from it.
  */
 export async function deleteContact(wallet: ChromeWalletPageApi, address: string, timeoutMs = 30_000): Promise<void> {
   const row = wallet.page.getByTestId(`${CONTACT_ROW_PREFIX}${address}`);
@@ -206,15 +223,23 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   }
   await row.click();
 
+  const detail = wallet.page.getByTestId('contact-detail');
+  try {
+    await detail.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `deleteContact(${address}): clicking the contact row did not open its page ` +
+        `([data-testid="contact-detail"]) within ${timeoutMs}ms. URL: ${wallet.page.url()}`
+    );
+  }
+  await detail.getByTestId('contact-edit').click({ timeout: timeoutMs });
+  await detail.getByTestId('contact-delete').click({ timeout: timeoutMs });
+
   const confirmButton = wallet.page.getByTestId('confirmation-modal-confirm');
   try {
     await confirmButton.waitFor({ state: 'visible', timeout: 15_000 });
   } catch {
-    throw new Error(
-      `deleteContact(${address}): clicking the contact row did not open the confirmation modal. ` +
-        `Only rows with accountInWallet === false are clickable — a wallet's OWN account row is inert, ` +
-        `so this address is probably one of this wallet's accounts rather than an external contact.`
-    );
+    throw new Error(`deleteContact(${address}): tapping Delete contact did not open the confirmation sheet.`);
   }
   // Bounded, and verified by its POSTCONDITION rather than by the click
   // returning. Two things went wrong here before:
@@ -222,9 +247,9 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   //      budget and failed with a closed-context error naming nothing;
   //   2. a blind `force: true` retry, which "succeeded" while the delete never
   //      happened — the run then failed 30s later with the row still present.
-  // The modal DISAPPEARING is the proof the click was handled (`useConfirm`
-  // unmounts it in the same tick it resolves), so retry against that rather
-  // than against the click resolving.
+  // The sheet DISAPPEARING is the proof the click was handled (`useConfirm`
+  // closes it in the same tick it resolves; it detaches once its slide-out
+  // ends), so retry against that rather than against the click resolving.
   const confirmClickLanded = async (opts: { force: boolean }): Promise<boolean> => {
     await confirmButton.click({ timeout: 15_000, force: opts.force }).catch(() => {});
     return confirmButton
@@ -234,12 +259,23 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   };
   if (!(await confirmClickLanded({ force: false })) && !(await confirmClickLanded({ force: true }))) {
     throw new Error(
-      `deleteContact(${address}): clicked the confirmation modal's Confirm button but the modal stayed ` +
+      `deleteContact(${address}): clicked the confirmation sheet's Confirm button but the sheet stayed ` +
         `open, so the delete was never dispatched. The button is present and visible — something is ` +
-        `swallowing the click (an overlay, or a modal still animating in).`
+        `swallowing the click (an overlay, or a sheet still animating in).`
     );
   }
 
+  // The row is also absent while the contact's page is showing, so the list has to be back
+  // before its absence means anything.
+  const book = wallet.page.getByTestId('address-book');
+  try {
+    await book.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `deleteContact(${address}): confirmed the delete but the page never returned to the address ` +
+        `book within ${timeoutMs}ms. URL: ${wallet.page.url()}`
+    );
+  }
   try {
     await row.waitFor({ state: 'detached', timeout: timeoutMs });
   } catch {
@@ -305,7 +341,7 @@ export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeout
 
 /**
  * Every row of the OPEN contact picker, as `{ name, address }`. The name is the
- * CardItem title; the address comes off the row's testid, so this reports the
+ * ListRow title; the address comes off the row's testid, so this reports the
  * name→address mapping the user is actually choosing between.
  */
 export async function listSendPickerContacts(page: Page): Promise<PickerContact[]> {
@@ -313,7 +349,7 @@ export async function listSendPickerContacts(page: Page): Promise<PickerContact[
     (els, prefix) =>
       els.map(el => ({
         address: (el.getAttribute('data-testid') ?? '').slice(prefix.length),
-        name: (el.querySelector('p')?.textContent ?? '').trim()
+        name: (el.querySelector('[data-slot="title"]')?.textContent ?? '').trim()
       })),
     PICKER_ROW_PREFIX
   );
@@ -604,8 +640,9 @@ export async function readClipboardWrites(page: Page): Promise<string[]> {
  * Click the Receive screen's copy button and wait for the clipboard write it is
  * supposed to make.
  *
- * `useCopyToClipboard` latches `copied` for 2s and makes a second click within
- * that window a NO-OP, so this never re-clicks — it waits on the first write.
+ * The canonical `CopyButton`'s `useClipboardCopy` hook has no latch: every click re-writes and
+ * resets its 1.5s "Copied" feedback timer. This helper only ever clicks once, so it just waits on
+ * that one write rather than guarding against a second click being a no-op.
  *
  * @returns every write recorded so far, so the caller can assert the FIRST one
  *          and that there was exactly one.
@@ -739,7 +776,7 @@ export async function isDarkThemeApplied(page: Page): Promise<boolean> {
 }
 
 /**
- * Click a theme tab in the OPEN general-settings drawer and wait for the theme
+ * Click a theme option in the OPEN general-settings drawer and wait for the theme
  * to actually be applied to `<html>`.
  *
  * `setTheme` both persists the choice and calls `applyTheme`, which adds/removes
@@ -749,8 +786,8 @@ export async function isDarkThemeApplied(page: Page): Promise<boolean> {
  * `'system'` has no predictable class outcome (it resolves through
  * `prefers-color-scheme`), so that branch waits on the PERSISTED value instead,
  * which is deterministic. It never returns without a postcondition: a click that
- * missed, a disabled tab, or an off-by-one in `handleThemeTabChange`'s
- * index→theme map all have to surface here, not in whatever runs next.
+ * missed, or one that landed on a different option than the one asked for, has to
+ * surface here, not in whatever runs next.
  */
 export async function selectTheme(
   wallet: ChromeWalletPageApi,
@@ -765,7 +802,7 @@ export async function selectTheme(
       .locator('[data-testid^="theme-"]')
       .evaluateAll(els => els.map(el => el.getAttribute('data-testid') ?? ''));
     throw new Error(
-      `selectTheme("${theme}"): no theme tab within ${timeoutMs}ms. Tabs present: ${JSON.stringify(present)}`
+      `selectTheme("${theme}"): no theme option within ${timeoutMs}ms. Options present: ${JSON.stringify(present)}`
     );
   }
   await tab.click({ timeout: timeoutMs });
@@ -777,9 +814,9 @@ export async function selectTheme(
       });
     } catch {
       throw new Error(
-        `selectTheme("system"): clicked the tab but localStorage["${THEME_SETTING_KEY}"] is ` +
-          `${JSON.stringify(await readLocalStorageItem(wallet.page, THEME_SETTING_KEY))} after ${timeoutMs}ms — ` +
-          `setTheme was never called, so the click never reached the tab.`
+        `selectTheme("system"): clicked the option but localStorage["${THEME_SETTING_KEY}"] is ` +
+          `${JSON.stringify(await readLocalStorageItem(wallet.page, THEME_SETTING_KEY))} after ${timeoutMs}ms - ` +
+          `setTheme was never called, so the click never reached the control.`
       );
     }
     return;
@@ -792,9 +829,9 @@ export async function selectTheme(
     });
   } catch {
     throw new Error(
-      `selectTheme("${theme}"): clicked the tab but <html> still ` +
-        `${wantDark ? 'lacks' : 'carries'} the "dark" class after ${timeoutMs}ms — ` +
-        `the theme was persisted without being applied, or the tab click never landed.`
+      `selectTheme("${theme}"): clicked the option but <html> still ` +
+        `${wantDark ? 'lacks' : 'carries'} the "dark" class after ${timeoutMs}ms - ` +
+        `the theme was persisted without being applied, or the click never landed.`
     );
   }
 }

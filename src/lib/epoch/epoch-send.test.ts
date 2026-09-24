@@ -38,10 +38,11 @@ jest.mock('lib/i18n/numbers', () => ({ toAdaptiveFixed: (value: string) => value
 import { bridgeEpochSend } from './epoch-send';
 
 const authorization = {
+  kind: 'usd' as const,
   id: 'authorization-1',
   accountId: 'mtst1sender',
-  faucetId: 'mtst1faucet',
-  amount: 250n,
+  usdAmount: 250n,
+  spendsDigest: 'digest-1',
   revision: 'revision-1',
   issuedAt: 100,
   expiresAt: 220
@@ -82,11 +83,16 @@ describe('bridgeEpochSend spending-limit authorization', () => {
       code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
       assessment: {
         accountId: 'mtst1sender',
-        faucetId: 'mtst1faucet',
-        amount: 250n,
+        usdAmount: 250_000_000n,
         revision: 'revision-2',
         assessedAt: 240,
-        breaches: [{ period: '24h', spent: 90n, proposedTotal: 340n, limit: 100n, overBy: 240n, resetAt: 300 }]
+        breach: {
+          spent: 90_000_000n,
+          proposedTotal: 340_000_000n,
+          limit: 100_000_000n,
+          overBy: 240_000_000n,
+          resetAt: 300
+        }
       }
     };
     mockCreateBridgeP2IDENote.mockRejectedValue(error);

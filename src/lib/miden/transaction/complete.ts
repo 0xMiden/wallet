@@ -12,6 +12,9 @@ import { MultisigService } from 'lib/miden/guardian';
 import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
 import * as Repo from 'lib/miden/repo';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
@@ -368,6 +371,26 @@ const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
 export const ENDPOINT_PERSIST_TIMEOUT_MS = 15_000;
 
 /**
+ * The stored WalletAccount id for a row queued under any spelling of it. The
+ * vault matches account records with ===, so a write keyed on the queued id can
+ * silently miss the account. Falls back to the queued id when nothing matches or
+ * the lookup fails: a post-commit completion must still reach its terminal writes.
+ */
+const storedAccountIdFor = async (guardianProvider: GuardianAccountProvider, accountId: string): Promise<string> => {
+  try {
+    const accounts = await withTimeout(
+      Promise.resolve(guardianProvider.getAccounts()),
+      ENDPOINT_PERSIST_TIMEOUT_MS,
+      'reading the stored guardian account'
+    );
+    return accounts.find(a => sameWalletAccountId(a.publicKey, accountId))?.publicKey ?? accountId;
+  } catch (error) {
+    console.warn('Could not resolve the stored guardian account id (using the queued id):', error);
+    return accountId;
+  }
+};
+
+/**
  * How many times to try writing the terminal status of a rotation that has
  * ALREADY committed on chain, and how long to space the attempts.
  *
@@ -429,6 +452,7 @@ export const completeReplaceHotKeyTransaction = async (
     // immediately transacts stays broken for the whole of that window.
     let reRegisterFailed = false;
     let reRegisterError: unknown;
+    let storedAccountId = tx.accountId;
     for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
       try {
         const accounts = await guardianProvider.getAccounts();
@@ -436,9 +460,10 @@ export const completeReplaceHotKeyTransaction = async (
         if (!walletAccount) {
           throw new Error(`Guardian account ${tx.accountId} not found in provider`);
         }
+        storedAccountId = walletAccount.publicKey;
         const sdkAccount = await withWasmClientLock(async () => {
           await midenClientProxy.syncState();
-          return midenClientProxy.getAccount(tx.accountId);
+          return midenClientProxy.getAccount(walletAccount.publicKey);
         });
         if (!sdkAccount) {
           throw new Error(`Guardian account ${tx.accountId} not found in local client`);
@@ -477,16 +502,17 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
-    await guardianProvider.swapHotKey(tx.accountId, newHotPublicKey);
+    await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
     // Drop the cached MultisigService — its bound hot signer is now stale.
-    clearGuardianServiceFor(tx.accountId);
+    clearGuardianServiceFor(storedAccountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       ...feeFieldsFromResult(result),
-      displayMessage: 'Device key rotated',
+      displayMessage: 'Everyday key rotated',
       completedAt: Math.floor(Date.now() / 1000),
-      // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
-      // extraInputs) and record whether the guardian re-register landed (#619 gap 1).
+      // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
+      // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
+      // guardian re-register landed (#619 gap 1).
       extraInputs: { ...tx.extraInputs, reRegisterFailed },
       // `result` is absent on the apply-after-submit-failed reconcile path: the
       // rotation is already on chain, we just lack the local TransactionResult.
@@ -500,11 +526,11 @@ export const completeReplaceHotKeyTransaction = async (
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
     // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(tx.accountId, tx.delegateTransaction, guardianProvider);
+    await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Failed to rotate device key',
+      displayMessage: 'Failed to rotate everyday key',
       completedAt: Math.floor(Date.now() / 1000),
       ...(result && { resultBytes: result.serialize() }),
       error: error instanceof Error ? error.message : String(error)
@@ -527,7 +553,8 @@ export const completeUpdateProcedureThresholdTransaction = async (
     completedAt: Math.floor(Date.now() / 1000),
     resultBytes: result.serialize()
   });
-  // The cached service's procedureThresholds are now stale — drop it.
+  // The cached service's procedureThresholds are now stale - drop it. The cache is
+  // keyed canonically, so the queued id needs no account-list read first.
   clearGuardianServiceFor(tx.accountId);
 
   // Same gap as replace-hot-key: the OZ lib submitted `update_procedure_threshold`
@@ -607,6 +634,7 @@ export const completeSwitchGuardianTransaction = async (
   let registerFailed = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
+    const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
 
     // Mirror upstream `multisig.executeProposal`'s post-submit block for
     // switch_guardian proposals: register on the new guardian with the updated
@@ -670,7 +698,7 @@ export const completeSwitchGuardianTransaction = async (
       // the flag is a harmless false positive — drift reconciliation reads the
       // stored endpoint, finds it correct, and affirms in-sync.
       await withTimeout(
-        Promise.resolve(guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint)),
+        Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, newGuardianEndpoint)),
         ENDPOINT_PERSIST_TIMEOUT_MS,
         'persisting the new guardian endpoint'
       );
@@ -687,7 +715,7 @@ export const completeSwitchGuardianTransaction = async (
       if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
       } else {
-        await finalizeDirectGuardianSwitch(tx.accountId, newGuardianEndpoint, guardianProvider);
+        await finalizeDirectGuardianSwitch(storedAccountId, newGuardianEndpoint, guardianProvider);
       }
     } catch (registerError) {
       registerFailed = true;
@@ -699,7 +727,7 @@ export const completeSwitchGuardianTransaction = async (
     }
 
     try {
-      clearGuardianServiceFor(tx.accountId);
+      clearGuardianServiceFor(storedAccountId);
     } catch (evictError) {
       console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
     }
@@ -1259,6 +1287,7 @@ export const updateEarnWithdrawPhase = async (
   amount?: bigint,
   expected?: ExpectedEarnWithdrawIntent
 ) => {
+  let settled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     if (
       expected &&
@@ -1270,10 +1299,34 @@ export const updateEarnWithdrawPhase = async (
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
       return;
     }
+    // Only the move INTO a terminal phase, so the idempotent same-phase patches
+    // this function deliberately allows do not each report an outcome.
+    if (!EARN_WITHDRAW_TERMINAL_PHASES.has(inputs.phase) && EARN_WITHDRAW_TERMINAL_PHASES.has(phase)) settled = tx;
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  // Reported from here because there is nowhere else it could be. This row is
+  // `Completed` in the database from birth and its real outcome lives in
+  // `extraInputs.phase`, so it never makes a terminal write through
+  // `updateTransactionStatus` and neither of the reporters wired to that function
+  // can see it. Without this, a withdrawal that failed produced no event at all
+  // — and neither did one that succeeded, so `tx_earn_settled` counted only
+  // deposits. That is the same blind spot this whole feature exists to close,
+  // left open for half of Earn.
+  //
+  // It matters more here than the shape of the row suggests: `earn-withdraw` is
+  // excluded from `REQUEUEABLE_TYPES`, so a failed one cannot be retried through
+  // the normal path and the user's funds simply appear stuck.
+  if (settled !== undefined) {
+    reportOperation({
+      operation: operationOfType(settled.type),
+      result: phase === 'failed' ? 'errored' : 'completed',
+      durationMs: elapsedMsSince(settled.initiatedAt),
+      ...(phase === 'failed' ? { errorKind: classifyError(extra?.error), step: 'submitting' } : {})
+    });
+  }
 };
 
 /** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
@@ -1304,9 +1357,22 @@ export const updateBridgedReceivePhase = async (
   >,
   received?: { amount: bigint; faucetId: string; transactionId?: string }
 ) => {
+  let settled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
+    // Unlike the earn-withdraw writer there is no monotonic guard here, so the
+    // only thing keeping one bridge from reporting twice is comparing against
+    // the phase already on the row. `ready` and `received` are both terminal —
+    // the note exists and is claimable, then it is claimed — so a row can pass
+    // through both and must report on the first.
+    const fromPhase = inputs?.phase;
+    if (
+      (fromPhase === undefined || !BRIDGED_RECEIVE_SETTLED_PHASES.has(fromPhase)) &&
+      BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)
+    ) {
+      settled = tx;
+    }
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (received) {
       tx.amount = received.amount;
@@ -1316,7 +1382,37 @@ export const updateBridgedReceivePhase = async (
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  // Same reason as the earn-withdraw writer above: this row is `Completed` from
+  // birth and carries its real outcome in `extraInputs.phase`, so it never makes
+  // a terminal write through `updateTransactionStatus` and reported nothing at
+  // all. `tx_bridge_settled` counted only the outbound half, which made bridging
+  // look like it had half the failure surface it has — and an inbound bridge that
+  // fails is money the user cannot see.
+  if (settled !== undefined) {
+    reportOperation({
+      operation: operationOfType(settled.type),
+      result: phase === 'failed' ? 'errored' : 'completed',
+      durationMs: elapsedMsSince(settled.initiatedAt),
+      ...(phase === 'failed' ? { errorKind: classifyError(extra?.error), step: 'submitting' } : {})
+    });
+  }
 };
+
+/**
+ * The phases at which an inbound bridge has finished, for reporting purposes.
+ *
+ * `ready` counts as well as `received`: at `ready` the bridge itself has done its
+ * job and the note is on Miden waiting to be claimed, and whether the user then
+ * claims it is a question about the user rather than about the bridge. Reporting
+ * only `received` would make an unclaimed-but-delivered bridge look like a
+ * bridge that never landed.
+ */
+const BRIDGED_RECEIVE_SETTLED_PHASES: ReadonlySet<IBridgedReceivePhase> = new Set<IBridgedReceivePhase>([
+  'ready',
+  'received',
+  'failed'
+]);
 
 /**
  * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
@@ -1363,6 +1459,7 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
     id,
     error
   });
+  let demoted: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Bridge failed — funds reclaimable';
@@ -1373,5 +1470,26 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
       epochStatus: 'failed',
       ...(reclaimHeight != null ? { reclaimHeight } : {})
     };
+    demoted = tx;
   });
+
+  // The mirror of `completeVerifiedLandedTransaction`, and needed for the same
+  // reason. This row already reported `completed` on its way through
+  // `updateTransactionStatus`, because as far as the send pipeline was concerned
+  // it succeeded. Without this the only settled event a rejected bridge ever
+  // produces says it worked — which is worse than reporting nothing, since it
+  // moves a failure into the denominator and makes the bridge look healthier the
+  // more often it fails this way.
+  //
+  // `step: 'submitting'` rather than a mapped stage: the row is stamped
+  // `complete` by now, and what failed is the intent the note was submitted for.
+  if (demoted !== undefined) {
+    reportOperation({
+      operation: operationOfType(demoted.type),
+      result: 'errored',
+      durationMs: elapsedMsSince(demoted.initiatedAt),
+      errorKind: classifyError(error),
+      step: 'submitting'
+    });
+  }
 };

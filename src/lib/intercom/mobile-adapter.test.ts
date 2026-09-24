@@ -28,22 +28,16 @@ jest.mock('lib/miden/back/actions', () => ({
   editAccount: jest.fn().mockResolvedValue(undefined),
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
-  listSpendingLimits: jest.fn().mockResolvedValue([
-    {
-      accountId: 'account-a',
-      faucetId: 'faucet-a',
-      dailyLimit: '100',
-      asset: { symbol: 'MIDEN', decimals: 8 },
-      revision: 'revision-1',
-      createdAt: 1,
-      updatedAt: 1
-    }
-  ]),
+  getSpendingLimit: jest.fn().mockResolvedValue({
+    accountId: 'account-a',
+    limit: '100',
+    revision: 'revision-1',
+    createdAt: 1,
+    updatedAt: 1
+  }),
   saveSpendingLimit: jest.fn().mockResolvedValue({
     accountId: 'account-a',
-    faucetId: 'faucet-a',
-    dailyLimit: '90',
-    asset: { symbol: 'MIDEN', decimals: 8 },
+    limit: '90',
     revision: 'revision-2',
     createdAt: 1,
     updatedAt: 2
@@ -55,11 +49,6 @@ jest.mock('lib/miden/back/actions', () => ({
   signWord: jest.fn().mockResolvedValue('word-signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
   revealHotKey: jest.fn().mockResolvedValue('hotkey-hex'),
-  revealGuardianKeys: jest.fn().mockResolvedValue({
-    coldPrivateKey: 'cold-priv',
-    coldPublicKey: 'cold-pub',
-    hotPublicKey: 'hot-pub'
-  }),
   persistNewHotKey: jest.fn().mockResolvedValue(undefined),
   swapHotKey: jest.fn().mockResolvedValue(undefined),
   setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
@@ -292,16 +281,11 @@ describe('MobileIntercomAdapter', () => {
       expect(response).toEqual({ type: WalletMessageType.UpdateSettingsResponse });
     });
 
-    it('handles spending-limit list and save requests', async () => {
-      const draft = {
-        accountId: 'account-a',
-        faucetId: 'faucet-a',
-        dailyLimit: '90',
-        asset: { symbol: 'MIDEN', decimals: 8 }
-      };
+    it('handles spending-limit get and save requests', async () => {
+      const draft = { accountId: 'account-a', limit: '90' };
 
-      const listed = await adapter.request({
-        type: WalletMessageType.GetSpendingLimitsRequest,
+      const got = await adapter.request({
+        type: WalletMessageType.GetSpendingLimitRequest,
         accountId: 'account-a'
       });
       const saved = await adapter.request({
@@ -311,9 +295,12 @@ describe('MobileIntercomAdapter', () => {
         strictlyAuthenticated: false
       });
 
-      expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+      expect(Actions.getSpendingLimit).toHaveBeenCalledWith('account-a');
       expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', false);
-      expect(listed).toMatchObject({ type: WalletMessageType.GetSpendingLimitsResponse, configurations: [{}] });
+      expect(got).toMatchObject({
+        type: WalletMessageType.GetSpendingLimitResponse,
+        configuration: { revision: 'revision-1' }
+      });
       expect(saved).toMatchObject({
         type: WalletMessageType.SaveSpendingLimitResponse,
         configuration: { revision: 'revision-2' }
@@ -324,11 +311,12 @@ describe('MobileIntercomAdapter', () => {
       const response = await adapter.request({
         type: WalletMessageType.AssessSpendingLimitRequest,
         accountId: 'account-a',
-        faucetId: 'faucet-a',
-        amount: '20'
+        spends: [{ faucetId: 'faucet-a', amount: '20' }]
       });
 
-      expect(Actions.assessOutgoingSpendingLimit).toHaveBeenCalledWith('account-a', 'faucet-a', '20');
+      expect(Actions.assessOutgoingSpendingLimit).toHaveBeenCalledWith('account-a', [
+        { faucetId: 'faucet-a', amount: '20' }
+      ]);
       expect(response).toEqual({ type: WalletMessageType.AssessSpendingLimitResponse });
     });
 
@@ -417,39 +405,6 @@ describe('MobileIntercomAdapter', () => {
       expect(response).toEqual({
         type: WalletMessageType.RevealHotKeyResponse,
         keyPairPayload: ''
-      });
-    });
-
-    it('handles RevealGuardianKeysRequest', async () => {
-      const response = await adapter.request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey: 'pub-key-123',
-        password: 'test123'
-      } as any);
-
-      expect(Actions.revealGuardianKeys).toHaveBeenCalledWith('pub-key-123', 'test123');
-      expect(response).toEqual({
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: 'cold-priv',
-        coldPublicKey: 'cold-pub',
-        hotPublicKey: 'hot-pub'
-      });
-    });
-
-    it('falls back to empty guardian keys when none are returned', async () => {
-      (Actions.revealGuardianKeys as jest.Mock).mockResolvedValueOnce(null);
-
-      const response = await adapter.request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey: 'pub-key-123',
-        password: 'test123'
-      } as any);
-
-      expect(response).toEqual({
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: '',
-        coldPublicKey: '',
-        hotPublicKey: undefined
       });
     });
 

@@ -28,6 +28,7 @@
  */
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 // Mirrors the scaffold in `dapp.preview-error.test.ts`; `dapp.ts` pulls in the
@@ -210,7 +211,6 @@ type CapturedConfirmation = {
   origin: string;
   transactionMessages?: string[];
   spendingLimitAssessment?: unknown;
-  spendingLimitAsset?: unknown;
 };
 
 /**
@@ -259,19 +259,16 @@ beforeEach(() => {
 describe('dApp send approval: spending-limit authorization stays inside the wallet', () => {
   const assessment = {
     accountId: 'miden-account-1',
-    faucetId: 'faucet-6dp',
-    amount: 1_500_000n,
+    usdAmount: 1_500_000n,
     revision: 'revision-1',
     assessedAt: 100,
-    breaches: [
-      { period: '24h', spent: 900_000n, proposedTotal: 2_400_000n, limit: 1_000_000n, overBy: 1_400_000n, resetAt: 200 }
-    ]
+    breach: { spent: 900_000n, proposedTotal: 2_400_000n, limit: 1_000_000n, overBy: 1_400_000n, resetAt: 200 }
   };
   const asset = { symbol: 'USDC', decimals: 6 };
 
   beforeEach(() => {
     mockGetTokenMetadata.mockResolvedValue(asset);
-    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue({ assessment, asset });
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue({ assessment });
   });
 
   it('preflights the exact formatted send and requires strict confirmation before initiation', async () => {
@@ -282,10 +279,10 @@ describe('dApp send approval: spending-limit authorization stays inside the wall
 
     expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
       accountId: 'miden-account-1',
-      faucetId: 'faucet-6dp',
-      amount: 1_500_000n
+      spends: [{ faucetId: 'faucet-6dp', amount: 1_500_000n }]
     });
-    expect(capturedConfirmation()).toMatchObject({ spendingLimitAssessment: assessment, spendingLimitAsset: asset });
+    expect(capturedConfirmation()).toMatchObject({ spendingLimitAssessment: assessment });
+    expect(capturedConfirmation()).not.toHaveProperty('spendingLimitAsset');
     expect(mockInitiateSendTransaction).toHaveBeenCalledWith(
       'miden-account-1',
       'mtst1recipient',
@@ -295,9 +292,9 @@ describe('dApp send approval: spending-limit authorization stays inside the wall
       0,
       false,
       expect.objectContaining({
+        kind: 'usd',
         accountId: 'miden-account-1',
-        faucetId: 'faucet-6dp',
-        amount: 1_500_000n,
+        usdAmount: 1_500_000n,
         revision: 'revision-1'
       })
     );
@@ -319,8 +316,7 @@ describe('dApp send approval: spending-limit authorization stays inside the wall
 
     expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
       accountId: 'miden-account-1',
-      faucetId: 'faucet-6dp',
-      amount: 1_500_000n
+      spends: [{ faucetId: 'faucet-6dp', amount: 1_500_000n }]
     });
     expect(mockInitiateSendTransaction.mock.calls[0]![7]).toMatchObject({ revision: 'revision-1' });
     expect(response).toEqual({ type: MidenDAppMessageType.TransactionResponse, transactionId: 'tx-1' });
@@ -377,6 +373,15 @@ describe('dApp send approval: spending-limit authorization stays inside the wall
     await expect(
       requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
     ).rejects.toThrow(/spending limit changed.*retry/i);
+  });
+
+  it('refuses a send when the covered asset has no price, rather than leaking the internal error', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new SpendingLimitPriceUnavailableError('faucet-6dp'));
+
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000'), 'session-1')
+    ).rejects.toThrow(/spending limit changed.*retry/i);
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
   });
 });
 

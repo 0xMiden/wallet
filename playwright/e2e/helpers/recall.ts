@@ -85,9 +85,9 @@ export { IS_LOCALNET };
  * The conversion needs the chain's block cadence, and the only cadence this
  * process can KNOW is the one it configures: `MIDEN_NODE_BLOCK_INTERVAL`, which
  * docker-compose.local.yml passes to the node as `--block.interval` (defaulting
- * to `3s`; the fast CI leg runs `500ms`). A hard-coded block count would be six
- * times shorter on that fast leg — short enough for prove + submit + commit to
- * outrun it, which fails a perfectly healthy wallet.
+ * to `3s`). A hard-coded block count would be the wrong length on any other
+ * cadence - short enough for prove + submit + commit to outrun it, which fails
+ * a perfectly healthy wallet.
  *
  * On devnet/testnet that variable is unset, configures nothing, and the real
  * cadence is whatever the public network is running. An earlier version of this
@@ -99,20 +99,9 @@ export { IS_LOCALNET };
  * hard-fail on main, so that guess reds main for a reason that does not exist.
  *
  * Hence: throw rather than guess, and let the spec skip itself off localnet
- * (`IS_LOCALNET`). Call this INSIDE the test body, never at module scope — a
+ * (`IS_LOCALNET`). Call this INSIDE the test body, never at module scope - a
  * module-scope call would break collection on the very legs that must skip.
  */
-/**
- * True only on the 500ms-block leg of pr-e2e-local.yml.
- *
- * The recall spec waits out a real expiry, so its runtime is set by block
- * cadence. On the default 3s leg the same window costs 6x the blocks AND shares
- * a 45-minute job with the whole core suite; on the fast leg it is bounded and
- * the leg runs almost nothing else. Gating on the cadence rather than on a
- * workflow file keeps the requirement next to the code that depends on it.
- */
-export const IS_FAST_BLOCKS = (process.env.MIDEN_NODE_BLOCK_INTERVAL ?? '').trim() === '500ms';
-
 export function recallBlocksForWindow(windowMs: number): number {
   if (!IS_LOCALNET) {
     throw new Error(

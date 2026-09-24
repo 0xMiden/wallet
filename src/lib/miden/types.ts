@@ -1,7 +1,7 @@
 import { AllowedPrivateData, PrivateDataPermission, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { MidenDAppMetadata } from 'lib/adapter/types';
-import type { SerializedSpendingLimitAssessment, SpendingLimitAssetSnapshot } from 'lib/miden/spending-limits/types';
+import type { SerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { ReadyWalletState, WalletMessageBase, WalletNetwork, WalletState } from 'lib/shared/types';
 
 export interface MidenState extends WalletState {
@@ -111,7 +111,6 @@ export interface MidenDAppTransactionPayload extends MidenDAppPayloadBase {
   importNotes?: string[]; // base64 serialized notes carried by the request
   recipientAddress?: string; // dApp-declared recipient (shown as "declared by site")
   spendingLimitAssessment?: SerializedSpendingLimitAssessment;
-  spendingLimitAsset?: SpendingLimitAssetSnapshot;
 }
 
 export interface MidenDAppConsumePayload extends MidenDAppPayloadBase {

@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import BigNumber from 'bignumber.js';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -60,12 +61,11 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 
-// Balance is a render-prop that hands its child the total fiat BigNumber; the
-// child immediately runs it through the (mocked) toLocalFormat, so any value is
-// fine here.
+// Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
+// to a number for `AnimatedNumber` and formats it through the (mocked) toLocalFormat.
 jest.mock('app/templates/Balance', () => ({
   __esModule: true,
-  default: ({ children }: { children: (b: unknown) => React.ReactElement }) => children(0)
+  default: ({ children }: { children: (b: BigNumber) => React.ReactElement }) => children(new BigNumber(0))
 }));
 
 jest.mock('app/templates/HomePrompts', () => ({
@@ -109,20 +109,26 @@ jest.mock('components/Loader', () => ({
 }));
 
 jest.mock('components/ui', () => ({
+  AnimatedNumber: ({ value, format }: { value: number | null; format: (value: number) => string }) =>
+    typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
   BalanceCard: ({
     accountNumber,
     accountId,
     amount,
     onMore,
-    state
+    state,
+    delta
   }: {
     accountNumber: string;
     accountId: string;
-    amount: string;
+    amount: React.ReactNode;
     onMore: () => void;
     state?: string;
+    // Surfaced so a test can see what Home passes: a stub that drops it makes the call site
+    // unobservable, which is how a fabricated change pill shipped.
+    delta?: unknown;
   }) => (
-    <div data-testid="balance-card" data-state={state}>
+    <div data-testid="balance-card" data-state={state} data-delta={delta === undefined ? 'none' : 'passed'}>
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
       <span data-testid="balance-amount">{amount}</span>
@@ -345,6 +351,15 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
+    });
+
+    // The same rule as the "$-" total above, one row down: a change figure the app does not have is
+    // not displayed. Home passed a hardcoded +0.00 / 0.00% before, so the card showed a fabricated
+    // zero-change pill on every visit.
+    it('passes no change figure until a real price-change source exists', async () => {
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
     });
 
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {

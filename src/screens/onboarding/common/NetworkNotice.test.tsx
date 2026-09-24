@@ -15,31 +15,42 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey
 }));
 
-jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, ...rest }: { title: string; onClick?: () => void; 'data-testid'?: string }) => (
-    <button type="button" data-testid={rest['data-testid']} onClick={onClick}>
-      {title}
-    </button>
-  )
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
 
 describe('NetworkNoticeScreen', () => {
   beforeEach(() => {
     mockNetworkKey = 'testnet';
   });
 
-  it('names Testnet, lists the three notices and acknowledges with a primary button', () => {
-    const onSubmit = jest.fn();
-
-    render(<NetworkNoticeScreen onSubmit={onSubmit} />);
+  it('names Testnet on a network chip and the step title, on the step layout', () => {
+    render(<NetworkNoticeScreen />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('networkModeBanner:testnet');
     expect(screen.getByText('networkNoticeChip:testnet')).toBeInTheDocument();
-    expect(screen.getAllByRole('listitem')).toHaveLength(3);
-    expect(screen.getByText('networkNoticeResetTitle')).toBeInTheDocument();
+    expect(screen.getByText('networkNoticeBody')).toHaveClass('text-muted');
+    const root = screen.getByTestId('onboarding-network-notice');
+    expect(root.querySelector('[data-slot="step-heading"]')).not.toBeNull();
+    expect(screen.getByTestId('onboarding-network-notice-acknowledge').closest('[data-slot="footer"]')).not.toBeNull();
+  });
 
+  it('lists the three facts as plain rows, nothing to tick', () => {
+    render(<NetworkNoticeScreen />);
+
+    expect(screen.getAllByRole('listitem').map(row => row.textContent)).toEqual([
+      'networkNoticeNoValueTitlenetworkNoticeNoValueBody',
+      'networkNoticeNoRealFundsTitlenetworkNoticeNoRealFundsBody',
+      'networkNoticeResetTitlenetworkNoticeResetBody'
+    ]);
+    expect(screen.queryByRole('checkbox')).toBeNull();
+  });
+
+  it('acknowledges on the first tap of I understand', () => {
+    const onSubmit = jest.fn();
+    render(<NetworkNoticeScreen onSubmit={onSubmit} />);
     const button = screen.getByTestId('onboarding-network-notice-acknowledge');
     expect(button).toHaveTextContent('iUnderstand');
+    expect(button).toBeEnabled();
+
     fireEvent.click(button);
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });

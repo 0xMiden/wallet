@@ -205,7 +205,7 @@ test.describe('Address Book send', () => {
       await reloadWallet(walletA);
 
       await openSettingsDrawer(walletA, 'address-book');
-      // Goes through the real ConfirmationModal — removeContact is gated on useConfirm().
+      // Goes through the real confirm sheet — removeContact is gated on useConfirm().
       // deleteContact's own postcondition is that exact row reaching state
       // 'detached', so enumerating the same testid prefix here cannot disagree.
       await deleteContact(walletA, addressB!);

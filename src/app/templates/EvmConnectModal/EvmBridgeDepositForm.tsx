@@ -1,6 +1,9 @@
 import React from 'react';
 
-import { TestNetworkWarning } from 'components/TestNetworkWarning';
+import { useTranslation } from 'react-i18next';
+
+import { Icon, IconName } from 'app/icons/v2';
+import { Notice } from 'components/ui/Notice';
 import { DEFAULT_BRIDGE_NETWORK, BRIDGE_OUTPUT_TOKEN_SYMBOL } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
@@ -33,6 +36,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onSwitch,
   onContinue
 }) => {
+  const { t } = useTranslation();
   const title = <EvmWalletHeader address={evmAddress} onSwitch={onSwitch} />;
 
   return (
@@ -53,12 +57,15 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
     >
       {/* Funding decision point (#875): a wallet that was already connected
           skips the connect-step warning, so the form carries its own. */}
-      <TestNetworkWarning
-        titleKey="bridgeTestFundsTitle"
-        bodyKey="bridgeTestFundsBody"
+      <Notice
+        tone="warning"
+        icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+        title={t('bridgeTestFundsTitle')}
         className="mt-4"
         data-testid="bridge-test-funds-warning"
-      />
+      >
+        {t('bridgeTestFundsBody')}
+      </Notice>
     </SelectAmount>
   );
 };

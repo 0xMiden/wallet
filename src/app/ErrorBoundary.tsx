@@ -5,6 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { PropsWithChildren } from 'lib/props-with-children';
+// Deep path, not the `lib/telemetry` barrel: the barrel re-exports the
+// frontend flow reporter, which pulls in React via `lib/miden/front`.
+import { captureCrash } from 'lib/telemetry/crash';
 
 import { WindowType } from './env';
 import { Icon, IconName } from './icons/v2';
@@ -28,6 +31,13 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error(error.message, errorInfo.componentStack);
+    // Consent-gated and scrubbed downstream; guarded so a reporting failure
+    // cannot replace the error screen with a second crash.
+    try {
+      captureCrash(error);
+    } catch {
+      /* best-effort */
+    }
   }
 
   componentDidMount() {
@@ -94,7 +104,7 @@ const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowTy
         fullPage && 'mt-[-24px]'
       )}
     >
-      <div className={classNames('p-4', 'flex flex-col items-center', 'text-black')}>
+      <div className={classNames('p-4', 'flex flex-col items-center', 'text-ink')}>
         <Icon name={IconName.Frown} size="3xl" className="mb-8" />
 
         <h2 className="mb-1 text-2xl">{t('oops')}</h2>

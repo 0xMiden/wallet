@@ -15,13 +15,11 @@ jest.mock('react-i18next', () => ({
 }));
 
 // `app/icons/v2` is a heavy SVG barrel; the component only reads `IconName`
-// members, so expose stable marker strings for the four it references.
+// members, so expose stable marker strings for the two it references.
 jest.mock('app/icons/v2', () => ({
   IconName: {
     Eye: 'ICON_EYE',
-    EyeOff: 'ICON_EYE_OFF',
-    FileCopy: 'ICON_FILE_COPY',
-    CheckboxCircleFill: 'ICON_CHECK'
+    EyeOff: 'ICON_EYE_OFF'
   }
 }));
 
@@ -35,26 +33,55 @@ jest.mock('components/Button', () => ({
     title,
     iconLeft,
     onClick,
-    className
+    className,
+    size,
+    children
   }: {
+    children?: React.ReactNode;
     title?: string;
     iconLeft?: unknown;
     onClick?: () => void;
     className?: string;
+    size?: string;
   }) => (
-    <button data-testid={`btn-${title}`} data-icon={String(iconLeft)} data-classname={className} onClick={onClick}>
-      {title}
+    <button
+      data-testid={`btn-${title}`}
+      data-icon={String(iconLeft)}
+      data-classname={className}
+      data-size={size}
+      onClick={onClick}
+    >
+      {children ?? title}
     </button>
   )
 }));
 
-// `components/Chip` renders the seed-word label ReactNode; stub it to a div that
-// simply renders the passed `label` so the inner blur-toggle <label> is present
-// in the DOM for class assertions.
-jest.mock('components/Chip', () => ({
-  Chip: ({ label, className }: { label: React.ReactNode; className?: string }) => (
-    <div data-testid="chip" data-classname={className}>
-      {label}
+// The shared copy confirmation (glyph morph + label roll) has its own suite; stub it to markers
+// that surface the `copied` state this screen feeds it.
+jest.mock('components/ui/AnimatedCopyIcon', () => ({
+  AnimatedCopyIcon: ({ copied }: { copied: boolean }) => <span data-testid="copy-glyph" data-copied={String(copied)} />
+}));
+jest.mock('components/ui/CopyLabel', () => ({
+  CopyLabel: ({ copied, copiedLabel, children }: { copied: boolean; copiedLabel: string; children: string }) => (
+    <span data-testid="copy-label">{copied ? copiedLabel : children}</span>
+  )
+}));
+
+// `components/ui/Pill` renders the seed-word content; stub it to a div that
+// simply forwards `children` and `data-testid` so the inner blur-toggle <span>
+// is present in the DOM for class assertions.
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({
+    children,
+    className,
+    'data-testid': dataTestId
+  }: {
+    children: React.ReactNode;
+    className?: string;
+    'data-testid'?: string;
+  }) => (
+    <div data-testid={dataTestId} data-classname={className}>
+      {children}
     </div>
   )
 }));
@@ -63,9 +90,14 @@ jest.mock('components/Chip', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// jsdom exposes no `navigator.clipboard`; install a spy so `onCopyToClipboard`
-// can be verified.
+// The copy goes through @capacitor/clipboard (its own web implementation makes the same call right
+// on every surface), so that is the boundary to assert. `navigator.clipboard` is still stubbed
+// because jsdom exposes none and unrelated code may reach for it.
 const mockWriteText = jest.fn();
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
 Object.defineProperty(navigator, 'clipboard', {
   value: { writeText: mockWriteText },
   configurable: true
@@ -108,6 +140,9 @@ const dispatchCopy = ({
 
 beforeEach(() => {
   mockWriteText.mockClear();
+  // Both clipboard mocks are module-level, so a call-count assertion reads every
+  // preceding case's clicks unless the count is reset per case.
+  mockClipboardWrite.mockClear();
 });
 
 afterEach(() => {
@@ -129,31 +164,29 @@ describe('BackUpSeedPhraseScreen', () => {
     });
 
     it('renders one chip per seed word with its 1-based index and word', () => {
-      const { container } = renderComponent();
-      const chips = screen.getAllByTestId('chip');
+      renderComponent();
+      const chips = screen.getAllByTestId(/^seed-word-\d+$/);
       expect(chips).toHaveLength(SEED.length);
-
-      const labels = container.querySelectorAll('label');
-      expect(labels).toHaveLength(SEED.length);
-      expect(labels[0]).toHaveTextContent('1.');
-      expect(labels[0]).toHaveTextContent('alpha');
-      expect(labels[SEED.length - 1]).toHaveTextContent(`${SEED.length}.`);
-      expect(labels[SEED.length - 1]).toHaveTextContent('foxtrot');
+      expect(chips[0]).toHaveTextContent('1.');
+      expect(chips[0]).toHaveTextContent('alpha');
+      expect(chips[SEED.length - 1]).toHaveTextContent(`${SEED.length}.`);
+      expect(chips[SEED.length - 1]).toHaveTextContent('foxtrot');
     });
 
     it('renders an empty grid (no chips) when given an empty seed phrase', () => {
       renderComponent({ seedPhrase: [] });
-      expect(screen.queryAllByTestId('chip')).toHaveLength(0);
+      expect(screen.queryAllByTestId(/^seed-word-\d+$/)).toHaveLength(0);
       // The continue CTA is still present.
       expect(screen.getByTestId('btn-continue')).toBeInTheDocument();
     });
 
-    it('merges a custom className and spreads arbitrary div props onto the root', () => {
-      renderComponent({ className: 'my-custom-class', 'data-testid': 'backup-root' } as never);
+    it('renders on the step layout: a 28px title, the words in the body and Continue pinned', () => {
+      renderComponent({ 'data-testid': 'backup-root' });
       const root = screen.getByTestId('backup-root');
-      expect(root).toHaveClass('my-custom-class');
-      // Base classes from the component are preserved alongside the override.
       expect(root).toHaveClass('flex', 'flex-col', 'bg-app-bg');
+      expect(screen.getByRole('heading', { level: 1, name: 'backUpYourWallet' })).toBeInTheDocument();
+      expect(screen.getByTestId('btn-continue').closest('[data-slot="footer"]')).not.toBeNull();
+      expect(screen.getByText('backUpWalletInstructions').closest('[data-slot="step-heading"]')).not.toBeNull();
     });
 
     it('renders the three control buttons (show, copy, continue)', () => {
@@ -162,86 +195,161 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(screen.getByTestId('btn-copyToClipboard')).toBeInTheDocument();
       expect(screen.getByTestId('btn-continue')).toBeInTheDocument();
     });
+
+    it('gives the show/copy row buttons the canonical `sm` size instead of a manual height override', () => {
+      renderComponent();
+      const show = screen.getByTestId('btn-show');
+      const copy = screen.getByTestId('btn-copyToClipboard');
+      expect(show).toHaveAttribute('data-size', 'sm');
+      expect(copy).toHaveAttribute('data-size', 'sm');
+      expect(show.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
+      expect(copy.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
+      // Continue keeps the plain lg CTA anatomy, only spanning the pinned footer.
+      expect(screen.getByTestId('btn-continue').getAttribute('data-classname')).toBe('max-w-none');
+    });
+
+    it("gives the show/copy row buttons equal flex-1 shares instead of a fixed w-1/2 (so a longer ru/uk label doesn't overflow at 320px), 10px apart", () => {
+      renderComponent();
+      const show = screen.getByTestId('btn-show');
+      const copy = screen.getByTestId('btn-copyToClipboard');
+      expect(show).toHaveAttribute('data-classname', 'flex-1');
+      expect(copy).toHaveAttribute('data-classname', 'flex-1');
+      expect(show.getAttribute('data-classname')).not.toMatch(/w-1\/2/);
+      expect(copy.getAttribute('data-classname')).not.toMatch(/w-1\/2/);
+
+      // The row wrapper holding both buttons sets the 10px gap between them.
+      expect(show.parentElement).toBe(copy.parentElement);
+      expect(show.parentElement).toHaveClass('gap-2.5');
+    });
   });
 
   describe('words visibility toggle', () => {
     it('starts hidden: words are blurred and the toggle shows the "show" affordance', () => {
-      const { container } = renderComponent();
-      const firstLabel = container.querySelector('label')!;
-      expect(firstLabel).toHaveClass('blur-sm');
-      expect(firstLabel).not.toHaveClass('blur-none');
+      renderComponent();
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-sm');
 
       const toggle = screen.getByTestId('btn-show');
       expect(toggle).toHaveAttribute('data-icon', 'ICON_EYE');
     });
 
+    it('respects reduced motion on the blur transition', () => {
+      renderComponent();
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('motion-reduce:transition-none');
+    });
+
     it('reveals the words and flips the toggle label/icon when clicked', () => {
-      const { container } = renderComponent();
+      renderComponent();
 
       fireEvent.click(screen.getByTestId('btn-show'));
 
-      const firstLabel = container.querySelector('label')!;
-      expect(firstLabel).toHaveClass('blur-none');
-      expect(firstLabel).not.toHaveClass('blur-sm');
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-none');
 
       const toggle = screen.getByTestId('btn-hide');
       expect(toggle).toHaveAttribute('data-icon', 'ICON_EYE_OFF');
     });
 
     it('toggles back to hidden on a second click', () => {
-      const { container } = renderComponent();
+      renderComponent();
 
       fireEvent.click(screen.getByTestId('btn-show'));
       fireEvent.click(screen.getByTestId('btn-hide'));
 
-      expect(container.querySelector('label')!).toHaveClass('blur-sm');
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-sm');
       expect(screen.getByTestId('btn-show')).toBeInTheDocument();
     });
   });
 
+  // The navigator owns the one back chevron; a step no longer carries its own footer Back. The
+  // navigator's suite cannot pin this - it mocks every step to a bare div, so the count it used to
+  // assert was 1 by construction. Here the real step renders.
+  it('renders no back button of its own inside the step', () => {
+    renderComponent();
+    expect(screen.queryByRole('button', { name: /back/i })).toBeNull();
+  });
+
   describe('copy to clipboard', () => {
-    it('writes the space-joined seed phrase and flips the button to the "copied" state', () => {
+    it('writes the space-joined seed phrase and hands the shared copy confirmation the copied state', async () => {
       renderComponent();
 
       const copyBtn = screen.getByTestId('btn-copyToClipboard');
-      expect(copyBtn).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
 
-      fireEvent.click(copyBtn);
+      await act(async () => {
+        fireEvent.click(copyBtn);
+      });
 
-      expect(mockWriteText).toHaveBeenCalledTimes(1);
-      expect(mockWriteText).toHaveBeenCalledWith(SEED.join(' '));
-
-      const copied = screen.getByTestId('btn-copied');
-      expect(copied).toHaveAttribute('data-icon', 'ICON_CHECK');
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(mockClipboardWrite).toHaveBeenCalledWith({ string: SEED.join(' ') });
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copied');
     });
 
-    it('reverts to the default copy state after the 2s timeout', () => {
+    // The whole point of the shared implementation: the confirmation follows the WRITE. The screen
+    // used to report success without awaiting it, on the one value where that costs the most.
+    it('says nothing was copied when the write fails', async () => {
+      mockClipboardWrite.mockRejectedValueOnce(new Error('denied'));
+      renderComponent();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
+    });
+
+    // The local version armed a timeout it never cleared, so a Continue inside the window left it
+    // firing into a detached tree. React 18 reports nothing for that, so the timer is the evidence.
+    it('leaves no timer behind when the step is left inside the feedback window', async () => {
+      jest.useFakeTimers();
+      const { unmount } = renderComponent();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      unmount();
+
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('reverts to the default copy state after the shared 1.5s feedback window', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
-      expect(screen.getByTestId('btn-copied')).toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
+      });
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
 
       act(() => {
-        jest.advanceTimersByTime(2000);
+        jest.advanceTimersByTime(1500);
       });
 
-      expect(screen.getByTestId('btn-copyToClipboard')).toBeInTheDocument();
-      expect(screen.queryByTestId('btn-copied')).not.toBeInTheDocument();
-      expect(screen.getByTestId('btn-copyToClipboard')).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
     });
 
-    it('stays in the copied state before the timeout elapses', () => {
+    it('stays in the copied state before the timeout elapses', async () => {
       jest.useFakeTimers();
       renderComponent();
 
-      fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
-
-      act(() => {
-        jest.advanceTimersByTime(1999);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
       });
 
-      expect(screen.getByTestId('btn-copied')).toBeInTheDocument();
+      act(() => {
+        jest.advanceTimersByTime(1499);
+      });
+
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
     });
   });
 
@@ -298,14 +406,39 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(result!.preventDefaultSpy).toHaveBeenCalled();
     });
 
-    it('removes its copy listener on unmount without throwing', () => {
+    it('removes the SAME copy listener it added, so the handler cannot outlive the screen', () => {
+      // `expect.any(Function)` used to sit in this slot, which is exactly the thing the bug changed:
+      // the old cleanup passed a freshly allocated `() => {}`, so removeEventListener was still
+      // called with a Function and the assertion passed while the real handler stayed on document
+      // for the life of the realm, rewriting every later copy.
+      const addSpy = jest.spyOn(document, 'addEventListener');
       const removeSpy = jest.spyOn(document, 'removeEventListener');
       const { unmount } = renderComponent();
 
-      expect(() => unmount()).not.toThrow();
-      expect(removeSpy).toHaveBeenCalledWith('copy', expect.any(Function));
+      const added = addSpy.mock.calls.find(([type]) => type === 'copy')?.[1];
+      expect(added).toBeInstanceOf(Function);
 
+      unmount();
+      expect(removeSpy).toHaveBeenCalledWith('copy', added);
+
+      addSpy.mockRestore();
       removeSpy.mockRestore();
+    });
+
+    it('stops rewriting the clipboard once unmounted', () => {
+      const { unmount } = renderComponent();
+      unmount();
+
+      const setData = jest.fn();
+      const { preventDefaultSpy } = dispatchCopy({
+        selection: { toString: () => 'Send 123 MIDEN to mtst1abc' },
+        clipboardData: { setData }
+      });
+
+      // Behavioural mirror of the identity check: a leaked handler would strip the digits and
+      // preventDefault() on a copy that has nothing to do with this screen.
+      expect(setData).not.toHaveBeenCalled();
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
     });
   });
 });

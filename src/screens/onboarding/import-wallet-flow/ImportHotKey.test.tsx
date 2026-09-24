@@ -163,3 +163,16 @@ it('discards native results after unmount and withholds input until screenshot p
   expect(screen.queryByRole('button', { name: 'scanQrTitle' })).toBeNull();
   expect(screen.getByTestId('import-hot-key-submit')).toBeDisabled();
 });
+
+it('lays out on the step layout: one primary Continue pinned, the key sources secondary, manual entry a text action', () => {
+  render(<ImportHotKeyScreen />);
+  expect(screen.getByRole('heading', { level: 1, name: 'importHotKeyTitle' })).toBeInTheDocument();
+  expect(screen.getByTestId('import-hot-key-submit').closest('[data-slot="footer"]')).not.toBeNull();
+  expect(screen.getByRole('button', { name: 'scanQrTitle' })).toHaveClass('bg-fill');
+  expect(screen.getByRole('button', { name: 'uploadQrImage' })).toHaveClass('bg-fill');
+  const manual = screen.getByRole('button', { name: 'enterKeysManually' });
+  expect(manual).toHaveClass('text-accent-tint-ink');
+  fireEvent.click(manual);
+  expect(screen.getByLabelText('midenHotPrivateKey')).toHaveAttribute('id', 'hot-key-input');
+  expect(screen.getByLabelText('evmPrivateKey')).toHaveAttribute('id', 'evm-key-input');
+});
