@@ -8,6 +8,7 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
 import PageLayout from 'app/layouts/PageLayout';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
@@ -46,6 +47,7 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useUsdcxAttestation } from 'lib/usdcx/use-attestation';
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
@@ -248,6 +250,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
+  const pageActive = usePageActive();
+  const usdcxInputs = row?.type === 'bridged-receive' ? row.extraInputs : undefined;
+  const usdcxAttested = useUsdcxAttestation(
+    usdcxInputs?.provider === 'usdcx' ? usdcxInputs.evmTxHash : undefined,
+    pageActive && usdcxInputs?.phase === 'delivering' && row?.status !== ITransactionStatus.Failed
+  );
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
@@ -676,7 +684,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-2">
                 {isBridge ? (
                   // Pending/Confirmed/Failed, derived from the route's own lifecycle.
-                  <StatusBadge size="md" live status={bridgeStatusOf(entry)} data-testid="history-status-pill" />
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={
+                      usdcxAttested && entry.txId === row?.id && bridgeStatusOf(entry) === 'pending'
+                        ? 'confirmed'
+                        : bridgeStatusOf(entry)
+                    }
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnWithdraw && earnWithdraw ? (
                   // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
                   <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />

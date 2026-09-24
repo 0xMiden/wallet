@@ -110,7 +110,7 @@ jest.mock('app/layouts/page-active', () => ({
 
 // The attestation poll is captured rather than run: the test drives `poll` and
 // `onArrival` by hand, so no timers are involved.
-type TrackerOptions = { active: boolean; poll: () => Promise<boolean>; onArrival?: () => void };
+type TrackerOptions = { active: boolean; intervalMs?: number; poll: () => Promise<boolean>; onArrival?: () => void };
 let trackerOptions: TrackerOptions | undefined;
 jest.mock('lib/agglayer/use-bridge-tracker', () => ({
   useBridgeTracker: (options: TrackerOptions) => {
@@ -239,6 +239,7 @@ describe('EvmBridgeDepositStatus', () => {
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
       expect(trackerOptions?.active).toBe(true);
+      expect(trackerOptions?.intervalMs).toBe(12_000);
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
 
       await expect(trackerOptions?.poll()).resolves.toBe(false);
