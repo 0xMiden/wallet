@@ -12,6 +12,7 @@ import {
   type CapturePlanEntry,
   type StorePlatform
 } from './store-listing.capture';
+import { openGuardianPickerFromMeetGuardian } from '../e2e/helpers/meet-guardian';
 import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
 
 const repositoryRoot = path.resolve(__dirname, '../..');
@@ -309,6 +310,7 @@ async function captureChrome(): Promise<void> {
     await guardianPage.getByTestId('create-password-input').fill(fixturePassword);
     await guardianPage.getByTestId('create-password-verify-input').fill(fixturePassword);
     await guardianPage.getByTestId('create-password-submit').click();
+    await openGuardianPickerFromMeetGuardian(guardianPage);
     await capture(guardianPage, planEntry('chromeWebStore', 'guardian'));
     await guardianPage.close();
 
