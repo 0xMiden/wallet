@@ -1,6 +1,14 @@
 import axios from 'axios';
 
-import { DEFAULT_PRICE, fetchKlineData, fetchTokenPrices, getTokenPrice, listedFiat, Timeframe } from './binance';
+import {
+  DEFAULT_PRICE,
+  fetchKlineData,
+  fetchTokenPrices,
+  getTokenPrice,
+  listedFiat,
+  listedPrice,
+  Timeframe
+} from './binance';
 
 jest.mock('axios');
 
@@ -193,6 +201,18 @@ describe('binance', () => {
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('Failed to fetch kline'), expect.any(Error));
       warn.mockRestore();
     });
+  });
+});
+
+describe('listedPrice', () => {
+  const prices = { ETH: { price: 2, change24h: 0, percentageChange24h: 0 } };
+
+  it('returns the feed price of a listed symbol', () => {
+    expect(listedPrice(prices, 'ETH')).toBe(2);
+  });
+
+  it('returns 0 for a symbol the feed does not list, never the $1 default', () => {
+    expect(listedPrice(prices, 'IMIDEN')).toBe(0);
   });
 });
 

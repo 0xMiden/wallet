@@ -84,7 +84,8 @@ jest.mock('components/TokenLogo', () => ({
 // deterministic price per symbol here.
 jest.mock('lib/prices', () => ({
   getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 1, percentageChange24h: 0 }),
-  listedFiat: jest.requireActual('lib/prices/binance').listedFiat
+  listedFiat: jest.requireActual('lib/prices/binance').listedFiat,
+  listedPrice: jest.requireActual('lib/prices/binance').listedPrice
 }));
 
 type Balance = {
@@ -223,6 +224,7 @@ describe('SelectTokenDrawer', () => {
   });
 
   it('builds the UIToken, resets the search and closes the drawer on select', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
     setBalances([BTC, ETH]);
     const { onSelect, onOpenChange } = renderDrawer();
 
@@ -248,6 +250,16 @@ describe('SelectTokenDrawer', () => {
     expect(search()).toHaveValue('');
     expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
     expect(screen.getByTestId('send-token-ETH')).toBeInTheDocument();
+  });
+
+  it('hands the amount step no price for a token the feed does not list, not the store $1 default', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
+    setBalances([XYZ]);
+    const { onSelect } = renderDrawer();
+
+    fireEvent.click(screen.getByTestId('send-token-XYZ'));
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 't-xyz', fiatPrice: 0 }));
   });
 
   it('forwards the sheet onOpenChange handler to the drawer', () => {

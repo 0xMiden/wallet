@@ -8,7 +8,7 @@ import { SearchInput } from 'components/ui/SearchInput';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { listedFiat } from 'lib/prices';
+import { listedFiat, listedPrice } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -88,7 +88,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                         name: b.metadata.symbol,
                         decimals: b.metadata.decimals,
                         balance: b.balance,
-                        fiatPrice: b.fiatPrice,
+                        fiatPrice: listedPrice(tokenPrices, b.metadata.symbol),
                         scaleIsKnown
                       })
                     }

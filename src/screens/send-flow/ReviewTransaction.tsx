@@ -30,6 +30,7 @@ import {
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
+import { listedPrice } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
@@ -83,6 +84,7 @@ export const ReviewTransaction: React.FC = () => {
   // preselect effect) — the URL only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
     if (!match) return undefined;
@@ -91,10 +93,10 @@ export const ReviewTransaction: React.FC = () => {
       name: match.metadata.symbol,
       decimals: match.metadata.decimals,
       balance: match.balance,
-      fiatPrice: match.fiatPrice,
+      fiatPrice: listedPrice(tokenPrices, match.metadata.symbol),
       scaleIsKnown: hasKnownScale(match.metadata)
     };
-  }, [balanceData, tokenId]);
+  }, [balanceData, tokenId, tokenPrices]);
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;

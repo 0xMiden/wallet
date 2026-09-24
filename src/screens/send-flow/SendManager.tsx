@@ -18,6 +18,7 @@ import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { listedPrice } from 'lib/prices';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
@@ -348,6 +349,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   useEffect(() => {
@@ -359,11 +361,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
       name: match.metadata.symbol,
       decimals: match.metadata.decimals,
       balance: match.balance,
-      fiatPrice: match.fiatPrice,
+      fiatPrice: listedPrice(tokenPrices, match.metadata.symbol),
       scaleIsKnown: hasKnownScale(match.metadata)
     };
     setValue('token', uiToken);
-  }, [preselectedTokenId, balanceData, setValue]);
+  }, [preselectedTokenId, balanceData, tokenPrices, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is

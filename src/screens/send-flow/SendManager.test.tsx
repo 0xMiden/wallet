@@ -65,6 +65,7 @@ jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardRea
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
 const walletStoreState = {
+  tokenPrices: { TKN: { price: 3 } } as Record<string, { price: number }>,
   isTransactionModalOpen: false,
   lastCompletedTxHash: null as string | null,
   closeTransactionModal: closeTransactionModalMock,
@@ -126,6 +127,7 @@ jest.mock('./SendAmount', () => ({
   SendAmount: (props: any) => (
     <div data-testid="select-amount">
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
+      <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
@@ -226,7 +228,11 @@ jest.mock('lib/qr', () => ({
   isScanAvailable: () => isScanAvailableMock(),
   scanQRCode: () => scanQRCodeMock()
 }));
-jest.mock('lib/store', () => ({ useWalletStore: { getState: () => walletStoreState } }));
+jest.mock('lib/store', () => ({
+  useWalletStore: Object.assign((selector: (state: typeof walletStoreState) => unknown) => selector(walletStoreState), {
+    getState: () => walletStoreState
+  })
+}));
 jest.mock('lib/woozie', () => ({
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
@@ -1166,6 +1172,25 @@ describe('token preselection', () => {
     expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
     // Draft values seed the form.
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
+  });
+
+  it('values a preselected token at its feed price', () => {
+    mockSearch = '?tokenId=T1';
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({ data: balanceData });
+    renderFlow();
+    expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^3$/);
+  });
+
+  it('gives a preselected token the feed does not list no price, not the store $1 default', () => {
+    mockSearch = '?tokenId=U1';
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'U1', metadata: { symbol: 'UNLISTED', decimals: 2 }, balance: 5, fiatPrice: 1 }]
+    });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('UNLISTED');
+    expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^0$/);
   });
 
   it('does not preselect when balances have not loaded yet', () => {

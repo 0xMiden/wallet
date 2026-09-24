@@ -33,6 +33,7 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
 };
 
 const mockWalletStoreState = {
+  tokenPrices: { MDN: { price: 2 } } as Record<string, { price: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn()
 };
@@ -388,6 +389,17 @@ describe('ReviewTransaction — redirect guards', () => {
 // Rendering
 // ---------------------------------------------------------------------------
 describe('ReviewTransaction — rendering', () => {
+  it('draws no fiat line for a token the price feed does not list, not the store $1 default', async () => {
+    setValidRoute();
+    mockBalanceData = [{ tokenId: 'tok1', metadata: { symbol: 'UNLISTED', decimals: 8 }, balance: 100, fiatPrice: 1 }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    const hero = within(screen.getByTestId('review-amount'));
+    expect(hero.getByText('5 UNLISTED')).toBeInTheDocument();
+    expect(hero.queryByText('approxFiatValue')).not.toBeInTheDocument();
+  });
+
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
     setValidRoute();
     render(<ReviewTransaction />);
