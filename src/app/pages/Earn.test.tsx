@@ -286,4 +286,29 @@ describe('Earn page', () => {
     expect(mockHaptic).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith(`/earn/vaults/${vaults[0]!.id}`);
   });
+
+  // The vaults come from the same read as the positions, so with none to list the section says nothing:
+  // not while it loads, not after a failure (the positions section already says so), not once settled.
+  it.each([
+    ['loading', { isLoading: true }],
+    ['failed', { isLoading: false, error: 'boom' }],
+    ['settled', { isLoading: false }]
+  ])('draws no vaults section with no vaults, %s', (_state, load) => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults: [], refetch: jest.fn(), ...load });
+    render(<Earn />);
+
+    expect(screen.queryByRole('region', { name: 'earnVaultsTitle' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'earnVaultsTitle' })).toBeNull();
+  });
+
+  it.each([
+    ['settled', { isLoading: false }],
+    ['retrying', { isLoading: true }],
+    ['failed', { isLoading: false, error: 'boom' }]
+  ])('keeps the vaults it has, %s', (_state, load) => {
+    mockUseEarnPositions.mockReturnValue({ summary, positions, vaults, refetch: jest.fn(), ...load });
+    render(<Earn />);
+
+    expect(within(vaultsSection()).getAllByRole('button')).toHaveLength(vaults.length);
+  });
 });

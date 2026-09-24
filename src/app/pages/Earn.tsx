@@ -68,17 +68,21 @@ const Earn: FC = () => {
             )}
           </section>
 
-          <section className="flex flex-col gap-3" aria-labelledby="earn-vaults-title">
-            <h2 id="earn-vaults-title" className="text-title-page text-ink">
-              {t('earnVaultsTitle')}
-            </h2>
+          {/* Fed by the same read as the positions: with no vaults, loading, failed or settled, there is
+              nothing to feature, and a failure is already said once above. */}
+          {vaults.length > 0 && (
+            <section className="flex flex-col gap-3" aria-labelledby="earn-vaults-title">
+              <h2 id="earn-vaults-title" className="text-title-page text-ink">
+                {t('earnVaultsTitle')}
+              </h2>
 
-            <div className="flex flex-col gap-3">
-              {vaults.map(vault => (
-                <VaultRow key={vault.id} vault={vault} />
-              ))}
-            </div>
-          </section>
+              <div className="flex flex-col gap-3">
+                {vaults.map(vault => (
+                  <VaultRow key={vault.id} vault={vault} />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
