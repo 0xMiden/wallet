@@ -129,8 +129,19 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 const mockLocationSearch = { value: '' };
+// A replace through a location updater lands its search, like the real history would.
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn(),
+  HistoryAction: { Push: 'pushstate', Replace: 'replacestate' },
+  navigate: jest.fn((to: unknown) => {
+    if (typeof to === 'function') {
+      mockLocationSearch.value = to({
+        pathname: '/history',
+        search: mockLocationSearch.value,
+        hash: '',
+        state: null
+      }).search;
+    }
+  }),
   useLocation: () => ({ search: mockLocationSearch.value })
 }));
 
@@ -150,6 +161,7 @@ describe('AllHistory', () => {
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
     mockReducedMotion.value = false;
+    mockLocationSearch.value = '';
     HTMLElement.prototype.scrollIntoView = jest.fn();
   });
 
@@ -261,6 +273,20 @@ describe('AllHistory', () => {
       block: 'nearest',
       inline: 'nearest'
     });
+  });
+
+  it('lands on Pending from a repeat link after the user picked another filter', () => {
+    mockLocationSearch.value = '?filter=pending';
+    const { rerender } = render(<AllHistory />);
+    expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(getFilterButton('all'));
+    expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
+
+    mockLocationSearch.value = '?filter=pending';
+    rerender(<AllHistory />);
+    expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+    expect(getHistory().getAttribute('data-filter')).toBe('pending');
   });
 
   it('scrolls the initially-selected chip into view on mount', () => {

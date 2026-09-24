@@ -13,7 +13,7 @@ import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { setActivityView, useActivityView } from 'lib/settings/activity-view';
-import { useLocation } from 'lib/woozie';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 type AllHistoryProps = {
   programId?: string | null;
@@ -43,6 +43,15 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     const asked = filterFromSearch(locationSearch);
     if (asked) setFilter(asked);
   }, [locationSearch]);
+  // A pick is written back to the URL, so a later link to a filter the URL no longer names is a
+  // change of location the effect above sees.
+  const pickFilter = (next: ActivityFilter) => {
+    setFilter(next);
+    navigate(
+      ({ pathname, hash, state }) => ({ pathname, search: `?filter=${next}`, hash, state }),
+      HistoryAction.Replace
+    );
+  };
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Remembered per device in the app's settings module, so the tab reopens in the view the user
@@ -99,7 +108,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         // kept while the user is away in Groups, and the row shows it again on the way back.
         filter={
           view === 'list'
-            ? { items: filters, value: filter, onChange: setFilter, 'aria-label': t('activityFilters') }
+            ? { items: filters, value: filter, onChange: pickFilter, 'aria-label': t('activityFilters') }
             : undefined
         }
       />
