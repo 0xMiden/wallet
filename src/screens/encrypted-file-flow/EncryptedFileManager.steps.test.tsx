@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 
@@ -191,6 +191,29 @@ describe('EncryptedFileFlow step containment', () => {
       target: { value: FILE_PASSWORD }
     });
     await waitFor(() => expect(submit).toBeEnabled());
+  });
+});
+
+// The step sits inside the flow's form, whose submit only clears errors, so the swallowed Enter is
+// observable only as the keydown's defaultPrevented.
+describe('EncryptedFileFlow Enter in the wallet-password field', () => {
+  it('swallows Enter before the consent is ticked, and neither unlocks nor advances', async () => {
+    render(<EncryptedFileFlow />);
+    const input = await screen.findByTestId('encrypted-file-wallet-password-input');
+    fireEvent.change(input, { target: { value: 'Test1234!' } });
+
+    const enter = createEvent.keyDown(input, { key: 'Enter', cancelable: true });
+    await act(async () => {
+      fireEvent(input, enter);
+    });
+    const other = createEvent.keyDown(input, { key: 'a', cancelable: true });
+    fireEvent(input, other);
+
+    expect(enter.defaultPrevented).toBe(true);
+    expect(other.defaultPrevented).toBe(false);
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('encrypted-file-wallet-password')).toBeInTheDocument();
+    expect(screen.queryByTestId('export-file-password')).not.toBeInTheDocument();
   });
 });
 

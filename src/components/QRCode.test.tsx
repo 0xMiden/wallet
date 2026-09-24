@@ -35,12 +35,10 @@ jest.mock('qr-code-styling', () => ({
   }
 }));
 
-// The Miden logo is imported as `../../public/misc/brand/new-bread.svg?url`.
-// The `?url` query suffix means it does NOT match the jest `\.svg$` asset
-// mapper (anchored on a trailing `.svg`) and the real file has no `?url`
-// variant on disk, so plain resolution fails. A virtual mock short-circuits
-// resolution (mirrors src/app/atoms/Logo.test.tsx) and hands the import a
-// distinct, assertable value.
+// The Miden logo is imported as `../../public/misc/brand/new-bread.svg?url`,
+// which resolves through jest's `\.svg\?url$` mapper to the shared file stub.
+// The virtual mock (mirrors src/app/atoms/Logo.test.tsx) is kept to hand the
+// import a distinct, assertable value.
 jest.mock('../../public/misc/brand/new-bread.svg?url', () => 'miden-logo-url-stub', { virtual: true });
 
 const ACCENT_FALLBACK = '#e77537';
