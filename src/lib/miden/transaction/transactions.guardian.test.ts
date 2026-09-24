@@ -6613,10 +6613,6 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
       tx,
       makeResult() as never,
       {
-        ...makeGuardianProvider(true),
-        getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }]
-      } as never,
-      {
         reRegisterCurrentStateOnGuardian
       } as never
     );
@@ -6637,8 +6633,9 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     const completion = completeUpdateProcedureThresholdTransaction(
       tx,
       makeResult() as never,
-      { ...makeGuardianProvider(true), getAccounts: () => new Promise(() => {}) } as never,
-      { reRegisterCurrentStateOnGuardian } as never
+      {
+        reRegisterCurrentStateOnGuardian
+      } as never
     );
     const settled = await Promise.race([
       completion.then(() => 'done'),
@@ -6657,7 +6654,6 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     await completeUpdateProcedureThresholdTransaction(
       tx,
       makeResult() as never,
-      makeGuardianProvider(true) as never,
       {
         reRegisterCurrentStateOnGuardian: jest.fn(async () => {
           throw new Error('guardian down');
