@@ -104,8 +104,8 @@
     }
   },
   "noteReturnsToSenderBy": {
-    "message": "Якщо не буде заявлено права на них, повертається відправнику на адресу $date$",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "Повернеться відправнику, якщо не буде прийнято до $date$",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -623,24 +623,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "Ця транзакція знаходиться в ланцюжку, але приватний ключ note не вдалося передати транспортній службі note. Доки цього не відбудеться, одержувач не може її побачити чи витратити.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "Ця транзакція в блокчейні, але приватний переказ не вдалося передати службі доставки. Доки цього не станеться, отримувач не зможе його побачити чи витратити.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "Ця транзакція відбувається в ланцюгу, але гаманець не зміг підтвердити, що приватний ключ note надійшов до транспортної служби note.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "Ця транзакція в блокчейні, але гаманець не зміг підтвердити, що приватний переказ дійшов до служби доставки.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Тримайте цей гаманець відкритим і підключеним — система автоматично повторюватиме спробу доставки протягом деякого часу після відправлення, і це попередження зникне, якщо операція пройде успішно. Якщо одержувач так і не отримав нічого через годину, не надсилайте ще раз; збережіть ідентифікатор транзакції, вказаний нижче, та зверніться до служби підтримки, оскільки за ним все ще можна відновити «note».",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Тримайте цей гаманець відкритим і підключеним — певний час після надсилання доставка повторюється автоматично, і це попередження зникне, якщо вона пройде. Якщо через годину отримувач так нічого й не отримав, не надсилайте повторно; збережіть ID транзакції нижче та зверніться до підтримки, адже переказ ще можна відновити за ним.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Доставка підтверджена",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "Одержувач отримав і витратив цей приватний note, тому його доставка підтверджена в ланцюгу.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "Отримувач прийняв і витратив цей приватний переказ, тож його доставку підтверджено в блокчейні.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -900,8 +900,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "Отримання note",
-    "englishSource": "Claiming note"
+    "message": "Прийняття переказу",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "Виконання транзакції",
@@ -992,12 +992,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "Виконання «note»",
-    "englishSource": "Delivering note"
+    "message": "Доставка переказу",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "Безпечна передача файлу «note» одержувачу.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "Безпечна відправка переказу отримувачу.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "Статус",
@@ -1677,8 +1677,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Автоматичне споживання",
-    "englishSource": "Auto consume"
+    "message": "Автоприйняття",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "Виберіть два різних жетони для обміну.",
@@ -1714,8 +1714,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Якщо до того часу вони не будуть витребувані, ви зможете повернути $amount$ у свій гаманець. Жодні кошти не втрачаються.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "Якщо до того часу його не приймуть, $amount$ повернеться як очікуваний переказ, який ви приймете. Кошти не втрачаються.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1830,20 +1830,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "Сканування приватного notes: вичерпування транспортного потоку note…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "Пошук приватних переказів…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "Сканування приватного notes: імпорт notes із пропозицій, що очікують на розгляд…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "Пошук приватних переказів: імпорт очікуваних пропозицій…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "Синхронізація публічного notes…",
-    "englishSource": "Syncing public notes…"
+    "message": "Синхронізація публічних переказів…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "Синхронізація публічного notes: блок $current$ з $latest$",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "Синхронізація публічних переказів: блок $current$ із $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1854,12 +1854,12 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "У вас є «Pending» (Notes)",
-    "englishSource": "You have Pending Notes"
+    "message": "У вас є перекази для прийняття",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "У вас є незавершені записи «notes» на суму $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "Перекази на суму $amount$ очікують на ваше прийняття.",
+    "englishSource": "Transfers worth $amount$ are waiting for you to accept.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2860,12 +2860,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "Автоматично приймати перекази MIDEN",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматично зараховує надходження MIDEN notes на ваш баланс — так само, як і натискання кнопки «Отримати». Це не відбувається частіше і не коштує більше комісій, ніж коли ви натискаєте кнопку «Отримати» самостійно.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "Автоматично приймає вхідні перекази MIDEN на ваш баланс — так само, як натискання «Прийняти». Це не відбувається частіше й не коштує більше комісій, ніж прийняття вручну.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Створення файлу вашого гаманця…",
@@ -3334,10 +3334,6 @@
     "message": "Загальна кількість справ, що перебувають на розгляді",
     "englishSource": "Total Pending"
   },
-  "pendingNotesCount": {
-    "message": "notes у процесі розгляду",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "активи",
     "englishSource": "assets"
@@ -3386,65 +3382,16 @@
     }
   },
   "noteClaimFailedRetry": {
-    "message": "Отримання не вдалося — натисніть «Спробувати ще раз», щоб повторити спробу",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "Не вдалося прийняти — натисніть «Повторити»",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "Цей товар «note» більше не доступний",
-    "englishSource": "This note is no longer available"
+    "message": "Цей переказ більше недоступний",
+    "englishSource": "This transfer is no longer available"
   },
   "pendingNotes": {
     "message": "Очікують на обробку notes",
     "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "Що таке «notes, що очікують на обробку»?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Використовуйте свої «notes»",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Додайте ці кошти, що очікують на зарахування, до свого балансу, щоб почати ними користуватися.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Коли хтось надсилає вам кошти, вони надходять як приватні",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— запечатані пакети, які можете відкрити лише ви.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Використання",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "note розпаковує їх у ваш баланс, доступний для витрат. Доки ви цього не зробите, кошти належать вам, але їх ще не можна витратити.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "У вас є",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "Очікування. Використовуйте їх у будь-який час — поспішати не потрібно, і ваші кошти ніколи не наражаються на ризик.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
   },
   "getTokens": {
     "message": "Отримати токени",
@@ -3465,6 +3412,18 @@
   "faucetId": {
     "message": "Faucet Ідентифікатор",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "Запропонований Faucet Ідентифікатор",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "Запитуваний Faucet Ідентифікатор",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Встановити новий ідентифікатор «Faucet»",
@@ -3527,12 +3486,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "Вхідні запити «notes» потребують повторної спроби",
-    "englishSource": "Incoming notes need a retry"
+    "message": "Вхідні перекази потребують повторної спроби",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "Для вхідного запиту «note» потрібно повторити спробу",
-    "englishSource": "An incoming note needs a retry"
+    "message": "Вхідний переказ потребує повторної спроби",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ не вдалося імпортувати автоматично.",
@@ -3544,8 +3503,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note не вдалося імпортувати автоматично.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "Не вдалося автоматично імпортувати 1 переказ.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Завтра",
@@ -3914,8 +3873,8 @@
     "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
-    "message": "Ви отримали повідомлення «note»",
-    "englishSource": "You have received a note"
+    "message": "У вас вхідний переказ",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "Операція не вдалася",
@@ -3926,16 +3885,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "Натисніть тут, щоб отримати свої кошти",
-    "englishSource": "Tap here to claim it"
+    "message": "Натисніть тут, щоб прийняти",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Натисніть, щоб переглянути та отримати",
-    "englishSource": "Click to view and claim it"
+    "message": "Натисніть, щоб переглянути та прийняти",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes отримати",
-    "englishSource": "$count$ notes to claim",
+    "message": "$count$ переказів для прийняття",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4143,12 +4102,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes, об’єднані в цей свап",
-    "englishSource": "Notes bundled into this swap"
+    "message": "Виконання, включені в цей своп",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Note виконання $number$",
-    "englishSource": "Fill note $number$",
+    "message": "Виконання $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4156,8 +4115,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Використано · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "Прийнято · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4185,24 +4144,24 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Notes ще не об’єднано.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "Виконань ще немає.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Перейти до Pending Notes",
-    "englishSource": "Go to Pending Notes"
+    "message": "До очікуваних переказів",
+    "englishSource": "Go to pending transfers"
   },
   "trackingUnavailable": {
     "message": "Недоступно",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "ID транзакції використання",
-    "englishSource": "Consume TX ID"
+    "message": "ID TX прийняття",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "ID транзакції використання $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "ID TX прийняття $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4582,12 +4541,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "Загальний обсяг споживання",
-    "englishSource": "Total Consumed"
+    "message": "Усього прийнято",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes Спожито",
-    "englishSource": "Notes Consumed"
+    "message": "ID переказів",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "Спожито",
@@ -4795,8 +4754,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "Отримано",
-    "englishSource": "Claimed on"
+    "message": "Прийнято",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "Підключайте лише тестовий гаманець",
@@ -4816,8 +4775,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "Сховати цей переказ з Активності на цьому пристрої? Це не поверне кошти відправнику й не скасує переказ. Приховані перекази можна відновити в Активності.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "Активність пошуку",
@@ -4868,8 +4827,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "Ще не прийнято — перегляньте та прийміть, щоб отримати ці кошти.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "Ще не прийнято — перегляньте та прийміть, щоб додати ці кошти до балансу.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "Мережа може скинути налаштування",
@@ -5026,10 +4985,6 @@
         "content": "$1"
       }
     }
-  },
-  "activityTransferClaimed": {
-    "message": "Отримано",
-    "englishSource": "Claimed"
   },
   "receiveTestFundsBody": {
     "message": "Надсилайте на цю адресу лише токени Miden $network$. Реальні кошти, надіслані на цю адресу, не підлягають поверненню.",
@@ -5348,5 +5303,17 @@
         "content": "$1"
       }
     }
+  },
+  "accepted": {
+    "message": "Прийнято",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "Прийняття…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "Перекази",
+    "englishSource": "Transfers"
   }
 }

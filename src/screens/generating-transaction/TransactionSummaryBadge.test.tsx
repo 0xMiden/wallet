@@ -194,13 +194,15 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
-  it('builds "{amount} {symbol} -> Consumed" for a consume with an amount', async () => {
+  it('builds "{amount} {symbol} -> Accepted" for a consume with an amount', async () => {
     mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
     const { container, root } = await renderProbe(
       baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1' })
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
-    expect(container.textContent).toContain('Consumed');
+    // The accept wording SendSuccess shows for the same transaction, not "Consumed".
+    expect(container.textContent).toContain('Accepted');
+    expect(container.textContent).not.toContain('Consumed');
     act(() => root.unmount());
   });
 

@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, ReactNode } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -6,10 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { NetworkChipKind, NetworkLogo } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Card } from 'components/ui/Card';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
+import { EARN_PLACEHOLDER, usdFigureFormatter } from './earn-mapping';
 import { EarnSummary } from './types';
 
 /** What the earn flow's header knows about the thing it is showing: the two names in its title and
@@ -72,7 +74,7 @@ export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
 /** One figure of the earn summary: a `fill` card with the spec's section label over a row value.
  *  `cn` rather than `clsx` so a caller's padding or colour REPLACES the base one instead of
  *  racing it in the stylesheet. */
-export const MetricCard: FC<{ label: string; value: string; valueClassName?: string; className?: string }> = ({
+export const MetricCard: FC<{ label: string; value: ReactNode; valueClassName?: string; className?: string }> = ({
   label,
   value,
   valueClassName,
@@ -87,16 +89,16 @@ export const MetricCard: FC<{ label: string; value: string; valueClassName?: str
 export interface EarnHeroProps {
   /** Stable id for the caption, which is what names the section to assistive tech. */
   labelId: string;
-  /** The one figure the section is about. */
-  value: string;
+  /** The one figure the section is about. A live figure comes in as an `AnimatedNumber`. */
+  value: React.ReactNode;
   /** Colour for the figure; `ink` unless the number is itself a rate. */
   valueClassName?: string;
   /** What the figure is denominated in, drawn against it: a review's token mark and symbol. */
   unit?: React.ReactNode;
   /** The caption under the figure. A caption, not a heading: the page's own title is its `h1`. */
   label: string;
-  /** The change or rate line under the caption. */
-  meta?: string;
+  /** The change or rate line under the caption. A live figure comes in as an `AnimatedNumber`. */
+  meta?: React.ReactNode;
   /** Anything that belongs inside the section under the hero, e.g. the summary's metric cards. */
   children?: React.ReactNode;
   className?: string;
@@ -142,18 +144,45 @@ export const EarnSummaryPanel: FC<{
     <EarnHero
       labelId={titleId}
       className={className}
-      value={summary.totalRewards}
+      value={
+        <AnimatedNumber
+          value={summary.totalRewardsUsd}
+          format={usdFigureFormatter(summary.totalRewardsUsd)}
+          placeholder={EARN_PLACEHOLDER}
+        />
+      }
       label={t('earnTotalEarnedRewards')}
-      meta={t('earnEarningBlendedApy', { apy: summary.blendedApy })}
+      meta={
+        <AnimatedNumber
+          value={summary.blendedApyPercent}
+          format={apy => t('earnEarningBlendedApy', { apy: `~${apy.toFixed(1)}%` })}
+          placeholder={t('earnEarningBlendedApy', { apy: EARN_PLACEHOLDER })}
+        />
+      }
     >
       {/* #503 — gap-3 so Total deposited / Estimated rewards don't abut. Equal columns, so the
           two cards stay the same width whatever their labels wrap to. */}
       {showMetrics && (
         <div className="mt-4 grid grid-cols-2 items-stretch gap-3">
-          <MetricCard label={t('earnTotalDeposited')} value={summary.totalDeposited} />
+          <MetricCard
+            label={t('earnTotalDeposited')}
+            value={
+              <AnimatedNumber
+                value={summary.totalDepositedUsd}
+                format={usdFigureFormatter(summary.totalDepositedUsd)}
+                placeholder={EARN_PLACEHOLDER}
+              />
+            }
+          />
           <MetricCard
             label={t('earnEstimatedRewards')}
-            value={summary.estimatedRewards}
+            value={
+              <AnimatedNumber
+                value={summary.estimatedRewardsUsd}
+                format={usdFigureFormatter(summary.estimatedRewardsUsd, { signed: true })}
+                placeholder={EARN_PLACEHOLDER}
+              />
+            }
             valueClassName="text-positive-tint-ink"
           />
         </div>

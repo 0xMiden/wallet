@@ -86,7 +86,7 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
 
 /**
  * `useClaimableNotes` minus the notes the wallet auto-consumes. This is the list for
- * attention surfaces: the home "You have Pending Notes" card, the received-note
+ * attention surfaces: the home "You have transfers to accept" card, the received-note
  * notification, the unclaimed red dots. The pending-notes page deliberately keeps
  * reading the full list: an auto-consume that keeps failing (a spent note resurrected
  * by recovery, #742) must stay visible and retriable. The notification also reads

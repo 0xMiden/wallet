@@ -338,6 +338,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Popover | `Popover` | A panel hanging off the control that opened it, for a short menu of choices that would be too much chrome as a sheet — the Activity tab's view switcher. **One decision per popover**, as with a sheet: the switcher holds the two views and nothing else, and the filters it briefly also carried went back to the row under the title where they always were (Brian, simulator review). A control whose own row is on screen does not get a second home in a menu. It is a dialog, not a tooltip: `role="dialog"`, `aria-modal`, a required `aria-label`, focus into the panel on open, Tab cycling inside it, and Escape, a tap outside or the mobile back gesture closing it and handing focus back to the anchor (which is why a header action that opens one forwards its ref). 16px radius on `page` with a `hairline` edge and `shadow-raised`; a transparent backdrop, no scrim — a popover says what it belongs to by where it hangs, and dimming the page would be louder than the menu. Measured from the anchor's rect 8px under it, aligned to its `start` or `end` edge, clamped to the 16px page margin and re-measured on scroll (captured, so a page's own scroller counts) and resize; if it would run off the bottom it scrolls rather than flipping above a control that is already at the top of the screen. Opens on `useTabBarMotion().highlight` — the nav highlight's own spring — from `scale 0.94` at the anchor's corner, instant under reduced motion. | ad-hoc anchored menus |
 | Menu, tooltip | `DropdownMenu`, `Tooltip` on Radix (*planned*) | Until then `components/Tooltip` stays on tippy.js. | overflow menus, tippy.js |
 | Passcode keypad | `Numpad` (`components/Numpad`), `PasscodeDots`, `PasscodeScreen` | `Numpad`: twelve slots, 1–9, biometric key or empty, 0, bare backspace; round 76px keys on `fill` (`fill-pressed` held), 32px 800 digits, 28 / 16px gaps, 64px keys with 24 / 12px gaps under 720px of viewport height; `press` motion and the tap haptic on every key. `PasscodeDots`: 14px dots, `hairline` empty and `ink` filled with a pop, the `shake` preset and the error haptic on a rejected code. `PasscodeScreen`: title, message (`negative-ink` for errors) and dots, then the keypad, as one group a little below centre (the leftover height splits 3:2 above and below), and an optional text action centred 16px under the last key row, clear of a thumb aimed at 0. Unlock and onboarding draw `PasscodeScreen`; sheets draw `PasscodeEntry` over the same keypad and dots. | the square 92px keys, the unlock and onboarding copies of the dots |
+| Number | `AnimatedNumber` | Every figure the wallet shows that can change while it is on screen: a balance, a fiat value, a token quantity, a percentage, an APY. Takes `value` (a number) and `format` (the caller's own formatter, returning the WHOLE display string - `$`, the token symbol, the `%` and all - so it lands in one text node), plus `placeholder` for anything that is not a finite number. Counts to a new value ON CHANGE ONLY; `tabular-nums`; `aria-live="off"`. See "Numbers" under Motion. | a formatted figure dropped straight into a span |
 | Copy | `CopyButton`, `CopyChip`; `AnimatedCopyIcon`, `CopyLabel` | `CopyButton`: an `accent-tint-ink` text action in a detail row, or with `icon` (`leading`, `trailing`, `only`) the copy glyph beside a value (balance card, Receive address). `CopyChip`: a `Pill` with copy for hashes and addresses (`AddressChip` and `HashChip` are thin wrappers over it). Every copy confirms in place, the same way (`lib/animation/copy`): the glyph morphs to a check (`AnimatePresence mode="popLayout"`, scale 0.6 → 1, a 25° turn and blur 4px → 0 on `springs.tabSwitch`, opacity and blur on a short tween so they never overshoot); a text label rolls up to "Copied" in a vertically clipped slot on the same spring. Both hold for `COPY_FEEDBACK_MS` (1.5 s) and run back. One light haptic per tap (`CopyButton`'s, or `Pill`'s), none on a failed write, which shows nothing. Reduced motion: an instant swap, no blur, turn or travel. An `aria-live` region carries "Copied"; the leaving side is `aria-hidden`. Colour is the caller's: glyph and label paint in `currentColor`. No toast: the control that was tapped confirms. A copy owned elsewhere (the seed phrase's hidden-field copy) uses `AnimatedCopyIcon` and `CopyLabel` with its own `copied`. | atoms `CopyButton`, raw clipboard calls, per-site `Checkmark`/`CopyNew` swaps, `FileCopy`/`CheckboxCircleFill` copy glyphs |
 
 ## Motion
@@ -355,8 +356,30 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `sheet` | y 24 + scale 0.96 + opacity, `springs.sheetPresent`, `fade` backdrop | dApp confirm, switcher, peek card, seed warning |
 | `page` | incoming page from the right over `durations.page` (0.34s) on `easings.standard`; the page beneath to `pageSlideParallax` (−24%) under a `pageSlideDim` dim (`FullScreenPage`, `MobilePageLayers`) | four page-transition models |
 | `press` | `whileTap` scale 0.96, `springs.snappy` | `Button` (inline 800/35), `Toggle` (700/30), CSS `active:scale-*` |
+| `count` | a displayed number travelling to a new value over `durations.count` (0.6s) on `easings.standard`; a tween, never a spring: a spring overshoots, and a balance that overshoots shows a figure the account never held | numbers snapping to their new value |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
 | `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
+
+### Numbers
+
+`AnimatedNumber` (`components/ui`) owns every figure that changes on screen, on the `count` preset:
+
+- **On change only.** A page mounting, or a hidden `TabPane` coming back, never starts a count — a
+  balance must not climb from zero every time home is opened. A pane hidden while its value changes
+  counts behind the curtain and is already settled when it is shown.
+- **The formatter is the caller's** (`lib/i18n/numbers` and friends) and is called once per frame,
+  so it must not change shape with magnitude or the row jitters. Where the rule is adaptive, bind it
+  to the destination: `adaptiveFormatterFor` (`lib/i18n`), `balanceFormatterFor` (send flow). A
+  figure that sits inside a localized sentence calls `t()` from inside the formatter, so the line
+  stays one string and one text node.
+- **Reduced motion**, and any realm that cannot report the preference (no `matchMedia` — which is
+  also jsdom, so a test reads the settled value synchronously), sets the value immediately.
+- **Not every number.** A figure that is only correct because it never became a float — anything
+  formatted from `bigint` base units, or from the decimal string the user typed on the amount step —
+  stays un-animated, as do counts inside a sentence, a chart tooltip tracking the pointer, and a
+  figure interpolated into a string a component also reads out as its accessible name
+  (`PromptCard`'s `body`). The balance card's delta pill is un-animated because it has no producer:
+  when a real delta lands it arrives as numbers and gets wrapped then.
 
 ### Sheets
 

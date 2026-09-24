@@ -75,7 +75,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
         <div className="shrink-0 px-4 pt-3 pb-4">
           <Button
             className="max-w-none"
-            title={claimingCount > 0 && claimableNotes.length === 0 ? t('claiming') : t('acceptAll')}
+            title={claimingCount > 0 && claimableNotes.length === 0 ? t('activityAcceptingTransfer') : t('acceptAll')}
             disabled={claimableNotes.length === 0}
             isLoading={claimingCount > 0 && claimableNotes.length === 0}
             onClick={() => acceptMany(claimableNotes)}

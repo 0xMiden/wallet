@@ -187,7 +187,7 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  it('relabels the receipt for a consume: From, Total Consumed and Notes Consumed rows', async () => {
+  it('relabels the receipt for an accepted transfer: From, Total Accepted and Transfer IDs rows', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess
         transaction={baseTransaction({
@@ -204,13 +204,13 @@ describe('TransactionSuccess', () => {
 
     expect(container.textContent).toContain('from');
     expect(container.textContent).not.toContain('Total Paid');
-    expect(container.textContent).toContain('Total Consumed');
-    expect(container.textContent).toContain('Notes Consumed');
-    // Both claimed note ids render, truncated, in the Notes Consumed row.
+    expect(container.textContent).toContain('Total Accepted');
+    expect(container.textContent).toContain('Transfer IDs');
+    // Both accepted transfer ids render, truncated, in the Transfer IDs row.
     expect(container.textContent).toContain('0xnote…aaaa');
     expect(container.textContent).toContain('0xnote…bbbb');
-    // The summary pill's right side reads "Consumed" instead of an address.
-    expect(container.textContent).toContain('Consumed');
+    // The summary pill's right side reads "Accepted" instead of an address.
+    expect(container.textContent).toContain('Accepted');
     expect(container.textContent).toContain('Transaction ID');
     // And its arrow is the received green — the colour this claim's icon carries in Activity
     // and on its detail page — not the Send blue and not the Receive action's own token.

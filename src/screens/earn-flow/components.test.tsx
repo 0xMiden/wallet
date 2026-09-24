@@ -1,11 +1,12 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
 import { goBack } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnFlowHeader, EarnHero, MetricCard, EarnSummaryPanel } from './components';
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import { EarnSummary, EarnVault } from './types';
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
@@ -91,10 +92,10 @@ const VAULT: EarnVault = {
 };
 
 const SUMMARY: EarnSummary = {
-  totalRewards: '$218.32',
-  blendedApy: '~5.2%',
-  totalDeposited: '$4,218.32',
-  estimatedRewards: '+$24.50'
+  totalRewardsUsd: 218.32,
+  blendedApyPercent: 5.2,
+  totalDepositedUsd: 4218.32,
+  estimatedRewardsUsd: 24.5
 };
 
 beforeEach(() => {
@@ -279,9 +280,10 @@ describe('EarnSummaryPanel', () => {
   it('leads with the figure, then the caption and the blended APY line', () => {
     const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" showMetrics={false} />);
 
-    expect(screen.getByText('$218.32')).toHaveClass('text-display', 'text-ink');
+    // Both figures are `AnimatedNumber`s, so the type is on the slot the hero renders around them.
+    expect(screen.getByText('$218.32').closest('div')).toHaveClass('text-display', 'text-ink');
     expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-label', 'text-muted');
-    expect(screen.getByText('earnEarningBlendedApy')).toHaveClass('text-value', 'text-positive-tint-ink');
+    expect(screen.getByText('earnEarningBlendedApy').closest('p')).toHaveClass('text-value', 'text-positive-tint-ink');
     // The figure precedes its caption — the same order the vault page's APY hero takes.
     expect((container.querySelector('section') as HTMLElement).textContent).toBe(
       '$218.32earnTotalEarnedRewardsearnEarningBlendedApy'
@@ -317,6 +319,87 @@ describe('EarnSummaryPanel', () => {
     // The summary heading and figures still render.
     expect(screen.getByText('earnTotalEarnedRewards')).toBeInTheDocument();
     expect(screen.getByText('$218.32')).toBeInTheDocument();
+  });
+
+  // jsdom has no `matchMedia`, so AnimatedNumber only travels once a test installs one.
+  describe('while the first read is in flight', () => {
+    const LOADING: EarnSummary = {
+      totalRewardsUsd: null,
+      blendedApyPercent: null,
+      totalDepositedUsd: null,
+      estimatedRewardsUsd: null
+    };
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows placeholders, not zeros', () => {
+      const { container } = render(<EarnSummaryPanel summary={LOADING} titleId="earn-title" />);
+
+      expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+      expect(screen.queryByText('+$0.00')).not.toBeInTheDocument();
+      expect(screen.getAllByText(EARN_PLACEHOLDER)).toHaveLength(3);
+      expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
+      expect((container.querySelector('section') as HTMLElement).textContent).toMatch(
+        new RegExp(`^${EARN_PLACEHOLDER}earnTotalEarnedRewards`)
+      );
+    });
+
+    it('lands on the loaded figures instead of counting up to them', () => {
+      const { rerender } = render(<EarnSummaryPanel summary={LOADING} titleId="earn-title" />);
+
+      rerender(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
+
+      expect(screen.getByText('$218.32')).toBeInTheDocument();
+      expect(screen.getByText('$4,218.32')).toBeInTheDocument();
+      expect(screen.getByText('+$24.50')).toBeInTheDocument();
+    });
+  });
+
+  describe('a figure that travels', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('keeps two decimals on every frame of a travelling figure', async () => {
+      const { rerender } = render(
+        <EarnSummaryPanel summary={{ ...SUMMARY, totalRewardsUsd: 13.0071 }} titleId="earn-title" showMetrics={false} />
+      );
+      const figure = (container: HTMLElement) =>
+        (container.querySelector('section') as HTMLElement).querySelector('.tabular-nums') as HTMLElement;
+      const node = figure(document.body);
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+
+      rerender(
+        <EarnSummaryPanel summary={{ ...SUMMARY, totalRewardsUsd: 15.67 }} titleId="earn-title" showMetrics={false} />
+      );
+      frames.push(node.textContent ?? '');
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+
+      expect(node).toHaveTextContent('$15.67');
+      expect(frames.some(frame => frame !== '$13.01' && frame !== '$15.67')).toBe(true);
+      expect(frames.filter(frame => !/^\$[\d,]+\.\d{2}$/.test(frame))).toEqual([]);
+    });
   });
 });
 

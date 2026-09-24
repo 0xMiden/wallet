@@ -134,7 +134,12 @@ jest.mock('./useEarnPositions', () => {
     useEarnPositions: () => ({
       summary: EARN_DATA.summary,
       positions: EARN_DATA.positions,
-      vaults: EARN_DATA.vaults,
+      // A vault whose numeric `aprPercent` disagrees with its display string `apy`, so a
+      // projection reading the wrong one is caught (see 'deposit projection' below).
+      vaults: [
+        ...EARN_DATA.vaults,
+        { ...EARN_DATA.vaults[0]!, id: 'mismatched-apy-vault', apy: '5.24%', aprPercent: 9 }
+      ],
       ...mockLoadState,
       refetch: mockRefetch
     })
@@ -614,10 +619,19 @@ describe('EarnDepositReview', () => {
       expect(screen.getByText('earnProjection1Year')).toBeInTheDocument();
 
       // Rewards = amount × APY fraction × year fraction, 2dp, interpolated into
-      // the reward key. The fixture vault's APY is "5.24%" => 0.0524.
+      // the reward key. The fixture vault's aprPercent is 5.24 => 0.0524.
       expect(screen.getByText('earnProjectedRewardAmount_$4.37')).toBeInTheDocument();
       expect(screen.getByText('earnProjectedRewardAmount_$26.20')).toBeInTheDocument();
       expect(screen.getByText('earnProjectedRewardAmount_$52.40')).toBeInTheDocument();
+    });
+
+    it('projects from aprPercent rather than the parsed apy string when they differ', () => {
+      // aprPercent=9 on the mismatched vault => 0.09, not 0.0524 from its "5.24%" apy string.
+      renderReview('mismatched-apy-vault', '?amount=1000');
+
+      expect(screen.getByText('earnProjectedRewardAmount_$7.50')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_$45.00')).toBeInTheDocument();
+      expect(screen.getByText('earnProjectedRewardAmount_$90.00')).toBeInTheDocument();
     });
 
     it('renders the static detail rows including the route built from the vault', () => {
@@ -641,7 +655,7 @@ describe('EarnDepositReview', () => {
       expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });
 
-    it('treats an unparseable APY as zero (placeholder vault, `|| 0` branch)', () => {
+    it('treats a missing aprPercent as zero (placeholder vault, `?? 0` branch)', () => {
       renderReview('does-not-exist', '?amount=1000');
       expect(screen.getAllByText('earnProjectedRewardAmount_$0.00')).toHaveLength(3);
     });

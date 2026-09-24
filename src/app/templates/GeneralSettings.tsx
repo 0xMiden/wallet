@@ -145,7 +145,7 @@ const GeneralSettings: FC = () => {
       </SubPageSection>
 
       <SubPageSection
-        title={t('notesSection')}
+        title={t('transfersSection')}
         icon={<Icon name={IconName.PendingNotes} fill="currentColor" />}
         footnote={t('autoConsumeSettingsDescription')}
       >

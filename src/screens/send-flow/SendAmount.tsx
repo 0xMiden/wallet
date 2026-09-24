@@ -8,7 +8,7 @@ import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
-import { Pill } from 'components/ui';
+import { AnimatedNumber, Pill } from 'components/ui';
 import { Card } from 'components/ui/Card';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
@@ -16,7 +16,7 @@ import { easings } from 'lib/animation/easings';
 import { hapticLight } from 'lib/mobile/haptics';
 import { truncateAddress } from 'utils/string';
 
-import { approxFiatAmount, formatBalance } from './amount-format';
+import { approxFiatAmount, balanceFormatterFor, formatBalance } from './amount-format';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
@@ -66,6 +66,9 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // an unknown-scale token can't be sent (see SelectAmount).
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount;
+  // Built once per render, not per frame; harmless when `token` is undefined since it is only
+  // read from the `{token && ...}` branch below.
+  const formatAvailableBalance = balanceFormatterFor(token?.balance ?? 0);
 
   // The missing-fee shortfall is about the account, not the typed number, so it
   // gets a notice with a way out instead of turning the amount red. An empty
@@ -129,7 +132,16 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               </span>
               {token && (
                 <span className="text-sm text-text-muted" data-testid="send-amount-available">
-                  {scaleIsKnown ? `${t('available')} ${formatBalance(token.balance)}` : t('unknownTokenScale')}
+                  {/* Keyed by token: a different token lands its balance, not a count from the last one. */}
+                  {scaleIsKnown ? (
+                    <AnimatedNumber
+                      key={token.id}
+                      value={token.balance}
+                      format={value => `${t('available')} ${formatAvailableBalance(value)}`}
+                    />
+                  ) : (
+                    t('unknownTokenScale')
+                  )}
                 </span>
               )}
             </span>

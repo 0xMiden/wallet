@@ -10,7 +10,7 @@ import { Status, StatusBadge } from 'components/ui/StatusBadge';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
 
 import HashChip from '../HashChip';
@@ -421,6 +421,28 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                 `entry.fee` is already resolved by the caller. */}
             {entry.fee && <DetailRow label={t('networkFee')}>{entry.fee}</DetailRow>}
             <DetailRow label={t('from')}>{fromAccount}</DetailRow>
+            {/*
+              A swap touches two faucets, so neither can be labelled "Faucet ID" on
+              its own: the offered side is `entry.faucetId` (the order's own field)
+              and the requested side arrives as a prop. Same chip-over-account-explorer
+              treatment as the transaction id above and as every other faucet row.
+            */}
+            {entry.faucetId && (
+              <DetailRow label={t('faucetIdOffered')} data-testid="swap-detail-offered-faucet-id">
+                <ExternalLinkValue
+                  displayValue={<HashChip hash={entry.faucetId} trimHash />}
+                  href={getExplorerAccountUrl(entry.faucetId)}
+                />
+              </DetailRow>
+            )}
+            {requestedFaucetId && (
+              <DetailRow label={t('faucetIdRequested')} data-testid="swap-detail-requested-faucet-id">
+                <ExternalLinkValue
+                  displayValue={<HashChip hash={requestedFaucetId} trimHash />}
+                  href={getExplorerAccountUrl(requestedFaucetId)}
+                />
+              </DetailRow>
+            )}
             {consumeTransactions.map((transaction, index) => {
               const label =
                 consumeTransactions.length === 1 ? t('consumeTxId') : t('consumeTxIdNumber', { number: index + 1 });

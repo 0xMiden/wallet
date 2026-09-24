@@ -5,7 +5,7 @@ import {
   fetchKlineData,
   fetchTokenPrices,
   getTokenPrice,
-  listedFiat,
+  listedFiatValue,
   listedPrice,
   Timeframe
 } from './binance';
@@ -216,22 +216,22 @@ describe('listedPrice', () => {
   });
 });
 
-describe('listedFiat', () => {
+describe('listedFiatValue', () => {
   const prices = { ETH: { price: 2, change24h: 0, percentageChange24h: 0 } };
 
   it('values a listed symbol at its feed price', () => {
-    expect(listedFiat(prices, 'ETH', 1.25, true)).toBe('$2.50');
+    expect(listedFiatValue(prices, 'ETH', 1.25, true)).toBe(2.5);
   });
 
   it('gives no figure for a symbol the feed does not list, never the $1 default', () => {
-    expect(listedFiat(prices, 'IMIDEN', 3, true)).toBeUndefined();
+    expect(listedFiatValue(prices, 'IMIDEN', 3, true)).toBeUndefined();
   });
 
   it('gives no figure when the scale is unknown', () => {
-    expect(listedFiat(prices, 'ETH', 1.25, false)).toBeUndefined();
+    expect(listedFiatValue(prices, 'ETH', 1.25, false)).toBeUndefined();
   });
 
-  it('gives no figure for a zero balance, never $0.00', () => {
-    expect(listedFiat(prices, 'ETH', 0, true)).toBeUndefined();
+  it('gives no figure for a zero balance, never a zero figure', () => {
+    expect(listedFiatValue(prices, 'ETH', 0, true)).toBeUndefined();
   });
 });

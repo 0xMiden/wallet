@@ -390,6 +390,11 @@ const rowByLabel = (label: string) =>
     el => el.getAttribute('data-label') === label
   );
 
+const sectionByTitle = (title: string) =>
+  Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+    el => el.getAttribute('data-title') === title
+  );
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockHistoryPosition = 1;
@@ -1117,6 +1122,174 @@ describe('HistoryDetails', () => {
     });
   });
 
+  // The faucet behind the asset a row moved: documented in the FAQ, shown
+  // nowhere in the app until now (Ivan had to pull the FAQ entry because of it).
+  describe('faucet id row', () => {
+    it("shows a send's faucet as a copyable chip over the account explorer", async () => {
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+
+      const row = rowByLabel('faucetId')!;
+      expect(row.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-1');
+      // A faucet IS an account, so the link is the account explorer, built from
+      // the same override-aware helper the From/To rows use.
+      expect(row.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+        'href',
+        'https://custom-explorer.test/account/faucet-1'
+      );
+    });
+
+    it("shows the claimed asset's faucet on a receive", async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        faucetId: 'faucet-claimed',
+        noteId: 'note-1',
+        noteIds: ['note-1'],
+        outputNoteIds: undefined
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-claimed');
+    });
+
+    it('shows the faucet an outbound bridge moved', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'bridged-send',
+        faucetId: 'faucet-bridged',
+        extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', destinationNetwork: 'sepolia' }
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-bridged');
+    });
+
+    it('shows the faucet a lending deposit moved', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'earn-deposit',
+        faucetId: 'faucet-deposited',
+        displayMessage: 'Deposited to lending',
+        extraInputs: {
+          evmRecipient: '0x2222222222222222222222222222222222222222',
+          marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
+          sourceFaucetId: 'faucet-deposited'
+        }
+      });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-deposited');
+    });
+
+    // A guardian switch, a key rotation and a dApp `execute` move no asset and
+    // carry no `faucetId`, so they get no row rather than an empty one.
+    it('renders no row for a transaction with no faucet', async () => {
+      setMockRow({ ...baseSendTx, type: 'execute', faucetId: undefined, amount: undefined });
+      await renderAndLoad();
+
+      expect(rowByLabel('faucetId')).toBeUndefined();
+      // Neither shape: no single row, and no per-asset card either.
+      expect(sectionByTitle('faucetIds')).toBeUndefined();
+    });
+
+    // Accept All consumes every waiting transfer in ONE `consume`, and those
+    // notes can come from different faucets. `tx.faucetId` is only the FIRST of
+    // them, so the single row above named one faucet and said nothing about the
+    // rest - the batch's other assets were attributed to it silently.
+    describe('multi-faucet breakdown', () => {
+      const batchClaim = (overrides: Tx = {}): Tx => ({
+        ...baseSendTx,
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        outputNoteIds: undefined,
+        noteId: 'note-1',
+        noteIds: ['note-1', 'note-2', 'note-3'],
+        amount: 20n,
+        faucetId: 'faucet-1',
+        assetTotals: [
+          { faucetId: 'faucet-1', amount: 20n },
+          { faucetId: 'faucet-2', amount: 10n },
+          { faucetId: 'faucet-3', amount: 5n }
+        ],
+        ...overrides
+      });
+
+      const seedThreeFaucets = () =>
+        act(() =>
+          mockWalletStore.setState({
+            assetsMetadata: {
+              'faucet-1': { name: 'Alpha', symbol: 'ALPHA', decimals: 6 },
+              'faucet-2': { name: 'Beta', symbol: 'BETA', decimals: 6 },
+              'faucet-3': { name: 'Gamma', symbol: 'GAMMA', decimals: 6 }
+            }
+          })
+        );
+
+      it('names every faucet a batch accept swept up, each beside its own asset', async () => {
+        seedThreeFaucets();
+        setMockRow(batchClaim());
+        await renderAndLoad();
+
+        const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
+        // Which faucet gave the reader what: the asset and quantity it
+        // contributed, not three bare ids under a hero that names one of them.
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', '10 BETA', '5 GAMMA']);
+        expect(rows.map(row => row.querySelector('[data-testid="hash-chip"]')?.textContent)).toEqual([
+          'faucet-1',
+          'faucet-2',
+          'faucet-3'
+        ]);
+        // Three DISTINCT account-explorer links, built from the same
+        // override-aware helper the From/To and single-faucet rows use.
+        expect(rows.map(row => row.querySelector('a[data-testid="external-link"]')?.getAttribute('href'))).toEqual([
+          'https://custom-explorer.test/account/faucet-1',
+          'https://custom-explorer.test/account/faucet-2',
+          'https://custom-explorer.test/account/faucet-3'
+        ]);
+        // The row that named `tx.faucetId` alone is gone - it IS the bug here.
+        expect(rowByLabel('faucetId')).toBeUndefined();
+      });
+
+      it('keeps the single row for a claim whose notes all share one faucet', async () => {
+        seedThreeFaucets();
+        setMockRow(batchClaim({ assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] }));
+        await renderAndLoad();
+
+        expect(sectionByTitle('faucetIds')).toBeUndefined();
+        expect(rowByLabel('faucetId')?.querySelector('[data-testid="hash-chip"]')?.textContent).toBe('faucet-1');
+        expect(rowByLabel('faucetId')?.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+          'href',
+          'https://custom-explorer.test/account/faucet-1'
+        );
+      });
+
+      // An unresolved faucet has no trustworthy scale, so the same rule the
+      // badge and the receipt follow applies: name the asset, withhold the
+      // quantity, rather than render an 18-decimal token at the placeholder's 6.
+      it('names an unresolved faucet without inventing its quantity', async () => {
+        act(() =>
+          mockWalletStore.setState({ assetsMetadata: { 'faucet-1': { name: 'Alpha', symbol: 'ALPHA', decimals: 6 } } })
+        );
+        setMockRow(
+          batchClaim({
+            assetTotals: [
+              { faucetId: 'faucet-1', amount: 20n },
+              { faucetId: 'faucet-2', amount: 10n }
+            ]
+          })
+        );
+        await renderAndLoad();
+
+        const rows = Array.from(sectionByTitle('faucetIds')!.querySelectorAll('[data-testid="detail-row"]'));
+        expect(rows.map(row => row.getAttribute('data-label'))).toEqual(['20 ALPHA', 'Unknown']);
+      });
+    });
+  });
+
   // A batch claim consumes INPUT notes, so its Notes card lists what it claimed
   // rather than counting outputs it never created (#732).
   describe('batch-claim notes card', () => {
@@ -1775,7 +1948,7 @@ describe('HistoryDetails', () => {
       // `reconcileSwapOrderNotes` only bundles an 'active' order's notes once it
       // expires - so this order is never auto-settled, no matter that
       // `autoConsume` is absent and therefore read as enabled. Trusting that
-      // flag alone hid "Go to Pending Notes" from precisely the orders whose
+      // flag alone hid "Go to pending transfers" from precisely the orders whose
       // funds nothing else will ever collect.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({

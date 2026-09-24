@@ -1,8 +1,16 @@
+/**
+ * The earn screens render pre-formatted display strings, because most of their fields have no
+ * producer yet and show a placeholder dash. The `*Usd` / `*Percent` twins beside them are the raw
+ * figures behind the ones that DO have data, so those can count to a new value instead of snapping
+ * (`components/ui/AnimatedNumber`); they are set from the same number the string is formatted from,
+ * in `earn-mapping.ts`, and left unset wherever the string is a placeholder.
+ */
 export interface EarnSummary {
-  totalRewards: string;
-  blendedApy: string;
-  totalDeposited: string;
-  estimatedRewards: string;
+  /** Each figure is `null` until the first positions read completes (`loadingEarnSummary`). */
+  totalRewardsUsd: number | null;
+  blendedApyPercent: number | null;
+  totalDepositedUsd: number | null;
+  estimatedRewardsUsd: number | null;
 }
 
 export interface EarnPosition {
@@ -20,11 +28,13 @@ export interface EarnPosition {
   asset: string;
   network: string;
   amount: string;
+  depositsUsd?: number;
   depositedAmount: string;
   rewards: string;
   age: string;
   activeDuration: string;
   apy: string;
+  aprPercent?: number;
   dailyAverage: string;
   started: string;
   yearlyEstimate: string;
@@ -55,6 +65,7 @@ export interface EarnVault {
   asset: string;
   network: string;
   apy: string;
+  aprPercent?: number;
   apyChange24h: string;
   tvl: string;
   risk: string;

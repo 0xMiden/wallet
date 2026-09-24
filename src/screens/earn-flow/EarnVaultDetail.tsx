@@ -4,13 +4,14 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAssetMark, EarnHero, MetricCard } from './components';
-import { placeholderVault } from './earn-mapping';
+import { formatApy, placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnVault } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -61,7 +62,8 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
           <EarnHero
             labelId="earn-vault-apy-title"
-            value={vault.apy}
+            // The APY counts to each new rate; `vault.apy` is what shows before a rate has been read.
+            value={<AnimatedNumber value={vault.aprPercent} format={formatApy} placeholder={vault.apy} />}
             valueClassName="text-positive-tint-ink"
             label={t('earnCurrentApy')}
             meta={vault.apyChange24h}

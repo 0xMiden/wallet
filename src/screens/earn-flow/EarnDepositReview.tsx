@@ -284,8 +284,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, amount }) => {
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
-  // `apy` is a pre-formatted display string ("2.00%", or "—" while loading).
-  const apyFraction = (Number.parseFloat(vault.apy) || 0) / 100;
+  // `aprPercent` is the number `apy` is formatted from; reading it directly (rather than parsing
+  // the display string back out) keeps this in step with a target `apy` can drift from, such as a
+  // number still travelling in an AnimatedNumber elsewhere on the page.
+  const apyFraction = (vault.aprPercent ?? 0) / 100;
   const projections = projectionPeriods.map(item => ({
     label: t(item.labelKey),
     yearFraction: item.yearFraction,

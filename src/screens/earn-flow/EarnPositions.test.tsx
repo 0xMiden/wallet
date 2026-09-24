@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
@@ -50,9 +50,9 @@ jest.mock('app/icons/v2', () => ({
 // lives in `components.test.tsx`, and the provider logo, whose own coverage lives in
 // `ProviderLogo.test.tsx`.
 jest.mock('./components', () => ({
-  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewards: string }; titleId: string }) => (
+  EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId}>
-      {summary.totalRewards}
+      {summary.totalRewardsUsd}
     </div>
   )
 }));
@@ -101,7 +101,7 @@ describe('EarnPositions', () => {
 
     const panel = screen.getByTestId('earn-summary-panel');
     expect(panel).toHaveAttribute('data-title-id', 'earn-positions-summary-title');
-    expect(panel).toHaveTextContent(EARN_DATA.summary.totalRewards);
+    expect(panel).toHaveTextContent(String(EARN_DATA.summary.totalRewardsUsd));
   });
 
   it('renders one position card per entry in EARN_DATA.positions', () => {
@@ -323,6 +323,58 @@ describe('EarnPositions', () => {
 
       expect(screen.getByRole('alert')).toBeInTheDocument();
       expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the USD figure across a count', () => {
+    // jsdom has no `matchMedia`; without it AnimatedNumber never travels (see AnimatedNumber.test.tsx).
+    function installMatchMedia() {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    }
+    function removeMatchMedia() {
+      Reflect.deleteProperty(window, 'matchMedia');
+    }
+
+    afterEach(() => removeMatchMedia());
+
+    it('keeps the destination decimal count through every frame (usdFormatterFor, not formatUsd)', async () => {
+      installMatchMedia();
+      const setDepositsUsd = (depositsUsd: number) =>
+        mockUseEarnPositions.mockReturnValue({
+          summary: EARN_DATA.summary,
+          positions: [{ ...EARN_DATA.positions[0]!, id: 'anim-pos', depositsUsd }],
+          vaults: EARN_DATA.vaults,
+          isLoading: false,
+          error: undefined,
+          refetch: mockRefetch
+        });
+
+      setDepositsUsd(1234.5);
+      const { rerender } = render(<EarnPositions />);
+      const card = screen.getByTestId('earn-position-card-anim-pos');
+      const node = within(card).getByText('$1,234.50');
+
+      // A destination needing 4dp: a per-frame formatter (formatUsd) reads each frame's OWN
+      // magnitude, so an early frame still above $1 would read as an ordinary 2dp figure; a
+      // formatter bound to the destination (usdFormatterFor) keeps 4dp for the whole trip.
+      setDepositsUsd(0.001234);
+      rerender(<EarnPositions />);
+
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+      await act(() => new Promise(resolve => setTimeout(resolve, 700)));
+      observer.disconnect();
+
+      const midFrames = frames.filter(text => Number(text.replace(/[$,]/g, '')) > 1);
+      expect(midFrames.length).toBeGreaterThan(0);
+      midFrames.forEach(text => expect(text).toMatch(/\.\d{4}$/));
+
+      await waitFor(() => expect(node).toHaveTextContent('$0.0012'));
     });
   });
 });

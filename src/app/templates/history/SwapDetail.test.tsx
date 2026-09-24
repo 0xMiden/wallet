@@ -24,9 +24,11 @@ jest.mock('lib/shared/format', () => ({
 }));
 
 const mockGetExplorerTxUrl = jest.fn();
+const mockGetExplorerAccountUrl = jest.fn();
 
 jest.mock('lib/miden-chain/constants', () => ({
-  getExplorerTxUrl: (...args: unknown[]) => mockGetExplorerTxUrl(...args)
+  getExplorerTxUrl: (...args: unknown[]) => mockGetExplorerTxUrl(...args),
+  getExplorerAccountUrl: (...args: unknown[]) => mockGetExplorerAccountUrl(...args)
 }));
 
 jest.mock('lib/animation', () => ({
@@ -96,7 +98,9 @@ const entry = {
   amount: 500n,
   token: 'MID',
   timestamp: 1_700_000_000,
-  txType: 'swap'
+  txType: 'swap',
+  // A swap row's own `faucetId` is the OFFERED side (SwapTransaction, db/types.ts).
+  faucetId: OFFERED_FAUCET
 } as unknown as IHistoryEntry;
 
 const consume = (over: Partial<SwapSettlementTransaction> = {}): SwapSettlementTransaction => ({
@@ -132,6 +136,43 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetExplorerTxUrl.mockImplementation((txId: string) => `https://explorer.test/tx/${txId}`);
+  mockGetExplorerAccountUrl.mockImplementation((address: string) => `https://explorer.test/account/${address}`);
+});
+
+const rowByLabel = (label: string) =>
+  Array.from(document.querySelectorAll('[data-testid="detail-row"]')).find(
+    el => el.getAttribute('data-label') === label
+  );
+
+describe('SwapDetail faucet ids', () => {
+  it('names both faucets, each under its own side of the order', () => {
+    renderDetail();
+
+    // Two faucets, two labels: a single "Faucet ID" row could not say which side
+    // it described, which is the whole reason this screen takes two keys.
+    const offered = rowByLabel('faucetIdOffered')!;
+    const requested = rowByLabel('faucetIdRequested')!;
+    expect(offered.querySelector('[data-testid="hash-chip"]')?.textContent).toBe(OFFERED_FAUCET);
+    expect(requested.querySelector('[data-testid="hash-chip"]')?.textContent).toBe(REQUESTED_FAUCET);
+
+    // A faucet is an account, so both link to the ACCOUNT explorer - the same
+    // override-aware helper the From/To rows use - not the transaction one.
+    expect(offered.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+      'href',
+      `https://explorer.test/account/${OFFERED_FAUCET}`
+    );
+    expect(requested.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+      'href',
+      `https://explorer.test/account/${REQUESTED_FAUCET}`
+    );
+  });
+
+  it('renders no requested row for an order that never recorded a requested faucet', () => {
+    renderDetail({ requestedFaucetId: undefined });
+
+    expect(rowByLabel('faucetIdOffered')).toBeDefined();
+    expect(rowByLabel('faucetIdRequested')).toBeUndefined();
+  });
 });
 
 describe('SwapDetail amounts', () => {
@@ -317,21 +358,25 @@ describe('SwapDetail note rows', () => {
   });
 });
 
+// Scoped to the consume row: the two faucet rows beside it are linked to the
+// ACCOUNT explorer and would otherwise answer a bare `external-link` query.
 describe('SwapDetail explorer links', () => {
+  const consumeLink = () => rowByLabel('consumeTxId')!.querySelector('[data-testid="external-link"]');
+
   it('links a consume by its chain id', () => {
     renderDetail({ settledTransactions: [consume()] });
 
-    expect(screen.getByTestId('external-link')).toHaveAttribute('href', 'https://explorer.test/tx/0xchain1');
+    expect(consumeLink()).toHaveAttribute('href', 'https://explorer.test/tx/0xchain1');
   });
 
   it('will not pass off a local row id as an on-chain identity', () => {
     // Before completion a consume has only its Dexie UUID. Linking that produced
     // a dead explorer link for a transaction the chain has never heard of.
-    const { container } = renderDetail({ settledTransactions: [consume({ transactionId: undefined })] });
+    renderDetail({ settledTransactions: [consume({ transactionId: undefined })] });
 
-    expect(screen.queryByTestId('external-link')).not.toBeInTheDocument();
+    expect(consumeLink()).toBeNull();
     // Still shown, just not as something the explorer can be asked about.
-    expect(container.querySelector('[data-label="consumeTxId"]')).toHaveTextContent('local-row-1');
+    expect(rowByLabel('consumeTxId')).toHaveTextContent('local-row-1');
     expect(mockGetExplorerTxUrl).not.toHaveBeenCalled();
   });
 
@@ -339,7 +384,7 @@ describe('SwapDetail explorer links', () => {
     mockGetExplorerTxUrl.mockReturnValue(undefined);
     renderDetail({ settledTransactions: [consume()] });
 
-    expect(screen.queryByTestId('external-link')).not.toBeInTheDocument();
+    expect(consumeLink()).toBeNull();
   });
 });
 

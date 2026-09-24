@@ -3,13 +3,14 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
 import { SearchInput } from 'components/ui/SearchInput';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
-import { listedFiat } from 'lib/prices';
+import { listedFiatValue } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -76,13 +77,29 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
               {filteredBalances.map(b => {
                 const scaleIsKnown = hasKnownScale(b.metadata);
                 const priceSymbol = priceSymbolFor(b.tokenId, b.metadata.symbol);
+                const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
+                const formatQuantity = adaptiveFormatterFor(b.balance);
+                const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
                 return (
                   <AssetListItem
                     key={b.tokenId}
                     icon={<TokenLogo symbol={b.metadata.symbol} />}
                     name={b.metadata.name || b.metadata.symbol}
-                    amount={scaleIsKnown ? `${toAdaptiveFixed(b.balance)} ${b.metadata.symbol}` : b.metadata.symbol}
-                    price={listedFiat(tokenPrices, priceSymbol, b.balance, scaleIsKnown)}
+                    amount={
+                      scaleIsKnown ? (
+                        <AnimatedNumber
+                          value={b.balance}
+                          format={value => `${formatQuantity(value)} ${b.metadata.symbol}`}
+                        />
+                      ) : (
+                        b.metadata.symbol
+                      )
+                    }
+                    price={
+                      fiatValue === undefined ? undefined : (
+                        <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
+                      )
+                    }
                     data-testid={`send-token-${b.metadata.symbol}`}
                     data-token-id={b.tokenId}
                     onClick={() => onSelectToken(uiTokenFromBalance(b, tokenPrices))}

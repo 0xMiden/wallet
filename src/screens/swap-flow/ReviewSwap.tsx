@@ -7,6 +7,7 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { InfoHint } from 'components/ui/InfoHint';
@@ -43,12 +44,31 @@ export interface ReviewSwapProps {
   submitting?: boolean;
 }
 
-/** "1 {offer} ≈ {marketPrice} {request}" from the oracle rate, or undefined if unavailable. */
-function formatRate(offerSymbol: string, requestSymbol: string, marketPrice?: string): string | undefined {
+/** The oracle rate as a number, or `undefined` when there isn't one to show. */
+function parseRate(marketPrice?: string): number | undefined {
   const rate = Number(marketPrice);
   if (!rate || !Number.isFinite(rate)) return undefined;
-  const formatted = Number(rate.toPrecision(4)).toString();
-  return `1 ${offerSymbol} ≈ ${formatted} ${requestSymbol}`;
+  return rate;
+}
+
+/**
+ * The rate figure's formatter for one destination. The destination prints at four significant
+ * figures, plain or exponential as `Number#toString` picks; every frame of a count keeps that
+ * string's shape (its decimals, or its mantissa digits), so the row does not jitter and the last
+ * frame is the settled string. The exponential frame stays a string: a `Number` round-trip would
+ * strip a trailing zero.
+ */
+function rateFormatterFor(rate: number): (value: number) => string {
+  const settled = Number(rate.toPrecision(4)).toString();
+  const exponent = settled.indexOf('e');
+  const point = settled.indexOf('.');
+  if (exponent !== -1) {
+    const digits = point === -1 ? 0 : exponent - point - 1;
+    return value => value.toExponential(digits);
+  }
+  const decimals = point === -1 ? 0 : settled.length - point - 1;
+  // Rounded to four figures first, or a rate past 9999 would settle on 12346 where the quote says 12350.
+  return value => Number(value.toPrecision(4)).toFixed(decimals);
 }
 
 /**
@@ -113,7 +133,9 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
-  const rate = formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice);
+  // The quote is re-fetched while this screen is open, so the rate counts to each new one.
+  const rate = parseRate(swapEta?.marketPrice);
+  const formatRateValue = rateFormatterFor(rate ?? 0);
 
   // Seconds stay the value the flow owns (`expirySeconds` in, seconds out). The unit and the
   // typed digits are this screen's own: without a local draft, a half-typed "1" out of "12"
@@ -206,7 +228,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         <DetailRow
           label={t('rate')}
           info={
-            rate ? (
+            rate !== undefined ? (
               <InfoHint label={t('moreInfoAbout', { label: t('rate') })} data-testid="swap-rate-info">
                 {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
               </InfoHint>
@@ -214,7 +236,12 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           }
           data-testid="swap-rate-row"
         >
-          {rate}
+          {rate !== undefined && (
+            <AnimatedNumber
+              value={rate}
+              format={value => `1 ${offerToken.symbol} ≈ ${formatRateValue(value)} ${requestToken.symbol}`}
+            />
+          )}
         </DetailRow>
         {networkFee && (
           // Kept as its own row so the solver spread noted above isn't read as the whole price

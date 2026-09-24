@@ -12,6 +12,17 @@ export function formatBalance(value: number): string {
 }
 
 /**
+ * `formatBalance` with the decimals it gives `target`, held for every value on the way to it — the
+ * counting form, for `AnimatedNumber`. Straight through `formatBalance` the trailing-zero trim
+ * makes the string grow and shrink from frame to frame; pinning the destination's decimals keeps
+ * the shape the destination's for the whole count. Same rounding, still DOWN.
+ */
+export function balanceFormatterFor(target: number): (value: number) => string {
+  const decimals = formatBalance(target).split('.')[1]?.length ?? 0;
+  return value => new BigNumber(value).toFixed(decimals, BigNumber.ROUND_DOWN);
+}
+
+/**
  * The approximate fiat figure, already prefixed, for the `approxFiatValue` line. Callers keep their
  * own presence guard, because those differ by design: a typed amount on the send screens, a known
  * price on the older amount step, a supplied value on the review hero.

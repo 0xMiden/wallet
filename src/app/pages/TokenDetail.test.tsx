@@ -198,6 +198,9 @@ jest.mock('framer-motion', () => {
       ) => ReactActual.createElement(tag, { ...rest, ref, 'data-layout-id': layoutId }, children)
     );
   return {
+    // The real module underneath, so the value helpers `AnimatedNumber` uses (`useMotionValue`,
+    // `animate`) are the real ones; only the element factories below are stubbed.
+    ...jest.requireActual('framer-motion'),
     __esModule: true,
     motion: new Proxy({}, { get: (_target, tag: string) => (cache[tag] ??= build(tag)) }),
     AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
@@ -301,8 +304,9 @@ describe('TokenDetail', () => {
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.
-    expect(within(hero).getByText('12.50')).toHaveClass('text-hero-value', 'text-ink');
-    expect(within(hero).getByText('$25000.00')).toHaveClass('text-muted');
+    // Both figures are `AnimatedNumber`s now, so the type is on the slot Hero renders around them.
+    expect(within(hero).getByText('12.50').closest('div')).toHaveClass('text-hero-value', 'text-ink');
+    expect(within(hero).getByText('$25000.00').closest('p')).toHaveClass('text-muted');
   });
 
   it('expands precision for a small non-zero hero balance and fiat value', () => {
@@ -415,6 +419,45 @@ describe('TokenDetail', () => {
       expect(screen.getByTestId('nav-title')).toHaveTextContent('USDC');
       // balance ?? 0 -> "0.00".
       expect(screen.getByText('0.00')).toBeInTheDocument();
+    });
+  });
+
+  // jsdom has no `matchMedia`, so AnimatedNumber only travels once a test installs one.
+  describe('a balance still loading', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows the placeholder while balances load, then lands on the first balance and its fiat value', () => {
+      configure({ metadata: { [TOKEN_ID]: { symbol: 'ETH', name: 'Ether', decimals: 18 } } });
+      mockUseAllBalances.mockReturnValue({ data: undefined });
+      const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
+
+      const hero = screen.getByTestId('token-detail-hero');
+      // The hero's placeholder, an em dash.
+      expect(hero).toHaveTextContent('\u2014');
+      expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
+
+      // The subtitle (fiat) line waits with the same dash, never a fabricated $0.00.
+      const subtitle = hero.querySelector('p');
+      expect(subtitle).toHaveTextContent('\u2014');
+      expect(subtitle).not.toHaveTextContent('$0.00');
+
+      mockUseAllBalances.mockReturnValue({
+        data: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }]
+      });
+      rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+      expect(within(hero).getByText('12.50')).toBeInTheDocument();
+      expect(within(hero).getByText('$25000.00')).toBeInTheDocument();
     });
   });
 
@@ -633,14 +676,15 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
-    it('renders a short, middle-truncated contract id (not the raw id) in the regular value style', () => {
+    it('renders the faucet id under the name the transaction page uses, trimmed and copyable', () => {
       renderPage({ network: { name: 'Devnet' } });
 
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
       // The shared DetailCard: `fill`, 16px radius, hairlines between rows.
       expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
-      expect(within(contract).getByText('contract')).toBeInTheDocument();
+      // One name for one thing: "Faucet ID", as the transaction detail page says it.
+      expect(within(contract).getByText('faucetId')).toBeInTheDocument();
 
       // A bare copy control in the row's value style, named by its action (its visible label is a
       // value), showing the id cut to its first 8 and last 4 characters.
@@ -654,7 +698,7 @@ describe('TokenDetail', () => {
       expect(within(info).getByText('Devnet')).toBeInTheDocument();
     });
 
-    it('copies the full contract id, not the truncated display value', async () => {
+    it('copies the full faucet id, not the truncated display value', async () => {
       mockClipboardWrite.mockResolvedValue(undefined);
       renderPage();
 

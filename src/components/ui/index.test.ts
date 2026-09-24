@@ -14,6 +14,7 @@ import { AccountsDrawer } from './AccountsDrawer';
 import { ActivityRow } from './ActivityRow';
 import { AlertSheet } from './AlertSheet';
 import { AnimatedCopyIcon } from './AnimatedCopyIcon';
+import { AnimatedNumber } from './AnimatedNumber';
 import { AssetListItem } from './AssetListItem';
 import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
@@ -77,6 +78,7 @@ describe('components/ui barrel', () => {
   const EXPECTED_COMPONENTS = {
     AccountsDrawer,
     AlertSheet,
+    AnimatedNumber,
     Avatar,
     InfoHint,
     Pill,

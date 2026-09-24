@@ -15,6 +15,7 @@ import { formatDate } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { EmptyState } from 'components/ui/EmptyState';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
@@ -226,9 +227,11 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 
         <div className="mt-5 flex flex-col gap-1 font-heading">
           <span className="text-sm font-bold text-accent-receive-ink leading-none">{t('totalPending')}</span>
-          <span className="font-heading text-5xl font-extrabold text-ink leading-none tracking-tight">
-            {formatUsd(totals.totalUsd)}
-          </span>
+          <AnimatedNumber
+            className="font-heading text-5xl font-extrabold text-ink leading-none tracking-tight"
+            value={totals.totalUsd}
+            format={formatUsd}
+          />
           <span className="mt-1 text-sm font-bold text-ink font-heading">
             <span className="mr-1.5">•</span>
             {t('notesPendingAcrossAssets', { notes: totals.notesCount, assets: totals.assetsCount })}
@@ -347,9 +350,11 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
           <span data-testid="pending-asset-amount" className="font-heading text-base font-bold text-ink leading-tight">
             {formattedTotal} {symbol}
           </span>
-          <span className="font-heading text-sm text-ink opacity-50 leading-tight">
-            {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
-          </span>
+          <AnimatedNumber
+            className="font-heading text-sm text-ink opacity-50 leading-tight"
+            value={usdValue}
+            format={value => t('pendingTabApproxUsd', { value: formatUsd(value) })}
+          />
         </div>
       </div>
       {notWorthClaiming && (
@@ -456,9 +461,11 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
               <span className="font-heading text-base font-bold text-ink pb-1">{symbol}</span>
             </div>
 
-            <div className="font-heading mt-2 text-sm text-ink">
-              {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
-            </div>
+            <AnimatedNumber
+              className="font-heading mt-2 block text-sm text-ink"
+              value={usdValue}
+              format={value => t('pendingTabApproxUsd', { value: formatUsd(value) })}
+            />
 
             <div className="mt-5 w-full">
               {notes.map((note, index) => (
@@ -670,9 +677,11 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
               <span className="text-xl font-extrabold leading-none text-receive-green">{formattedAmount}</span>
               <span className="text-sm font-bold leading-none">{symbol}</span>
             </span>
-            <span className="text-[13px] font-medium leading-none opacity-50">
-              {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
-            </span>
+            <AnimatedNumber
+              className="text-[13px] font-medium leading-none opacity-50"
+              value={usdValue}
+              format={value => t('pendingTabApproxUsd', { value: formatUsd(value) })}
+            />
           </div>
           <div className="flex min-w-0 items-center gap-1.5 text-[13px] leading-tight">
             <span className="font-medium lowercase opacity-50">{t('from')}</span>

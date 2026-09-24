@@ -3,12 +3,14 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSummaryPanel } from './components';
+import { formatApy, usdFigureFormatter } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ProviderLogo } from './ProviderLogo';
 import { EarnPosition } from './types';
@@ -78,10 +80,20 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
         </div>
         {/* The APY reads as a figure, like the tab page's card: the tinted ink, not the raw
             #90BA89 fill, which is 2.2:1 under text. */}
-        <div className="shrink-0 text-value text-positive-tint-ink">{t('earnPositionsApy', { apy: position.apy })}</div>
+        <AnimatedNumber
+          className="shrink-0 text-value text-positive-tint-ink"
+          value={position.aprPercent}
+          format={apr => t('earnPositionsApy', { apy: formatApy(apr) })}
+          placeholder={t('earnPositionsApy', { apy: position.apy })}
+        />
       </div>
 
-      <div className="mt-4 text-hero-value text-ink">{position.amount}</div>
+      <AnimatedNumber
+        className="mt-4 block text-hero-value text-ink"
+        value={position.depositsUsd}
+        format={usdFigureFormatter(position.depositsUsd)}
+        placeholder={position.amount}
+      />
       <div className="mt-3 text-value text-positive-tint-ink">{position.rewards}</div>
 
       {/* A hairline inside a card only divides its rows. */}

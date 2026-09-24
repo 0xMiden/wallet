@@ -86,7 +86,7 @@ jest.mock('components/TokenLogo', () => ({
 // deterministic price per symbol here.
 jest.mock('lib/prices', () => ({
   getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 1, percentageChange24h: 0 }),
-  listedFiat: jest.requireActual('lib/prices/binance').listedFiat,
+  listedFiatValue: jest.requireActual('lib/prices/binance').listedFiatValue,
   listedPrice: jest.requireActual('lib/prices/binance').listedPrice
 }));
 

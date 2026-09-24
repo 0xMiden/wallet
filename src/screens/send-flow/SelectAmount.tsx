@@ -9,12 +9,14 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Avatar } from 'components/ui/Avatar';
+import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
-import { approxFiatAmount, formatBalance } from './amount-format';
+import { balanceFormatterFor } from './amount-format';
 import { BridgeNetwork } from './bridge-networks';
 import { UIToken } from './types';
 
@@ -111,6 +113,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const accentClasses = ACCENT_CLASSES[accent];
 
   const availableFiat = token ? token.balance * token.fiatPrice : 0;
+  const formatAvailableFiat = adaptiveFormatterFor(availableFiat);
   // An amount typed here is converted to base units with `token.decimals`. When
   // those decimals are the unknown-token placeholder's guess, that conversion
   // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
@@ -201,24 +204,41 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     </div>
   );
 
-  const helper =
-    token && showBalanceHelper ? (
+  let helper: React.ReactNode = null;
+  if (token && showBalanceHelper) {
+    // Built once per render, not per frame: `token` is only known here, inside the branch.
+    const formatAvailableBalance = balanceFormatterFor(token.balance);
+    helper = (
       <>
         <span className="font-heading text-gray text-base font-bold">
           {/* Same guessed scale as the amount above — quoting a spendable
               balance from it would be inviting the user to act on a number the
               wallet cannot stand behind. */}
-          {scaleIsKnown ? `${t('available')} ${formatBalance(token.balance)} ${token.name}` : t('unknownTokenScale')}
+          {/* Keyed by token, so a different token lands its own balance instead of counting from the
+              last token's; a new balance for the same token still counts. */}
+          {scaleIsKnown ? (
+            <AnimatedNumber
+              key={token.id}
+              value={token.balance}
+              format={value => `${t('available')} ${formatAvailableBalance(value)} ${token.name}`}
+            />
+          ) : (
+            t('unknownTokenScale')
+          )}
         </span>
         {/* Only show the fiat approximation when we actually have a price — swap
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
         {scaleIsKnown && token.fiatPrice > 0 && (
-          <span className="font-heading text-gray text-base font-bold">
-            {t('approxFiatValue', { value: approxFiatAmount(availableFiat) })}
-          </span>
+          <AnimatedNumber
+            key={token.id}
+            className="font-heading text-gray text-base font-bold"
+            value={availableFiat}
+            format={value => t('approxFiatValue', { value: `$${formatAvailableFiat(value)}` })}
+          />
         )}
       </>
-    ) : null;
+    );
+  }
 
   const amountField = (
     <AmountInput

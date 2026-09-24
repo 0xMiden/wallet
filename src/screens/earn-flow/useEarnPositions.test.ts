@@ -86,8 +86,8 @@ describe('useEarnPositions', () => {
       apy: '5.00%'
     });
     expect(result.current.summary).toMatchObject({
-      totalDeposited: '$10.00',
-      blendedApy: '~5.0%'
+      totalDepositedUsd: 10,
+      blendedApyPercent: 5
     });
     expect(result.current.error).toBe('owner unavailable');
     expect(result.current.isLoading).toBe(false);
@@ -125,22 +125,39 @@ describe('useEarnPositions', () => {
     expect(result.current.error).toBe('owner lookup failed');
   });
 
-  it('returns stable empty display data before the first response', () => {
+  it('returns empty lists and a summary with no figures yet before the first response', () => {
     mockUseRetryableSWR.mockReturnValue({ data: undefined, isLoading: true });
 
     const { result } = renderHook(() => useEarnPositions());
 
     expect(result.current.positions).toEqual([]);
     expect(result.current.vaults).toEqual([]);
-    expect(result.current.summary).toMatchObject({
-      totalRewards: '$0.00',
-      blendedApy: '~0.0%',
-      totalDeposited: '$0.00',
-      estimatedRewards: '+$0.00'
+    // Not zeros: a zero is a value, and the summary would count up from it when the read lands.
+    expect(result.current.summary).toEqual({
+      totalRewardsUsd: null,
+      blendedApyPercent: null,
+      totalDepositedUsd: null,
+      estimatedRewardsUsd: null
     });
     expect(result.current.error).toBeUndefined();
     expect(result.current.loadError).toBeUndefined();
     expect(result.current.isLoading).toBe(true);
+  });
+
+  it('reports zeros once a completed read finds no positions', () => {
+    mockUseRetryableSWR.mockReturnValue({
+      data: { positions: [], vaults: [], totalDepositsUSD: 0, owners: [], errors: [] },
+      isLoading: false
+    });
+
+    const { result } = renderHook(() => useEarnPositions());
+
+    expect(result.current.summary).toEqual({
+      totalRewardsUsd: 0,
+      blendedApyPercent: 0,
+      totalDepositedUsd: 0,
+      estimatedRewardsUsd: 0
+    });
   });
 
   it('loads every historical owner plus the lowercased wallet address once', async () => {

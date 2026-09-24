@@ -58,6 +58,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import {
+  consumeAssetBreakdown,
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -611,11 +612,29 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // whole transaction. A batch claim's hero lists every asset it swept up, and a
   // single-faucet estimate under it reads as the total while understating it -
   // no figure is better than a confidently wrong one.
+  //
+  // Still suppressed now that the breakdown below prices nothing by itself, and
+  // deliberately not replaced by a per-asset sum: `getTokenPrice` answers $1 for
+  // any symbol Binance does not list, and a batch claim's secondary faucets are
+  // exactly the ones the wallet has never resolved - so a "total" would quietly
+  // value every unknown asset at a dollar a unit. The assets an unknown-scale
+  // faucet contributed have no honest quantity to multiply either. Gating the
+  // figure on every asset being both resolved and listed would make it appear
+  // and vanish between renders as metadata lands, which is worse than absent.
+  // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token && !spansMultipleAssets
       ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
       : undefined;
+  // One entry per faucet the claim swept up, each with the asset and quantity
+  // that faucet contributed. Resolved through the SAME helper as the hero badge
+  // over it, so the two cannot disagree about what a faucet is called - and
+  // synchronously, so a faucet the store resolves later re-renders both.
+  const assetBreakdown =
+    spansMultipleAssets && transaction
+      ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
+      : [];
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
@@ -799,9 +818,64 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       />
                     </DetailRow>
                   )}
+
+                  {/*
+                    The faucet that minted the asset this row moved - the token's
+                    on-chain identity, which the FAQ documents and nothing in the app
+                    showed. A faucet IS an account, so it gets the same treatment as
+                    From/To: a trimmed, copyable chip over the account explorer.
+
+                    Rows with no asset (a guardian switch, a key rotation, a dApp
+                    `execute`) carry no `faucetId` and render no row rather than an
+                    empty one. Swaps never reach here: they take the `SwapDetail`
+                    branch, which labels both of their faucets.
+
+                    `tx.faucetId` is only the FIRST faucet of the row, so a claim
+                    spanning several hands off to the per-asset card below rather
+                    than naming one of them here as though it were the whole
+                    transaction.
+                  */}
+                  {!spansMultipleAssets && entry.faucetId && (
+                    <DetailRow label={t('faucetId')} data-testid="history-detail-faucet-id">
+                      <ExternalLinkValue
+                        displayValue={<HashChip hash={entry.faucetId} trimHash className="ml-2" />}
+                        href={getExplorerAccountUrl(entry.faucetId)}
+                      />
+                    </DetailRow>
+                  )}
                 </DetailSection>
               </div>
             </div>
+
+            {/*
+              Per-asset faucets, for a claim that swept up several at once.
+
+              Accept All consumes every waiting transfer in ONE `consume`, and
+              those notes can come from different faucets. The row keeps a total
+              per faucet in `assetTotals`, but `tx.faucetId` is just the first of
+              them - so the single Faucet ID row above would name one faucet and
+              say nothing about the rest. Each asset gets its own row instead:
+              the quantity and symbol it contributed on the left, the faucet that
+              minted it on the right, with the same trimmed copyable chip over
+              the account explorer that From/To and the single-faucet row use.
+            */}
+            {assetBreakdown.length > 0 && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailSection title={t('faucetIds')}>
+                    {assetBreakdown.map(part => (
+                      <DetailRow key={part.faucetId} label={part.label} data-testid="history-detail-faucet-id">
+                        <ExternalLinkValue
+                          displayValue={<HashChip hash={part.faucetId} trimHash className="ml-2" />}
+                          href={getExplorerAccountUrl(part.faucetId)}
+                        />
+                      </DetailRow>
+                    ))}
+                  </DetailSection>
+                </div>
+              </div>
+            )}
 
             {/* Smart Withdraw details (market, position owner, intent, note) */}
             {isEarnWithdraw && earnWithdraw && (

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
@@ -12,7 +13,7 @@ import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } fro
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAssetMark, EarnSummaryPanel, MetricCard } from './components';
-import { placeholderPosition } from './earn-mapping';
+import { formatApy, placeholderPosition, usdFigureFormatter } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -151,9 +152,22 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
 
   return (
     <div className="grid grid-cols-3 gap-2">
-      <MetricCard label={t('earnMetricDeposited')} value={position.depositedAmount} />
+      <MetricCard
+        label={t('earnMetricDeposited')}
+        value={
+          <AnimatedNumber
+            value={position.depositsUsd}
+            format={usdFigureFormatter(position.depositsUsd)}
+            placeholder={position.depositedAmount}
+          />
+        }
+      />
       <MetricCard label={t('earnMetricTotalEarned')} value={position.rewards} valueClassName="text-positive-tint-ink" />
-      <MetricCard label={t('earnApyLabel')} value={position.apy} valueClassName="text-positive-tint-ink" />
+      <MetricCard
+        label={t('earnApyLabel')}
+        value={<AnimatedNumber value={position.aprPercent} format={formatApy} placeholder={position.apy} />}
+        valueClassName="text-positive-tint-ink"
+      />
       <MetricCard
         label={t('earnMetricDailyAvg')}
         value={position.dailyAverage}

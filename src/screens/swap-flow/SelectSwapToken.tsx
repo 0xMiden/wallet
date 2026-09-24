@@ -3,12 +3,13 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
+import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { adaptiveFormatterFor } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getSwapTokens, normalizedFaucetId, SwapToken } from 'lib/miden/swap/tokens';
-import { listedFiat } from 'lib/prices';
+import { listedFiatValue } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -33,7 +34,7 @@ export interface SelectSwapTokenDrawerProps {
  * Balances come from the same path home and the send picker use, `useAllBalances`, keyed by the
  * SDK's bech32 form of the faucet id, so a registry id is normalized before the match (with the raw
  * id as a fallback), as SwapManager does. A token is priced as the asset it stands for (its
- * priceSymbol: IETH at ETH), and only where the feed lists it (`listedFiat`, shared with the send
+ * priceSymbol: IETH at ETH), and only where the feed lists it (`listedFiatValue`, shared with the send
  * picker): IMIDEN and IUSDT show no fiat.
  *
  * The chosen side carries the design system's round check in the swap flow's purple, and
@@ -73,17 +74,29 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 const scaleIsKnown = held ? hasKnownScale(held.metadata) : true;
                 const balance = held?.balance ?? 0;
                 // Never by logoSymbol: IUSDT borrows the USDC logo, not its price.
-                const fiat = token.priceSymbol
-                  ? listedFiat(tokenPrices, token.priceSymbol, balance, scaleIsKnown)
+                const fiatValue = token.priceSymbol
+                  ? listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown)
                   : undefined;
+                const formatQuantity = adaptiveFormatterFor(balance);
+                const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
 
                 return (
                   <AssetListItem
                     key={token.faucetId}
                     icon={<TokenLogo symbol={token.logoSymbol} />}
                     name={token.symbol}
-                    amount={scaleIsKnown ? `${toAdaptiveFixed(balance)} ${token.symbol}` : token.symbol}
-                    price={fiat}
+                    amount={
+                      scaleIsKnown ? (
+                        <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${token.symbol}`} />
+                      ) : (
+                        token.symbol
+                      )
+                    }
+                    price={
+                      fiatValue === undefined ? undefined : (
+                        <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
+                      )
+                    }
                     selected={token.faucetId === currentFaucetId}
                     accent="swap"
                     onClick={() => onSelectToken(token)}

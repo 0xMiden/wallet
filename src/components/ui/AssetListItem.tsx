@@ -12,11 +12,13 @@ export type AssetDeltaDirection = 'positive' | 'negative' | 'neutral';
 export interface AssetListItemProps {
   icon: ReactNode;
   name: string;
-  amount: string;
+  /** The token quantity line. A live figure comes in as an `AnimatedNumber`. */
+  amount: ReactNode;
   chart?: ReactNode;
-  price?: string;
+  /** The fiat value of the holding. A live figure comes in as an `AnimatedNumber`. */
+  price?: ReactNode;
   delta?: {
-    value: string;
+    value: ReactNode;
     direction?: AssetDeltaDirection;
   };
   /**
