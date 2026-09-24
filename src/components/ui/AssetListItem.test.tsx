@@ -110,6 +110,18 @@ describe('AssetListItem', () => {
     });
   });
 
+  it('truncates a long name before it pushes the price or the check out of the row', () => {
+    renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', name: 'A very long token name' });
+
+    const nameColumn = screen.getByText('A very long token name').parentElement!;
+    expect(nameColumn).toHaveClass('min-w-0');
+    expect(nameColumn).not.toHaveClass('shrink-0');
+    const leading = nameColumn.parentElement!;
+    expect(leading).toHaveClass('min-w-0', 'flex-1');
+    const trailing = screen.getByText('$2.50').closest('[data-slot="trailing"]');
+    expect(trailing).toHaveClass('shrink-0');
+  });
+
   describe('selection', () => {
     it('renders no check and reports no pressed state when selected is undefined', () => {
       const { container } = renderItem({ onClick: jest.fn() });

@@ -2,9 +2,10 @@ import React, { FC, ReactNode } from 'react';
 
 import classNames from 'clsx';
 
-import { ReactComponent as CheckIcon } from 'app/icons/v2/checkmark.svg';
 import { ACCENT_CLASSES, type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
+
+import { SelectionCheck } from './SelectionCheck';
 
 export type AssetDeltaDirection = 'positive' | 'negative' | 'neutral';
 
@@ -73,10 +74,12 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 
   const content = (
     <>
-      <div className="flex items-center gap-2">
+      {/* The leading group gives way first: a long name truncates rather than pushing the price and
+          the check out of the row. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
-        <div className="flex flex-col min-w-0 shrink-0">
+        <div className="flex flex-col min-w-0">
           <div className="text-row-title text-ink truncate">{name}</div>
           <div className="text-caption text-muted">{amount}</div>
         </div>
@@ -84,26 +87,13 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 
       <div className="flex items-center justify-center">{chart}</div>
 
-      <div className="flex items-center gap-3">
+      <div data-slot="trailing" className="flex shrink-0 items-center gap-3">
         <div className="flex flex-col items-end">
           {price && <div className="text-row-title text-ink">{price}</div>}
           {delta && <div className={classNames('text-caption', deltaColor)}>{delta.value}</div>}
         </div>
 
-        {selected && (
-          <span
-            data-slot="check"
-            aria-hidden="true"
-            className={classNames(
-              'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full',
-              // A selected state is one of the things a flow's colour carries (design-system.md,
-              // "Action colours"), so an accented row's check is the flow's fill, not the brand's.
-              accent ? ACCENT_CLASSES[accent].bg : 'bg-accent-primary'
-            )}
-          >
-            <CheckIcon className="h-2 w-2.5 fill-pure-white" />
-          </span>
-        )}
+        {selected && <SelectionCheck className={accent ? ACCENT_CLASSES[accent].bg : undefined} />}
       </div>
     </>
   );

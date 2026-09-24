@@ -2,12 +2,13 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
-import { ReactComponent as CheckIcon } from 'app/icons/v2/checkmark.svg';
 import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
 import { ACCENT_CLASSES, type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { Link } from 'lib/woozie';
+
+import { SelectionCheck } from './SelectionCheck';
 
 export interface ListRowProps {
   title: React.ReactNode;
@@ -175,20 +176,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
       </span>
       {value !== undefined && <span className="shrink-0 text-body-sm text-muted">{value}</span>}
       {trailing !== undefined && <span className="flex shrink-0 items-center">{trailing}</span>}
-      {checked && (
-        <span
-          data-slot="check"
-          aria-hidden="true"
-          className={cn(
-            'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-accent-primary',
-            // A selected state is one of the things a flow's colour carries (design-system.md,
-            // "Action colours"), so an accented row's check is the flow's fill, not the brand's.
-            tone?.bg
-          )}
-        >
-          <CheckIcon className="h-2 w-2.5 fill-pure-white" />
-        </span>
-      )}
+      {checked && <SelectionCheck className={tone?.bg} />}
       {showChevron && (
         <ChevronRightIcon
           data-slot="chevron"
