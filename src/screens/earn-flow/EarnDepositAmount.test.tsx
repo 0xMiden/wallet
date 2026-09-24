@@ -42,6 +42,7 @@ jest.mock('./components', () => ({
 // (`onAmountChange`, `onConfirm`, `onSelectToken`).
 jest.mock('screens/send-flow/SelectAmount', () => ({
   SelectAmount: (props: {
+    accent?: string;
     token?: { id: string; name: string; decimals: number; balance: number; fiatPrice: number };
     amount: string;
     isValidAmount: boolean;
@@ -56,6 +57,7 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
   }) => (
     <div
       data-testid="select-amount"
+      data-accent={props.accent}
       data-amount={props.amount}
       data-valid={String(props.isValidAmount)}
       data-label={String(props.label)}
@@ -155,6 +157,7 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
+    expect(select).toHaveAttribute('data-accent', 'earn');
     expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
     expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');

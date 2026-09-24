@@ -25,6 +25,17 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Calendar: 'Calendar' }
 }));
 
+// Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so
+// Confirm's flow colour is assertable without the real Button's cva class computation.
+jest.mock('components/ui/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
+}));
+
 // Drawer — the real component renders through `vaul` portals; a passthrough
 // stub keeps the children (and their handlers) directly in the DOM and exposes
 // the `open` prop plus a way to fire `onOpenChange`.
@@ -274,6 +285,13 @@ describe('RecallCalendarDrawer', () => {
   it('hides the confirm button when no recallDate is set', async () => {
     await renderDrawer(makeProps({ recallDate: undefined }));
     expect(screen.queryByRole('button', { name: 'confirm' })).not.toBeInTheDocument();
+  });
+
+  it('gives Confirm the send flow colour', async () => {
+    const recallDate = new Date('2035-06-15T00:00:00');
+    await renderDrawer(makeProps({ recallDate }));
+
+    expect(screen.getByRole('button', { name: 'confirm' })).toHaveAttribute('data-accent', 'send');
   });
 
   it('confirm applies the selection, computes relative blocks, and closes the drawer', async () => {
