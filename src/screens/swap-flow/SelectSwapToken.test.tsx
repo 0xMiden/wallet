@@ -28,7 +28,8 @@ type SwapToken = {
 };
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokens: () => mockGetSwapTokens()
+  getSwapTokens: () => mockGetSwapTokens(),
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
 }));
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the

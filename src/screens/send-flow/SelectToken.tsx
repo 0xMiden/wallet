@@ -8,6 +8,7 @@ import { SearchInput } from 'components/ui/SearchInput';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { listedFiat, listedPrice } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -73,13 +74,14 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
             <div className="flex flex-col divide-y divide-rule-default">
               {filteredBalances.map(b => {
                 const scaleIsKnown = hasKnownScale(b.metadata);
+                const priceSymbol = priceSymbolFor(b.tokenId, b.metadata.symbol);
                 return (
                   <AssetListItem
                     key={b.tokenId}
                     icon={<TokenLogo symbol={b.metadata.symbol} />}
                     name={b.metadata.name || b.metadata.symbol}
                     amount={scaleIsKnown ? `${toAdaptiveFixed(b.balance)} ${b.metadata.symbol}` : b.metadata.symbol}
-                    price={listedFiat(tokenPrices, b.metadata.symbol, b.balance, scaleIsKnown)}
+                    price={listedFiat(tokenPrices, priceSymbol, b.balance, scaleIsKnown)}
                     data-testid={`send-token-${b.metadata.symbol}`}
                     data-token-id={b.tokenId}
                     onClick={() =>
@@ -88,7 +90,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                         name: b.metadata.symbol,
                         decimals: b.metadata.decimals,
                         balance: b.balance,
-                        fiatPrice: listedPrice(tokenPrices, b.metadata.symbol),
+                        fiatPrice: listedPrice(tokenPrices, priceSymbol),
                         scaleIsKnown
                       })
                     }

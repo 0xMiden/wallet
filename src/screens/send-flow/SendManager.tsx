@@ -15,6 +15,7 @@ import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } 
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
@@ -361,7 +362,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       name: match.metadata.symbol,
       decimals: match.metadata.decimals,
       balance: match.balance,
-      fiatPrice: listedPrice(tokenPrices, match.metadata.symbol),
+      fiatPrice: listedPrice(tokenPrices, priceSymbolFor(match.tokenId, match.metadata.symbol)),
       scaleIsKnown: hasKnownScale(match.metadata)
     };
     setValue('token', uiToken);

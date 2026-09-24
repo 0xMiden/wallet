@@ -28,6 +28,7 @@ import {
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { listedPrice } from 'lib/prices';
@@ -93,7 +94,7 @@ export const ReviewTransaction: React.FC = () => {
       name: match.metadata.symbol,
       decimals: match.metadata.decimals,
       balance: match.balance,
-      fiatPrice: listedPrice(tokenPrices, match.metadata.symbol),
+      fiatPrice: listedPrice(tokenPrices, priceSymbolFor(match.tokenId, match.metadata.symbol)),
       scaleIsKnown: hasKnownScale(match.metadata)
     };
   }, [balanceData, tokenId, tokenPrices]);

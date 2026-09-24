@@ -1,6 +1,6 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
@@ -116,6 +116,26 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
+
+/** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
+export function normalizedFaucetId(faucetId: string): string {
+  try {
+    return getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
+  } catch {
+    return faucetId;
+  }
+}
+
+/**
+ * The symbol to look a held token's price up under: a swap token's `priceSymbol` (IETH at ETH),
+ * matched by faucet in either id encoding as the swap picker matches balances, else its own symbol.
+ */
+export function priceSymbolFor(faucetId: string, symbol: string): string {
+  const swapToken = getSwapTokens().find(
+    token => token.faucetId === faucetId || normalizedFaucetId(token.faucetId) === faucetId
+  );
+  return swapToken?.priceSymbol ?? symbol;
+}
 
 /**
  * A single quote for an (offered, requested) pair from the DEX `swap-eta`

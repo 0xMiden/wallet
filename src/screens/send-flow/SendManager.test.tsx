@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
@@ -1191,6 +1193,22 @@ describe('token preselection', () => {
     renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('UNLISTED');
     expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^0$/);
+  });
+
+  it('values a preselected swap token at the asset it stands for', () => {
+    mockSearch = `?tokenId=${TOKEN_IETH.faucetId}`;
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
+    });
+    walletStoreState.tokenPrices = { ETH: { price: 3000 } };
+    try {
+      renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('IETH');
+      expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^3000$/);
+    } finally {
+      walletStoreState.tokenPrices = { TKN: { price: 3 } };
+    }
   });
 
   it('does not preselect when balances have not loaded yet', () => {

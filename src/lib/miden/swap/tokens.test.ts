@@ -6,6 +6,7 @@ import {
   getSwapTokenByFaucetId,
   getSwapTokens,
   getSwapTokenBySymbol,
+  priceSymbolFor,
   TOKEN_IBTC,
   TOKEN_IETH,
   TOKEN_IMIDEN,
@@ -18,6 +19,12 @@ import {
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
   getNativeAssetMetadataSync: jest.fn()
+}));
+
+// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountIdStringToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => `bech32:${id}`
 }));
 
 const mockGetNativeAssetIdSync = jest.mocked(getNativeAssetIdSync);
@@ -84,6 +91,23 @@ describe('swap token price symbols', () => {
   it('leaves IUSDT and IMIDEN unpriced, whatever logo they borrow', () => {
     expect(TOKEN_IUSDT.priceSymbol).toBeUndefined();
     expect(TOKEN_IMIDEN.priceSymbol).toBeUndefined();
+  });
+});
+
+describe('priceSymbolFor', () => {
+  beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
+
+  it('prices IETH and IBTC as ETH and BTC under either id encoding', () => {
+    expect(priceSymbolFor(TOKEN_IETH.faucetId, 'IETH')).toBe('ETH');
+    expect(priceSymbolFor(`bech32:${TOKEN_IETH.faucetId}`, 'IETH')).toBe('ETH');
+    expect(priceSymbolFor(TOKEN_IBTC.faucetId, 'IBTC')).toBe('BTC');
+    expect(priceSymbolFor(`bech32:${TOKEN_IBTC.faucetId}`, 'IBTC')).toBe('BTC');
+  });
+
+  it('leaves IUSDT, IMIDEN and a non-swap token on their own symbol', () => {
+    expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBe('IUSDT');
+    expect(priceSymbolFor(`bech32:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBe('IMIDEN');
+    expect(priceSymbolFor('mtst1other', 'ETH')).toBe('ETH');
   });
 });
 

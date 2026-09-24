@@ -7,8 +7,7 @@ import { AssetListItem } from 'components/ui/AssetListItem';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
+import { getSwapTokens, normalizedFaucetId, SwapToken } from 'lib/miden/swap/tokens';
 import { listedFiat } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -19,15 +18,6 @@ export interface SelectSwapTokenDrawerProps {
   /** Faucet id currently chosen for this side, rendered as selected. */
   currentFaucetId?: string;
   onSelect: (token: SwapToken) => void;
-}
-
-/** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
-function normalizedFaucetId(faucetId: string): string {
-  try {
-    return getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
-  } catch {
-    return faucetId;
-  }
 }
 
 /**

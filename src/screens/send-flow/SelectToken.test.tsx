@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
 
@@ -113,6 +115,14 @@ const XYZ: Balance = {
   metadata: { symbol: 'XYZ', decimals: 6 },
   balance: 5,
   fiatPrice: 1
+};
+
+// A swap test token that stands for ETH, held under its registry faucet id.
+const IETH: Balance = {
+  tokenId: TOKEN_IETH.faucetId,
+  metadata: { symbol: 'IETH', decimals: 8 },
+  balance: 2,
+  fiatPrice: 0
 };
 
 const setBalances = (balances: Balance[]) => {
@@ -301,6 +311,17 @@ describe('SelectTokenDrawer', () => {
     renderDrawer();
 
     expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('values a swap token at the asset it stands for and hands the amount step that price', () => {
+    mockStoreState = { tokenPrices: { ETH: { price: 3 } } };
+    setBalances([IETH]);
+    const { onSelect } = renderDrawer();
+
+    const row = screen.getByTestId('send-token-IETH');
+    expect(within(row).getByText('$6.00')).toBeInTheDocument();
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
   it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {

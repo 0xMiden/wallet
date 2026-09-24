@@ -7,6 +7,7 @@ import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { goBack, navigate } from 'lib/woozie';
@@ -398,6 +399,24 @@ describe('ReviewTransaction — rendering', () => {
     const hero = within(screen.getByTestId('review-amount'));
     expect(hero.getByText('5 UNLISTED')).toBeInTheDocument();
     expect(hero.queryByText('approxFiatValue')).not.toBeInTheDocument();
+  });
+
+  it('values a swap token at the asset it stands for', async () => {
+    mockSearch = `amount=5&to=0xrecipient&tokenId=${TOKEN_IETH.faucetId}`;
+    mockBalanceData = [
+      { tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
+    ];
+    mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
+    try {
+      render(<ReviewTransaction />);
+      await flush();
+
+      const hero = within(screen.getByTestId('review-amount'));
+      expect(hero.getByText('5 IETH')).toBeInTheDocument();
+      expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
+    } finally {
+      mockWalletStoreState.tokenPrices = { MDN: { price: 2 } };
+    }
   });
 
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
