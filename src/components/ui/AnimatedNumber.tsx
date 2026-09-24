@@ -52,8 +52,8 @@ function realmCanAnimate(): boolean {
  *
  *   <AnimatedNumber value={balance} format={n => `$${toLocalFormat(n, { decimalPlaces: 2 })}`} />
  *
- * Under reduced motion, and in any realm that cannot report the motion preference, the new value is
- * set immediately.
+ * Under reduced motion, in any realm that cannot report the motion preference, and when the sign
+ * changes, the new value is set immediately.
  */
 export const AnimatedNumber: FC<AnimatedNumberProps> = ({
   value,
@@ -94,7 +94,10 @@ export const AnimatedNumber: FC<AnimatedNumberProps> = ({
     const previous = shownRef.current;
     shownRef.current = numeric;
     if (numeric === null) return;
-    if (previous === null || reduceMotion || !realmCanAnimate()) {
+    // A change of sign lands instead of counting: callers style a signed figure by its destination
+    // (a red or green delta, a toned pill), so a count through zero would show frames of the other
+    // sign in that styling. Zero is a sign of its own, so leaving or reaching it lands too.
+    if (previous === null || Math.sign(previous) !== Math.sign(numeric) || reduceMotion || !realmCanAnimate()) {
       motionValue.jump(numeric);
       return;
     }

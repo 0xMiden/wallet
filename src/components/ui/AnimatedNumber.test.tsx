@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 
 import { AnimatedNumber } from './AnimatedNumber';
 
@@ -77,23 +77,23 @@ describe('AnimatedNumber', () => {
 
     it('travels through the values between the old one and the new one', async () => {
       installMatchMedia();
-      const { rerender } = render(<AnimatedNumber value={0} format={usd} data-testid="n" />);
+      const { rerender } = render(<AnimatedNumber value={1} format={usd} data-testid="n" />);
 
       rerender(<AnimatedNumber value={1000} format={usd} data-testid="n" />);
 
       // The commit does not flash its destination: the span still reads the old value when the
       // change lands, and only then starts counting.
-      expect(screen.getByTestId('n')).toHaveTextContent('$0.00');
-      await waitForValueBetween(0, 1000);
+      expect(screen.getByTestId('n')).toHaveTextContent('$1.00');
+      await waitForValueBetween(1, 1000);
       await waitFor(() => expect(screen.getByTestId('n')).toHaveTextContent('$1000.00'));
     });
 
     it('lands on the newest value when a second change interrupts the first', async () => {
       installMatchMedia();
-      const { rerender } = render(<AnimatedNumber value={0} format={usd} data-testid="n" />);
+      const { rerender } = render(<AnimatedNumber value={1} format={usd} data-testid="n" />);
 
       rerender(<AnimatedNumber value={1000} format={usd} data-testid="n" />);
-      await waitForValueBetween(0, 1000);
+      await waitForValueBetween(1, 1000);
       rerender(<AnimatedNumber value={50} format={usd} data-testid="n" />);
 
       await waitFor(() => expect(screen.getByTestId('n')).toHaveTextContent('$50.00'));
@@ -101,11 +101,11 @@ describe('AnimatedNumber', () => {
 
     it("does not jump forward to the interrupted count's destination", async () => {
       installMatchMedia();
-      const { rerender } = render(<AnimatedNumber value={0} format={usd} data-testid="n" />);
+      const { rerender } = render(<AnimatedNumber value={1} format={usd} data-testid="n" />);
 
       rerender(<AnimatedNumber value={1000} format={usd} data-testid="n" />);
-      await waitForValueBetween(0, 500);
-      rerender(<AnimatedNumber value={0} format={usd} data-testid="n" />);
+      await waitForValueBetween(1, 500);
+      rerender(<AnimatedNumber value={1} format={usd} data-testid="n" />);
 
       // It resumes from wherever the number had got to, not from 1000.
       expect(Number((screen.getByTestId('n').textContent ?? '').replace('$', ''))).toBeLessThan(500);
@@ -114,11 +114,65 @@ describe('AnimatedNumber', () => {
     it('uses the latest formatter for the frames it draws', async () => {
       installMatchMedia();
       const withUnit = (value: number) => `${value.toFixed(2)} MIDEN`;
-      const { rerender } = render(<AnimatedNumber value={0} format={usd} data-testid="n" />);
+      const { rerender } = render(<AnimatedNumber value={1} format={usd} data-testid="n" />);
 
       rerender(<AnimatedNumber value={100} format={withUnit} data-testid="n" />);
 
       await waitFor(() => expect(screen.getByTestId('n')).toHaveTextContent('100.00 MIDEN'));
+    });
+  });
+
+  // A caller styles a signed figure by its destination's sign (a red or green delta, a toned pill),
+  // so a count across zero would show frames of the other sign in that styling.
+  describe('a change of sign', () => {
+    /** Every text the span shows from now until `ms` have passed. */
+    const recordFrames = async (ms: number) => {
+      const node = screen.getByTestId('n');
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+      observer.observe(node, { characterData: true, childList: true, subtree: true });
+      await act(() => new Promise(resolve => setTimeout(resolve, ms)));
+      observer.disconnect();
+      return frames;
+    };
+
+    it('lands on a negative value without a positive frame on the way', async () => {
+      installMatchMedia();
+      const { rerender } = render(<AnimatedNumber value={2.5} format={usd} data-testid="n" />);
+
+      rerender(<AnimatedNumber value={-1.2} format={usd} data-testid="n" />);
+
+      expect(screen.getByTestId('n')).toHaveTextContent('$-1.20');
+      const frames = await recordFrames(800);
+      expect(frames.filter(frame => frame !== '$-1.20')).toEqual([]);
+      expect(screen.getByTestId('n')).toHaveTextContent('$-1.20');
+    });
+
+    it.each([
+      ['a negative value to zero', -1.2, 0, '$0.00'],
+      ['zero to a positive value', 0, 2.5, '$2.50']
+    ])('lands at once going from %s', (_label, from, to, shown) => {
+      installMatchMedia();
+      const { rerender } = render(<AnimatedNumber value={from} format={usd} data-testid="n" />);
+
+      rerender(<AnimatedNumber value={to} format={usd} data-testid="n" />);
+
+      expect(screen.getByTestId('n')).toHaveTextContent(shown);
+    });
+
+    it('still travels between two values of the same sign', async () => {
+      installMatchMedia();
+      const { rerender } = render(<AnimatedNumber value={2.5} format={usd} data-testid="n" />);
+
+      rerender(<AnimatedNumber value={3.1} format={usd} data-testid="n" />);
+
+      expect(screen.getByTestId('n')).toHaveTextContent('$2.50');
+      await waitFor(() => {
+        const shown = Number((screen.getByTestId('n').textContent ?? '').replace('$', ''));
+        expect(shown).toBeGreaterThan(2.5);
+        expect(shown).toBeLessThan(3.1);
+      });
+      await waitFor(() => expect(screen.getByTestId('n')).toHaveTextContent('$3.10'));
     });
   });
 
