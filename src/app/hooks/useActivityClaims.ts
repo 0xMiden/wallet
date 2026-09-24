@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
@@ -16,16 +16,57 @@ import { useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+
+type Attempts = ReadonlyMap<string, PendingActivityItem>;
+
+// Lives outside the views: switching List and Groups remounts them, and a claim still being queued in one
+// must keep the other from queueing the same note. One slot per account, RPC endpoint and network, the key
+// AllHistory remounts the views on.
+const slots = new Map<string, { attempts: Attempts; busy: Set<string> }>();
+const listeners = new Set<() => void>();
+const noAttempts: Attempts = new Map();
+
+function slotOf(key: string) {
+  let slot = slots.get(key);
+  if (!slot) {
+    slot = { attempts: noAttempts, busy: new Set() };
+    slots.set(key, slot);
+  }
+  return slot;
+}
+
+function updateAttempts(key: string, update: (previous: Attempts) => Attempts) {
+  const slot = slotOf(key);
+  const next = update(slot.attempts);
+  if (next === slot.attempts) return;
+  slot.attempts = next;
+  listeners.forEach(listener => listener());
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** Test-only: forget every account's claims. */
+export function __resetActivityClaimsForTest(): void {
+  slots.clear();
+}
 
 export function useActivityClaims() {
   const claim = useClaimNotes();
   const { signTransaction } = useMidenContext();
   const nativeFaucetId = useMidenFaucetId();
-  const [attempts, setAttempts] = useState<ReadonlyMap<string, PendingActivityItem>>(new Map());
+  const key = `${claim.account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
+  const attempts = useSyncExternalStore(subscribe, () => slots.get(key)?.attempts ?? noAttempts);
+  const setAttempts = (update: (previous: Attempts) => Attempts) => updateAttempts(key, update);
   // Notes whose claim is being queued right now. Once queued, the attempt's
   // `claiming` status is what keeps the note from being accepted again.
-  const busy = useRef(new Set<string>());
+  const busy = slotOf(key).busy;
 
   // Transaction rows of the queued claims that have not settled yet.
   const watchedTxIds = [
@@ -45,7 +86,7 @@ export function useActivityClaims() {
             settled.set(tx.id, { status: 'failed', claimedAt: tx.completedAt });
           }
         }
-        setAttempts(previous => {
+        updateAttempts(key, previous => {
           let next: Map<string, PendingActivityItem> | undefined;
           for (const [noteId, item] of previous) {
             const outcome = item.status === 'claiming' && item.txId ? settled.get(item.txId) : undefined;
@@ -58,7 +99,7 @@ export function useActivityClaims() {
       },
       error: error => console.warn('[activity] Could not read claim status', error)
     });
-  }, [watchedTxIds]);
+  }, [watchedTxIds, key]);
 
   const items = useMemo(() => {
     const result = new Map<string, PendingActivityItem>();
@@ -105,8 +146,8 @@ export function useActivityClaims() {
     // cannot start a claim. The live read replaces it within one poll lap.
     if (note.fromCache) return;
     const item = items.find(candidate => candidate.note.id === note.id);
-    if (!item || (item.status !== 'pending' && item.status !== 'failed') || busy.current.has(note.id)) return;
-    busy.current.add(note.id);
+    if (!item || (item.status !== 'pending' && item.status !== 'failed') || busy.has(note.id)) return;
+    busy.add(note.id);
     setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming' }));
     try {
       const txId = await initiateConsumeTransaction(
@@ -121,7 +162,7 @@ export function useActivityClaims() {
       console.error('[activity] Could not queue claim', error);
       return;
     } finally {
-      busy.current.delete(note.id);
+      busy.delete(note.id);
     }
     try {
       if (isExtension()) requestSWTransactionProcessing();
@@ -139,12 +180,10 @@ export function useActivityClaims() {
       // Same gate as `accept`: unconfirmed cache entries are never claimed.
       if (note.fromCache) return false;
       const item = items.find(candidate => candidate.note.id === note.id);
-      return (
-        item !== undefined && (item.status === 'pending' || item.status === 'failed') && !busy.current.has(note.id)
-      );
+      return item !== undefined && (item.status === 'pending' || item.status === 'failed') && !busy.has(note.id);
     });
     if (accepted.length === 0) return;
-    for (const note of accepted) busy.current.add(note.id);
+    for (const note of accepted) busy.add(note.id);
     setAttempts(previous => {
       const next = new Map(previous);
       for (const note of accepted) next.set(note.id, { note, status: 'claiming' });
@@ -174,7 +213,7 @@ export function useActivityClaims() {
         });
         console.error('[activity] Could not queue batch claim', error);
       } finally {
-        for (const note of groupNotes) busy.current.delete(note.id);
+        for (const note of groupNotes) busy.delete(note.id);
       }
     }
     if (!queued) return;

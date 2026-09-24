@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 
-import { useActivityClaims } from './useActivityClaims';
+import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
 
 const note: NoteWithMetadata = {
   id: 'note-one',
@@ -25,6 +25,7 @@ const mockSubscriptions: Array<{
   unsubscribe: jest.Mock;
 }> = [];
 const mockFlags = { extension: false };
+const mockEndpoint = { rpc: 'rpc', network: 'testnet' };
 const mockClaim = {
   account: { publicKey: 'account' },
   safeClaimableNotes: [note],
@@ -62,6 +63,10 @@ jest.mock('lib/miden/db/types', () => ({
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveRpcUrl: () => mockEndpoint.rpc,
+  getEffectiveNetworkName: () => mockEndpoint.network
+}));
 
 function latestSubscription() {
   const subscription = mockSubscriptions[mockSubscriptions.length - 1];
@@ -81,6 +86,10 @@ beforeEach(() => {
   mockAnyOf.mockReset();
   mockSubscriptions.length = 0;
   mockFlags.extension = false;
+  __resetActivityClaimsForTest();
+  mockEndpoint.rpc = 'rpc';
+  mockEndpoint.network = 'testnet';
+  mockClaim.account = { publicKey: 'account' };
   mockClaim.safeClaimableNotes = [note];
   mockClaim.isFetchingNotes = false;
   mockClaim.isDelegatedProvingEnabled = false;
@@ -418,4 +427,120 @@ it('keeps a cached note listed as pending while the claim check runs, since it c
     ['cached', 'pending'],
     ['note-one', 'checking']
   ]);
+});
+
+describe('a claim shared across the Activity views', () => {
+  function deferQueue(mock: jest.Mock) {
+    let release: (txId: string) => void = () => {};
+    mock.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          release = resolve;
+        })
+    );
+    return (txId: string) => release(txId);
+  }
+
+  it('does not queue a note again after a view switch while its first claim is still being queued', async () => {
+    const release = deferQueue(mockQueue);
+    const first = renderHook(() => useActivityClaims());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = first.result.current.accept(note);
+    });
+    first.unmount();
+
+    const second = renderHook(() => useActivityClaims());
+    expect(second.result.current.items[0]?.status).toBe('claiming');
+    await act(async () => {
+      await second.result.current.accept(note);
+    });
+    await act(async () => {
+      release('tx-one');
+      await pending;
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(second.result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-one' });
+  });
+
+  it('does not queue a batch note again after a view switch', async () => {
+    const release = deferQueue(mockQueueMany);
+    const first = renderHook(() => useActivityClaims());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = first.result.current.acceptMany([note]);
+    });
+    first.unmount();
+
+    const second = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await second.result.current.acceptMany([note]);
+    });
+    await act(async () => {
+      release('tx-batch');
+      await pending;
+    });
+    expect(mockQueueMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not queue a note from a batch while another view is queueing it alone, or the reverse', async () => {
+    const release = deferQueue(mockQueue);
+    const list = renderHook(() => useActivityClaims());
+    const groups = renderHook(() => useActivityClaims());
+    // Both taps land before either view re-renders, so only the shared reservation can stop the second.
+    let single: Promise<void> = Promise.resolve();
+    let batch: Promise<void> = Promise.resolve();
+    act(() => {
+      single = list.result.current.accept(note);
+      batch = groups.result.current.acceptMany([note]);
+    });
+    await act(async () => {
+      release('tx-one');
+      await Promise.all([single, batch]);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockQueueMany).not.toHaveBeenCalled();
+
+    const other = { ...note, id: 'note-two' };
+    mockClaim.safeClaimableNotes = [note, other];
+    list.rerender();
+    groups.rerender();
+    const releaseBatch = deferQueue(mockQueueMany);
+    act(() => {
+      batch = groups.result.current.acceptMany([other]);
+      single = list.result.current.accept(other);
+    });
+    await act(async () => {
+      releaseBatch('tx-batch');
+      await Promise.all([single, batch]);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockQueueMany).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['account', () => (mockClaim.account = { publicKey: 'account-other' })],
+    ['RPC endpoint', () => (mockEndpoint.rpc = `${mockEndpoint.rpc}-other`)],
+    ['network', () => (mockEndpoint.network = 'devnet')]
+  ])('keeps the claims of another %s apart', async (_part, change) => {
+    const release = deferQueue(mockQueue);
+    const first = renderHook(() => useActivityClaims());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = first.result.current.accept(note);
+    });
+    first.unmount();
+
+    change();
+    const second = renderHook(() => useActivityClaims());
+    expect(second.result.current.items[0]?.status).toBe('pending');
+    await act(async () => {
+      await second.result.current.accept(note);
+    });
+    await act(async () => {
+      release('tx-first');
+      await pending;
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(2);
+  });
 });
