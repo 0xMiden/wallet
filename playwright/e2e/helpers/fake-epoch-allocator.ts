@@ -49,7 +49,7 @@ const MIDEN_DESTINATION_CHAIN_ID = 999999999;
  * Miden account id (hex `0x…` or bech32); `createEarnP2IDNote` runs it through
  * `ifHextoBech32`, so a `0x` hex id is converted to bech32 before minting.
  */
-const DEFAULT_MIDEN_RECIPIENT = '0x2458e5446128e6b150b75b8ebd9ce1';
+const DEFAULT_MIDEN_RECIPIENT = '0x537c15a622074e91188aa894456c52';
 
 /** Default reclaim minimum the allocator advertises (`midenMinReclaimBlocks`). */
 const DEFAULT_MIN_RECLAIM_BLOCKS = 100;
