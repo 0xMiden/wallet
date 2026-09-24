@@ -254,28 +254,47 @@ describe('TextField — secret', () => {
     expect(cover()).toBeNull();
   });
 
-  it('covers a revealed secret again after the reveal window, and when the window goes away', () => {
-    jest.useFakeTimers();
-    try {
+  describe('once revealed', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const revealed = () => {
       render(<TextField secret value="my private key" onChange={jest.fn()} />);
       const field = screen.getByRole('textbox');
-
-      fireEvent.focus(field);
-      act(() => {
-        jest.advanceTimersByTime(SECRET_REVEAL_MS);
-      });
-      // Blurring the element is what re-covers it; jsdom fires no blur event of its own.
-      expect(field).not.toHaveFocus();
-
-      fireEvent.focus(field);
+      act(() => field.focus());
+      expect(field).toHaveFocus();
       expect(cover()).toBeNull();
+      return field;
+    };
+
+    it('covers the secret again after the reveal window, not a millisecond before', () => {
+      const field = revealed();
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS - 1);
+      });
+      expect(field).toHaveFocus();
+      expect(cover()).toBeNull();
+
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(field).not.toHaveFocus();
+      expect(cover()).toBeInTheDocument();
+    });
+
+    it('covers the secret again when the window goes away', () => {
+      const field = revealed();
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS - 1);
+      });
+      expect(cover()).toBeNull();
+
       act(() => {
         window.dispatchEvent(new Event('blur'));
       });
       expect(field).not.toHaveFocus();
-    } finally {
-      jest.useRealTimers();
-    }
+      expect(cover()).toBeInTheDocument();
+    });
   });
 
   it('keeps autofill off a secret input and textarea, whatever the caller asks for', () => {
