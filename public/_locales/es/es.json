@@ -220,7 +220,7 @@
   "importHotKeyDescription": "Escanea el código QR de tu clave privada o introduce tus claves privadas de uso diario y EVM de Miden. Tu clave de uso diario localiza tu cuenta Guardian. La clave EVM proporcionada restaura su dirección EVM; el monedero no puede verificar que estas claves pertenezcan a la misma cuenta.",
   "importHotKeyPlaceholder": "Clave diaria (hexadecimal)",
   "importHotKeyInvalid": "Proporcione ambas claves privadas como escalares secp256k1 válidos de 32 bytes distintos de cero (64 caracteres hexadecimales cada uno). Los códigos QR deben contener exactamente la clave de acceso rápido:clave EVM.",
-  "midenHotPrivateKey": "Crea una clave privada diaria",
+  "midenHotPrivateKey": "Clave privada diaria de Miden",
   "evmPrivateKey": "Clave privada de EVM",
   "evmPrivateKeyMissing": "Falta la clave privada EVM de esta cuenta. Se necesitan ambas claves para la exportación. Restaura la clave EVM original desde tu copia de seguridad.",
   "privateKeyPairQr": "Código QR de claves privadas",

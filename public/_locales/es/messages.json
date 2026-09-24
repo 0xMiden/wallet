@@ -1043,7 +1043,7 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Crea una clave privada diaria",
+    "message": "Clave privada diaria de Miden",
     "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
