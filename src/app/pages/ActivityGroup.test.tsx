@@ -31,6 +31,18 @@ jest.mock('lib/woozie', () => ({
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
 }));
 
+// Undefined leaves the real labels in place; a test sets sentinels to prove whose map the heading reads.
+const mockLabels: { value?: Record<string, string> } = {};
+jest.mock('app/templates/history/activityGroups', () => {
+  const actual = jest.requireActual('app/templates/history/activityGroups');
+  return {
+    ...actual,
+    get ACTIVITY_GROUP_LABELS() {
+      return mockLabels.value ?? actual.ACTIVITY_GROUP_LABELS;
+    }
+  };
+});
+
 // The page's whole job is to hand `History` a predicate; the list itself has its own suite.
 let historyProps: Record<string, unknown> = {};
 jest.mock('app/templates/history/History', () => ({
@@ -56,6 +68,7 @@ const predicate = () => historyProps.predicate as (entry: IHistoryEntry) => bool
 describe('ActivityGroupPage', () => {
   beforeEach(() => {
     historyProps = {};
+    mockLabels.value = undefined;
     jest.clearAllMocks();
   });
 
@@ -71,6 +84,16 @@ describe('ActivityGroupPage', () => {
 
     expect(screen.getByRole('heading', { name: 'mtst1s…ess0' })).toBeTruthy();
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
+  });
+
+  it('names every category page from the shared label map', () => {
+    mockLabels.value = { swap: 'label-swap', faucet: 'label-faucet', guardian: 'label-guardian', other: 'label-other' };
+
+    for (const kind of ['swap', 'faucet', 'guardian', 'other']) {
+      const { unmount } = render(<ActivityGroupPage kind={kind} />);
+      expect(screen.getByRole('heading', { name: `label-${kind}` })).toBeTruthy();
+      unmount();
+    }
   });
 
   it('names a category group and shows no avatar', () => {

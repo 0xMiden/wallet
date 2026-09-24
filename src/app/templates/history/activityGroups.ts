@@ -27,6 +27,14 @@ export type ActivityGroupKind = 'address' | 'swap' | 'faucet' | 'guardian' | 'ot
 /** The category groups, in the order they are keyed. `address` is not here: it carries an id. */
 export const ACTIVITY_GROUP_KINDS: readonly ActivityGroupKind[] = ['address', 'swap', 'faucet', 'guardian', 'other'];
 
+/** The i18n key naming each category group, on its row in the list and as its page's heading. */
+export const ACTIVITY_GROUP_LABELS: Record<Exclude<ActivityGroupKind, 'address'>, string> = {
+  swap: 'activityGroupSwaps',
+  faucet: 'activityGroupFaucet',
+  guardian: 'activityGroupGuardian',
+  other: 'activityGroupOther'
+};
+
 export interface ActivityGroupKey {
   kind: ActivityGroupKind;
   /** The counterparty address for `address`; the kind's own name for every category group. */

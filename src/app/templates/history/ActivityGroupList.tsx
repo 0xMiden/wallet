@@ -14,6 +14,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
 
 import {
+  ACTIVITY_GROUP_LABELS,
   ActivityCounterpartyName,
   ActivityGroup,
   ActivityGroupKind,
@@ -34,16 +35,8 @@ const KIND_ICONS: Record<Exclude<ActivityGroupKind, 'address'>, IconName> = {
   other: IconName.More
 };
 
-/** The name of each category group. */
-const KIND_LABELS: Record<Exclude<ActivityGroupKind, 'address'>, string> = {
-  swap: 'activityGroupSwaps',
-  faucet: 'activityGroupFaucet',
-  guardian: 'activityGroupGuardian',
-  other: 'activityGroupOther'
-};
-
 export function activityGroupTitle(group: ActivityGroup, t: Translate): string {
-  if (group.kind !== 'address') return t(KIND_LABELS[group.kind]);
+  if (group.kind !== 'address') return t(ACTIVITY_GROUP_LABELS[group.kind]);
   // A counterparty the address book (or one of the user's own accounts) knows shows its name;
   // anything else shows the address, ellipsised the way every activity row shows one.
   return group.name ?? shortAddr(group.id);

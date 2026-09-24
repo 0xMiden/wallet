@@ -44,6 +44,18 @@ jest.mock('react-infinite-scroller', () => ({
   )
 }));
 
+// Undefined leaves the real labels in place; a test sets sentinels to prove whose map the rows read.
+const mockLabels: { value?: Record<string, string> } = {};
+jest.mock('./activityGroups', () => {
+  const actual = jest.requireActual('./activityGroups');
+  return {
+    ...actual,
+    get ACTIVITY_GROUP_LABELS() {
+      return mockLabels.value ?? actual.ACTIVITY_GROUP_LABELS;
+    }
+  };
+});
+
 let nextKey = 0;
 const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
   key: `entry-${++nextKey}`,
@@ -68,6 +80,14 @@ const renderList = (entries: IHistoryEntry[], over: Partial<React.ComponentProps
   );
 
 const rows = () => screen.getAllByTestId('activity-group-row');
+
+/** One entry for each category group. */
+const CATEGORY_ENTRIES = () => [
+  entry({ timestamp: 900, txType: 'swap' }),
+  entry({ timestamp: 800, txType: 'switch-guardian' }),
+  entry({ timestamp: 700, txType: 'consume', transactionIcon: 'RECEIVE', faucetId: FAUCET, secondaryAddress: FAUCET }),
+  entry({ timestamp: 600, txType: 'execute' })
+];
 
 describe('ActivityGroupList', () => {
   it('spins while the first page is still loading', () => {
@@ -108,6 +128,19 @@ describe('ActivityGroupList', () => {
 
     expect(screen.getByText('Alice')).toBeTruthy();
     expect(screen.getByText('mtst1s…ess0')).toBeTruthy();
+  });
+
+  it('titles each category row from the shared label map', () => {
+    mockLabels.value = { swap: 'label-swap', faucet: 'label-faucet', guardian: 'label-guardian', other: 'label-other' };
+    try {
+      renderList(CATEGORY_ENTRIES());
+
+      for (const kind of ['swap', 'faucet', 'guardian', 'other']) {
+        expect(screen.getByText(`label-${kind}`)).toBeTruthy();
+      }
+    } finally {
+      mockLabels.value = undefined;
+    }
   });
 
   it('names each category group', () => {

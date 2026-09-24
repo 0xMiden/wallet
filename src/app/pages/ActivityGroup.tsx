@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ACTIVITY_PATH } from 'app/pages/activity-paths';
-import { activityGroupMatcher, isActivityGroupKind } from 'app/templates/history/activityGroups';
+import { ACTIVITY_GROUP_LABELS, activityGroupMatcher, isActivityGroupKind } from 'app/templates/history/activityGroups';
 import History from 'app/templates/history/History';
 import { shortAddr } from 'app/templates/history/HistoryView';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
@@ -12,14 +12,6 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { Redirect } from 'lib/woozie';
-
-/** The name of each category group, the same copy the group's row in the list carries. */
-const KIND_LABELS: Record<string, string> = {
-  swap: 'activityGroupSwaps',
-  faucet: 'activityGroupFaucet',
-  guardian: 'activityGroupGuardian',
-  other: 'activityGroupOther'
-};
 
 export interface ActivityGroupPageProps {
   /** `:kind` from the route. Anything this is not sends the user back to the tab. */
@@ -57,14 +49,14 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   if (kind === 'address' && !address) return <Redirect to={ACTIVITY_PATH} />;
 
   const title =
-    kind === 'address' && address ? (
-      <span className="flex min-w-0 items-center gap-2">
-        <ContactAvatar address={address} name={contactName} size="sm" />
-        <span className="min-w-0 truncate">{contactName ?? shortAddr(address)}</span>
-      </span>
-    ) : (
-      t(KIND_LABELS[kind] ?? 'activity')
-    );
+    kind !== 'address'
+      ? t(ACTIVITY_GROUP_LABELS[kind])
+      : address && (
+          <span className="flex min-w-0 items-center gap-2">
+            <ContactAvatar address={address} name={contactName} size="sm" />
+            <span className="min-w-0 truncate">{contactName ?? shortAddr(address)}</span>
+          </span>
+        );
 
   return (
     <SubPageLayout title={title} onBack={back} focusTitleOnMount bodyRef={bodyRef} data-testid="activity-group-page">
