@@ -2703,26 +2703,6 @@
     "message": "Tu clave diaria se puede rotar desde Ajustes → Rotar clave diaria, por lo que revelarla supone un riesgo menor que tu «seed phrase» —pero cualquiera que la posea puede firmar transacciones hasta que la rotes—.",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
-  "hotPrivateKey": {
-    "message": "Clave privada de uso diario",
-    "englishSource": "Everyday Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "Clave pública de uso cotidiano",
-    "englishSource": "Everyday Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "Clave privada de recuperación (en frío)",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "Clave pública de recuperación (fría)",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Tu cuenta de Guardian está protegida por tres claves: una clave de dispositivo (activa) para la firma rutinaria, una clave de recuperación (inactiva) derivada de tu seed phrase para las operaciones de gestión de la cuenta y un cosignatario externo guardian. A continuación se muestran tu clave privada inactiva y ambas claves públicas. Para revelar la clave privada del dispositivo, utiliza Ajustes → Revelar clave del dispositivo.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
-  },
   "hotKeyRevealWarningTitle": {
     "message": "Antes de revelar tus claves privadas",
     "englishSource": "Before you reveal your private keys"

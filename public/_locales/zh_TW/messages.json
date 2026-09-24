@@ -2703,26 +2703,6 @@
     "message": "您的日常金鑰可透過「設定」→「輪替日常金鑰」進行輪替，因此洩露此金鑰的風險低於您的「seed phrase」——但任何持有此金鑰的人，在您進行輪替前皆可簽署交易。",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
-  "hotPrivateKey": {
-    "message": "日常私鑰",
-    "englishSource": "Everyday Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "日常公鑰",
-    "englishSource": "Everyday Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "復原（冷儲存）私鑰",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "復原（冷）公鑰",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "您的 Guardian 帳戶由三把金鑰保護：用於日常簽名的裝置（熱）金鑰、由您的 seed phrase 衍生出的用於帳戶管理操作的恢復（冷）金鑰，以及外部 guardian 共同簽署者。以下是您的冷私鑰以及兩把公鑰。若要顯示裝置私鑰，請使用「設定」→「顯示裝置金鑰」。",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
-  },
   "hotKeyRevealWarningTitle": {
     "message": "在您揭露私鑰之前",
     "englishSource": "Before you reveal your private keys"

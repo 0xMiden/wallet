@@ -2703,26 +2703,6 @@
     "message": "Klucz codzienny można zmienić w menu Ustawienia → Zmień klucz codzienny, więc jego ujawnienie wiąże się z mniejszym ryzykiem niż w przypadku klucza „seed phrase” — jednak każdy, kto go posiada, może podpisywać transakcje do momentu jego zmiany.",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
-  "hotPrivateKey": {
-    "message": "Codzienny klucz prywatny",
-    "englishSource": "Everyday Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "Klucz publiczny do codziennego użytku",
-    "englishSource": "Everyday Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "Odzyskiwanie (na zimno) klucza prywatnego",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "Klucz publiczny do przywracania (Cold)",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Twoje konto Guardian jest chronione trzema kluczami: kluczem urządzenia (kluczem „hot”) do rutynowego podpisywania, kluczem odzyskiwania (kluczem „cold”) wygenerowanym na podstawie Twojego adresu seed phrase do operacji związanych z zarządzaniem kontem oraz zewnętrznym współpodpisującym guardian. Poniżej znajdują się Twój klucz prywatny typu „cold” oraz oba klucze publiczne. Aby wyświetlić klucz prywatny urządzenia, wybierz Ustawienia → Wyświetl klucz urządzenia.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
-  },
   "hotKeyRevealWarningTitle": {
     "message": "Zanim ujawnisz swoje klucze prywatne",
     "englishSource": "Before you reveal your private keys"

@@ -2703,26 +2703,6 @@
     "message": "Deinen Alltagsschlüssel kannst du unter „Einstellungen“ → „Alltagsschlüssel rotieren“ rotieren lassen, sodass dessen Offenlegung ein geringeres Risiko darstellt als bei deinem „seed phrase“ – allerdings kann jeder, der ihn besitzt, Transaktionen signieren, bis du ihn rotiert hast.",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
-  "hotPrivateKey": {
-    "message": "Alltäglicher privater Schlüssel",
-    "englishSource": "Everyday Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "Alltäglicher öffentlicher Schlüssel",
-    "englishSource": "Everyday Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "Wiederherstellung (Cold) des privaten Schlüssels",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "Wiederherstellungsschlüssel (Cold) – Öffentlicher Schlüssel",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Ihr Guardian-Konto ist durch drei Schlüssel geschützt: einen Geräteschlüssel (Hot-Schlüssel) für routinemäßige Signaturen, einen Wiederherstellungsschlüssel (Cold-Schlüssel), der aus Ihrem „seed phrase“ für die Kontoverwaltung abgeleitet wird, sowie einen externen Mitunterzeichner unter guardian. Nachfolgend finden Sie Ihren privaten Cold-Schlüssel sowie beide öffentlichen Schlüssel. Um den privaten Geräteschlüssel anzuzeigen, wählen Sie „Einstellungen“ → „Geräteschlüssel anzeigen“.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
-  },
   "hotKeyRevealWarningTitle": {
     "message": "Bevor Sie Ihre privaten Schlüssel preisgeben",
     "englishSource": "Before you reveal your private keys"

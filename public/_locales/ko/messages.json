@@ -2703,26 +2703,6 @@
     "message": "일일 키(everyday key)는 설정 → 일일 키 교체(Rotate everyday key)에서 교체할 수 있으므로, 이를 노출하더라도 일일 키(seed phrase)를 노출하는 것보다 위험이 적습니다. 하지만 이 키를 보유한 사람은 키를 교체할 때까지 거래에 서명할 수 있습니다.",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
-  "hotPrivateKey": {
-    "message": "일상 속 개인 키",
-    "englishSource": "Everyday Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "일상적인 공개 키",
-    "englishSource": "Everyday Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "복구(콜드) 개인 키",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "복구(콜드) 공개 키",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "귀하의 Guardian 계정은 세 가지 키로 보호됩니다: 일상적인 서명에 사용되는 기기(핫) 키, 계정 관리 작업을 위해 귀하의 seed phrase에서 파생된 복구(콜드) 키, 그리고 외부 guardian 공동 서명자입니다. 아래에는 귀하의 콜드 개인 키와 두 개의 공개 키가 표시되어 있습니다. 기기 개인 키를 확인하려면 설정 → 기기 키 표시를 사용하십시오.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
-  },
   "hotKeyRevealWarningTitle": {
     "message": "개인 키를 공개하기 전에",
     "englishSource": "Before you reveal your private keys"

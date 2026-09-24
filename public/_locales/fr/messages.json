@@ -2703,26 +2703,6 @@
     "message": "Votre clé quotidienne peut être renouvelée depuis Paramètres → Renouveler la clé quotidienne ; sa divulgation présente donc moins de risques que celle de votre clé de récupération (seed phrase) — mais toute personne en possession de cette clé peut signer des transactions jusqu’à ce que vous la renouveliez.",
     "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
-  "hotPrivateKey": {
-    "message": "Clé privée au quotidien",
-    "englishSource": "Everyday Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "Clé publique de tous les jours",
-    "englishSource": "Everyday Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "Clé privée de récupération (à froid)",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "Clé publique de récupération (à froid)",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Votre compte Guardian est protégé par trois clés : une clé de périphérique (chaude) pour les signatures courantes, une clé de récupération (froide) dérivée de votre seed phrase pour les opérations de gestion de compte, et un cosignataire externe guardian. Vous trouverez ci-dessous votre clé privée froide ainsi que vos deux clés publiques. Pour afficher la clé privée du périphérique, utilisez Paramètres → Afficher la clé du périphérique.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
-  },
   "hotKeyRevealWarningTitle": {
     "message": "Avant de divulguer vos clés privées",
     "englishSource": "Before you reveal your private keys"
