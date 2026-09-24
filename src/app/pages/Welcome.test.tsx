@@ -671,13 +671,17 @@ describe('Welcome — hash → step routing', () => {
   it.each(['', '#select-wallet-type', '#choose-protection'])(
     'leaves a running create attempt its credentials when the hash changes to "%s"',
     async hash => {
+      expect.hasAssertions();
       mockIsMobileFn.mockReturnValue(false);
       await holdAttempt(
         async () => {
           await dispatch({ id: 'choose-protection' });
           await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
           await setHash('#meet-guardian');
-          await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g1', guardianEndpoint: 'https://g1' } });
+          await dispatch({
+            id: 'choose-guardian-submit',
+            payload: { guardianId: 'g1', guardianEndpoint: 'https://g1' }
+          });
         },
         hash,
         'pw'
@@ -686,6 +690,7 @@ describe('Welcome — hash → step routing', () => {
   );
 
   it('leaves a running import attempt its credentials when the hash changes to #setup-biometric', async () => {
+    expect.hasAssertions();
     mockIsMobileFn.mockReturnValue(false);
     await holdAttempt(
       async () => {
