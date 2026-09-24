@@ -789,6 +789,28 @@ describe('Welcome — hash → step routing', () => {
     expect(mockProbeReset).toHaveBeenCalled();
   });
 
+  it.each([
+    ['the fully private account', { guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' }],
+    ['a Guardian with its endpoint', { guardianId: 'g1', guardianEndpoint: 'https://g1' }]
+  ])('a new create does not inherit %s from an abandoned attempt', async (_name, pick) => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#meet-guardian');
+    await dispatch({ id: 'choose-guardian-submit', payload: pick });
+    await setHash('');
+
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw2' } });
+    // A history jump straight to Confirmation, past the guardian step.
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    const call = mockRegisterWallet.mock.calls.at(-1);
+    expect(call?.[0]).toBe(WalletType.Guardian);
+    expect(call?.[4]).toBeUndefined();
+  });
+
   it('restores the biometric preference for the next attempt', async () => {
     mockIsMobileFn.mockReturnValue(true);
     await renderWelcome();

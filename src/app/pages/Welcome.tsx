@@ -270,6 +270,8 @@ const Welcome: FC = () => {
     setConfirmPhase('idle');
     setGuardianLookupError(false);
     setUseBiometric(true);
+    setWalletType(WalletType.Guardian);
+    setGuardianEndpoint(undefined);
     resetGuardianProbe();
   }, [resetGuardianProbe]);
 
