@@ -124,9 +124,13 @@ describe('main.css — the sheet springs outrank vaul', () => {
     "gives %s's closing curve the last word over its own opening one: as specific at least, and later",
     element => {
       const open = appRules(element, false);
+      const close = appRules(element, true);
+      // Both lists must exist: an empty one would make the loop below, or the max, vacuous.
+      expect(open.length).toBeGreaterThan(0);
+      expect(close.length).toBeGreaterThan(0);
       const openMax = Math.max(...open.map(([sel]) => specificity(sel)));
       const openAt = Math.max(...open.map(([sel]) => css.indexOf(sel)));
-      for (const [sel] of appRules(element, true)) {
+      for (const [sel] of close) {
         expect(specificity(sel)).toBeGreaterThanOrEqual(openMax);
         expect(css.indexOf(sel)).toBeGreaterThan(openAt);
       }
@@ -135,7 +139,9 @@ describe('main.css — the sheet springs outrank vaul', () => {
 
   it('keeps the reduced-motion rules at least as specific as the springs, and later', () => {
     for (const element of ['data-vaul-drawer', 'data-vaul-overlay']) {
-      const springMax = Math.max(...[false, true].flatMap(c => appRules(element, c)).map(([sel]) => specificity(sel)));
+      const springs = [false, true].flatMap(c => appRules(element, c));
+      expect(springs.length).toBeGreaterThan(0);
+      const springMax = Math.max(...springs.map(([sel]) => specificity(sel)));
       const ours = reduced.filter(([sel]) => sel.startsWith(`[${element}]`));
       expect(ours.length).toBeGreaterThan(0);
       for (const [sel] of ours) expect(specificity(sel)).toBeGreaterThanOrEqual(springMax);
