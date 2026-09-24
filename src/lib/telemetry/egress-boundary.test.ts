@@ -151,7 +151,7 @@ const STRUCTURAL_POISON = { ...HIGH_ENTROPY_POISON, ...WHOLE_VALUE_POISON };
  * So these are asserted in the forms the wallet can actually produce: named in
  * an assignment, or held under a sensitive key in a structure. Nothing in `src`
  * throws an error whose message is a bare credential — the closest is
- * `Welcome.tsx`'s "Missing password or seed phrase", which names neither — and
+ * `Welcome.tsx`'s "Missing password or recovery phrase", which names neither — and
  * an unframed credential in a crash message would be a bug at the throw site
  * that this boundary cannot see.
  */

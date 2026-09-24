@@ -1649,7 +1649,7 @@ describe('Welcome — confirmation / register', () => {
 
   it('surfaces a create-path failure that matches neither dedicated branch', async () => {
     // Mobile create flow commits a password but no seed (passcode never ran),
-    // so register() throws "Missing password or seed phrase" and the catch
+    // so register() throws "Missing password or recovery phrase" and the catch
     // falls through both the guardian and hardware-only branches. That used to
     // mean NOTHING reached the screen: the spinner stopped, no message
     // appeared, and the button looked dead.
@@ -1666,7 +1666,7 @@ describe('Welcome — confirmation / register', () => {
     // navigation home never happened because register threw.
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
     // ...and the user is told why.
-    expect(mockFlowProps.current.recoveryError).toContain('Missing password or seed phrase');
+    expect(mockFlowProps.current.recoveryError).toContain('Missing password or recovery phrase');
   });
 
   it('reports the underlying message verbatim so a tester can report it', async () => {

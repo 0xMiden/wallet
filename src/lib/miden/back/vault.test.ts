@@ -943,7 +943,7 @@ describe('Vault.exportWalletBackupMaterial', () => {
     await removeMany([keys.mnemonic]);
 
     await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
-      'Wallet has no seed phrase to back up its derived accounts'
+      'Wallet has no recovery phrase to back up its derived accounts'
     );
     expect(mockExportDb).not.toHaveBeenCalled();
   });

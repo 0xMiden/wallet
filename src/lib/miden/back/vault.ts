@@ -661,7 +661,7 @@ export class Vault {
         }
         if (seedPhrase === '' && accounts.some(account => account.hdIndex >= 0)) {
           console.error('[walletBackup] refused: no seed phrase, and an account still needs one');
-          throw new PublicError('Wallet has no seed phrase to back up its derived accounts');
+          throw new PublicError('Wallet has no recovery phrase to back up its derived accounts');
         }
 
         const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
@@ -759,7 +759,7 @@ export class Vault {
       const hasHardware = await Vault.hasHardwareProtector();
       if (hasHardware) {
         throw new PublicError(
-          'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with seed phrase.'
+          'This wallet uses biometric unlock only. Use Face ID/Touch ID or recover with your recovery phrase.'
         );
       }
       // Legacy wallet - fall back to old password-based unlock
@@ -1024,7 +1024,7 @@ export class Vault {
                   if (isLikelyNetworkError(probeError)) {
                     console.error(`[Vault.spawn] ${scheme} probe could not reach the node`, probeError);
                     throw new PublicError(
-                      'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
+                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
                         'please check your connection and try restoring again.'
                     );
                   }
@@ -1697,7 +1697,7 @@ export class Vault {
               if (isLikelyNetworkError(e)) {
                 console.error('[Vault.createHDAccount] import could not reach the node', e);
                 throw new PublicError(
-                  'Could not reach the Miden network to look up your account. Your seed phrase is fine — ' +
+                  'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
                     'please check your connection and try again.'
                 );
               }
@@ -2496,7 +2496,7 @@ export class Vault {
       vaultKey = await Vault.getHardwareVaultKey();
     }
 
-    return withError('Failed to reveal seed phrase', async () => {
+    return withError('Failed to reveal recovery phrase', async () => {
       if ((await Vault.fetchSeedPhraseStatusFromKey(vaultKey)) !== 'stored')
         throw new PublicError(getMessage('seedPhraseRemoved'));
       const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);

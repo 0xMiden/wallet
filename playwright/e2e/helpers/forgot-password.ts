@@ -43,7 +43,7 @@ const SIGN_OUT_BUTTON_TEST_ID = 'sign-out-button';
  * The ONLY thing standing between a user who mistyped their password and an
  * irreversible wipe, so `openForgotPasswordFlow` refuses to walk past it silently.
  */
-const SIGN_OUT_WARNING = 'Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file.';
+const SIGN_OUT_WARNING = 'Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file.';
 
 /** The slice of the Chrome page object these drivers need. */
 type ForgotPasswordDriver = Pick<ChromeWalletPageApi, 'page' | 'navigateHome' | 'completeHotKeyRotation'>;
