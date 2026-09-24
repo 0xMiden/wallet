@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { SwapEta } from 'lib/miden/swap/tokens';
 
@@ -176,6 +176,61 @@ describe('ReviewSwap', () => {
     it('renders a fractional rate rounded to 4 significant figures', () => {
       renderComponent({ swapEta: etaWithRate('0.333333333') });
       expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
+    });
+
+    it('lands a five-figure rate on its four significant figures', () => {
+      renderComponent({ swapEta: etaWithRate('12345.678') });
+      expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 12350 IETH');
+    });
+
+    describe('while the rate travels', () => {
+      beforeEach(() => {
+        Object.defineProperty(window, 'matchMedia', {
+          configurable: true,
+          writable: true,
+          value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+        });
+      });
+
+      afterEach(() => {
+        Reflect.deleteProperty(window, 'matchMedia');
+      });
+
+      /** Every text the rate figure shows while it travels from `from` to `to`. */
+      const travel = async (from: string, to: string) => {
+        const { rerender, props } = renderComponent({ swapEta: etaWithRate(from) });
+        const node = rateRow().querySelector('.tabular-nums') as HTMLElement;
+        const frames: string[] = [];
+        const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+        observer.observe(node, { characterData: true, childList: true, subtree: true });
+
+        rerender(<ReviewSwap {...props} swapEta={etaWithRate(to)} />);
+        frames.push(node.textContent ?? '');
+        await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+        observer.disconnect();
+        frames.push(node.textContent ?? '');
+        return frames;
+      };
+
+      it("keeps the destination's decimals on every frame of a plain rate", async () => {
+        const frames = await travel('9.5', '12.4');
+
+        const start = '1 IMIDEN ≈ 9.5 IETH';
+        const end = '1 IMIDEN ≈ 12.4 IETH';
+        expect(frames.some(frame => frame !== start && frame !== end)).toBe(true);
+        expect(frames.filter(frame => !/^1 IMIDEN ≈ \d+\.\d IETH$/.test(frame))).toEqual([]);
+        expect(frames[frames.length - 1]).toBe(end);
+      });
+
+      it("keeps the destination's mantissa digits on every frame of an exponential rate", async () => {
+        const frames = await travel('2.5e-7', '3.1e-7');
+
+        const start = '1 IMIDEN ≈ 2.5e-7 IETH';
+        const end = '1 IMIDEN ≈ 3.1e-7 IETH';
+        expect(frames.some(frame => frame !== start && frame !== end)).toBe(true);
+        expect(frames.filter(frame => !/^1 IMIDEN ≈ \d\.\de-7 IETH$/.test(frame))).toEqual([]);
+        expect(frames[frames.length - 1]).toBe(end);
+      });
     });
 
     it('keeps the solver-fee sentence out of the layout until the (i) is tapped', () => {
