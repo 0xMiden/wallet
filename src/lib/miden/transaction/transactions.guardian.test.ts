@@ -5207,6 +5207,127 @@ describe('generateTransaction — Guardian routing', () => {
     expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledWith('update_guardian', 2);
   });
 
+  describe('a bare account id finds the composite provider account', () => {
+    const compositeProvider = (extra: Record<string, unknown> = {}) => ({
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      ...extra
+    });
+
+    beforeEach(() => {
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+    });
+
+    it('replace-hot-key reaches the cold service and stamps its endpoint', async () => {
+      const txId = 'replace-bare-id';
+      txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'acc-1', status: ITransactionStatus.Queued });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      const coldService = {
+        guardianEndpoint: 'https://acc.guardian',
+        createReplaceHotKeyProposal: jest.fn(async () => {
+          throw new Error('guardian unreachable');
+        })
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+      const row = txStore.find(r => r.id === txId)!;
+
+      await generateTransaction(
+        { id: txId, type: 'replace-hot-key', accountId: 'acc-1', delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider({ persistNewHotKey: jest.fn(async () => {}), swapHotKey: jest.fn(async () => {}) }) as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalled();
+      expect((row.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://acc.guardian');
+    });
+
+    it("switch-guardian's cold co-sign reaches the cold service", async () => {
+      const txId = 'switch-bare-id';
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSwitchGuardianProposal: jest.fn(async () => ({
+          proposal: { id: 'prop-switch', metadata: { proposalType: 'switch_guardian' } },
+          newEndpoint: 'https://new.guardian'
+        })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        finalizeGuardianSwitch: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      });
+      const coldService = { signProposal: jest.fn(async () => {}) };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'acc-1',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider() as never
+      ).catch(() => undefined);
+
+      expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch');
+    });
+
+    it('update-procedure-threshold reaches the cold service and its proposal', async () => {
+      const txId = 'upt-bare-id';
+      txStore.push({
+        id: txId,
+        type: 'update-procedure-threshold',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        extraInputs: { procedure: 'update_guardian', threshold: 2 }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      const coldService = {
+        createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop-upt' })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'update-procedure-threshold',
+          accountId: 'acc-1',
+          extraInputs: { procedure: 'update_guardian', threshold: 2 },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider() as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledWith('update_guardian', 2);
+    });
+  });
+
   it('Guardian: unsupported transaction type cancels the transaction', async () => {
     const txId = 'unsupported-guardian';
     txStore.push({

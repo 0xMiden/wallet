@@ -1519,7 +1519,7 @@ const buildColdServiceForAccount = async (
   accountId: string,
   guardianProvider: GuardianAccountProvider
 ): Promise<MultisigService> => {
-  const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === accountId);
+  const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount) {
     throw new Error(`Guardian account ${accountId} not found in provider`);
   }
@@ -2299,7 +2299,9 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'replace-hot-key': {
-      const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+      const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+        sameWalletAccountId(a.publicKey, transaction.accountId)
+      );
       if (!walletAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
       }
@@ -2564,7 +2566,9 @@ const generateGuardianTransaction = async (
   // Guardian server keyed by proposal id so order doesn't matter, and the
   // transient cold service is dropped at scope exit.
   if (transaction.type === 'switch-guardian') {
-    const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+      sameWalletAccountId(a.publicKey, transaction.accountId)
+    );
     if (!walletAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
     }
