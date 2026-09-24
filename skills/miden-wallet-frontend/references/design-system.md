@@ -154,9 +154,11 @@ Contrast of the brand colour as a glyph, light (dark is 3.37:1 or better everywh
   the fill at rest, at 90% on hover, at 40% disabled — the same ratio the brand's pre-blended
   `primary-disabled` is, kept translucent so one string stays right in both themes. A flow is one
   colour end to end, and a CTA in a different colour from the page it sits on was the one thing
-  that broke that. The brand orange stays on app-level surfaces — onboarding, settings, global
-  confirmations, contacts, the EVM bridge-in screens — which belong to no tab. Overview's action
-  colour IS the brand orange, so its flow needs nothing done to it.
+  that broke that. The brand orange stays on app-level surfaces, which belong to no tab:
+  onboarding, settings, global confirmations, the stand-alone contacts screens and the EVM
+  bridge-in screens. The add-contact step inside the send flow is a step of that flow and takes
+  the send colour. Overview's action colour IS the brand orange, so its flow needs nothing done to
+  it.
 - `design-tokens.test.ts` asserts the brand values, the mapping, the aliases, the tints and the
   contrast of both the colour and its ink.
 
