@@ -6145,6 +6145,22 @@ describe('initiateReplaceHotKeyTransaction', () => {
     }
   });
 
+  it('queues the rotation unstamped when the account read for the stamp fails', async () => {
+    // Eligibility (isGuardianAccount) has already answered; only the stamp's own read fails.
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => {
+        throw new Error('vault read failed');
+      }
+    };
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).resolves.toBeDefined();
+    expect(txStore).toHaveLength(1);
+    expect(
+      (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
+    ).toBeUndefined();
+  });
+
   it('records no guardian when the provider has no such account', async () => {
     mockIsGuardianAccount.mockResolvedValue(true);
     const provider = { ...makeGuardianProvider(true), getAccounts: async () => [] };
