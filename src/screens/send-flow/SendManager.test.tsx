@@ -6,7 +6,7 @@ import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
-import { SendFlow } from './SendManager';
+import { RECIPIENT_VALIDATION_DEBOUNCE_MS, SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
 
@@ -668,44 +668,95 @@ describe('adding an unknown recipient to contacts', () => {
 // Recipient address entry + validation.
 // ---------------------------------------------------------------------------
 describe('recipient address entry', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  const type = (value: string) =>
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+    });
+  /** The user stopped typing: the validation runs. */
+  const stopTyping = () =>
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+    });
+
+  it('shows the recipient error only after the user stopped typing for a second', () => {
+    renderFlow();
+    type('not-an-address');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+  });
+
+  it('restarts the wait on every keystroke', () => {
+    renderFlow();
+    type('not-an');
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    type('not-an-address');
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+  });
+
   it('sets and clears the recipient error as the address becomes invalid/valid', () => {
     renderFlow();
     // Invalid address -> manual error, isValidAddress false.
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
-    });
+    type('not-an-address');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
     expect(screen.getByTestId('sr-address')).toHaveTextContent('not-an-address');
 
-    // Valid address -> error cleared, isValidAddress true.
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xvalid' } });
-    });
+    // A new keystroke removes the error at once; a valid address keeps it away.
+    type('0xvalid');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
   });
 
-  it('clears the recipient error when the address is emptied', () => {
+  it('clears the recipient error when the address is emptied, and validates nothing', () => {
     renderFlow();
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
-    });
+    type('not-an-address');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '   ' } });
-    });
+    type('   ');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('clears the typing validation on unmount', () => {
+    const view = renderFlow();
+    type('not-an-address');
+    view.unmount();
+    expect(() => stopTyping()).not.toThrow();
   });
 
   it('rejects the current Miden account as a typed recipient', () => {
     isValidMidenAddressMock.mockImplementation((address: string) => address === 'me-pk');
     renderFlow();
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'me-pk' } });
-    });
+    type('me-pk');
+    stopTyping();
 
     expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
@@ -714,9 +765,8 @@ describe('recipient address entry', () => {
   it('uses the Ethereum-specific error for a malformed 0x recipient', () => {
     renderFlow();
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0x' } });
-    });
+    type('0x');
+    stopTyping();
 
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidEthereumAddress');
   });
@@ -1448,10 +1498,13 @@ describe('Miden Name recipient', () => {
     });
   };
 
-  /** Let the debounce timer fire and the lookup promise settle. */
+  /**
+   * Let the lookup debounce and the typing validation fire, and the lookup
+   * promise settle. The typing validation waits longer than the lookup.
+   */
   const runLookup = async () => {
     await act(async () => {
-      jest.advanceTimersByTime(DEBOUNCE_MS);
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
     });
     await act(async () => {
       await Promise.resolve();
@@ -1499,7 +1552,8 @@ describe('Miden Name recipient', () => {
     const view = renderFlow();
 
     typeRecipient('Alice.miden');
-    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolving');
+    // No lookup state on the field while the user types.
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
 
     // The lookup waits for the debounce.
@@ -1594,8 +1648,9 @@ describe('Miden Name recipient', () => {
     typeRecipient('bob.miden');
     // The change aborts the first lookup.
     expect(resolveMidenNameMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    // The user stopped typing: the field shows the lookup of bob.
     await act(async () => {
-      jest.advanceTimersByTime(DEBOUNCE_MS);
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
     });
 
     // The old lookup settles late: nothing changes.

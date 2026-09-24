@@ -79,6 +79,14 @@ const ROUTES: Route[] = [
 /** Time to wait after the last keystroke before a Miden Name lookup starts. */
 const MIDEN_NAME_RESOLVE_DEBOUNCE_MS = 400;
 
+/**
+ * Time to wait after the last keystroke before the recipient field shows an
+ * error. A partly typed address is not valid yet; it must not turn red while
+ * the user types. A scanned, pasted or picked recipient is complete and is
+ * validated at once.
+ */
+export const RECIPIENT_VALIDATION_DEBOUNCE_MS = 1000;
+
 type MidenNameResolutionStatus = 'idle' | 'resolving' | 'resolved' | 'not-found' | 'error';
 
 /** The lookup state of a recipient input that is a Miden Name (for example `alice.miden`). */
@@ -698,8 +706,19 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [publicKey, nameResolution]
   );
 
+  // The validation that waits for the user to stop typing (see `onAddressChange`).
+  const validationTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const cancelPendingValidation = useCallback(() => {
+    if (validationTimerRef.current === undefined) return;
+    clearTimeout(validationTimerRef.current);
+    validationTimerRef.current = undefined;
+  }, []);
+  useEffect(() => cancelPendingValidation, [cancelPendingValidation]);
+
+  /** Validate the recipient now. A pending typing validation is dropped: this one is newer. */
   const applyRecipientValidation = useCallback(
     (address: string) => {
+      cancelPendingValidation();
       const errorKey = recipientErrorKey(address);
       if (errorKey) {
         setError('recipientAddress', { type: 'manual', message: errorKey });
@@ -707,8 +726,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
         clearErrors('recipientAddress');
       }
     },
-    [recipientErrorKey, setError, clearErrors]
+    [cancelPendingValidation, recipientErrorKey, setError, clearErrors]
   );
+  // The timer callback reads the newest validation, with the lookup state of that moment.
+  const applyRecipientValidationRef = useRef(applyRecipientValidation);
+  applyRecipientValidationRef.current = applyRecipientValidation;
 
   // Look up a Miden Name recipient (on a network with a Miden Name deployment).
   // The lookup starts 400 ms after the last change of the input. A change of the input or an unmount stops
@@ -770,6 +792,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   useEffect(() => {
     const input = (recipientAddress ?? '').trim();
     if (nameResolution.status === 'idle' || nameResolution.input !== input) return;
+    // The user is still typing: the typing validation shows this state when it runs.
+    if (validationTimerRef.current !== undefined) return;
     applyRecipientValidation(input);
     // Only a change of the lookup state starts this. A change of the input
     // already validated the field in its own handler.
@@ -790,9 +814,17 @@ export const SendManager: React.FC<SendManagerProps> = ({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      applyRecipientValidation(address);
+      // Do not show an error in the middle of the entry: remove the one on
+      // show, and validate RECIPIENT_VALIDATION_DEBOUNCE_MS after the last keystroke.
+      cancelPendingValidation();
+      clearErrors('recipientAddress');
+      if (!address.trim()) return;
+      validationTimerRef.current = setTimeout(() => {
+        validationTimerRef.current = undefined;
+        applyRecipientValidationRef.current(address);
+      }, RECIPIENT_VALIDATION_DEBOUNCE_MS);
     },
-    [onAction, applyRecipientValidation]
+    [onAction, cancelPendingValidation, clearErrors]
   );
 
   // Apply a scanned recipient address. Shared by the mobile native scanner and
