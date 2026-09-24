@@ -637,40 +637,68 @@ describe('Welcome — hash → step routing', () => {
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
   });
 
-  it.each(['#select-wallet-type', '#choose-protection', '#setup-biometric'])(
-    'leaves a running confirmation attempt its credentials when the hash changes to %s',
-    async entry => {
+  // Each row is a hash the flow-state effect would act on; the attempt hold is the only thing stopping it.
+  const holdAttempt = async (enterConfirmation: () => Promise<void>, hash: string, password: string) => {
+    let failRegistration: (error: Error) => void = () => undefined;
+    mockRegisterWallet.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        failRegistration = reject;
+      })
+    );
+    await renderWelcome();
+    await enterConfirmation();
+    await setHash('#confirmation');
+    const seed = mockFlowProps.current.seedPhrase;
+    let attempt: Promise<void> | undefined;
+    await act(async () => {
+      attempt = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+
+    await setHash(hash);
+    expect(mockFlowProps.current.password).toBe(password);
+    expect(mockFlowProps.current.seedPhrase).toBe(seed);
+
+    await act(async () => {
+      failRegistration(new Error('boom'));
+      await attempt;
+    });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet.mock.calls[1]).toEqual(mockRegisterWallet.mock.calls[0]);
+  };
+
+  it.each(['', '#select-wallet-type', '#choose-protection'])(
+    'leaves a running create attempt its credentials when the hash changes to "%s"',
+    async hash => {
       mockIsMobileFn.mockReturnValue(false);
-      let failRegistration: (error: Error) => void = () => undefined;
-      mockRegisterWallet.mockReturnValueOnce(
-        new Promise<void>((_resolve, reject) => {
-          failRegistration = reject;
-        })
+      await holdAttempt(
+        async () => {
+          await dispatch({ id: 'choose-protection' });
+          await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+          await setHash('#meet-guardian');
+          await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g1', guardianEndpoint: 'https://g1' } });
+        },
+        hash,
+        'pw'
       );
-      await renderWelcome();
-      await dispatch({ id: 'choose-protection' });
-      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-      await setHash('#meet-guardian');
-      await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g1', guardianEndpoint: 'https://g1' } });
-      await setHash('#confirmation');
-      let attempt: Promise<void> | undefined;
-      await act(async () => {
-        attempt = mockFlowProps.current.onAction({ id: 'confirmation' });
-      });
-
-      await setHash(entry);
-      expect(mockFlowProps.current.password).toBe('pw');
-      expect(mockFlowProps.current.seedPhrase).not.toBeNull();
-
-      await act(async () => {
-        failRegistration(new Error('boom'));
-        await attempt;
-      });
-      await setHash('#confirmation');
-      await dispatch({ id: 'confirmation' });
-      expect(mockRegisterWallet.mock.calls.at(-1)?.[1]).toBe('pw');
     }
   );
+
+  it('leaves a running import attempt its credentials when the hash changes to #setup-biometric', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await holdAttempt(
+      async () => {
+        await dispatch({ id: 'select-import-type' });
+        await dispatch({ id: 'import-from-seed' });
+        await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+        await dispatch({ id: 'create-password-submit', payload: { password: 'ipw' } });
+        await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+      },
+      '#setup-biometric',
+      'ipw'
+    );
+  });
 
   it('does not carry a failed biometric attempt into the next one', async () => {
     mockIsMobileFn.mockReturnValue(true);
