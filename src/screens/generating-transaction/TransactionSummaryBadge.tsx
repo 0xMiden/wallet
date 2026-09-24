@@ -33,17 +33,17 @@ export interface TransactionSummaryBadgeProps {
    * or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent. Ignored when
    * `separator` is provided.
    */
-  fillForArrow?: string;
+  fillForArrow?: ArrowFill;
 }
 
 export interface TransactionSummaryBadgeContent {
   lhs: ReactNode;
   rhs: ReactNode;
   separator?: ReactNode;
-  fillForArrow?: string;
+  fillForArrow?: ArrowFill;
 }
 
-export const ARROW_INK: Record<string, string> = {
+export const ARROW_INK = {
   'var(--action-send)': 'var(--accent-send-on)',
   'var(--tx-sent)': 'var(--accent-send-on)',
   'var(--accent-send)': 'var(--accent-send-on)',
@@ -54,6 +54,7 @@ export const ARROW_INK: Record<string, string> = {
   'var(--tx-swap)': 'var(--accent-swap-on)',
   'var(--accent-swap)': 'var(--accent-swap-on)',
   'var(--tx-faucet)': '#191919',
+  '#CCA4B8': '#191919',
   '#cca4b8': '#191919',
   // Explicit, not merely the fallback: the bridge/guardian slate and the earn action colour all
   // hold white at 4.5:1 or better, but a spelling this table has not seen must not read as "safe"
@@ -62,18 +63,21 @@ export const ARROW_INK: Record<string, string> = {
   'var(--tx-earn)': '#ffffff',
   'var(--action-earn)': '#ffffff',
   'var(--accent-earn)': '#ffffff'
-};
+} as const satisfies Record<string, string>;
+
+/** A fill the badge has an arrow ink for; any other fill is a compile error, not an unreadable arrow. */
+export type ArrowFill = keyof typeof ARROW_INK;
 
 /**
  * The arrow's ink for a badge fill. Derived here rather than passed beside the fill so every caller,
  * present and future, gets a readable arrow: every alias of send, receive and swap maps to that
- * flow's on-colour, the faucet rose and the slate fills map to their fixed ink, and any fill this
- * table has not seen falls back to white - which is not guaranteed to be readable on it.
+ * flow's on-colour, and the faucet rose and the slate fills map to their fixed ink. A fill this
+ * table has not seen does not compile.
  */
-export const arrowInkFor = (fill: string = 'var(--action-send)'): string => ARROW_INK[fill.toLowerCase()] ?? '#ffffff';
+export const arrowInkFor = (fill: ArrowFill = 'var(--action-send)'): string => ARROW_INK[fill];
 
 /** Default separator — the horizontal "→" arrow, tinted by `fill`. */
-const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => {
+const HorizontalArrowGlyph: FC<{ fill?: ArrowFill }> = ({ fill }) => {
   const ink = arrowInkFor(fill);
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

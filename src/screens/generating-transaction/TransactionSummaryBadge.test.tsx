@@ -5,7 +5,12 @@ import { act } from 'react-dom/test-utils';
 
 import { ITransaction } from 'lib/miden/db/types';
 
-import { TransactionSummaryBadge, arrowInkFor, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
+import {
+  ArrowFill,
+  TransactionSummaryBadge,
+  arrowInkFor,
+  useTransactionSummaryBadgeContent
+} from './TransactionSummaryBadge';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key })
@@ -89,7 +94,7 @@ describe('TransactionSummaryBadge component', () => {
     act(() => root.unmount());
   });
 
-  it.each([
+  it.each<[ArrowFill | undefined, string]>([
     [undefined, 'var(--action-send)'],
     ['var(--action-swap)', 'var(--action-swap)']
   ])('fills the arrow circle in the flow action colour (%s)', async (fillForArrow, expected) => {
@@ -100,7 +105,7 @@ describe('TransactionSummaryBadge component', () => {
     act(() => root.unmount());
   });
 
-  it.each([
+  it.each<[ArrowFill, string]>([
     ['#CCA4B8', '#191919'],
     ['var(--action-swap)', 'var(--accent-swap-on)'],
     ['#777487', '#ffffff']
@@ -446,5 +451,15 @@ describe('arrowInkFor', () => {
 
   it("reads the swap accent alias as the swap flow's on-colour", () => {
     expect(arrowInkFor('var(--accent-swap)')).toBe('var(--accent-swap-on)');
+  });
+
+  it('reads the faucet rose in the exact spelling TRANSACTION_COLORS uses', () => {
+    expect(arrowInkFor('#CCA4B8')).toBe('#191919');
+  });
+
+  it('refuses at compile time a fill that has no ink', () => {
+    // @ts-expect-error - a fill with no ARROW_INK entry is not an ArrowFill, so yarn ts fails if the prop accepts it
+    const badge = <TransactionSummaryBadge lhs="a" rhs="b" fillForArrow="var(--unknown)" />;
+    expect(badge.props.fillForArrow).toBe('var(--unknown)');
   });
 });

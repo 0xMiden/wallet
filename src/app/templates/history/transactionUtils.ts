@@ -354,7 +354,7 @@ export const isFaucetMintTransaction = (
 export const claimAccentColor = (
   transaction: Pick<ITransaction, 'type' | 'faucetId' | 'secondaryAccountId'> | undefined,
   nativeFaucetId: string | null
-): string =>
+): typeof TRANSACTION_COLORS.faucet | typeof TRANSACTION_COLORS.receive =>
   isFaucetMintTransaction(transaction, nativeFaucetId) ? TRANSACTION_COLORS.faucet : TRANSACTION_COLORS.receive;
 
 export const formatDate = (timestamp: number | string): string => {

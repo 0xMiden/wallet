@@ -17,7 +17,7 @@ import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
 import { TransactionHeroIcon } from '../components';
-import { formatConsumeAssetParts, TransactionSummaryBadge } from '../TransactionSummaryBadge';
+import { ArrowFill, formatConsumeAssetParts, TransactionSummaryBadge } from '../TransactionSummaryBadge';
 
 /**
  * Shared presentational kit for the post-transaction success screens.
@@ -142,7 +142,7 @@ export const SuccessSummaryPill: FC<{
    * The arrow's fill, as the badge content reports it: the transaction's own Activity colour (send by default,
    * received green or faucet rose, swap purple, bridge and earn slate), which can differ from the page's flow accent.
    */
-  fillForArrow?: string;
+  fillForArrow?: ArrowFill;
 }> = ({ lhs, rhs, separator, fillForArrow }) => (
   <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} fillForArrow={fillForArrow} className="mt-1" />
 );
