@@ -1,6 +1,7 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
@@ -117,10 +118,22 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
+// Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
+// stringify. A failed parse is not cached, so it is retried once the SDK can parse the id.
+const normalizedFaucetIds = new Map<string, string>();
+
+/** Test-only: forget every cached conversion. */
+export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
+
 /** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
 export function normalizedFaucetId(faucetId: string): string {
+  const key = `${getEffectiveNetworkName()}:${faucetId}`;
+  const cached = normalizedFaucetIds.get(key);
+  if (cached !== undefined) return cached;
   try {
-    return getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
+    const normalized = getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
+    normalizedFaucetIds.set(key, normalized);
+    return normalized;
   } catch {
     return faucetId;
   }
