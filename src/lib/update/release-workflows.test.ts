@@ -14,6 +14,15 @@ describe('native logic test gates', () => {
   });
 });
 
+describe('pull request gate triggers', () => {
+  // A base filter here skipped every stacked PR's gates while the command checks above stayed green.
+  it.each(['pr.yml', 'pr-compile-surfaces.yml'])('%s runs on a pull request to any base', file => {
+    const trigger = workflow(file).match(/^ {2}pull_request:\n((?: {4}.*\n)*)/m);
+    expect(trigger).not.toBeNull();
+    expect(trigger?.[1]).not.toMatch(/^ {4}branches(-ignore)?:/m);
+  });
+});
+
 describe('release update manifest gates', () => {
   it('validates the catalog on every pull request, where a failure is actionable', () => {
     expect(workflow('pr.yml')).toContain('check:update-manifest');
