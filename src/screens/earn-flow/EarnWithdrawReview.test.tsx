@@ -7,6 +7,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { goBack, navigate } from 'lib/woozie';
 
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnWithdrawReview from './EarnWithdrawReview';
 import type { EarnPosition } from './types';
 
@@ -300,7 +301,7 @@ describe('EarnWithdrawReview with no position to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^withdraw$/);
-    expect(screen.queryByText('— • —')).toBeNull();
+    expect(screen.queryByText(`${EARN_PLACEHOLDER} • ${EARN_PLACEHOLDER}`)).toBeNull();
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

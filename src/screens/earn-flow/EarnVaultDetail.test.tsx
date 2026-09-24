@@ -6,6 +6,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 // Imported after the mocks above are registered (jest hoists jest.mock).
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnVaultDetail from './EarnVaultDetail';
 
 // ---------------------------------------------------------------------------
@@ -248,7 +249,7 @@ describe('EarnVaultDetail', () => {
   it('falls back to the placeholder vault when the id is unknown', () => {
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
-    // `?? placeholderVault()` — every body field is the "—" placeholder, the header names only the
+    // `?? placeholderVault()`: every body field is the EARN_PLACEHOLDER value, the header names only the
     // route, and the empty id disables the Deposit CTA.
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
     expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
@@ -354,7 +355,7 @@ describe('EarnVaultDetail with no vault to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^earnDeposit$/);
-    expect(screen.queryByText('— • —')).toBeNull();
+    expect(screen.queryByText(`${EARN_PLACEHOLDER} • ${EARN_PLACEHOLDER}`)).toBeNull();
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });
