@@ -12,6 +12,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { isExtension } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
 
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD, SELF_HEAL_COOLDOWN_MS, SELF_HEAL_MAX_ATTEMPTS } from './guardian-selfheal';
@@ -84,12 +85,14 @@ jest.mock('lib/miden/transaction', () => ({
 }));
 
 // Platform gate for the off-extension driver above. Default: extension (the SW owns
-// the FIFO loop there), flipped per test.
-const mockIsExtension = jest.fn(() => true);
+// the FIFO loop there), flipped per test. The mock is made inside the factory:
+// `zustandProvider` calls `isExtension()` when its module loads, which is before
+// a top-level `const` in this file is initialized.
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isExtension: () => mockIsExtension()
+  isExtension: jest.fn(() => true)
 }));
+const mockIsExtension = jest.mocked(isExtension);
 
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
 // treat an error tagged `__authRejection` as a 401 so tests can drive that path.
