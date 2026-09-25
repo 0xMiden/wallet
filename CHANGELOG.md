@@ -2,12 +2,13 @@
 
 ## 1.16.3 (TBD)
 
-### Fixes
-
-- [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
 ### Changes
 
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
+
+### Fixes
+
+- [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
 
 ## 1.16.2 (2026-09-24)
 
