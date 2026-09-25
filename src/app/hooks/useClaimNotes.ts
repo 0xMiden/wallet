@@ -7,6 +7,7 @@ import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
 import { ClaimableNoteWithMetadata, useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
@@ -167,13 +168,14 @@ export function useClaimNotes(): ClaimNotesState {
           // the offscreen client off) the call runs INLINE against the hold taken
           // right here, so the liveness check has to be handed down from here —
           // the default is a no-op and the reach-through would run on a client a
-          // successor owns.
+          // successor owns. Bounded at the sync ceiling like every foreground read: after an
+          // eviction the first hold rebuilds the client inside it (#777).
           const noteDetails = await withWasmClientLock(
             async hold =>
               midenClientProxy.getInputNoteDetails({ ids: noteIds }, () =>
                 assertWasmHoldCurrent(hold, 'while reading input note details for the claim check')
               ),
-            { label: 'claim-note-state-check' }
+            { label: 'claim-note-state-check', watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
           );
 
           for (const note of noteDetails) {

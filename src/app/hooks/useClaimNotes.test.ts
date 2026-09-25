@@ -9,13 +9,10 @@ import { __resetClaimChecksForTest, useClaimCheckInvalidNoteIds, useClaimNotes }
 
 const mockGetFailedTransactions = jest.fn();
 const mockGetInputNoteDetails = jest.fn();
-const mockInitiateConsume = jest.fn();
+const mockLockOptions: unknown[] = [];
 
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-miden' }));
 jest.mock('lib/miden/activity', () => ({
   getFailedTransactions: (...args: unknown[]) => mockGetFailedTransactions(...args),
-  initiateConsumeNotesTransaction: (...args: unknown[]) => mockInitiateConsume(...args),
-  requestSWTransactionProcessing: jest.fn(),
   verifyStuckTransactionsFromNode: jest.fn().mockResolvedValue(0)
 }));
 
@@ -26,7 +23,10 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
 }));
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  withWasmClientLock: (fn: () => unknown) => fn()
+  withWasmClientLock: (fn: () => unknown, options?: unknown) => {
+    mockLockOptions.push(options);
+    return fn();
+  }
 }));
 
 const mockUseAccount = jest.fn(() => ({ publicKey: 'mtst1account' }));
@@ -100,6 +100,14 @@ describe('useClaimNotes failed-note check (#456)', () => {
 
     await waitFor(() => expect(result.current.invalidNoteIds.has('a')).toBe(true));
     expect(result.current.retriableNoteIds.has('a')).toBe(false);
+  });
+
+  it('bounds the note-state read at the sync ceiling, like every other foreground read hold', async () => {
+    mockLockOptions.length = 0;
+    renderHook(() => useClaimNotes());
+
+    await waitFor(() => expect(mockGetInputNoteDetails).toHaveBeenCalled());
+    expect(mockLockOptions).toContainEqual({ label: 'claim-note-state-check', watchdogMs: 120_000 });
   });
 
   it('re-runs the check on signature change and REPLACES the set so a recovered note clears', async () => {
