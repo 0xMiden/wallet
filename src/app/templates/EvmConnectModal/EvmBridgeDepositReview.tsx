@@ -8,18 +8,20 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
+import { IBridgeProvider } from 'lib/miden/db/types';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
-import { BridgeRoute } from 'screens/send-flow/types';
 
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
   amount: string;
   /** Token symbol shown in the hero / rows (e.g. USDC or ETH). */
   symbol: string;
+  /** Symbol the recipient gets on Miden when it differs from `symbol` (USDCx for a USDC deposit). */
+  outputSymbol?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
   /** Selected bridge route — drives the route label + arrival ETA. */
-  route: BridgeRoute;
+  route: IBridgeProvider;
   /** Forward-quoted output the recipient receives on Miden (Fast route). undefined while quoting. */
   outputAmount?: string;
   /** Source network name (e.g. Sepolia). */
@@ -48,6 +50,7 @@ export interface EvmBridgeDepositReviewProps {
 export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   amount,
   symbol,
+  outputSymbol,
   fiat,
   route,
   outputAmount,
@@ -62,9 +65,19 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${symbol}`.trim() : symbol;
+  const { routeLabel, arrivalLabel } = (() => {
+    switch (route) {
+      case 'agglayer':
+        return { routeLabel: t('slow'), arrivalLabel: t('slowArrival') };
+      case 'usdcx':
+        return { routeLabel: t('usdcxRouteName'), arrivalLabel: t('usdcxArrival') };
+      case 'epoch':
+      default:
+        return { routeLabel: t('fast'), arrivalLabel: t('fastArrival') };
+    }
+  })();
+  const receivedSymbol = outputSymbol ?? symbol;
+  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receivedSymbol}`.trim() : receivedSymbol;
 
   return (
     <ReviewLayout

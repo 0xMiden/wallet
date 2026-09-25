@@ -1,4 +1,92 @@
 {
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxBurnTitle": {
+    "message": "USDCx 소각",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "소각 요청 제출됨",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "MIDEN 수수료",
+    "englishSource": "MIDEN fees"
+  },
+  "usdcxBurnOnly": {
+    "message": "소각 전용",
+    "englishSource": "Burn only"
+  },
+  "usdcxBurnTestNotice": {
+    "message": "이 테스트 faucet는 Miden에서 수취처 없이 USDCx를 소각합니다. 소각 내역 note 및 수취 주소는 공개되어 있습니다. 게시된 소각 내역 notes은 되찾을 수 없습니다.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "소각 대기 중",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "소각 처리",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "소각 확인됨",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "거부됨",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "소각 note",
+    "englishSource": "Burn note"
+  },
+  "usdcxDestinationDomain": {
+    "message": "목적지 도메인",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "처리 시도",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "마지막 처리 오류",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "최소 소각량",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "MIDEN으로 지급되며, faucet 실행 후원 비용 포함",
+    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+  },
+  "usdcxInvalidDestination": {
+    "message": "이 인출을 위해 유효한 Sepolia 주소를 입력하십시오.",
+    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "소수점 이하 최대 6자리까지의 양수 USDCx 금액을 입력하십시오.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "해당 금액은 faucet에서 정한 최소 소각 금액 미달입니다.",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "USDCxfaucet의 소각 정책을 확인할 수 없습니다. 검토를 재개하여 다시 시도해 주십시오.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
   "payload": {
     "message": "페이로드",
     "englishSource": "Payload"
@@ -4376,6 +4464,30 @@
   "slowRouteLabel": {
     "message": "슬로우 (애글레이어)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxArrival": {
+    "message": "~20분",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve는 사용자가 예치한 USDC에 대해 Miden에서 1:1 비율로 USDCx를 발행합니다.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "서클은 아직 Miden에 대한 USDCx 입금을 지원하지 않습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "Sepolia 거래가 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "usdcxAttested": {
+    "message": "Circle이 예치금을 인증했습니다. USDCx는 곧 Miden에서 발행될 예정입니다.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
   "bridgeRowTitle": {
     "message": "브리지 $from$ → $to$",

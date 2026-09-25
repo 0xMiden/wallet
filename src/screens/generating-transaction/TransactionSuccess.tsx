@@ -17,7 +17,7 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
   return (
     typeof candidate.destinationAddress === 'string' &&
     typeof candidate.destinationNetwork === 'number' &&
-    (candidate.provider === 'epoch' || candidate.provider === 'agglayer')
+    (candidate.provider === 'epoch' || candidate.provider === 'agglayer' || candidate.provider === 'usdcx')
   );
 };
 

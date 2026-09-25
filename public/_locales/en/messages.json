@@ -1,4 +1,92 @@
 {
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxBurnTitle": {
+    "message": "Burn USDCx",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "Burn submitted",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "MIDEN fees",
+    "englishSource": "MIDEN fees"
+  },
+  "usdcxBurnOnly": {
+    "message": "Burn only",
+    "englishSource": "Burn only"
+  },
+  "usdcxBurnTestNotice": {
+    "message": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "Awaiting burn",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "Burn processing",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "Burn confirmed",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "Burn rejected",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Burn note",
+    "englishSource": "Burn note"
+  },
+  "usdcxDestinationDomain": {
+    "message": "Destination domain",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "Processing attempts",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "Last processing error",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "Minimum burn",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "Paid in MIDEN, including faucet execution sponsorship",
+    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+  },
+  "usdcxInvalidDestination": {
+    "message": "Enter a valid Sepolia address for this withdrawal.",
+    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx withdrawals are available only for the configured faucet on Miden testnet.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "Enter a positive USDCx amount with at most six decimal places.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "The amount is below the faucet's minimum burn amount.",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "The wallet's burn script does not match the USDCx faucet.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "Unable to read the USDCx faucet's burn policy. Reopen review to try again.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
   "payload": {
     "message": "Payload",
     "englishSource": "Payload"
@@ -4376,6 +4464,30 @@
   "slowRouteLabel": {
     "message": "Slow (Agglayer)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxArrival": {
+    "message": "~20 min",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circle has not enabled USDCx deposits to Miden yet. Try again later.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "usdcxAttested": {
+    "message": "Circle attested the deposit. USDCx will be minted on Miden shortly.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
   "bridgeRowTitle": {
     "message": "Bridge $from$ → $to$",

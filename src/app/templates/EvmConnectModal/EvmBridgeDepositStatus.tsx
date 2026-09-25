@@ -1,14 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { Hash, isHash } from 'viem';
 
+import { usePageActive } from 'app/layouts/page-active';
 import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
-import { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
+import { useBridgeTracker } from 'lib/agglayer/use-bridge-tracker';
+import { IBridgedReceiveExtraInputs, IBridgeProvider } from 'lib/miden/db/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { fetchXReserveAttestations, findAttestationForDomain } from 'lib/usdcx/attestation';
+import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
+import { ATTESTATION_POLL_MS } from 'lib/usdcx/use-attestation';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -19,22 +25,61 @@ interface EvmBridgeDepositStatusProps {
   onDone: () => void;
 }
 
+/**
+ * The deposit hash to poll Circle's attestation API for. Only a USDCx row that
+ * is past its Sepolia receipt has one; the other routes have no attestation.
+ */
+function attestationHashOf(inputs: IBridgedReceiveExtraInputs | undefined): Hash | undefined {
+  if (inputs === undefined || inputs.provider !== 'usdcx' || inputs.phase !== 'delivering') return undefined;
+  const hash = inputs.evmTxHash;
+  return hash !== undefined && isHash(hash) ? hash : undefined;
+}
+
+function routeLabelOf(provider: IBridgeProvider, t: (key: string) => string): string {
+  switch (provider) {
+    case 'epoch':
+      return t('fast');
+    case 'usdcx':
+      return t('usdcxRouteName');
+    case 'agglayer':
+    default:
+      return t('slow');
+  }
+}
+
 /** Bridge-specific post-review progress/failure/success screen. */
 export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ txId, onDone }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  const pageActive = usePageActive();
+  const [attested, setAttested] = useState(false);
 
-  if (!loaded || !row)
+  const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+  const attestationHash = attestationHashOf(inputs);
+
+  // Display only: nothing on the row changes when Circle signs, because no
+  // Miden note is matched for this route yet. The poll stops on the first hit.
+  useBridgeTracker({
+    active: pageActive && attestationHash !== undefined && !attested,
+    intervalMs: ATTESTATION_POLL_MS,
+    poll: async () => {
+      if (attestationHash === undefined) return false;
+      const attestations = await fetchXReserveAttestations(attestationHash);
+      return findAttestationForDomain(attestations, USDCX_REMOTE_DOMAIN) !== undefined;
+    },
+    onArrival: () => setAttested(true)
+  });
+
+  if (!loaded || !row || inputs === undefined)
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
       </div>
     );
 
-  const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
-  const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');
+  const routeLabel = routeLabelOf(inputs.provider, t);
 
   if (submitted) {
     const viewExplorer = inputs.evmTxHash
@@ -44,11 +89,25 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             title: 'Etherscan'
           })
       : undefined;
+    const statusValue = (() => {
+      switch (inputs.phase) {
+        case 'received':
+          return t('received');
+        case 'ready':
+          return t('confirmed');
+        default:
+          return t('delivering');
+      }
+    })();
+    const footerDescription = (() => {
+      if (inputs.provider !== 'usdcx') return t('bridgeDepositDeliveryDescription');
+      return attested ? t('usdcxAttested') : t('usdcxAwaitingAttestation');
+    })();
     return (
       <TransactionSuccessLayout
         headerTitle={t('success')}
         title={t('bridgeDepositSubmitted')}
-        footerDescription={t('bridgeDepositDeliveryDescription')}
+        footerDescription={footerDescription}
         primaryAction={{ label: t('done'), onClick: onDone }}
         secondaryAction={
           viewExplorer
@@ -70,15 +129,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
           className="mt-4"
           rows={[
             { label: t('route'), value: `${routeLabel} · Sepolia → Miden` },
-            {
-              label: t('status'),
-              value:
-                inputs.phase === 'received'
-                  ? t('received')
-                  : inputs.phase === 'ready'
-                    ? t('confirmed')
-                    : t('delivering')
-            }
+            { label: t('status'), value: statusValue }
           ]}
         />
       </TransactionSuccessLayout>

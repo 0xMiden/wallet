@@ -1,4 +1,92 @@
 {
+  "usdcxRouteLabel": {
+    "message": "USDCx（Circle xReserve）",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxBurnTitle": {
+    "message": "销毁 USDCx",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "已提交销毁请求",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "MIDEN 费用",
+    "englishSource": "MIDEN fees"
+  },
+  "usdcxBurnOnly": {
+    "message": "仅限销毁",
+    "englishSource": "Burn only"
+  },
+  "usdcxBurnTestNotice": {
+    "message": "此测试 faucet 在 Miden 上销毁 USDCx，且无支付目的地。销毁记录 note 及目标地址均为公开信息。已发布的销毁记录 notes 无法被追回。",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "待销毁",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "销毁处理",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "销毁已确认",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "“销毁”被驳回",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "销毁 note",
+    "englishSource": "Burn note"
+  },
+  "usdcxDestinationDomain": {
+    "message": "目标域名",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "处理尝试",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "上次处理错误",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "最低销毁量",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "以MIDEN支付，包括faucet的执行赞助费",
+    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+  },
+  "usdcxInvalidDestination": {
+    "message": "请输入一个有效的 Sepolia 地址以完成此次提现。",
+    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx 提现功能仅适用于 Miden 测试网中已配置的 faucet。",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "请输入正数的USDCx金额，小数部分最多保留六位。",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "该金额低于faucet规定的最低销毁金额。",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "该钱包的销毁脚本与 USDCx 的 faucet 不匹配。",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "无法读取 USDCx faucet 的销毁政策。请重新开启审核以再次尝试。",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
   "payload": {
     "message": "有效载荷",
     "englishSource": "Payload"
@@ -4376,6 +4464,30 @@
   "slowRouteLabel": {
     "message": "慢速（Agglayer）",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxArrival": {
+    "message": "约20分钟",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve 会根据您存入的 USDC，在 Miden 上按 1:1 的比例铸造 USDCx。",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circle 尚未启用向 Miden 存入 USDCx 的功能。请稍后再试。",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "Sepolia 交易已确认。正在等待 Circle 对存款进行认证，之后 Miden 上将铸造 USDCx。",
+    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "usdcxAttested": {
+    "message": "Circle 已对该笔存款进行认证。USDCx 即将于 Miden 平台铸造。",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
   "bridgeRowTitle": {
     "message": "桥接 $from$ → $to$",

@@ -1,4 +1,92 @@
 {
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxBurnTitle": {
+    "message": "Спалення USDCx",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "Заявка на спалення подана",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "Комісії MIDEN",
+    "englishSource": "MIDEN fees"
+  },
+  "usdcxBurnOnly": {
+    "message": "Тільки спалення",
+    "englishSource": "Burn only"
+  },
+  "usdcxBurnTestNotice": {
+    "message": "Цей тест faucet спалює USDCx на Miden без виплати на адресу призначення. Процес спалювання note та адреса призначення є публічними. Опубліковані дані про спалювання notes не можна повернути.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "Очікують спалення",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "Обробка спалювання",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "Спалення підтверджено",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "Спалити відхилено",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Спалення note",
+    "englishSource": "Burn note"
+  },
+  "usdcxDestinationDomain": {
+    "message": "Домен призначення",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "Спроби обробки",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "Остання помилка обробки",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "Мінімальний обсяг спалення",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "Оплата здійснюється в MIDEN, включаючи спонсорство виконання операцій «faucet»",
+    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+  },
+  "usdcxInvalidDestination": {
+    "message": "Введіть дійсну адресу Sepolia для цього виведення коштів.",
+    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "Виведення коштів у USDCx доступні лише для налаштованої мережі «faucet» у тестовій мережі Miden.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "Введіть додатну суму в USDCx з не більше ніж шістьма знаками після коми.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "Сума є меншою за мінімальну суму спалення, встановлену «faucet».",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "Скрипт спалювання гаманця не відповідає «faucet» для USDCx.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "Не вдалося прочитати політику спалювання USDCx faucet. Відкрийте перегляд, щоб спробувати ще раз.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
   "payload": {
     "message": "Корисне навантаження",
     "englishSource": "Payload"
@@ -4376,6 +4464,30 @@
   "slowRouteLabel": {
     "message": "Повільний (Agglayer)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxArrival": {
+    "message": "~20 хв",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve емітує USDCx на Miden у співвідношенні 1:1 до USDC, які ви депонуєте.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circle ще не увімкнула можливість поповнення рахунків у USDCx у Miden. Спробуйте пізніше.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "Транзакція Sepolia підтверджена. Очікуємо, поки Circle засвідчить депозит, перш ніж USDCx буде випущено на Miden.",
+    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "usdcxAttested": {
+    "message": "Circle підтвердила депозит. USDCx незабаром буде випущено на Miden.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
   "bridgeRowTitle": {
     "message": "Міст $from$ → $to$",

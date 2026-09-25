@@ -3,7 +3,18 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppKitProvider } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 import { useDebounce } from 'use-debounce';
-import { decodeFunctionResult, encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
+import {
+  decodeFunctionResult,
+  encodeFunctionData,
+  EIP1193Provider,
+  formatUnits,
+  Hash,
+  isAddress,
+  isHash,
+  isHex,
+  parseUnits,
+  toHex
+} from 'viem';
 import { useWriteContract } from 'wagmi';
 
 import { ReportDeposit } from 'app/hooks/useFundTelemetry';
@@ -19,17 +30,30 @@ import {
   midenAddrToEvmAddr
 } from 'lib/agglayer';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
-import {
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
-} from 'lib/epoch/bridgeable-token';
+import { BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from 'lib/epoch/bridgeable-token';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
+import { IBridgeProvider } from 'lib/miden/db/types';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletAccount } from 'lib/shared/types';
+import {
+  CIRCLE_USDC_DECIMALS,
+  CIRCLE_USDC_SEPOLIA_ADDRESS,
+  CIRCLE_USDC_SYMBOL,
+  ERC20_APPROVE_ABI,
+  ERC20_BALANCE_OF_ABI,
+  USDCX_DECIMALS,
+  USDCX_FAUCET_ID_BECH32,
+  USDCX_STANDIN_RECIPIENT,
+  USDCX_SYMBOL,
+  XRESERVE_ABI,
+  XRESERVE_SEPOLIA_ADDRESS
+} from 'lib/usdcx/constant';
+import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'lib/usdcx/deposit';
+import { midenAccountHexToXReserveRecipient } from 'lib/usdcx/recipient';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
@@ -40,6 +64,7 @@ import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
+import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
 
 /**
@@ -56,39 +81,6 @@ const MIDEN_USDC_FAUCET_DECIMALS = 6;
 // Also the symbol the AggLayer bridge-in matcher requires on a native deposit's tracker.
 const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
-
-const MOCK_USDC_GET_BALANCE_ABI = [
-  {
-    type: 'function',
-    name: 'getBalance',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
-
-const ERC20_APPROVE_ABI = [
-  {
-    type: 'function',
-    name: 'approve',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'spender', type: 'address' },
-      { name: 'amount', type: 'uint256' }
-    ],
-    outputs: [{ name: '', type: 'bool' }]
-  }
-] as const;
-
-const ERC20_BALANCE_OF_ABI = [
-  {
-    type: 'function',
-    name: 'balanceOf',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
 
 type SlowBridgeStatus = 'idle' | 'signing' | 'submitted' | 'failed';
 
@@ -140,35 +132,68 @@ function formatBalance(value: bigint, decimals: number): string {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-async function readMockUsdcBalance(evmAddress: string): Promise<bigint> {
-  const account = evmAddress as `0x${string}`;
-  const contract = BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS as `0x${string}`;
+/** The connected wallet's balance of Circle's Sepolia USDC, the token xReserve accepts. */
+async function readCircleUsdcBalance(evmAddress: string): Promise<bigint> {
+  if (!isAddress(evmAddress)) {
+    throw new Error(`Invalid EVM address: ${evmAddress}`);
+  }
+  const data = encodeFunctionData({
+    abi: ERC20_BALANCE_OF_ABI,
+    functionName: 'balanceOf',
+    args: [evmAddress]
+  });
+  const result = await rpcRequest('eth_call', [{ to: CIRCLE_USDC_SEPOLIA_ADDRESS, data }, 'latest']);
+  if (!isHex(result)) {
+    throw new Error('USDC balanceOf returned no data');
+  }
+  return decodeFunctionResult({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', data: result });
+}
 
-  try {
-    const data = encodeFunctionData({
-      abi: MOCK_USDC_GET_BALANCE_ABI,
-      functionName: 'getBalance',
-      args: [account]
-    });
-    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest']);
-    return decodeFunctionResult({
-      abi: MOCK_USDC_GET_BALANCE_ABI,
-      functionName: 'getBalance',
-      data: result as `0x${string}`
-    }) as bigint;
-  } catch (err) {
-    console.warn('[EvmBridgeDepositScreen] USDC getBalance failed, falling back to balanceOf', err);
-    const data = encodeFunctionData({
-      abi: ERC20_BALANCE_OF_ABI,
-      functionName: 'balanceOf',
-      args: [account]
-    });
-    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest']);
-    return decodeFunctionResult({
-      abi: ERC20_BALANCE_OF_ABI,
-      functionName: 'balanceOf',
-      data: result as `0x${string}`
-    }) as bigint;
+/** Whether Circle registered `remoteDomain` on the Sepolia xReserve. A deposit to an unregistered domain reverts. */
+async function readRemoteDomainRegistered(remoteDomain: number): Promise<boolean> {
+  const data = encodeFunctionData({
+    abi: XRESERVE_ABI,
+    functionName: 'isRemoteDomainRegistered',
+    args: [remoteDomain]
+  });
+  const result = await rpcRequest('eth_call', [{ to: XRESERVE_SEPOLIA_ADDRESS, data }, 'latest']);
+  if (!isHex(result)) {
+    throw new Error('xReserve isRemoteDomainRegistered returned no data');
+  }
+  return decodeFunctionResult({ abi: XRESERVE_ABI, functionName: 'isRemoteDomainRegistered', data: result });
+}
+
+/** The source-chain symbol written on the tracking row. */
+function sourceSymbolFor(token: DepositToken): string {
+  switch (token) {
+    case 'USDC':
+      return CIRCLE_USDC_SYMBOL;
+    case 'ETH':
+    default:
+      return ETH_SYMBOL;
+  }
+}
+
+/** The symbol the recipient gets on Miden. xReserve mints USDCx for USDC; the other routes keep the source symbol. */
+function outputSymbolFor(token: DepositToken, route: IBridgeProvider): string {
+  switch (route) {
+    case 'usdcx':
+      return USDCX_SYMBOL;
+    case 'epoch':
+    case 'agglayer':
+    default:
+      return sourceSymbolFor(token);
+  }
+}
+
+/** The route a source token bridges through. USDC only goes through Circle xReserve. */
+function defaultRouteFor(token: DepositToken): IBridgeProvider {
+  switch (token) {
+    case 'USDC':
+      return 'usdcx';
+    case 'ETH':
+    default:
+      return 'epoch';
   }
 }
 
@@ -233,7 +258,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [token, setToken] = useState<DepositToken>('USDC');
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>('epoch');
+  const [route, setRoute] = useState<IBridgeProvider>(defaultRouteFor('USDC'));
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [ethBalance, setEthBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
@@ -273,12 +298,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setUsdcBalance(EMPTY_BALANCE);
     setEthBalance(EMPTY_BALANCE);
 
-    readMockUsdcBalance(evmAddress)
+    readCircleUsdcBalance(evmAddress)
       .then(value => {
         if (cancelled) return;
         setUsdcBalance({
           value,
-          formatted: formatBalance(value, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS),
+          formatted: formatBalance(value, CIRCLE_USDC_DECIMALS),
           loading: false,
           error: null
         });
@@ -347,6 +372,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
       setToken(next);
+      // USDC bridges only through Circle xReserve, so the route follows the token.
+      setRoute(defaultRouteFor(next));
       setTokenDrawerOpen(false);
       resetEpoch();
       setSlowStatus('idle');
@@ -476,6 +503,94 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, token, walletProvider, writeContract]
   );
 
+  const handleUsdcxDeposit = useCallback(
+    async (trackingTxId: string) => {
+      if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
+        const message = 'The connected EVM wallet provider is unavailable.';
+        setSlowError(message);
+        setSlowStatus('failed');
+        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message });
+        return;
+      }
+
+      hapticMedium();
+      setSlowStatus('signing');
+      setSlowError(null);
+
+      // Native Reown takes calldata and returns a JSON-quoted hash; wagmi takes
+      // the typed call. Both pin DEFAULT_CHAIN_ID so a wallet whose active chain
+      // is not Sepolia is refused before it broadcasts.
+      const sendNative = async (to: `0x${string}`, data: `0x${string}`): Promise<Hash> => {
+        const result = await NativeReown.sendTransaction({
+          chainId: DEFAULT_CHAIN_ID,
+          from: evmAddress,
+          to,
+          value: toHex(0n),
+          data
+        });
+        const hash = unwrapNativeResult(result.hash);
+        if (!isHash(hash)) {
+          throw new Error('The wallet returned no transaction hash.');
+        }
+        return hash;
+      };
+      const signer: UsdcxSigner = nativeReownAvailable
+        ? {
+            approve: (spender, value) =>
+              sendNative(
+                CIRCLE_USDC_SEPOLIA_ADDRESS,
+                encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [spender, value] })
+              ),
+            depositToRemote: args =>
+              sendNative(
+                XRESERVE_SEPOLIA_ADDRESS,
+                encodeFunctionData({ abi: XRESERVE_ABI, functionName: 'depositToRemote', args })
+              )
+          }
+        : {
+            approve: (spender, value) =>
+              writeContract.mutateAsync({
+                chainId: DEFAULT_CHAIN_ID,
+                abi: ERC20_APPROVE_ABI,
+                address: CIRCLE_USDC_SEPOLIA_ADDRESS,
+                functionName: 'approve',
+                args: [spender, value]
+              }),
+            depositToRemote: args =>
+              writeContract.mutateAsync({
+                chainId: DEFAULT_CHAIN_ID,
+                abi: XRESERVE_ABI,
+                address: XRESERVE_SEPOLIA_ADDRESS,
+                functionName: 'depositToRemote',
+                args
+              })
+          };
+
+      try {
+        // Encoded inside the try so an id the faucet cannot mint to fails the row
+        // instead of throwing out of the flow. The stand-in recipient only exists
+        // while the remote domain is a stand-in chain (see constant.ts).
+        const recipient =
+          USDCX_STANDIN_RECIPIENT ??
+          midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
+        await runUsdcxDeposit(trackingTxId, amount, recipient, {
+          signer,
+          isRemoteDomainRegistered: readRemoteDomainRegistered,
+          waitForReceipt: waitForSepoliaReceipt,
+          updatePhase: updateBridgedReceivePhase
+        });
+        setSlowStatus('submitted');
+      } catch (err) {
+        console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
+        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : errorMessage(err);
+        setSlowError(message);
+        setSlowStatus('failed');
+        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
+      }
+    },
+    [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, t, walletProvider, writeContract]
+  );
+
   const setupReady = isValidAmount(amount);
   const setupToken: UIToken = useMemo(() => {
     if (token === 'ETH') {
@@ -492,11 +607,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       };
     }
     return {
-      id: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-      name: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-      decimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
-      balance:
-        usdcBalance.value === null ? 0 : Number(formatUnits(usdcBalance.value, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)),
+      id: CIRCLE_USDC_SEPOLIA_ADDRESS,
+      name: CIRCLE_USDC_SYMBOL,
+      decimals: CIRCLE_USDC_DECIMALS,
+      balance: usdcBalance.value === null ? 0 : Number(formatUnits(usdcBalance.value, CIRCLE_USDC_DECIMALS)),
       fiatPrice: 1,
       scaleIsKnown: true
     };
@@ -513,14 +627,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     !!epochQuote &&
     epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, MIDEN_USDC_FAUCET_DECIMALS);
   const slowReady = route === 'agglayer' && isValidAmount(amount) && slowStatus !== 'signing';
-  const canConfirmRoute = route === 'epoch' ? fastReady : slowReady;
+  // USDCx has no quote: the deposit is 1:1 and the only check is a valid amount.
+  const usdcxReady = route === 'usdcx' && token === 'USDC' && isValidAmount(amount) && slowStatus !== 'signing';
+  const canConfirmRoute = (() => {
+    switch (route) {
+      case 'epoch':
+        return fastReady;
+      case 'agglayer':
+        return slowReady;
+      case 'usdcx':
+        return usdcxReady;
+      default:
+        return false;
+    }
+  })();
   // Fast (Epoch): the EVM amount the sponsor deposits, from the reverse quote's
   // `tokenIn` (EVM token base units). This is what the wallet signs for, so it
   // is the amount shown as "depositing". It stays exact because the tracking row
   // stores it; only the Review step rounds it. Falls back to the typed amount for
   // the Slow route and while no quote is present.
   const quotedDeposit = useMemo(() => {
-    if (route === 'agglayer') return undefined;
+    if (route !== 'epoch') return undefined;
     const raw = epochQuote?.quoteResult.tokenIn;
     if (!raw || raw === '0') return undefined;
     try {
@@ -549,7 +676,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // (Epoch) reads the reverse quote's tokenOut (Miden faucet base units); Slow
   // (Agglayer) bridges the dedicated token 1:1.
   const outputAmount = useMemo(() => {
-    if (route === 'agglayer') return isValidAmount(amount) ? amount : undefined;
+    // Slow (Agglayer) and USDCx (xReserve, maxFee 0) both deliver the deposit 1:1.
+    if (route !== 'epoch') return isValidAmount(amount) ? amount : undefined;
     const raw = epochQuote?.quoteResult.tokenOut;
     if (raw == null) return undefined;
     try {
@@ -613,10 +741,41 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setCreatingBridgeRow(true);
     try {
       hapticMedium();
-      const expectedAmount =
-        route === 'agglayer'
-          ? parseUnits(amount.trim(), token === 'ETH' ? ETH_DECIMALS : BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)
-          : BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
+      // The Miden-side amount in faucet base units: Epoch quotes it, the other
+      // two routes deliver the typed amount 1:1 in their own token's scale.
+      const expectedAmount = (() => {
+        switch (route) {
+          case 'agglayer':
+            return parseUnits(amount.trim(), token === 'ETH' ? ETH_DECIMALS : BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
+          case 'usdcx':
+            return parseUnits(amount.trim(), USDCX_DECIMALS);
+          case 'epoch':
+          default:
+            return BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
+        }
+      })();
+      const faucetId = (() => {
+        switch (route) {
+          case 'epoch':
+            return MIDEN_USDC_FAUCET_ID;
+          case 'usdcx':
+            return USDCX_FAUCET_ID_BECH32;
+          case 'agglayer':
+          default:
+            return '';
+        }
+      })();
+      const drive = (id: string) => {
+        switch (route) {
+          case 'agglayer':
+            return handleSlowBridge(id);
+          case 'usdcx':
+            return handleUsdcxDeposit(id);
+          case 'epoch':
+          default:
+            return executeEVMToMiden(id);
+        }
+      };
       // The row is born `submitting`; the submission keeps the app-root watcher
       // from resuming it as an orphan while this flow still signs and writes it.
       // Reported around the tracked-transfer creation: that is the point the
@@ -626,17 +785,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         initiateBridgedReceiveTransaction({
           accountId: midenAccount.publicKey,
           amount: expectedAmount,
-          faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
+          faucetId,
           provider: route,
           sourceAddress: evmAddress,
           sourceAmount: depositAmount.trim(),
-          sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+          sourceSymbol: sourceSymbolFor(token),
           outputAmount,
-          outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
+          outputSymbol: outputSymbolFor(token, route)
         });
       const txId = await startBridgeReceiveSubmission(
         () => (reportDeposit ? reportDeposit(createTransfer) : createTransfer()),
-        id => (route === 'agglayer' ? handleSlowBridge(id) : executeEVMToMiden(id))
+        drive
       );
       setBridgeTxId(txId);
       navigateTo(ReceiveStep.ShowBridgePageStatus);
@@ -656,6 +815,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     evmAddress,
     executeEVMToMiden,
     handleSlowBridge,
+    handleUsdcxDeposit,
     midenAccount.publicKey,
     navigateTo,
     outputAmount,
@@ -674,7 +834,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositReview
               amount={quotedDeposit ? toAdaptiveFixed(quotedDeposit) : amount}
-              symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
+              symbol={sourceSymbolFor(token)}
+              outputSymbol={outputSymbolFor(token, route)}
               fiat={token === 'USDC' ? Number(depositAmount) : undefined}
               route={route}
               outputAmount={outputAmount}
@@ -689,6 +850,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             />
           );
         case ReceiveStep.ShowBridgePageRoute:
+          // USDC has one route (Circle xReserve); ETH picks Fast or Slow.
+          if (route === 'usdcx') {
+            return <EvmBridgeUsdcxRoute confirmDisabled={!canConfirmRoute} onConfirm={handleContinueToReview} />;
+          }
           return (
             <RouteStep
               route={route}

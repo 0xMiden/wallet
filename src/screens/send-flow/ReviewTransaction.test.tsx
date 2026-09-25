@@ -11,6 +11,8 @@ import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/mid
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { initiateUsdcxBurn } from 'lib/usdcx/burn';
+import { USDCX_FAUCET_ID_BECH32 } from 'lib/usdcx/constant';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
@@ -34,6 +36,9 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
   loading: false,
   error: null
 };
+let mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+jest.mock('lib/usdcx/burn', () => ({ initiateUsdcxBurn: jest.fn(async () => 'burn-tx') }));
+jest.mock('lib/usdcx/use-burn-preflight', () => ({ useBurnPreflight: () => mockBurnPreflight }));
 
 const mockWalletStoreState = {
   tokenPrices: { MDN: { price: 2 } } as Record<string, { price: number }>,
@@ -178,6 +183,7 @@ jest.mock('lib/agglayer/b2agg/constant', () => ({
 }));
 
 jest.mock('lib/epoch', () => ({
+  EPOCH_DESTINATION_CHAIN_ID: 11155111,
   bridgeEpochSend: jest.fn()
 }));
 
@@ -346,6 +352,8 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+  jest.mocked(initiateUsdcxBurn).mockResolvedValue('burn-tx');
   mockAuthorizationAccountOverride = undefined;
 
   // Base implementations (resetAllMocks wipes impls).
@@ -389,6 +397,59 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Deep-link redirect guards
 // ---------------------------------------------------------------------------
+describe('USDCx burn review', () => {
+  beforeEach(() => {
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
+    mockSearch = `amount=1.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=sepolia&route=usdcx`;
+  });
+
+  it('submits the exact base-unit burn and shows no destination payout estimate', async () => {
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('usdcxBurnTestNotice')).toBeInTheDocument();
+    expect(screen.queryByText('youReceive')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateUsdcxBurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 1_000_001n,
+          faucetId: USDCX_FAUCET_ID_BECH32,
+          destinationChainId: 11155111,
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        })
+      )
+    );
+    expect(bridgeEpochSend).not.toHaveBeenCalled();
+    expect(initiateB2AggBridge).not.toHaveBeenCalled();
+  });
+
+  it('disables submission below the on-chain minimum', async () => {
+    mockBurnPreflight.minimum = 2_000_000n;
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByText('usdcxBelowMinimumBurn')).toBeInTheDocument();
+  });
+
+  it('rejects precision that would otherwise silently round', async () => {
+    mockSearch = mockSearch.replace('1.000001', '1.0000001');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByText('usdcxInvalidAmount')).toBeInTheDocument();
+  });
+
+  it('rejects a deep link trying to burn a different faucet', async () => {
+    mockBalanceData = [VALID_TOKEN];
+    mockSearch = mockSearch.replace(USDCX_FAUCET_ID_BECH32, 'tok1');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect')).toBeInTheDocument();
+    expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+  });
+});
+
 describe('ReviewTransaction — redirect guards', () => {
   it('redirects to /send when required params are missing', async () => {
     mockSearch = ''; // no tokenId, empty amount, empty to

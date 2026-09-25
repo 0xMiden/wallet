@@ -71,7 +71,7 @@ jest.mock('lib/woozie', () => ({ navigate: (...a: unknown[]) => mockNavigate(...
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }));
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
-jest.mock('./transactionUtils', () => ({}));
+jest.mock('./transactionUtils', () => jest.requireActual('./transactionUtils'));
 
 jest.mock('components/ui/Button', () => ({
   Button: ({
@@ -181,6 +181,38 @@ describe('BridgeClaimSection', () => {
       renderSection({ entry: entry() });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
+    });
+  });
+
+  describe('USDCx faucet consumption', () => {
+    it('shows burn confirmation without claim, reclaim, or destination settlement actions', () => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'confirmed' }
+        })
+      });
+      expect(screen.getByText('t:usdcxBurnConfirmed')).toBeInTheDocument();
+      expect(screen.getByText('t:usdcxBurnTestNotice')).toBeInTheDocument();
+      expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument();
+      expect(screen.queryByText('t:connectEvmWallet')).not.toBeInTheDocument();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('keeps a sender-completed row pending until the faucet consumes its note', () => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' }
+        })
+      });
+      expect(screen.getByText('t:usdcxBurnPending')).toBeInTheDocument();
+      expect(screen.queryByText('t:usdcxBurnConfirmed')).not.toBeInTheDocument();
     });
   });
 

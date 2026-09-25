@@ -8,6 +8,7 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
 import PageLayout from 'app/layouts/PageLayout';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
@@ -46,6 +47,7 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useUsdcxAttestation } from 'lib/usdcx/use-attestation';
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
@@ -68,6 +70,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
+  bridgeBadgeStatusOf,
   earnWithdrawAmountFields,
   formatBridgeOutputAmount,
   formatDate,
@@ -136,9 +139,13 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
       <span className="min-w-0 text-text-muted">{inSymbol}</span>
-      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
-      <span className="min-w-0 text-ink">{displayedOutAmount}</span>
-      <span className="min-w-0 text-text-muted">{outSymbol}</span>
+      {entry.bridgeProvider !== 'usdcx' && (
+        <>
+          <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
+          <span className="min-w-0 text-ink">{displayedOutAmount}</span>
+          <span className="min-w-0 text-text-muted">{outSymbol}</span>
+        </>
+      )}
     </div>
   );
 };
@@ -248,6 +255,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
+  const pageActive = usePageActive();
+  const usdcxInputs = row?.type === 'bridged-receive' ? row.extraInputs : undefined;
+  const usdcxAttested = useUsdcxAttestation(
+    usdcxInputs?.provider === 'usdcx' ? usdcxInputs.evmTxHash : undefined,
+    pageActive && usdcxInputs?.phase === 'delivering' && row?.status !== ITransactionStatus.Failed
+  );
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
@@ -405,6 +418,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillTxHash: bridge?.fillTxHash,
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
+          usdcxBurn: bridge?.usdcxBurn,
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
@@ -676,7 +690,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-2">
                 {isBridge ? (
                   // Pending/Confirmed/Failed, derived from the route's own lifecycle.
-                  <StatusBadge size="md" live status={bridgeStatusOf(entry)} data-testid="history-status-pill" />
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={
+                      usdcxAttested && entry.txId === row?.id && bridgeStatusOf(entry) === 'pending'
+                        ? 'confirmed'
+                        : bridgeBadgeStatusOf(entry)
+                    }
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnWithdraw && earnWithdraw ? (
                   // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
                   <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />
@@ -1004,7 +1027,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-5">
                   <DetailSection title={t('bridgeDetails')}>
                     <DetailRow label={t('route')}>
-                      {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
+                      {(() => {
+                        switch (entry.bridgeInProvider) {
+                          case 'epoch':
+                            return t('fastRouteLabel');
+                          case 'usdcx':
+                            return t('usdcxRouteLabel');
+                          case 'agglayer':
+                          default:
+                            return t('slowRouteLabel');
+                        }
+                      })()}
                     </DetailRow>
                     {entry.bridgeInEvmTxHash && (
                       <DetailRow label={t('txIdLabel')}>

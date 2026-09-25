@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
+import type { Status } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
@@ -191,6 +192,11 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
     return 'pending';
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
+  if (entry.bridgeProvider === 'usdcx') {
+    if (entry.usdcxBurn?.phase === 'confirmed') return 'confirmed';
+    if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
+    return 'pending';
+  }
   if (entry.bridgeProvider === 'agglayer') {
     if (entry.bridgeClaimStatus === 'claimed') return 'confirmed';
     if (entry.bridgeClaimStatus === 'failed') return 'failed';
@@ -198,6 +204,27 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   }
   return entry.bridgeEpochStatus ?? 'pending';
 };
+
+/** A faucet-confirmed burn must never be labeled as a confirmed destination payout. */
+export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
+  if (
+    entry.bridgeProvider !== 'usdcx' ||
+    entry.txType !== 'bridged-send' ||
+    entry.status === ITransactionStatus.Failed
+  ) {
+    return bridgeStatusOf(entry);
+  }
+  switch (entry.usdcxBurn?.phase) {
+    case 'confirmed':
+      return 'burnConfirmed';
+    case 'discarded':
+      return 'burnDiscarded';
+    case 'consuming':
+      return 'burnConsuming';
+    default:
+      return 'burnPending';
+  }
+}
 
 export interface BridgeRowDisplay {
   inSymbol: string;
@@ -216,6 +243,16 @@ export interface BridgeRowDisplay {
  */
 export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
+  if (entry.bridgeProvider === 'usdcx') {
+    return {
+      inSymbol,
+      outSymbol: inSymbol,
+      outAmount: entry.amount?.toString(),
+      providerLabel: 'Circle xReserve',
+      network: 'Sepolia',
+      status: bridgeStatusOf(entry)
+    };
+  }
   const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
   const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? entry.amount?.toString();
   const providerLabel =
@@ -230,6 +267,19 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
  */
 const symbolOrUndefined = (symbol: string | undefined): string | undefined =>
   symbol === undefined || /^0x[0-9a-fA-F]{40}$/.test(symbol) ? undefined : symbol;
+
+/** Display name of the bridge-in route. A row with no provider predates the field and was Epoch. */
+const bridgeInProviderLabel = (provider: IHistoryEntry['bridgeInProvider']): string => {
+  switch (provider) {
+    case 'agglayer':
+      return 'Agglayer';
+    case 'usdcx':
+      return 'Circle xReserve';
+    case 'epoch':
+    default:
+      return 'Epoch';
+  }
+};
 
 /** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
 export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
@@ -248,7 +298,7 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? entry.amount?.toString()
       : (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString());
-  const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
+  const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };
 
