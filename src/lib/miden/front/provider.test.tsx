@@ -149,24 +149,30 @@ describe('MidenProvider', () => {
 
   it('renders nothing until the storage preload settles', async () => {
     const { ensureSdkWasmReady } = jest.requireMock('lib/miden-chain/constants');
-    let settle!: () => void;
-    mockPreloadStorage.mockImplementationOnce(
-      () =>
-        new Promise<void>(resolve => {
-          settle = resolve;
-        })
-    );
-    const { queryByText, findByText } = render(
-      <MidenProvider>
-        <div>x</div>
-      </MidenProvider>
-    );
-    await waitFor(() => expect(ensureSdkWasmReady).toHaveBeenCalled());
-    // The WASM gate has resolved; only the pending preload can still hold the tree back.
-    await act(async () => {});
-    expect(queryByText('x')).toBeNull();
-    settle();
-    expect(await findByText('x')).toBeDefined();
+    ensureSdkWasmReady.mockClear();
+    jest.useFakeTimers();
+    try {
+      let settle!: () => void;
+      mockPreloadStorage.mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            settle = resolve;
+          })
+      );
+      const { queryByText, getByText } = render(
+        <MidenProvider>
+          <div>x</div>
+        </MidenProvider>
+      );
+      // Everything but the preload has had its chance; the budget is one millisecond away.
+      await act(() => jest.advanceTimersByTimeAsync(STORAGE_PRELOAD_BUDGET_MS - 1));
+      expect(ensureSdkWasmReady).toHaveBeenCalledTimes(1);
+      expect(queryByText('x')).toBeNull();
+      await act(async () => settle());
+      expect(getByText('x')).toBeDefined();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('warns about no budget when the preload settles in time', async () => {
