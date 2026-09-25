@@ -1,4 +1,4 @@
-import { Account, MidenClient, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { Account, MidenClient, NoteArray, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import {
   AccountInspector,
   Multisig,
@@ -30,7 +30,7 @@ import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
-import { accountRefToSdk } from '../sdk/helpers';
+import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -380,6 +380,37 @@ export class MultisigService {
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
     return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+  }
+
+  /**
+   * `createCustomProposal` for a request the wallet built itself, re-bound to the current sync
+   * height first. Returns the bytes the proposal was made from; the caller persists them, since
+   * custom execution has to rebuild from exactly those.
+   *
+   * A guarded request's auth args bind the sync height at BUILD, and the proposal's anchor is
+   * the sync height at CAPTURE. The kernel authenticates the bound block only when the two
+   * agree, so persisted bytes proposed after any sync (a 409 retry, a restart, a slow round
+   * trip) failed with "transaction summary binds block N, which the transaction does not
+   * authenticate". Rebuilding in the same lock hold as the capture closes that gap.
+   *
+   * Only for requests whose whole content is their own output notes (the wallet's sends,
+   * swaps and collateral notes): nothing else survives the rebuild, and a dApp's request is
+   * not ours to rebuild. The notes are carried over as they are, so a PSWAP keeps its order id.
+   */
+  async createRebasedCustomProposal(
+    requestBytes: Uint8Array,
+    proposalType: string
+  ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
+    return await withWasmClientLock(async hold => {
+      const client = (await getMidenClient()).client;
+      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the client build');
+      const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();
+      const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt());
+      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
+      const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
+      const proposal = await this.multisig.createCustomProposal(rebased, proposalType);
+      return { proposal, requestBytes: rebased };
+    });
   }
 
   /**

@@ -1680,6 +1680,27 @@ const ensureGuardianRecallableSendRequestBytes = async (
 };
 
 /**
+ * Proposes a wallet-built guarded request, re-bound to the current sync height (see
+ * `MultisigService.createRebasedCustomProposal`), and persists the bytes it was proposed from:
+ * signing and execution rebuild from `transaction.requestBytes`, so it must be these.
+ */
+const proposeRebased = async (
+  service: MultisigService,
+  transaction: ITransaction,
+  requestBytes: Uint8Array,
+  proposalType: string
+): Promise<Proposal> => {
+  const rebased = await withGuardianConflictRetry(() =>
+    service.createRebasedCustomProposal(requestBytes, proposalType)
+  );
+  transaction.requestBytes = rebased.requestBytes;
+  await Repo.transactions.where({ id: transaction.id }).modify(t => {
+    t.requestBytes = rebased.requestBytes;
+  });
+  return rebased.proposal;
+};
+
+/**
  * Refuse to keep driving a guardian write whose lock hold is gone.
  *
  * An eviction rejects the holder's promise but does NOT stop its callback, so a
@@ -2236,9 +2257,7 @@ const generateGuardianTransaction = async (
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks
         );
-        proposalResult = await withGuardianConflictRetry(() =>
-          service.createCustomProposal(requestBytes, 'recallable_send')
-        );
+        proposalResult = await proposeRebased(service, transaction, requestBytes, 'recallable_send');
       } else {
         // Same coercion as the recallable branch above. This used to be
         // hardcoded Private, which broke a Public guardian send two ways at
@@ -2424,9 +2443,7 @@ const generateGuardianTransaction = async (
           // fresh chain head (same rule as earn-deposit below).
           { freshSync: true }
         );
-        proposalResult = await withGuardianConflictRetry(() =>
-          service.createCustomProposal(requestBytes, 'bridged_send')
-        );
+        proposalResult = await proposeRebased(service, transaction, requestBytes, 'bridged_send');
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
         // AggLayer route: also pre-built at initiate time, so it needs the same annotation.
@@ -2437,7 +2454,7 @@ const generateGuardianTransaction = async (
             t.requestBytes = aggBytes;
           });
         }
-        proposalResult = await service.createCustomProposal(aggBytes);
+        proposalResult = await proposeRebased(service, transaction, aggBytes, 'custom_transaction');
       }
       break;
     }
@@ -2483,9 +2500,7 @@ const generateGuardianTransaction = async (
         recallBlocks,
         { freshSync: true }
       );
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createCustomProposal(requestBytes, 'earn_deposit')
-      );
+      proposalResult = await proposeRebased(service, transaction, requestBytes, 'earn_deposit');
       break;
     }
     case 'swap': {
@@ -2575,7 +2590,7 @@ const generateGuardianTransaction = async (
           t.requestBytes = swapBytes;
         });
       }
-      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(swapBytes, 'swap'));
+      proposalResult = await proposeRebased(service, transaction, swapBytes, 'swap');
       break;
     }
     case 'update-procedure-threshold': {

@@ -64,6 +64,11 @@ import { ITransactionStatus } from '../db/types';
 // the flag-flip guardian E2E, structurally here).
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
 
+// What the mock `createRebasedCustomProposal` hands back as the request the proposal was
+// made from. Distinct from every row's seeded bytes, so an assertion can tell the rebased
+// request from the one the row carried in.
+const REBASED_BYTES = [0x5e, 0xba, 0x5e];
+
 const txStore: Array<Record<string, unknown>> = [];
 
 // When set, the row write that LEAVES the row at this stage rejects — the Dexie
@@ -364,6 +369,10 @@ const makeService = () => ({
   createSendProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createCustomProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+  createRebasedCustomProposal: jest.fn(async () => ({
+    proposal: { id: 'prop', nonce: 7 },
+    requestBytes: new Uint8Array(REBASED_BYTES)
+  })),
   signAndCreateTransactionRequest: jest.fn(async () => ({
     serialize: () => new Uint8Array(TR_BYTES),
     authArg: () => undefined
@@ -2030,6 +2039,51 @@ describe('guardian leaf records the submit crossing', () => {
 
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
     expect(flagAtDispatch()).toBeUndefined();
+  });
+});
+
+// A request the wallet built itself is proposed re-bound to the current sync height, and the
+// rebased bytes replace the row's: signing and execution rebuild from `requestBytes`, so they
+// must be the bytes the proposal was made from. A dApp's request is not the wallet's to
+// rebuild, so `execute` proposes its bytes as they are.
+describe('guardian custom proposals: wallet-built rows propose rebased bytes, dApp execute does not', () => {
+  const walletBuiltCases = () => [
+    { ...valueMovingCases().find(c => c.type === 'swap')!, proposalType: 'swap' },
+    { ...bridgeEarnCases()[0]!, proposalType: 'custom_transaction' },
+    { ...bridgeEarnCases()[1]!, proposalType: 'earn_deposit' }
+  ];
+
+  it.each(walletBuiltCases())(
+    '$type: proposes the persisted bytes rebased as $proposalType, then signs and persists the rebased bytes',
+    async ({ row, proposalType }) => {
+      const id = `rebase-${row.type}`;
+      const { service } = arrange(id, row);
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledWith(row.requestBytes, proposalType);
+      expect(service.createCustomProposal).not.toHaveBeenCalled();
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array(REBASED_BYTES));
+      expect(Array.from(txStore.find(r => r.id === id)!.requestBytes as Uint8Array)).toEqual(REBASED_BYTES);
+    }
+  );
+
+  it('execute: proposes the dApp bytes as they are and signs those same bytes', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const { service } = arrange('rebase-execute', executeCase.row);
+
+    await generateTransaction(
+      buildTx('rebase-execute', executeCase.row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.createCustomProposal).toHaveBeenCalledWith(new Uint8Array([2, 2]));
+    expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array([2, 2]));
+    expect(Array.from(txStore.find(r => r.id === 'rebase-execute')!.requestBytes as Uint8Array)).toEqual([2, 2]);
   });
 });
 

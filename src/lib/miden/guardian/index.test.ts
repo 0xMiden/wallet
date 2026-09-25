@@ -57,8 +57,12 @@ jest.mock('lib/shared/helpers', () => ({
 // Keep the id parser simple — we only assert it was called with the inputs we
 // passed; the real implementation parses bech32/hex, which needs WASM.
 const mockAccountRefToSdk = jest.fn((ref: string) => ({ toString: () => `sdk(${ref})` }));
+const mockFeeAwareRequestBuilder = jest.fn();
+const mockFeeSalt = { kind: 'fee-salt' };
 jest.mock('../sdk/helpers', () => ({
-  accountRefToSdk: (...args: unknown[]) => mockAccountRefToSdk(...(args as [string]))
+  accountRefToSdk: (...args: unknown[]) => mockAccountRefToSdk(...(args as [string])),
+  feeAwareRequestBuilder: (...args: unknown[]) => mockFeeAwareRequestBuilder(...args),
+  randomFeeSalt: () => mockFeeSalt
 }));
 
 const mockGetAccount = jest.fn();
@@ -196,8 +200,11 @@ if (typeof global.atob === 'undefined') {
   global.atob = (str: string) => Buffer.from(str, 'base64').toString('binary');
 }
 
-// Augment the existing wasmMock with the one bit we need: Account.deserialize.
+// Augment the existing wasmMock with the bits we need: Account.deserialize, and the
+// request deserializer + note array the rebased custom proposal rebuilds through.
 const mockAccountDeserialize = jest.fn();
+const mockTransactionRequestDeserialize = jest.fn();
+const mockNoteArray = jest.fn((notes: unknown) => ({ kind: 'note-array', notes }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -205,9 +212,17 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Account: {
       ...(actual.Account ?? {}),
       deserialize: (...args: unknown[]) => mockAccountDeserialize(...args)
+    },
+    TransactionRequest: {
+      deserialize: (...args: unknown[]) => mockTransactionRequestDeserialize(...args)
+    },
+    NoteArray: function (notes: unknown) {
+      return mockNoteArray(notes);
     }
   };
 });
+// Both specifiers map to the same wasmMock file, so whichever factory registers last is the
+// module both resolve to: the two must stay identical.
 jest.mock('@miden-sdk/miden-sdk', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -215,6 +230,12 @@ jest.mock('@miden-sdk/miden-sdk', () => {
     Account: {
       ...(actual.Account ?? {}),
       deserialize: (...args: unknown[]) => mockAccountDeserialize(...args)
+    },
+    TransactionRequest: {
+      deserialize: (...args: unknown[]) => mockTransactionRequestDeserialize(...args)
+    },
+    NoteArray: function (notes: unknown) {
+      return mockNoteArray(notes);
     }
   };
 });
@@ -394,6 +415,101 @@ describe('MultisigService', () => {
 
       expect(createCustomFn).toHaveBeenCalledWith(bytes, 'my-type');
       expect(proposal).toEqual({ kind: 'custom' });
+    });
+
+    describe('createRebasedCustomProposal', () => {
+      const originalBytes = new Uint8Array([1, 2, 3]);
+      const rebasedBytes = new Uint8Array([9, 8, 7]);
+      const ownNotes = ['own-note-1', 'own-note-2'];
+
+      // Each collaborator records the hold it ran under, so the test can tell one hold
+      // from several: a release between the rebuild and the proposal is the gap this
+      // method exists to close.
+      let holdsSeen: Record<string, object | null>;
+      const arrange = () => {
+        holdsSeen = {};
+        const build = jest.fn(() => ({ serialize: () => rebasedBytes }));
+        const builder: { withOwnOutputNotes: jest.Mock; build: typeof build } = {
+          withOwnOutputNotes: jest.fn(() => builder),
+          build
+        };
+        mockTransactionRequestDeserialize.mockImplementation(() => {
+          holdsSeen.deserialize = currentWasmHold;
+          return { expectedOutputOwnNotes: () => ownNotes };
+        });
+        mockFeeAwareRequestBuilder.mockImplementation(async () => {
+          holdsSeen.builder = currentWasmHold;
+          return builder;
+        });
+        const createCustomFn = jest.fn(async () => {
+          holdsSeen.propose = currentWasmHold;
+          return { kind: 'custom', id: 'rebased-proposal' };
+        });
+        const multisig = makeMultisig({ createCustomProposal: createCustomFn });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        return { service, builder, createCustomFn };
+      };
+
+      it('rebuilds the request from its own output notes on the fee-aware builder and proposes exactly those bytes', async () => {
+        const { service, builder, createCustomFn } = arrange();
+
+        const result = await service.createRebasedCustomProposal(originalBytes, 'swap');
+
+        expect(mockTransactionRequestDeserialize).toHaveBeenCalledWith(originalBytes);
+        // A fresh fee-aware builder for THIS service's account, on the realm client.
+        expect(mockFeeAwareRequestBuilder).toHaveBeenCalledTimes(1);
+        expect(mockFeeAwareRequestBuilder).toHaveBeenCalledWith(mockRawWebClient, 'acc-id', mockFeeSalt);
+        // The deserialized request's own output notes, carried over as they are.
+        expect(mockNoteArray).toHaveBeenCalledWith(ownNotes);
+        expect(builder.withOwnOutputNotes).toHaveBeenCalledWith({ kind: 'note-array', notes: ownNotes });
+        expect(builder.build).toHaveBeenCalledTimes(1);
+        // Proposed from the rebuilt bytes, never the ones passed in, with the caller's type.
+        expect(createCustomFn).toHaveBeenCalledTimes(1);
+        expect(createCustomFn).toHaveBeenCalledWith(rebasedBytes, 'swap');
+        expect(result.proposal).toEqual({ kind: 'custom', id: 'rebased-proposal' });
+        expect(result.requestBytes).toBe(rebasedBytes);
+      });
+
+      it('rebuilds and proposes inside one wasm lock hold', async () => {
+        const { service } = arrange();
+        wasmLockOptionsSeen.length = 0;
+
+        await service.createRebasedCustomProposal(originalBytes, 'earn_deposit');
+
+        expect(wasmLockOptionsSeen).toHaveLength(1);
+        expect(holdsSeen.deserialize).toBeInstanceOf(Object);
+        expect(holdsSeen.builder).toBe(holdsSeen.deserialize);
+        expect(holdsSeen.propose).toBe(holdsSeen.deserialize);
+        // And the hold is released once the proposal is made.
+        expect(currentWasmHold).toBeNull();
+      });
+
+      it('stops before building or proposing when the hold is evicted during the fee-aware builder', async () => {
+        const { service, builder, createCustomFn } = arrange();
+        mockFeeAwareRequestBuilder.mockImplementationOnce(async () => {
+          currentWasmHold = null;
+          return builder;
+        });
+
+        await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toMatchObject({
+          name: 'WasmClientPoisonedError'
+        });
+        expect(builder.withOwnOutputNotes).not.toHaveBeenCalled();
+        expect(builder.build).not.toHaveBeenCalled();
+        expect(createCustomFn).not.toHaveBeenCalled();
+      });
+
+      it('stops before touching the request when the hold is evicted during the client build', async () => {
+        const { service, createCustomFn } = arrange();
+        evictDuringClientBuild = true;
+
+        await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toMatchObject({
+          name: 'WasmClientPoisonedError'
+        });
+        expect(mockTransactionRequestDeserialize).not.toHaveBeenCalled();
+        expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
+        expect(createCustomFn).not.toHaveBeenCalled();
+      });
     });
   });
 

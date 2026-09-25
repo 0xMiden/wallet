@@ -1490,6 +1490,7 @@ describe('generateTransaction — Guardian routing', () => {
       const txId = `recallable-${noteType}`;
       const result = makeResult();
       const requestBytes = new Uint8Array([7, 8, 9]);
+      const rebasedBytes = new Uint8Array([107, 108, 109]);
       const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
         id: txId,
         type: 'send',
@@ -1509,7 +1510,11 @@ describe('generateTransaction — Guardian routing', () => {
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
       const multisigService = {
-        createCustomProposal: jest.fn(async () => ({ id: 'recall-proposal' })),
+        createCustomProposal: jest.fn(),
+        createRebasedCustomProposal: jest.fn(async () => ({
+          proposal: { id: 'recall-proposal' },
+          requestBytes: rebasedBytes
+        })),
         createSendProposal: jest.fn(),
         signAndCreateTransactionRequest: jest.fn(async () => ({
           serialize: () => new Uint8Array([1]),
@@ -1550,10 +1555,14 @@ describe('generateTransaction — Guardian routing', () => {
       expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
         feeConversionSalt: 'SALT'
       });
-      expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+      // The built bytes are proposed re-bound to the current sync height, and the bytes the
+      // proposal was made from are what signing replays and what the row keeps.
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+      expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
       expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', requestBytes);
-      expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', rebasedBytes);
+      expect(transaction.requestBytes).toBe(rebasedBytes);
+      expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
     }
   );
 
@@ -1584,7 +1593,10 @@ describe('generateTransaction — Guardian routing', () => {
     const getAccount = jest.fn(async () => senderAccount);
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'recall-proposal' })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'recall-proposal' },
+        requestBytes: new Uint8Array([107, 108, 109])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1634,6 +1646,7 @@ describe('generateTransaction — Guardian routing', () => {
     const txId = 'guardian-swap-vault-key';
     const result = makeResult();
     const rebuiltBytes = new Uint8Array([11, 12, 13]);
+    const rebasedBytes = new Uint8Array([111, 112, 113]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'swap',
@@ -1654,8 +1667,15 @@ describe('generateTransaction — Guardian routing', () => {
     const newPswapCreateTransactionRequest = jest.fn(async () => reference);
     mockGetRealmReaderClient.mockResolvedValue({ newPswapCreateTransactionRequest });
 
+    // Records what the row held at the moment of proposing, so the freeze is pinned as
+    // happening BEFORE the proposal, not merely by the end of the run.
+    let frozenAtPropose: unknown;
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'swap-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => {
+        frozenAtPropose = txStore.find(row => row.id === txId)?.requestBytes;
+        return { proposal: { id: 'swap-proposal' }, requestBytes: rebasedBytes };
+      }),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1693,11 +1713,14 @@ describe('generateTransaction — Guardian routing', () => {
     // so building one request to inspect and another to propose would register a
     // different order than the one the wallet tracks.
     expect(newPswapCreateTransactionRequest).toHaveBeenCalledTimes(1);
-    // And the REWRITTEN bytes are what get frozen and proposed — the whole point,
-    // since these same bytes are replayed for signAndCreateTransactionRequest.
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebuiltBytes);
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(rebuiltBytes, 'swap');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebuiltBytes);
+    // And the REWRITTEN bytes are what get frozen and proposed, which is the whole point. The
+    // proposal rebases them onto the current sync height, and the rebased bytes replace
+    // the frozen ones, since those are what signAndCreateTransactionRequest replays.
+    expect(frozenAtPropose).toBe(rebuiltBytes);
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(rebuiltBytes, 'swap');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebasedBytes);
     // Built through the realm's reader client, never a per-call client (#868's leak class).
     expect(mockGetRealmReaderClient).toHaveBeenCalledTimes(1);
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
@@ -1716,6 +1739,7 @@ describe('generateTransaction — Guardian routing', () => {
   it('Guardian swap reuses bytes the row already carried verbatim, since the fee auth is committed at build time', async () => {
     const txId = 'guardian-swap-preexisting-bytes';
     const existingBytes = new Uint8Array([21, 22, 23]);
+    const rebasedBytes = new Uint8Array([121, 122, 123]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'swap',
@@ -1728,7 +1752,11 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'swap-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'swap-proposal' },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1755,12 +1783,14 @@ describe('generateTransaction — Guardian routing', () => {
     // A row that already holds bytes is NOT rebuilt -- the PSWAP serial number is the order
     // id, so a rebuild would issue a different order.
     expect(mockBuildPswapCreateRequest).not.toHaveBeenCalled();
-    // The same bytes are what get persisted, proposed and replayed for signing. All three
-    // matter: the commitment carries a fresh salt and `prepareCustomExecution` re-derives it
-    // from whatever bytes it is given, so a mismatch between any two is rejected at execution.
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(existingBytes);
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(existingBytes, 'swap');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', existingBytes);
+    // The row's own bytes are what get rebased and proposed, and the bytes the proposal was
+    // made from are what get persisted and replayed for signing. Those two must match: the
+    // commitment carries a fresh salt and `prepareCustomExecution` re-derives it from whatever
+    // bytes it is given, so a mismatch is rejected at execution.
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(existingBytes, 'swap');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebasedBytes);
     // DELIBERATE GAP. Bytes are committed with fee conversion info when they are BUILT, so a
     // row reaching here already carries it and needs no second pass. The SDK exposes no
     // auth-arg setter on a finished request, so bytes that arrived WITHOUT it -- only possible
@@ -1773,6 +1803,7 @@ describe('generateTransaction — Guardian routing', () => {
     const txId = 'guardian-bridged-send';
     const result = makeResult();
     const requestBytes = new Uint8Array([4, 5, 6]);
+    const rebasedBytes = new Uint8Array([104, 105, 106]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'bridged-send',
@@ -1792,7 +1823,11 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createSendProposal: jest.fn(),
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-proposal' },
+        requestBytes: rebasedBytes
+      })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -1833,15 +1868,18 @@ describe('generateTransaction — Guardian routing', () => {
     expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
       feeConversionSalt: 'SALT'
     });
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('bridge-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
   });
 
   it('Guardian earn-deposit builds a P2IDE collateral note to the allocator via a custom proposal', async () => {
     const txId = 'earn-guardian';
     const result = makeResult();
     const requestBytes = new Uint8Array([11, 12, 13]);
+    const rebasedBytes = new Uint8Array([111, 112, 113]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'earn-deposit',
@@ -1860,7 +1898,11 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-proposal' },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1902,10 +1944,11 @@ describe('generateTransaction — Guardian routing', () => {
     expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
       feeConversionSalt: 'SALT'
     });
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', requestBytes);
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
 
     // Completion must route to completeEarnDepositTransaction, NOT the generic custom-tx
     // completion — otherwise the row finishes without the collateral note id that
@@ -1939,7 +1982,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-syncfail-proposal' })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-syncfail-proposal' },
+        requestBytes: new Uint8Array([151, 152, 153])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1983,13 +2029,14 @@ describe('generateTransaction — Guardian routing', () => {
     expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
       feeConversionSalt: 'SALT'
     });
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
   });
 
   it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
     const txId = 'earn-guardian-retry';
     const result = makeResult();
     const requestBytes = new Uint8Array([7, 8, 9]);
+    const rebasedBytes = new Uint8Array([107, 108, 109]);
     const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
       id: txId,
       type: 'earn-deposit',
@@ -2003,7 +2050,11 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-retry-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-retry-proposal' },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2025,10 +2076,14 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // Persisted bytes are reused verbatim — no fresh P2IDE request is built.
+    // Persisted bytes are reused verbatim as the input to the rebase (no fresh P2IDE request
+    // is built), and signing replays the rebased bytes the proposal was made from.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-retry-proposal', requestBytes);
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-retry-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
   });
 
   it('Guardian earn-deposit refuses to build a non-recallable note when recallBlocks is missing', async () => {
@@ -2048,6 +2103,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(),
       sync: jest.fn(async () => {})
@@ -2069,6 +2125,7 @@ describe('generateTransaction — Guardian routing', () => {
     // The row fails fast; no P2IDE request or proposal is built.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -2089,6 +2146,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(),
       sync: jest.fn(async () => {})
@@ -2110,6 +2168,7 @@ describe('generateTransaction — Guardian routing', () => {
     // Same fail-fast as the missing-recallBlocks case — the other half of the guard.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -2134,6 +2193,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(),
       sync: jest.fn(async () => {})
@@ -2155,6 +2215,7 @@ describe('generateTransaction — Guardian routing', () => {
     // No note built or proposed; the row is Failed (terminal), never Completed.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -2190,7 +2251,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
-        createCustomProposal: jest.fn(async () => {
+        createRebasedCustomProposal: jest.fn(async () => {
           throw conflict;
         }),
         createSendProposal: jest.fn(),
@@ -2273,7 +2334,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
-        createCustomProposal: jest.fn(async () => {
+        createRebasedCustomProposal: jest.fn(async () => {
           throw conflict;
         }),
         createSendProposal: jest.fn(),
@@ -2348,7 +2409,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
-        createCustomProposal: jest.fn(async () => {
+        createRebasedCustomProposal: jest.fn(async () => {
           throw conflict;
         }),
         createSendProposal: jest.fn(),
@@ -2417,7 +2478,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-applyfail-proposal', nonce: 5 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-applyfail-proposal', nonce: 5 },
+        requestBytes: new Uint8Array([131, 132, 133])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2484,7 +2548,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-canon-proposal', nonce: 6 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-canon-proposal', nonce: 6 },
+        requestBytes: new Uint8Array([141, 142, 143])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2553,7 +2620,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-applyfail-proposal', nonce: 8 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-applyfail-proposal', nonce: 8 },
+        requestBytes: new Uint8Array([151, 152, 153])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2600,6 +2670,7 @@ describe('generateTransaction — Guardian routing', () => {
     // `status !== Failed`) on funds that already left the account.
     const txId = 'bridge-guardian-agglayer-applyfail';
     const requestBytes = new Uint8Array([71, 72, 73]);
+    const rebasedBytes = new Uint8Array([171, 172, 173]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'bridged-send',
@@ -2618,7 +2689,11 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-agglayer-proposal', nonce: 10 })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-agglayer-proposal', nonce: 10 },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2644,11 +2719,102 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
+    // The pre-built bytes are proposed rebased, as a generic custom transaction, and signing
+    // replays the rebased bytes.
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'custom_transaction');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
+      'bridge-agglayer-proposal',
+      rebasedBytes
+    );
     expect(applyFn).toHaveBeenCalled();
     const row = txStore.find(r => r.id === txId);
     expect(row?.status).toBe(ITransactionStatus.Completed);
     // The label matches what `completeBridgedSendTransaction` writes on the happy path.
     expect(row?.displayMessage).toBe('Bridged to EVM');
+  });
+
+  it('Guardian AGGLAYER bridged-send: a transient 409 on the proposal is waited out and retried with the same bytes', async () => {
+    // The agglayer route used to propose once with no conflict retry, so a prior delta
+    // still canonicalizing turned into a failed attempt. It now shares the retry every
+    // other wallet-built proposal has.
+    jest.useFakeTimers();
+    try {
+      const txId = 'bridge-guardian-agglayer-409';
+      const requestBytes = new Uint8Array([74, 75, 76]);
+      const rebasedBytes = new Uint8Array([174, 175, 176]);
+      const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+        id: txId,
+        type: 'bridged-send',
+        amount: 1000n,
+        faucetId: 'faucet',
+        requestBytes,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xevm',
+          destinationNetwork: 0,
+          sourceFaucetId: 'faucet',
+          claimStatus: 'pending'
+        },
+        delegateTransaction: true
+      });
+      txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createCustomProposal: jest.fn(),
+        createRebasedCustomProposal: jest
+          .fn()
+          .mockRejectedValueOnce(conflict)
+          .mockResolvedValueOnce({
+            proposal: { id: 'bridge-agglayer-retry-proposal', nonce: 11 },
+            requestBytes: rebasedBytes
+          }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
+      });
+      mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+      const pending = generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledTimes(2);
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenNthCalledWith(
+        1,
+        requestBytes,
+        'custom_transaction'
+      );
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenNthCalledWith(
+        2,
+        requestBytes,
+        'custom_transaction'
+      );
+      expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
+        'bridge-agglayer-retry-proposal',
+        rebasedBytes
+      );
+      const row = txStore.find(r => r.id === txId);
+      expect(row?.requestBytes).toBe(rebasedBytes);
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('Guardian bridged-send: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
@@ -2681,7 +2847,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-canon-proposal', nonce: 9 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-canon-proposal', nonce: 9 },
+        requestBytes: new Uint8Array([161, 162, 163])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2720,6 +2889,7 @@ describe('generateTransaction — Guardian routing', () => {
     const txId = 'recallable-retry';
     const result = makeResult();
     const requestBytes = new Uint8Array([4, 5, 6]);
+    const rebasedBytes = new Uint8Array([104, 105, 106]);
     const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
       id: txId,
       type: 'send',
@@ -2736,7 +2906,11 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'retry-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'retry-proposal' },
+        requestBytes: rebasedBytes
+      })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -2757,9 +2931,14 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
+    // The persisted bytes are what go INTO the rebase (no fresh request is built), and the
+    // rebased bytes are what signing replays and what the row keeps.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('retry-proposal', requestBytes);
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('retry-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
   });
 
   it('Guardian send (delegated): a remote-prover timeout falls back to the local prover and completes', async () => {
