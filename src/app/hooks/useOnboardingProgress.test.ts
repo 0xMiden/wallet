@@ -1,116 +1,49 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { useOnboardingProgress } from './useOnboardingProgress';
+import { useSetOnboardingCompleted } from './useOnboardingProgress';
 
-// --- Mocked dependencies -------------------------------------------------
-// `useOnboardingProgress` composes two storage collaborators from the
-// `lib/miden/front` barrel: `useLocalStorage` (synchronous localStorage-backed
-// state) and `useStorage` (async SWR-backed platform storage). We mock both so
-// we can drive the hook without pulling in the SDK / SWR / platform adapters,
-// and assert exactly how the hook wires them together.
+// `useSetOnboardingCompleted` writes the local flag through `useLocalStorage` and the persisted one through
+// `putToStorage`. `useStorage` is mocked only to prove the hook never reads (and so never suspends on) the flag.
 
 const mockSetOnboarding = jest.fn();
-const mockSetIsOnboardingCompleted = jest.fn();
 const mockUseLocalStorage = jest.fn();
 const mockUseStorage = jest.fn();
+const mockPutToStorage = jest.fn((_key: string, _value: unknown) => Promise.resolve());
 
 jest.mock('lib/miden/front', () => ({
   useLocalStorage: (key: string, initialValue: unknown) => mockUseLocalStorage(key, initialValue),
-  useStorage: (key: string, fallback: unknown) => mockUseStorage(key, fallback)
+  useStorage: (key: string, fallback: unknown) => mockUseStorage(key, fallback),
+  putToStorage: (key: string, value: unknown) => mockPutToStorage(key, value)
 }));
 
-describe('useOnboardingProgress', () => {
+describe('useSetOnboardingCompleted', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Sensible defaults; individual tests override as needed.
     mockUseLocalStorage.mockReturnValue([false, mockSetOnboarding]);
-    mockUseStorage.mockReturnValue([false, mockSetIsOnboardingCompleted]);
   });
 
-  it("reads from local storage under the 'onboarding' key with a false default", () => {
-    renderHook(() => useOnboardingProgress());
+  it("uses the 'onboarding' local flag", () => {
+    renderHook(() => useSetOnboardingCompleted());
 
-    expect(mockUseLocalStorage).toHaveBeenCalledTimes(1);
     expect(mockUseLocalStorage).toHaveBeenCalledWith('onboarding', false);
   });
 
-  it("reads persisted completion under the 'onboarding_completed' key, seeded by the local value (false)", () => {
-    mockUseLocalStorage.mockReturnValue([false, mockSetOnboarding]);
+  it('writes both stores without subscribing to the persisted value', () => {
+    const { result } = renderHook(() => useSetOnboardingCompleted());
 
-    renderHook(() => useOnboardingProgress());
+    act(() => result.current(true));
 
-    expect(mockUseStorage).toHaveBeenCalledTimes(1);
-    expect(mockUseStorage).toHaveBeenCalledWith('onboarding_completed', false);
-  });
-
-  it('seeds useStorage with the local onboarding value when it is true', () => {
-    mockUseLocalStorage.mockReturnValue([true, mockSetOnboarding]);
-
-    renderHook(() => useOnboardingProgress());
-
-    expect(mockUseStorage).toHaveBeenCalledWith('onboarding_completed', true);
-  });
-
-  it('exposes onboardingCompleted from useStorage (false)', () => {
-    mockUseStorage.mockReturnValue([false, mockSetIsOnboardingCompleted]);
-
-    const { result } = renderHook(() => useOnboardingProgress());
-
-    expect(result.current.onboardingCompleted).toBe(false);
-  });
-
-  it('exposes onboardingCompleted from useStorage (true)', () => {
-    mockUseStorage.mockReturnValue([true, mockSetIsOnboardingCompleted]);
-
-    const { result } = renderHook(() => useOnboardingProgress());
-
-    expect(result.current.onboardingCompleted).toBe(true);
-  });
-
-  it('returns a stable-shape object exposing onboardingCompleted and setOnboardingCompleted', () => {
-    const { result } = renderHook(() => useOnboardingProgress());
-
-    expect(result.current).toEqual({
-      onboardingCompleted: expect.anything(),
-      setOnboardingCompleted: expect.any(Function)
-    });
-  });
-
-  it('setOnboardingCompleted(true) writes true to both local and persistent storage', () => {
-    const { result } = renderHook(() => useOnboardingProgress());
-
-    act(() => {
-      result.current.setOnboardingCompleted(true);
-    });
-
-    expect(mockSetOnboarding).toHaveBeenCalledTimes(1);
     expect(mockSetOnboarding).toHaveBeenCalledWith(true);
-    expect(mockSetIsOnboardingCompleted).toHaveBeenCalledTimes(1);
-    expect(mockSetIsOnboardingCompleted).toHaveBeenCalledWith(true);
+    expect(mockPutToStorage).toHaveBeenCalledWith('onboarding_completed', true);
+    expect(mockUseStorage).not.toHaveBeenCalled();
   });
 
-  it('setOnboardingCompleted(false) writes false to both local and persistent storage', () => {
-    const { result } = renderHook(() => useOnboardingProgress());
+  it('writes false as well', () => {
+    const { result } = renderHook(() => useSetOnboardingCompleted());
 
-    act(() => {
-      result.current.setOnboardingCompleted(false);
-    });
+    act(() => result.current(false));
 
     expect(mockSetOnboarding).toHaveBeenCalledWith(false);
-    expect(mockSetIsOnboardingCompleted).toHaveBeenCalledWith(false);
-  });
-
-  it('propagates the local setter before the persistent setter on each call', () => {
-    const callOrder: string[] = [];
-    mockSetOnboarding.mockImplementation(() => callOrder.push('local'));
-    mockSetIsOnboardingCompleted.mockImplementation(() => callOrder.push('persistent'));
-
-    const { result } = renderHook(() => useOnboardingProgress());
-
-    act(() => {
-      result.current.setOnboardingCompleted(true);
-    });
-
-    expect(callOrder).toEqual(['local', 'persistent']);
+    expect(mockPutToStorage).toHaveBeenCalledWith('onboarding_completed', false);
   });
 });
