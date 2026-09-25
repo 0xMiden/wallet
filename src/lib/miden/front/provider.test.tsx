@@ -142,7 +142,6 @@ describe('MidenProvider', () => {
     expect(mockPreloadStorage).toHaveBeenCalledWith([
       'tokens_base_metadata',
       'fiat_currency',
-      'onboarding_completed',
       'last_shown_changelog_version',
       'network_id'
     ]);
@@ -168,6 +167,24 @@ describe('MidenProvider', () => {
     expect(queryByText('x')).toBeNull();
     settle();
     expect(await findByText('x')).toBeDefined();
+  });
+
+  it('warns about no budget when the preload settles in time', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { getByText } = render(
+        <MidenProvider>
+          <div>x</div>
+        </MidenProvider>
+      );
+      await act(() => jest.advanceTimersByTimeAsync(STORAGE_PRELOAD_BUDGET_MS));
+      expect(getByText('x')).toBeDefined();
+      expect(warn.mock.calls.filter(([message]) => String(message).includes('still pending'))).toHaveLength(0);
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
   });
 
   describe('when the storage preload never settles', () => {

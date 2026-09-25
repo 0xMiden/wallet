@@ -34,6 +34,26 @@ import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
 
 /**
+ * How long MidenProvider holds its first render for the storage preload. A local read takes milliseconds; a native
+ * bridge call that never answers must not keep the wallet on a blank screen.
+ */
+export const STORAGE_PRELOAD_BUDGET_MS = 1_000;
+
+/**
+ * Keys warmed before the first render: the ready-only providers and the network id pushed pages read sit above any
+ * local Suspense boundary, so an uncached read suspends the whole app behind WalletStoreProvider's null fallback; the
+ * changelog overlay has its own boundary, and is warmed so it does not pop in late. A function, not a module constant:
+ * this module is in an import cycle with lib/fiat-currency, so reading its constants at load time could hit them
+ * before they are initialized.
+ */
+const preloadedStorageKeys = () => [
+  ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
+  FIAT_CURRENCY_STORAGE_KEY,
+  MidenSharedStorageKey.LastShownChangelogVersion,
+  NETWORK_STORAGE_ID
+];
+
+/**
  * MidenProvider
  *
  * This provider sets up the wallet state management:
@@ -46,25 +66,6 @@ import { getMidenClient } from '../sdk/miden-client';
  * now acts as an adapter that exposes the Zustand state via the
  * existing useMidenContext() hook API.
  */
-/**
- * How long MidenProvider holds its first render for the storage preload. A local read takes milliseconds; a native
- * bridge call that never answers must not keep the wallet on a blank screen.
- */
-export const STORAGE_PRELOAD_BUDGET_MS = 1_000;
-
-/**
- * Keys read through the suspending storage hooks above any local Suspense boundary: the ready-only providers, the
- * PageLayout toolbar and changelog overlay, and the network id pushed pages read. Uncached, the first such read
- * suspends the whole app behind WalletStoreProvider's null fallback, and the screen goes blank.
- */
-const PRELOADED_STORAGE_KEYS = [
-  ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
-  FIAT_CURRENCY_STORAGE_KEY,
-  MidenSharedStorageKey.OnboardingCompleted,
-  MidenSharedStorageKey.LastShownChangelogVersion,
-  NETWORK_STORAGE_ID
-];
-
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // Combined readiness gate: apply any developer endpoint override BEFORE
   // the SDK's WASM module (and its prover config) resolves, so both this
@@ -85,14 +86,13 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       // cached before anything reads them (a warm-WASM page with the wallet already unlocked included). A key still
       // uncached after the budget suspends as it did before the preload existed.
       const preloaded = Promise.race([
-        preloadStorage(PRELOADED_STORAGE_KEYS).catch(err =>
+        preloadStorage(preloadedStorageKeys()).catch(err =>
           console.warn('[MidenProvider] storage preload failed:', err)
         ),
         new Promise<void>(resolve => {
+          // Cleared when the race settles and on unmount, so it only ever fires for a mounted, still-waiting provider.
           budgetTimer = setTimeout(() => {
-            if (!cancelled) {
-              console.warn(`[MidenProvider] storage preload still pending after ${STORAGE_PRELOAD_BUDGET_MS} ms`);
-            }
+            console.warn(`[MidenProvider] storage preload still pending after ${STORAGE_PRELOAD_BUDGET_MS} ms`);
             resolve();
           }, STORAGE_PRELOAD_BUDGET_MS);
         })
