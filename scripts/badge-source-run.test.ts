@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-import { findBadgeRun, parseArgs, shouldPublish } from './badge-source-run.mjs';
+import { BADGE_ARTIFACT, findBadgeRun, parseArgs, shouldPublish } from './badge-source-run.mjs';
 
 const REPO = 'org/wallet';
 const SHA = 'mergesha';
@@ -43,7 +43,7 @@ function prRun(id: number, prNumber: number | null, extra: Record<string, unknow
   };
 }
 
-const badge = { name: 'coverage-badge-data', expired: false };
+const badge = { name: BADGE_ARTIFACT, expired: false };
 
 // ghApi returns every page, as `gh api --paginate --slurp` does; routes match by path prefix. A route
 // holding an Error rejects with it.
@@ -150,7 +150,11 @@ describe('findBadgeRun', () => {
     ['no run head_branch', { head_branch: undefined }, {}],
     ['no PR head ref', {}, { ref: undefined }],
     ['no PR head repo', {}, { repo: undefined }],
-    ['a null PR head repo (a deleted fork)', {}, { repo: null }]
+    ['a null PR head repo (a deleted fork)', {}, { repo: null }],
+    // Both sides missing: equal to each other, so only the string check rejects them.
+    ['a null head repository on both sides', { head_repository: null }, { repo: null }],
+    ['a nameless head repository on both sides', { head_repository: {} }, { repo: {} }],
+    ['no head branch on either side', { head_branch: undefined }, { ref: undefined }]
   ])('skips a run that lists no PR and has %s', async (_label, runExtra, headExtra) => {
     const merged = pr(7, 'main');
     const api = ghApi({
