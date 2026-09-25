@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, renderHook } from '@testing-library/react';
 
-import { PriceProvider, useTokenSparkline } from './index';
+import { fetchTokenPrices } from './binance';
+import { PriceProvider, preloadTokenPrices, useTokenSparkline } from './index';
+
+const mockPreload = jest.fn();
+jest.mock('swr', () => ({ preload: (...args: unknown[]) => mockPreload(...args) }));
 
 const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
@@ -28,6 +32,14 @@ describe('PriceProvider', () => {
     expect(setTokenPrices).toHaveBeenCalledWith({
       ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 }
     });
+  });
+
+  it('starts the fetch its first read will consume: the same key and fetcher as preloadTokenPrices', () => {
+    render(<PriceProvider />);
+    preloadTokenPrices();
+    const [readKey, readFetcher] = mockUseRetryableSWR.mock.calls[0]!;
+    expect(mockPreload).toHaveBeenCalledWith(readKey, readFetcher);
+    expect(readFetcher).toBe(fetchTokenPrices);
   });
 
   it('renders nothing (returns null)', () => {

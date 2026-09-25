@@ -18,7 +18,7 @@ import {
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
 import { isExtension, isMobile } from 'lib/platform';
-import { PriceProvider } from 'lib/prices';
+import { PriceProvider, preloadTokenPrices } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
@@ -81,6 +81,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     let cancelled = false;
     let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+    // Prices are public: start their fetch now rather than behind this provider's gate, so an already-unlocked open
+    // has them as early as a locked one. PriceProvider's first read consumes this request.
+    preloadTokenPrices();
     (async () => {
       // The preload runs alongside the WASM init, and `ready` waits for it for at most the budget, so the keys are
       // cached before anything reads them (a warm-WASM page with the wallet already unlocked included). A key still

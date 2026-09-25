@@ -29,12 +29,14 @@ jest.mock('./assets', () => ({
   ALL_TOKENS_BASE_METADATA_STORAGE_KEY: 'tokens_base_metadata',
   TokensMetadataProvider: ({ children }: any) => <>{children}</>
 }));
-jest.mock('./storage', () => ({ preloadStorage: () => Promise.resolve() }));
+const preloadStorage = jest.fn(() => Promise.resolve());
+jest.mock('./storage', () => ({ preloadStorage: () => preloadStorage() }));
 jest.mock('lib/fiat-currency', () => ({
   FIAT_CURRENCY_STORAGE_KEY: 'fiat_currency',
   FiatCurrencyProvider: ({ children }: any) => <>{children}</>
 }));
-jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
+const preloadTokenPrices = jest.fn();
+jest.mock('lib/prices', () => ({ PriceProvider: () => null, preloadTokenPrices: () => preloadTokenPrices() }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
@@ -54,6 +56,22 @@ beforeEach(() => {
 
 afterEach(() => {
   warn.mockRestore();
+});
+
+it('starts the price fetch before endpoint overrides, WASM and the storage preload', () => {
+  loadEndpointOverrides.mockReturnValue(new Promise(() => {}));
+  ensureSdkWasmReady.mockReturnValue(new Promise(() => {}));
+  render(
+    <MidenProvider>
+      <div data-testid="child" />
+    </MidenProvider>
+  );
+  expect(preloadTokenPrices).toHaveBeenCalledTimes(1);
+  expect(preloadTokenPrices.mock.invocationCallOrder[0]!).toBeLessThan(
+    loadEndpointOverrides.mock.invocationCallOrder[0]!
+  );
+  expect(preloadTokenPrices.mock.invocationCallOrder[0]!).toBeLessThan(preloadStorage.mock.invocationCallOrder[0]!);
+  expect(warn).not.toHaveBeenCalled();
 });
 
 it('loads endpoint overrides before rendering children', async () => {
