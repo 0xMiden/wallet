@@ -65,11 +65,15 @@ jest.mock('app/env', () => ({
   useAppEnv: () => mockEnv
 }));
 
+// The reading hook suspends on a cold storage key, as the real one does; the toolbar must not call it.
 jest.mock('app/hooks/useOnboardingProgress', () => ({
-  useOnboardingProgress: () => ({
-    onboardingCompleted: false,
-    setOnboardingCompleted: (...args: unknown[]) => mockSetOnboardingCompleted(...args)
-  })
+  useOnboardingProgress: () => {
+    throw new Promise<void>(() => {});
+  },
+  useSetOnboardingCompleted:
+    () =>
+    (...args: unknown[]) =>
+      mockSetOnboardingCompleted(...args)
 }));
 
 // DocBg mutates document.documentElement classList — not under test, mock away.
@@ -223,6 +227,18 @@ describe('PageLayout', () => {
     );
     expect(screen.getByTestId('child')).toBeInTheDocument();
     expect(screen.getByTestId('changelog-overlay')).toBeInTheDocument();
+  });
+
+  it('keeps the page on screen while the onboarding read is cold', () => {
+    render(
+      <React.Suspense fallback={<div data-testid="root-fallback" />}>
+        <PageLayout>
+          <span data-testid="child">hi</span>
+        </PageLayout>
+      </React.Suspense>
+    );
+    expect(screen.queryByTestId('root-fallback')).toBeNull();
+    expect(screen.getByTestId('child')).toBeInTheDocument();
   });
 
   it('keeps the page on screen while the changelog overlay suspends', () => {

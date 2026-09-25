@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { useOnboardingProgress } from './useOnboardingProgress';
+import { useOnboardingProgress, useSetOnboardingCompleted } from './useOnboardingProgress';
 
 // --- Mocked dependencies -------------------------------------------------
 // `useOnboardingProgress` composes two storage collaborators from the
@@ -13,11 +13,30 @@ const mockSetOnboarding = jest.fn();
 const mockSetIsOnboardingCompleted = jest.fn();
 const mockUseLocalStorage = jest.fn();
 const mockUseStorage = jest.fn();
+const mockPutToStorage = jest.fn((_key: string, _value: unknown) => Promise.resolve());
 
 jest.mock('lib/miden/front', () => ({
   useLocalStorage: (key: string, initialValue: unknown) => mockUseLocalStorage(key, initialValue),
-  useStorage: (key: string, fallback: unknown) => mockUseStorage(key, fallback)
+  useStorage: (key: string, fallback: unknown) => mockUseStorage(key, fallback),
+  putToStorage: (key: string, value: unknown) => mockPutToStorage(key, value)
 }));
+
+describe('useSetOnboardingCompleted', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseLocalStorage.mockReturnValue([false, mockSetOnboarding]);
+  });
+
+  it('writes both stores without subscribing to the persisted value', () => {
+    const { result } = renderHook(() => useSetOnboardingCompleted());
+
+    act(() => result.current(true));
+
+    expect(mockSetOnboarding).toHaveBeenCalledWith(true);
+    expect(mockPutToStorage).toHaveBeenCalledWith('onboarding_completed', true);
+    expect(mockUseStorage).not.toHaveBeenCalled();
+  });
+});
 
 describe('useOnboardingProgress', () => {
   beforeEach(() => {

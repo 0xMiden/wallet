@@ -1,4 +1,6 @@
-import { useLocalStorage, useStorage } from '../../lib/miden/front';
+import { useCallback } from 'react';
+
+import { putToStorage, useLocalStorage, useStorage } from '../../lib/miden/front';
 import { MidenSharedStorageKey } from '../../lib/miden/types';
 
 export const useOnboardingProgress = () => {
@@ -17,4 +19,19 @@ export const useOnboardingProgress = () => {
     onboardingCompleted,
     setOnboardingCompleted
   };
+};
+
+/**
+ * Marks onboarding complete without reading the persisted flag. Reading it goes through a suspending storage hook,
+ * so a caller rendered above a page's Suspense boundary (the PageLayout toolbar) would blank the screen on a cold key.
+ */
+export const useSetOnboardingCompleted = () => {
+  const [, setOnboarding] = useLocalStorage('onboarding', false);
+  return useCallback(
+    (value: boolean) => {
+      setOnboarding(value);
+      void putToStorage(MidenSharedStorageKey.OnboardingCompleted, value);
+    },
+    [setOnboarding]
+  );
 };
