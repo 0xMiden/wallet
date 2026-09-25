@@ -172,6 +172,37 @@ describe('intercom helpers', () => {
       expect(isSpendingLimitPriceUnavailable(revived)).toBe(true);
     });
 
+    it('puts the same literal code and payload in slot 5 and in the 1.16.2 object shape', () => {
+      const assessment: SpendingLimitAssessment = {
+        accountId: 'account-a',
+        usdAmount: 20n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
+      };
+      const breach = {
+        code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+        spendingLimit: {
+          assessment: {
+            accountId: 'account-a',
+            usdAmount: '20',
+            revision: 'revision-1',
+            assessedAt: 100,
+            breach: { spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }
+          }
+        }
+      };
+      const unpriced = { code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', spendingLimit: { symbol: 'USDC' } };
+
+      for (const [error, payload] of [
+        [new SpendingLimitAuthorizationRequiredError(assessment), breach],
+        [new SpendingLimitPriceUnavailableError('USDC'), unpriced]
+      ] as const) {
+        expect(serializeInternalError(error)[4]).toEqual(payload);
+        expect(serializeError(error)).toMatchObject(payload);
+      }
+    });
+
     // A 1.16.2 service worker under an open port still speaks `serializeError`, whose
     // spending-limit refusals are an object.
     it('reads the object shape a 1.16.2 server sends for a spending-limit refusal', () => {

@@ -225,8 +225,8 @@ export const ReviewTransaction: React.FC = () => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
-  // The account's spending-limit revision never crosses the intercom port - `serializeError` /
-  // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
+  // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
+  // / `deserializeInternalError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
   // `authorizationMatches` re-reads server-side at redemption.
   const openUnpricedChallenge = useCallback(

@@ -6,7 +6,7 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { deserializeError, serializeError } from 'lib/intercom/helpers';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
@@ -777,13 +777,13 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('opens the unvalued challenge from a rejection that actually crossed the intercom port', async () => {
     // Unlike the raw-object rejections above (the in-process shape mobile/desktop reject with),
-    // this is what the extension's popup <-> SW port actually delivers: the real `serializeError`
-    // followed by the real `deserializeError`, round-tripping a price-unavailable refusal through
+    // this is what the extension's popup <-> SW port actually delivers: the real `serializeInternalError`
+    // followed by the real `deserializeInternalError`, round-tripping a price-unavailable refusal through
     // the intercom wire format rather than assuming it survives untouched.
     setValidRoute();
     initiateMock.mockRejectedValue(
-      deserializeError(
-        serializeError({
+      deserializeInternalError(
+        serializeInternalError({
           message: 'No current price is available for MDN',
           code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
           symbol: 'MDN'
