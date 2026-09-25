@@ -26,10 +26,11 @@
 
 import React from 'react';
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
+import { markOnboardingFinishing } from './onboarding-finish';
 import PageRouter from './PageRouter';
 import { resolveRootView } from './root-view';
 
@@ -716,6 +717,30 @@ describe('app/PageRouter — scroll & history side effects', () => {
     renderAt('/', ready, Woozie.HistoryAction.Push);
     expect(scrollToMock).toHaveBeenCalledWith(0, 0);
     expect(resetHistoryPositionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('app/PageRouter - a just-created wallet finishing onboarding', () => {
+  it('shows the loading view at the root and on unknown paths while the mark is held, then Home once released', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+  });
+
+  it('keeps the finishing mark out of the lifecycle telemetry ctx', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(mockUseAppLifecycleTelemetry).toHaveBeenLastCalledWith({ ready: true, locked: false, hydrated: true });
+    } finally {
+      act(() => mark.release());
+    }
   });
 });
 

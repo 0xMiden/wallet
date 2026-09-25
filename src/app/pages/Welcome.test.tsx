@@ -9,6 +9,22 @@ import { NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from 'scre
 
 import Welcome from './Welcome';
 
+// The real store, with each mark's arm/release recorded so the handler's ordering is assertable.
+const mockMarks: Array<{ arm: jest.Mock; release: jest.Mock }> = [];
+jest.mock('app/onboarding-finish', () => {
+  const actual = jest.requireActual('app/onboarding-finish');
+  return {
+    ...actual,
+    markOnboardingFinishing: () => {
+      const mark = actual.markOnboardingFinishing();
+      const recorded = { arm: jest.fn(() => mark.arm()), release: jest.fn(() => mark.release()) };
+      mockMarks.push(recorded);
+      return recorded;
+    }
+  };
+});
+const { isOnboardingFinishing } = jest.requireActual('app/onboarding-finish');
+
 // ---------------------------------------------------------------------------
 // Welcome.tsx is the onboarding state machine: it owns every piece of in-memory
 // onboarding state (seed, password, wallet type, protection method, biometric
@@ -1014,6 +1030,53 @@ describe('Welcome - network notice (#875)', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+});
+
+describe('Welcome - the finishing mark around a tapped confirmation', () => {
+  async function reachConfirmation() {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await setHash('#choose-protection');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    mockMarks.length = 0;
+  }
+
+  it('holds the mark through registration and the Ready wait, arms it before the wait, and releases it after navigating', async () => {
+    let heldDuringRegister: boolean | undefined;
+    let heldDuringReadyWait: boolean | undefined;
+    mockRegisterWallet.mockImplementationOnce(async () => {
+      heldDuringRegister = isOnboardingFinishing();
+    });
+    mockFetchState.mockImplementationOnce(async () => {
+      heldDuringReadyWait = isOnboardingFinishing();
+      return { status: READY, accounts: [{}] };
+    });
+    await reachConfirmation();
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(heldDuringRegister).toBe(true);
+    expect(heldDuringReadyWait).toBe(true);
+    const [mark] = mockMarks;
+    expect(mark!.arm.mock.invocationCallOrder[0]!).toBeGreaterThan(mockRegisterWallet.mock.invocationCallOrder[0]!);
+    expect(mark!.arm.mock.invocationCallOrder[0]!).toBeLessThan(mockFetchState.mock.invocationCallOrder[0]!);
+    expect(mark!.release.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      mockNavigate.mock.invocationCallOrder[mockNavigate.mock.invocationCallOrder.length - 1]!
+    );
+    expect(isOnboardingFinishing()).toBe(false);
+  });
+
+  it('releases the mark when registration fails', async () => {
+    mockRegisterWallet.mockRejectedValueOnce(new Error('boom'));
+    await reachConfirmation();
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockMarks[0]!.release).toHaveBeenCalled();
+    expect(isOnboardingFinishing()).toBe(false);
   });
 });
 

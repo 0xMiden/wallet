@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
+import { markOnboardingFinishing } from 'app/onboarding-finish';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
@@ -767,17 +768,21 @@ const Welcome: FC = () => {
         setGuardianLookupError(false);
         navigate('/#confirmation');
         break;
-      case 'confirmation':
+      case 'confirmation': {
         // Side panel handoff (Chrome) creates the wallet in the auto-create
         // effect above and navigates to /finish-side-panel, so this click only
         // runs in the classic flow: non-Chrome, hardware/biometric, or a retry
         // after a failed auto-create. It creates the wallet then enters in-tab.
         attemptInFlightRef.current = true;
         setIsLoading(true);
+        // Held until this handler has navigated on: the Ready push below would otherwise show Home first. It lives
+        // outside this component because the app subtree remounts when the wallet turns Ready.
+        const finishMark = markOnboardingFinishing();
         try {
           setBiometricError(null);
           setRegistrationError(null);
           await register();
+          finishMark.arm();
           // Wait for state to be synced before navigating
           // This fixes a race condition where navigation happens before state is Ready
           const becameReady = await waitForReadyState(syncFromBackend);
@@ -817,10 +822,12 @@ const Welcome: FC = () => {
             setBiometricError(error instanceof Error ? error.message : 'Biometric authentication failed');
           }
         } finally {
+          finishMark.release();
           attemptInFlightRef.current = false;
           setIsLoading(false);
         }
         break;
+      }
       case 'switch-to-password':
         // User chose to use password after biometric failures
         setUseBiometric(false);

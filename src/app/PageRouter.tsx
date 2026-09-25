@@ -35,6 +35,7 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import { useOnboardingFinishing } from './onboarding-finish';
 import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
 import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
@@ -55,6 +56,7 @@ interface RouteContext {
   ready: boolean;
   locked: boolean;
   hydrated: boolean;
+  finishingOnboarding: boolean;
   settingsScrollTop: React.MutableRefObject<number>;
 }
 
@@ -459,6 +461,7 @@ const PageRouter: FC = () => {
   const appEnv = useAppEnv();
   const miden = useMidenContext();
   const settingsScrollTop = useRef(0);
+  const finishingOnboarding = useOnboardingFinishing();
 
   const ctx = useMemo<RouteContext>(
     () => ({
@@ -467,15 +470,21 @@ const PageRouter: FC = () => {
       ready: miden.ready,
       locked: miden.locked,
       hydrated: miden.hydrated,
+      finishingOnboarding,
       settingsScrollTop
     }),
-    [appEnv.popup, appEnv.fullPage, miden]
+    [appEnv.popup, appEnv.fullPage, miden, finishingOnboarding]
+  );
+  // Telemetry reports the wallet's own state, not the frame onboarding holds back.
+  const lifecycleCtx = useMemo(
+    () => ({ ready: miden.ready, locked: miden.locked, hydrated: miden.hydrated }),
+    [miden.ready, miden.locked, miden.hydrated]
   );
 
   // The `open` / `return` telemetry flows live here rather than in `app/App`
   // because this is the first component that can read wallet readiness — `App`
   // is what mounts `MidenProvider`.
-  useAppLifecycleTelemetry(ctx);
+  useAppLifecycleTelemetry(lifecycleCtx);
   // dApp approvals report from the confirmation store, which cannot import
   // telemetry itself — see the hook.
   useDappApprovalTelemetry();

@@ -26,4 +26,10 @@ describe('resolveRootView — MV3 cold-start gating', () => {
   it('shows the app once ready', () => {
     expect(resolveRootView({ locked: false, ready: true, hydrated: true })).toBe('app');
   });
+
+  it('holds the loading view while a just-created wallet finishes onboarding, so Home never paints first', () => {
+    expect(resolveRootView({ locked: false, ready: true, hydrated: true, finishingOnboarding: true })).toBe('loading');
+    expect(resolveRootView({ locked: false, ready: false, hydrated: true, finishingOnboarding: true })).toBe('welcome');
+    expect(resolveRootView({ locked: true, ready: false, hydrated: true, finishingOnboarding: true })).toBe('unlock');
+  });
 });
