@@ -190,7 +190,7 @@ function buildRowProps(
   } else if (entry.txType === 'earn-deposit') {
     // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
     // cross when the lending leg settled `failed` so the row icon agrees with the red
-    // "Failed" status chip rendered below (statusTone) for that same state.
+    // "Failed" status chip (`status`, from earnDepositSettlementOf below) for that same state.
     const earnFailed = earnDepositSettlementOf(entry) === 'failed';
     iconNode = earnFailed ? (
       <FailedCrossIcon className="w-3.5 h-3.5" />
@@ -332,7 +332,7 @@ function buildRowProps(
     isUnconfirmedRotation(entry.guardianSwitchVerdict)
   ) {
     // A submitted-unconfirmed rotation is Completed in the DB, which the
-    // generic fallthrough below renders as a green "Confirmed" - the one claim
+    // default `status` above renders as a green "Confirmed" - the one claim
     // that row cannot make.
     status = 'guardianSwitchSubmitted';
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
