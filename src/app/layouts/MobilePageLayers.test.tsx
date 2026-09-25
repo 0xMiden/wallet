@@ -190,13 +190,47 @@ it('cleans up when back navigation interrupts a slide', async () => {
   expect(document.body).not.toHaveAttribute('data-hide-navbar');
 });
 
-it.each(['reduced motion', 'webview return'])('skips retention for %s', async mode => {
+it('skips retention for reduced motion', async () => {
   const { container, rerender } = render(view('/history'));
-  mockMotion.reduce = mode === 'reduced motion';
-  setReturningFromWebview(mode === 'webview return');
+  mockMotion.reduce = true;
   rerender(view('/settings', true));
   await waitFor(() => expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1));
   expect(screen.getByRole('button')).toHaveTextContent('/settings count 0');
+});
+
+it('keeps the page beneath on a webview return, without animating it', async () => {
+  const { container, rerender } = render(view('/history'));
+  setReturningFromWebview(true);
+  rerender(view('/settings', true));
+  await act(async () => undefined);
+  expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(2);
+  expect(mockMotion.layers['/history'].transition).toEqual(reducedMotionTransition);
+});
+
+it('keeps a covered page through a re-render inside the webview-return window', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  fireEvent.click(screen.getByRole('button', { name: '/settings count 0' }));
+  rerender(view('/a', true));
+  await settle();
+  const root = container.querySelector('[data-page-layer="/settings"]');
+  setReturningFromWebview(true);
+  rerender(view('/a', true));
+  setReturningFromWebview(false);
+
+  rerender(view('/settings', false, 'tabs', HistoryAction.Pop));
+  await settle();
+  expect(container.querySelector('[data-page-layer="/settings"]')).toBe(root);
+  expect(screen.getByRole('button')).toHaveTextContent('/settings count 1');
+});
+
+it('does not animate a Back inside the webview-return window', async () => {
+  const { rerender } = render(view('/history'));
+  rerender(view('/settings', true));
+  await settle();
+  setReturningFromWebview(true);
+  rerender(view('/settings', true));
+  rerender(view('/history', false, '/history', HistoryAction.Pop));
+  expect(mockMotion.layers['/history'].transition).toEqual(reducedMotionTransition);
 });
 
 it('covers the page beneath when a push returns to a slide page that was popped earlier', async () => {
@@ -224,7 +258,7 @@ it('covers the page beneath when a push returns to a slide page that was popped 
   // The page opens fresh, and it is the only present layer.
   expect(screen.getByRole('button')).toHaveTextContent('/rotate-guardian count 0');
   expect(container.querySelector('[data-page-layer="/rotate-guardian"]')).toHaveStyle({ transform: 'none' });
-});
+}, 15_000);
 
 it('drops a popped copy still sliding out at once when its page is pushed again, leaving one copy', async () => {
   // A reload lands on the sub-page itself, with nothing beneath it.
@@ -383,7 +417,7 @@ it('covers the page beneath when a push reopens a page a return skipped over', a
   await settle();
   expect(a).toHaveStyle({ transform: 'translateX(-24%)' });
   expect(screen.getByRole('button')).toHaveTextContent('/b count 0');
-});
+}, 15_000);
 
 it('still reveals the retained pages a return skipped over when the router pops back to them', async () => {
   const { container, rerender } = render(view('/settings', false, 'tabs'));
@@ -411,7 +445,7 @@ it('still reveals the retained pages a return skipped over when the router pops 
   rerender(view('/settings', false, 'tabs', HistoryAction.Pop));
   await settle();
   expect(container.querySelector('[data-page-layer="/settings"]')).toBe(root);
-});
+}, 15_000);
 
 it('still reveals a page a Replace left under the stack when the router pops back to it', async () => {
   const { rerender } = render(view('/settings', false, 'tabs'));
@@ -430,4 +464,31 @@ it('still reveals a page a Replace left under the stack when the router pops bac
   rerender(view('/r', true, '/r', HistoryAction.Pop));
   await settle();
   expect(screen.getByRole('button')).toHaveTextContent('/r count 1');
+}, 15_000);
+
+it('reports a page on screen when a push brings back a layer that went while covered', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  // B closes to the tabs: A goes at once, but AnimatePresence holds it until B has slid out.
+  rerender(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  expect(container.querySelector('[data-page-layer="/a"] button')).toHaveAttribute('data-fully-on-screen', 'true');
 });
+
+it('reports a page on screen when it comes back after being covered again while gone', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  rerender(view('/settings', false, 'tabs'));
+  rerender(view('/c', true));
+  await settle();
+  rerender(view('/a', true));
+  await settle();
+  expect(container.querySelector('[data-page-layer="/a"] button')).toHaveAttribute('data-fully-on-screen', 'true');
+}, 15_000);

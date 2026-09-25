@@ -3,17 +3,21 @@ import React, { createContext, FC, useContext, useEffect, useLayoutEffect, useMe
 import { AnimatePresence, motion, TargetAndTransition, usePresence, useReducedMotion } from 'framer-motion';
 
 import { PageActiveContext, PageOnScreenContext } from 'app/layouts/page-active';
-import { pageSlideDim, pageSlideParallax, usePreset } from 'lib/animation';
+import { pageSlideDim, pageSlideParallax, reducedMotionTransition, usePreset } from 'lib/animation';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { HistoryAction } from 'lib/woozie/history';
 import { LocationProvider, LocationState } from 'lib/woozie/location';
 
 interface LayerStack {
-  // True while the current page is a slide page. A layer that leaves while
-  // this is true stays mounted underneath it, like a navigation stack, so a
-  // pop reveals the same instance with its scroll and state intact.
+  // True while the current page is a slide page (and motion is not reduced). A layer that leaves while
+  // this is true stays mounted underneath it, like a navigation stack, so a pop reveals the same
+  // instance with its scroll and state intact. It never reads the webview-return hint, which is
+  // short-lived: a re-render inside that window must not drop the covered pages.
   retain: boolean;
+  // False under reduced motion or just after a webview closed. Read live, so a leaving layer, whose
+  // own props are frozen, moves instantly too.
+  animated: boolean;
   // The layer key of the page a return left. A slide page slides out, and no
   // page a return left stays covered under the page it went back to.
   poppedKey: string | null;
@@ -26,6 +30,7 @@ interface LayerStack {
 
 const LayerStackContext = createContext<LayerStack>({
   retain: false,
+  animated: true,
   poppedKey: null,
   mounted: new Set(),
   pageKey: ''
@@ -52,19 +57,31 @@ const coveredTarget: TargetAndTransition = { x: pageSlideParallax };
 
 const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, revealed, animated, children }) => {
   const [present, remove] = usePresence();
-  const { retain, poppedKey, mounted, pageKey: currentPageKey } = useContext(LayerStackContext);
+  const {
+    retain,
+    animated: stackAnimated,
+    poppedKey,
+    mounted,
+    pageKey: currentPageKey
+  } = useContext(LayerStackContext);
   const ref = useRef<HTMLDivElement>(null);
   const page = usePreset('page');
   // A layer that started to slide out keeps sliding out. It is off screen,
   // and a later push must not pull it back under the new page.
   const uncovering = useRef(false);
   if (present) uncovering.current = false;
+  // Set while a slide page covers this layer; cleared once its way back has finished. A slide page
+  // returned to from another slide page is `still`, yet it animates back from the covered offset too.
+  const covered = useRef(false);
   // AnimatePresence unmounts leaving layers together, once every one is done, and a covered layer is
   // not done until the slide page above it goes. A layer that has called remove() renders nothing
   // until then, even if a later navigation would make it `cover`: its page content unmounts and it
-  // leaves `mounted`.
+  // leaves `mounted`. A push can still bring it back while it is held, so it comes back reset.
   const [gone, setGone] = useState(false);
-  if (present && gone) setGone(false);
+  if (present && gone) {
+    covered.current = false;
+    setGone(false);
+  }
   // An earlier layer of the page on screen renders nothing, so the page is never in the DOM twice.
   const superseded = !present && pageKey === currentPageKey;
 
@@ -83,9 +100,6 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
       break;
   }
   if (layerMotion === 'uncover') uncovering.current = true;
-  // Set while a slide page covers this layer; cleared once its way back has finished. A slide page
-  // returned to from another slide page is `still`, yet it animates back from the covered offset too.
-  const covered = useRef(false);
   if (layerMotion === 'cover') covered.current = true;
 
   // Fully on screen: off the moment a push starts covering this layer, and after a pop only once
@@ -122,6 +136,7 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
 
   if (gone || superseded) return null;
 
+  const transition = stackAnimated ? page.transition : reducedMotionTransition;
   let initial: false | TargetAndTransition = false;
   let animate = page.animate;
   let dim = 0;
@@ -150,7 +165,7 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
       style={{ zIndex, pointerEvents: present ? 'auto' : 'none' }}
       initial={initial}
       animate={animate}
-      transition={page.transition}
+      transition={transition}
       onAnimationComplete={() => {
         if (!present && layerMotion === 'uncover') {
           setGone(true);
@@ -172,7 +187,7 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
         className="absolute inset-0 bg-pure-black pointer-events-none"
         initial={layerMotion === 'reveal' ? { opacity: pageSlideDim } : { opacity: 0 }}
         animate={{ opacity: dim }}
-        transition={page.transition}
+        transition={transition}
       />
     </motion.div>
   );
@@ -192,10 +207,11 @@ interface PageEntry {
   revealed: boolean;
   // The layer a return left for this one.
   poppedKey: string | null;
-  // How many times each page's layer has been retired. AnimatePresence unmounts a layer only once
-  // every leaving layer is done, so a retired layer stays mounted, off screen, for as long as a
-  // covered layer does. A later push to its page must open a new layer: reusing that one read the
-  // push as a return, slid the page beneath out instead of covering it, and kept the old state.
+  // How many times each page's layer has been retired. Each retire gives the page a new layer key, so a
+  // push never revives a retired generation (a page a return left, including one still sliding out, or
+  // one a push superseded). A layer that went without being retired (a covered page a release dropped)
+  // can still come back through a push while AnimatePresence holds it, and it comes back reset.
+  // Whether a navigation is a return is the stack's job.
   pops: Record<string, number>;
   // The pages a push may still return to, from the bottom layer to the page on screen. A page that
   // leaves it keeps its layer, so a router Pop still reveals it; only a push to it opens a new one.
@@ -239,10 +255,10 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
     });
   }
   const layerKey = layerKeyOf(pageKey, entry.pops);
-  const retain = slide && animated;
+  const retain = slide && !reduce;
   const stack = useMemo<LayerStack>(
-    () => ({ retain, poppedKey: entry.poppedKey, mounted, pageKey }),
-    [retain, entry.poppedKey, mounted, pageKey]
+    () => ({ retain, animated, poppedKey: entry.poppedKey, mounted, pageKey }),
+    [retain, animated, entry.poppedKey, mounted, pageKey]
   );
 
   return (
