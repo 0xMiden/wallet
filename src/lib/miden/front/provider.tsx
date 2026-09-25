@@ -7,6 +7,7 @@ import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getEffectiveNoteTransportUrl,
@@ -15,6 +16,7 @@ import {
   loadEndpointOverrides
 } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
 import { isExtension, isMobile } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -44,6 +46,25 @@ import { getMidenClient } from '../sdk/miden-client';
  * now acts as an adapter that exposes the Zustand state via the
  * existing useMidenContext() hook API.
  */
+/**
+ * How long MidenProvider holds its first render for the storage preload. A local read takes milliseconds; a native
+ * bridge call that never answers must not keep the wallet on a blank screen.
+ */
+export const STORAGE_PRELOAD_BUDGET_MS = 1_000;
+
+/**
+ * Keys read through the suspending storage hooks above any local Suspense boundary: the ready-only providers, the
+ * PageLayout toolbar and changelog overlay, and the network id pushed pages read. Uncached, the first such read
+ * suspends the whole app behind WalletStoreProvider's null fallback, and the screen goes blank.
+ */
+const PRELOADED_STORAGE_KEYS = [
+  ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
+  FIAT_CURRENCY_STORAGE_KEY,
+  MidenSharedStorageKey.OnboardingCompleted,
+  MidenSharedStorageKey.LastShownChangelogVersion,
+  NETWORK_STORAGE_ID
+];
+
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // Combined readiness gate: apply any developer endpoint override BEFORE
   // the SDK's WASM module (and its prover config) resolves, so both this
@@ -58,15 +79,24 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
-      // TokensMetadataProvider and FiatCurrencyProvider mount when the wallet turns ready and read these keys
-      // through suspending storage hooks. Uncached, that read suspended the whole app behind
-      // WalletStoreProvider's null fallback, and the screen went blank for about 120 ms between the passcode
-      // and Home. Reading them alongside the WASM init, and holding `ready` until they are cached, means no
-      // path (a warm-WASM page with the wallet already unlocked included) reaches those providers uncached.
-      const preloaded = preloadStorage([ALL_TOKENS_BASE_METADATA_STORAGE_KEY, FIAT_CURRENCY_STORAGE_KEY]).catch(err =>
-        console.warn('[MidenProvider] storage preload failed:', err)
-      );
+      // The preload runs alongside the WASM init, and `ready` waits for it for at most the budget, so the keys are
+      // cached before anything reads them (a warm-WASM page with the wallet already unlocked included). A key still
+      // uncached after the budget suspends as it did before the preload existed.
+      const preloaded = Promise.race([
+        preloadStorage(PRELOADED_STORAGE_KEYS).catch(err =>
+          console.warn('[MidenProvider] storage preload failed:', err)
+        ),
+        new Promise<void>(resolve => {
+          budgetTimer = setTimeout(() => {
+            if (!cancelled) {
+              console.warn(`[MidenProvider] storage preload still pending after ${STORAGE_PRELOAD_BUDGET_MS} ms`);
+            }
+            resolve();
+          }, STORAGE_PRELOAD_BUDGET_MS);
+        })
+      ]).finally(() => clearTimeout(budgetTimer));
       await loadEndpointOverrides();
       // Prime native-asset-id discovery on every page mount. On extension this
       // also happens on the SW side, but the SW can be killed before the popup
@@ -87,6 +117,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     })();
     return () => {
       cancelled = true;
+      clearTimeout(budgetTimer);
     };
   }, []);
 

@@ -75,7 +75,7 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(() => Promise.resolve())
 }));
 
-import { MidenProvider } from './provider';
+import { MidenProvider, STORAGE_PRELOAD_BUDGET_MS } from './provider';
 
 beforeEach(() => {
   _g.__providerTest.isExtension = false;
@@ -139,7 +139,13 @@ describe('MidenProvider', () => {
       </MidenProvider>
     );
     expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
-    expect(mockPreloadStorage).toHaveBeenCalledWith(['tokens_base_metadata', 'fiat_currency']);
+    expect(mockPreloadStorage).toHaveBeenCalledWith([
+      'tokens_base_metadata',
+      'fiat_currency',
+      'onboarding_completed',
+      'last_shown_changelog_version',
+      'network_id'
+    ]);
   });
 
   it('renders nothing until the storage preload settles', async () => {
@@ -162,6 +168,46 @@ describe('MidenProvider', () => {
     expect(queryByText('x')).toBeNull();
     settle();
     expect(await findByText('x')).toBeDefined();
+  });
+
+  describe('when the storage preload never settles', () => {
+    let warn: jest.SpyInstance;
+    const budgetWarnings = () => warn.mock.calls.filter(([message]) => String(message).includes('still pending'));
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockPreloadStorage.mockImplementationOnce(() => new Promise<void>(() => {}));
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it('renders after the preload budget, and says so', async () => {
+      const { queryByText, getByText } = render(
+        <MidenProvider>
+          <div>x</div>
+        </MidenProvider>
+      );
+      await act(() => jest.advanceTimersByTimeAsync(STORAGE_PRELOAD_BUDGET_MS - 1));
+      expect(queryByText('x')).toBeNull();
+      await act(() => jest.advanceTimersByTimeAsync(1));
+      expect(getByText('x')).toBeDefined();
+      expect(budgetWarnings()).toHaveLength(1);
+    });
+
+    it('leaves no budget warning behind once unmounted', async () => {
+      const { unmount } = render(
+        <MidenProvider>
+          <div>x</div>
+        </MidenProvider>
+      );
+      unmount();
+      await act(() => jest.advanceTimersByTimeAsync(STORAGE_PRELOAD_BUDGET_MS));
+      expect(budgetWarnings()).toHaveLength(0);
+    });
   });
 
   it('still renders when the storage preload fails', async () => {
