@@ -218,9 +218,23 @@ it('keeps a covered page through a re-render inside the webview-return window', 
   setReturningFromWebview(false);
 
   rerender(view('/settings', false, 'tabs', HistoryAction.Pop));
+  // The window has closed: the popped page slides out although its last render was inside it.
+  const popped = container.querySelector('[data-page-layer="/a"]');
+  expect(popped).toHaveStyle({ zIndex: '3' });
   await settle();
+  expect(popped).not.toBeInTheDocument();
   expect(container.querySelector('[data-page-layer="/settings"]')).toBe(root);
   expect(screen.getByRole('button')).toHaveTextContent('/settings count 1');
+});
+
+it('drops a popped page at once on a Back inside the webview-return window', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  setReturningFromWebview(true);
+  rerender(view('/settings', false, 'tabs', HistoryAction.Pop));
+  await act(async () => undefined);
+  expect(container.querySelector('[data-page-layer="/a"]')).not.toBeInTheDocument();
 });
 
 it('does not animate a Back inside the webview-return window', async () => {
@@ -491,4 +505,76 @@ it('reports a page on screen when it comes back after being covered again while 
   rerender(view('/a', true));
   await settle();
   expect(container.querySelector('[data-page-layer="/a"] button')).toHaveAttribute('data-fully-on-screen', 'true');
+}, 15_000);
+
+// The page content's own element: the first child of its layer.
+const contentOf = (container: HTMLElement, pathname: string) =>
+  container.querySelector(`[data-page-layer="${pathname}"]`)?.firstElementChild;
+
+it('reveals a slide page a Pop returns to whose layer was released, once the popped page has gone', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/s1', true));
+  await settle();
+  rerender(view('/s2', true));
+  await settle();
+  rerender(view('/p'));
+  await settle();
+  rerender(view('/s2', true, '/s2', HistoryAction.Pop));
+  await settle();
+
+  rerender(view('/s1', true, '/s1', HistoryAction.Pop));
+  const s1 = () => container.querySelector('[data-page-layer="/s1"] button');
+  expect(container.querySelector('[data-page-layer="/s1"]')).toHaveStyle({ transform: 'translateX(-24%)' });
+  expect(container.querySelector('[data-page-layer="/s2"]')).toBeInTheDocument();
+  expect(s1()).toHaveAttribute('data-fully-on-screen', 'false');
+  await waitFor(() => expect(container.querySelector('[data-page-layer="/s2"]')).not.toBeInTheDocument());
+  await waitFor(() => expect(s1()).toHaveAttribute('data-fully-on-screen', 'true'));
+}, 15_000);
+
+it('plays no push slide-in for a page a Pop brings back while its layer is still held', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  // B closes to the tabs; A goes at once but is held until B has slid out.
+  rerender(view('/settings', false, 'tabs'));
+  rerender(view('/a', true, '/a', HistoryAction.Pop));
+  expect(contentOf(container, '/a')).not.toHaveStyle({ transform: 'translateX(100%)' });
+});
+
+it('plays the push slide-in for a page first mounted by a return and later pushed back while held', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/x', true));
+  await settle();
+  rerender(view('/a', true, '/a', HistoryAction.Pop));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  rerender(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  expect(contentOf(container, '/a')).toHaveStyle({ transform: 'translateX(100%)' });
+}, 15_000);
+
+it('keeps the stack beneath when the router pops to a page outside it', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  const root = container.querySelector('[data-page-layer="/settings"]');
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  rerender(view('/c', true));
+  await settle();
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/c', true, '/c', HistoryAction.Pop));
+  await settle();
+  rerender(view('/b', true, '/b', HistoryAction.Pop));
+  await settle();
+
+  // A close from B to the tabs root, which is still in the stack beneath: a return.
+  rerender(view('/settings', false, 'tabs'));
+  expect(container.querySelector('[data-page-layer="/b"]')).toHaveStyle({ zIndex: '3' });
+  await settle();
+  expect(container.querySelector('[data-page-layer="/settings"]')).toBe(root);
 }, 15_000);

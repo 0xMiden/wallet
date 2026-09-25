@@ -2,6 +2,7 @@ import React, { FC, useState } from 'react';
 
 import { motion, TargetAndTransition, useIsPresent, useReducedMotion } from 'framer-motion';
 
+import { usePageMountedByReturn } from 'app/layouts/page-active';
 import { usePreset } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
@@ -24,7 +25,9 @@ export const defaultPageEntrance = (): 'fade' | 'slide' => (isMobile() ? 'slide'
 const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = defaultPageEntrance() }) => {
   const present = useIsPresent();
   const reduce = useReducedMotion();
-  const appear = !reduce && !isReturningFromWebview();
+  // A page a return mounted comes back with its layer, never with a push's slide-in.
+  const mountedByReturn = usePageMountedByReturn();
+  const appear = !reduce && !isReturningFromWebview() && !mountedByReturn;
   const slide = appear && entrance === 'slide';
   const [entered, setEntered] = useState(false);
   // Keep the previous tab's navbar visible under the incoming page, and give

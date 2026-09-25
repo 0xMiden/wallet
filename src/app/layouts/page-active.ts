@@ -23,3 +23,14 @@ export const PageOnScreenContext = createContext(true);
 export function usePageOnScreen(): boolean {
   return useContext(PageOnScreenContext);
 }
+
+/**
+ * True when a return (a router Pop, or a close to a page beneath) mounted the page's layer fresh. The page then plays
+ * no mount entrance of its own: its layer already brings it back from under the page that left, and a slide-in from the
+ * right would read as a push.
+ */
+export const PageMountedByReturnContext = createContext(false);
+
+export function usePageMountedByReturn(): boolean {
+  return useContext(PageMountedByReturnContext);
+}

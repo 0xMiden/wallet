@@ -2,7 +2,7 @@ import React, { createContext, FC, useContext, useEffect, useLayoutEffect, useMe
 
 import { AnimatePresence, motion, TargetAndTransition, usePresence, useReducedMotion } from 'framer-motion';
 
-import { PageActiveContext, PageOnScreenContext } from 'app/layouts/page-active';
+import { PageActiveContext, PageMountedByReturnContext, PageOnScreenContext } from 'app/layouts/page-active';
 import { pageSlideDim, pageSlideParallax, reducedMotionTransition, usePreset } from 'lib/animation';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -49,13 +49,23 @@ interface PageLayerProps extends PropsWithChildren {
   location: LocationState;
   slide: boolean;
   revealed: boolean;
+  returnMount: boolean;
   animated: boolean;
 }
 
 // The page beneath a slide page. The slide page itself moves on the `page` preset.
 const coveredTarget: TargetAndTransition = { x: pageSlideParallax };
 
-const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, revealed, animated, children }) => {
+const PageLayer: FC<PageLayerProps> = ({
+  pageKey,
+  layerKey,
+  location,
+  slide,
+  revealed,
+  returnMount,
+  animated,
+  children
+}) => {
   const [present, remove] = usePresence();
   const {
     retain,
@@ -78,9 +88,13 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
   // until then, even if a later navigation would make it `cover`: its page content unmounts and it
   // leaves `mounted`. A push can still bring it back while it is held, so it comes back reset.
   const [gone, setGone] = useState(false);
+  // Whether a return mounted this layer's content, taken each time the content mounts: at the layer's own
+  // mount and when a held layer comes back, never on a later return to a layer that stayed.
+  const [mountedByReturn, setMountedByReturn] = useState(returnMount);
   if (present && gone) {
     covered.current = false;
     setGone(false);
+    setMountedByReturn(returnMount);
   }
   // An earlier layer of the page on screen renders nothing, so the page is never in the DOM twice.
   const superseded = !present && pageKey === currentPageKey;
@@ -92,7 +106,7 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
     case present && revealed && animated:
       layerMotion = 'reveal';
       break;
-    case !present && slide && animated && (uncovering.current || layerKey === poppedKey):
+    case !present && slide && stackAnimated && (uncovering.current || layerKey === poppedKey):
       layerMotion = 'uncover';
       break;
     case !present && retain && layerKey !== poppedKey:
@@ -103,8 +117,8 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
   if (layerMotion === 'cover') covered.current = true;
 
   // Fully on screen: off the moment a push starts covering this layer, and after a pop only once
-  // its own way back has finished (a covered layer, or a fresh one mounted in `reveal`), since the
-  // page above is still sliding off until then. Set during render, so the commit that changes
+  // its own way back has finished (a covered layer, or a fresh or held one mounted in `reveal`, slide
+  // page or not), since the page above is still sliding off until then. Set during render, so the commit that changes
   // `present` never paints a stale value.
   const settled = present && !(animated && (covered.current || layerMotion === 'reveal'));
   const [onScreen, setOnScreen] = useState(settled);
@@ -179,7 +193,11 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
     >
       <LocationProvider snapshot={location}>
         <PageActiveContext.Provider value={present}>
-          <PageOnScreenContext.Provider value={onScreen}>{children}</PageOnScreenContext.Provider>
+          <PageOnScreenContext.Provider value={onScreen}>
+            <PageMountedByReturnContext.Provider value={mountedByReturn}>
+              {children}
+            </PageMountedByReturnContext.Provider>
+          </PageOnScreenContext.Provider>
         </PageActiveContext.Provider>
       </LocationProvider>
       <motion.div
@@ -202,9 +220,11 @@ interface MobilePageLayersProps extends PropsWithChildren {
 interface PageEntry {
   key: string;
   slide: boolean;
-  // A return left a slide page for this page, which is not one, so this page
-  // comes back from under it.
+  // A return left a slide page for this page, and this page's layer is not a kept, covered one, so it
+  // comes back from under the page that left.
   revealed: boolean;
+  // A return mounted this page's layer fresh, so its content plays no entrance of its own.
+  returnMount: boolean;
   // The layer a return left for this one.
   poppedKey: string | null;
   // How many times each page's layer has been retired. Each retire gives the page a new layer key, so a
@@ -229,6 +249,7 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
     key: pageKey,
     slide,
     revealed: false,
+    returnMount: false,
     poppedKey: null,
     pops: {},
     stack: [pageKey]
@@ -247,7 +268,8 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
     setEntry({
       key: pageKey,
       slide,
-      revealed: returning && entry.slide && !slide,
+      revealed: returning && entry.slide && (!slide || !live),
+      returnMount: returning && !live,
       poppedKey: returning ? layerKeyOf(entry.key, entry.pops) : null,
       // A push to a page outside the stack whose old layer is still mounted opens a new layer.
       pops: returning ? retire(entry.pops, entry.key) : live ? retire(entry.pops, pageKey) : entry.pops,
@@ -272,6 +294,7 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
             location={location}
             slide={slide}
             revealed={entry.key === pageKey && entry.revealed}
+            returnMount={entry.key === pageKey && entry.returnMount}
             animated={animated}
           >
             {children}
