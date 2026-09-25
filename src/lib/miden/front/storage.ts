@@ -1,5 +1,7 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { mutate } from 'swr';
+
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
@@ -96,6 +98,36 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
     return items[key] as T;
   } else {
     return null;
+  }
+}
+
+/**
+ * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
+ * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
+ * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
+ * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
+ */
+export async function preloadStorage(
+  keys: string[],
+  { onSettled }: { onSettled?: (key: string) => void } = {}
+): Promise<void> {
+  const results = await Promise.allSettled(
+    keys.map(async key => {
+      try {
+        const value = await fetchFromStorage(key);
+        // A preload that lands after a hook's own read or a storage-change event must not replace that newer value.
+        await mutate(key, (current: unknown) => (current === undefined ? value : current), { revalidate: false });
+      } finally {
+        onSettled?.(key);
+      }
+    })
+  );
+  const failures = keys.flatMap((key, index) => {
+    const result = results[index];
+    return result?.status === 'rejected' ? [`${key} (${String(result.reason)})`] : [];
+  });
+  if (failures.length > 0) {
+    throw new Error(`storage preload failed for ${failures.length} of ${keys.length} keys: ${failures.join('; ')}`);
   }
 }
 

@@ -60,7 +60,9 @@ export interface SwapOrderNoteMetadata {
 export enum MidenSharedStorageKey {
   DAppEnabled = 'DAppEnabled',
   PasswordAttempts = 'PasswordAttempts',
-  TimeLock = 'TimeLock'
+  TimeLock = 'TimeLock',
+  OnboardingCompleted = 'onboarding_completed',
+  LastShownChangelogVersion = 'last_shown_changelog_version'
 }
 
 export interface MidenDAppSession {

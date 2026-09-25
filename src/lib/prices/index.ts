@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 
+import { useMidenContext } from 'lib/miden/front';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
@@ -24,15 +25,19 @@ export function useTokenSparkline(symbol: string, timeframe: Timeframe = '1D'): 
   return useMemo(() => (data ?? []).map(p => p.value), [data]);
 }
 
+const TOKEN_PRICES_KEY = 'token-prices';
+
 /**
  * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.
- * Mount alongside FiatCurrencyProvider in the app tree.
+ * Mount it once, outside the wallet-ready gate: prices are public, so the fetch can start before unlock. It reads
+ * nothing until a wallet exists, so onboarding makes no price request.
  */
 export function PriceProvider() {
   const setTokenPrices = useWalletStore(s => s.setTokenPrices);
   const syncDone = useRef(false);
+  const { locked, ready } = useMidenContext();
 
-  const { data: prices } = useRetryableSWR('token-prices', fetchTokenPrices, {
+  const { data: prices } = useRetryableSWR(locked || ready ? TOKEN_PRICES_KEY : null, fetchTokenPrices, {
     refreshInterval: 5 * 60_000,
     dedupingInterval: 30_000
   });
