@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- [FIX][all] **Opening a page again after backing out of it no longer slides the page you opened it from away.** A page you backed out of stayed mounted off screen, so opening it again (Rotate Guardian from Guardian Settings, say) was taken for a Back: the page beneath slid out and exposed the Settings list, and the reopened page kept its old state. It now opens as a new page over the one you opened it from.
 - [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
 
 ## 1.16.2 (2026-09-24)

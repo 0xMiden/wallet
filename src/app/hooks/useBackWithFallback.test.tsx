@@ -237,10 +237,10 @@ describe('useBackWithFallback on a page layer (a frozen location snapshot)', () 
     expect(goBackMock).toHaveBeenCalledTimes(1);
   });
 
-  it('goes back from a slide page re-entered while its layer was still sliding out', async () => {
+  it('goes back from a slide page reopened while its old layer was still sliding out', async () => {
     // The device repro: Address Book -> New contact -> back -> New contact -> back. The
-    // pop leaves the slide page's layer mounted while it slides out, and a push to the
-    // same route before it is removed brings back that same instance, latch and all.
+    // pop leaves the slide page's layer mounted while it slides out; reopening the route
+    // before it is removed opens a new layer, whose back button must still work.
     let mounts = 0;
     const NewContact: React.FC = () => {
       const counted = useRef(false);
@@ -279,7 +279,7 @@ describe('useBackWithFallback on a page layer (a frozen location snapshot)', () 
     pushTo('/contacts/new');
     rerender(page(true));
     await settle();
-    expect(mounts).toBe(1);
+    expect(mounts).toBe(2);
     clickBack();
 
     expect(goBackMock).toHaveBeenCalledTimes(2);
