@@ -28,16 +28,30 @@ export const BADGE_ARTIFACT = 'coverage-badge-data';
 // ghApi(path, { paginate }) resolves to the response's pages, as `gh api --paginate --slurp` gives them; unpaginated
 // it is one page. A failure rejects with the HTTP status on `status` when there is one, and `ghApiFailure: true`
 // always, so main() can tell a real gh failure (exit 1) from a bug in this script (exit 3).
+// A successful response of any other shape is unusable: throwing it unmarked makes main() exit 3.
 function items(pages, key) {
-  return pages.flatMap(page => (key ? (page?.[key] ?? []) : (page ?? [])));
+  if (!Array.isArray(pages)) throw new Error('expected the response pages as a list');
+  return pages.flatMap(page => {
+    const list = key ? page?.[key] : page;
+    if (!Array.isArray(list)) throw new Error(`expected every page to hold a list${key ? ` under ${key}` : ''}`);
+    return list;
+  });
+}
+
+function positiveInteger(value, what) {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`expected ${what} to be a positive integer`);
+  return value;
 }
 
 const SHA_RE = /^[0-9a-f]{40}$/;
+const COMPARE_STATUSES = ['ahead', 'behind', 'identical', 'diverged'];
 
 export async function findBadgeRun({ ghApi, repo, sha }) {
   const pulls = items(await ghApi(`repos/${repo}/commits/${sha}/pulls?per_page=100`));
   const pr = pulls.find(p => p?.merged_at && p?.base?.ref === 'main');
   if (!pr) return { reason: 'no-pr' };
+  positiveInteger(pr.number, 'the pull request number');
+  if (typeof pr.head?.sha !== 'string' || !SHA_RE.test(pr.head.sha)) throw new Error('expected the PR head sha');
 
   const runs = items(
     await ghApi(`repos/${repo}/actions/workflows/pr.yml/runs?head_sha=${pr.head.sha}&per_page=100`),
@@ -49,6 +63,7 @@ export async function findBadgeRun({ ghApi, repo, sha }) {
     // run must name this PR.
     .filter(r => (r.pull_requests?.length ? r.pull_requests.some(p => p?.number === pr.number) : samePrHead(r, pr)))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || b.id - a.id);
+  for (const run of runs) positiveInteger(run.id, 'a run id');
 
   for (const run of runs) {
     const artifacts = items(await ghApi(`repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`), 'artifacts');
@@ -96,7 +111,8 @@ export async function shouldPublish({ ghApi, repo, sha, sourceFile }) {
     if (isUnknownCommit(err)) return { publish: true, status: 'none' };
     throw err;
   }
-  const status = String(pages[0]?.status ?? '');
+  const status = pages[0]?.status;
+  if (!COMPARE_STATUSES.includes(status)) throw new Error(`unexpected compare status ${JSON.stringify(status)}`);
   return { publish: status === 'ahead', status };
 }
 

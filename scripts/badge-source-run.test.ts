@@ -6,6 +6,8 @@ import { dirname, join, resolve } from 'node:path';
 import { BADGE_ARTIFACT, findBadgeRun, parseArgs, shouldPublish } from './badge-source-run.mjs';
 
 const REPO = 'org/wallet';
+// A PR head sha, 40 hex digits as GitHub gives them.
+const headSha = (n: number) => n.toString(16).padStart(40, '0');
 const SHA = 'mergesha';
 const HEAD_REPO = 'contrib/wallet';
 const HEAD_REF = 'feature';
@@ -29,7 +31,7 @@ function pr(number: number, base: string, merged = true) {
     number,
     merged_at: merged ? '2026-09-24T00:00:00Z' : null,
     base: { ref: base },
-    head: { sha: `head${number}`, ref: HEAD_REF, repo: { full_name: HEAD_REPO } }
+    head: { sha: headSha(number), ref: HEAD_REF, repo: { full_name: HEAD_REPO } }
   };
 }
 
@@ -77,7 +79,7 @@ describe('findBadgeRun', () => {
   it('finds the main PR on page two of the commit pulls', async () => {
     const api = ghApi({
       [pulls]: [[pr(1, 'main', false)], [pr(7, 'main')]],
-      [runsOf('head7')]: [{ workflow_runs: [prRun(11, 7)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [prRun(11, 7)] }],
       [artifactsOf(11)]: [{ artifacts: [badge] }]
     });
 
@@ -87,9 +89,9 @@ describe('findBadgeRun', () => {
   it('ignores a merged PR into another base', async () => {
     const api = ghApi({
       [pulls]: [[pr(3, 'dev'), pr(7, 'main')]],
-      [runsOf('head3')]: [{ workflow_runs: [prRun(13, 3)] }],
+      [runsOf(headSha(3))]: [{ workflow_runs: [prRun(13, 3)] }],
       [artifactsOf(13)]: [{ artifacts: [badge] }],
-      [runsOf('head7')]: [{ workflow_runs: [prRun(11, 7)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [prRun(11, 7)] }],
       [artifactsOf(11)]: [{ artifacts: [badge] }]
     });
 
@@ -99,7 +101,7 @@ describe('findBadgeRun', () => {
   it('gives no-pr when the only merged PR went into dev', async () => {
     const api = ghApi({
       [pulls]: [[pr(3, 'dev')]],
-      [runsOf('head3')]: [{ workflow_runs: [prRun(13, 3)] }],
+      [runsOf(headSha(3))]: [{ workflow_runs: [prRun(13, 3)] }],
       [artifactsOf(13)]: [{ artifacts: [badge] }]
     });
 
@@ -109,7 +111,7 @@ describe('findBadgeRun', () => {
   it('finds the eligible run on page two of the runs', async () => {
     const api = ghApi({
       [pulls]: [[pr(7, 'main')]],
-      [runsOf('head7')]: [{ workflow_runs: [prRun(12, 7)] }, { workflow_runs: [prRun(11, 7)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [prRun(12, 7)] }, { workflow_runs: [prRun(11, 7)] }],
       [artifactsOf(12)]: [{ artifacts: [] }],
       [artifactsOf(11)]: [{ artifacts: [badge] }]
     });
@@ -121,7 +123,7 @@ describe('findBadgeRun', () => {
     const api = ghApi({
       [pulls]: [[pr(7, 'main')]],
       // The push run matches the PR head repository and branch, so only the event filter rejects it.
-      [runsOf('head7')]: [{ workflow_runs: [prRun(14, 99), forkRun(13, { event: 'push' }), prRun(11, 7)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [prRun(14, 99), forkRun(13, { event: 'push' }), prRun(11, 7)] }],
       [artifactsOf(14)]: [{ artifacts: [badge] }],
       [artifactsOf(13)]: [{ artifacts: [badge] }],
       [artifactsOf(11)]: [{ artifacts: [badge] }]
@@ -133,7 +135,7 @@ describe('findBadgeRun', () => {
   it('accepts a run that lists no PR when it comes from the PR head repository and branch (a fork head)', async () => {
     const api = ghApi({
       [pulls]: [[pr(7, 'main')]],
-      [runsOf('head7')]: [{ workflow_runs: [forkRun(11)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [forkRun(11)] }],
       [artifactsOf(11)]: [{ artifacts: [badge] }]
     });
 
@@ -159,7 +161,7 @@ describe('findBadgeRun', () => {
     const merged = pr(7, 'main');
     const api = ghApi({
       [pulls]: [[{ ...merged, head: { ...merged.head, ...headExtra } }]],
-      [runsOf('head7')]: [{ workflow_runs: [forkRun(11, runExtra)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [forkRun(11, runExtra)] }],
       [artifactsOf(11)]: [{ artifacts: [badge] }]
     });
 
@@ -172,7 +174,7 @@ describe('findBadgeRun', () => {
   it('counts the artifact on page two', async () => {
     const api = ghApi({
       [pulls]: [[pr(7, 'main')]],
-      [runsOf('head7')]: [{ workflow_runs: [prRun(11, 7)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [prRun(11, 7)] }],
       [artifactsOf(11)]: [{ artifacts: [{ name: 'other', expired: false }] }, { artifacts: [badge] }]
     });
 
@@ -182,7 +184,7 @@ describe('findBadgeRun', () => {
   it('does not count an expired artifact', async () => {
     const api = ghApi({
       [pulls]: [[pr(7, 'main')]],
-      [runsOf('head7')]: [{ workflow_runs: [prRun(11, 7)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [prRun(11, 7)] }],
       [artifactsOf(11)]: [{ artifacts: [{ ...badge, expired: true }] }]
     });
 
@@ -201,7 +203,7 @@ describe('findBadgeRun', () => {
   it('gives no-artifact when no run carries the badge data', async () => {
     const api = ghApi({
       [pulls]: [[pr(7, 'main')]],
-      [runsOf('head7')]: [{ workflow_runs: [prRun(11, 7)] }],
+      [runsOf(headSha(7))]: [{ workflow_runs: [prRun(11, 7)] }],
       [artifactsOf(11)]: [{ artifacts: [] }]
     });
 
@@ -221,6 +223,41 @@ function sourceFile(content: string | null): string {
   if (content !== null) writeFileSync(path, content);
   return path;
 }
+
+describe('findBadgeRun rejects a successful response it cannot use', () => {
+  it.each([
+    ['a string PR number', { number: '7' }],
+    ['a PR head without a sha', { head: { ref: HEAD_REF, repo: { full_name: HEAD_REPO } } }]
+  ])('rejects %s before listing runs', async (_label, extra) => {
+    const api = ghApi({ [pulls]: [[{ ...pr(7, 'main'), ...extra }]] });
+
+    await expect(findBadgeRun({ ghApi: api, repo: REPO, sha: SHA })).rejects.toThrow();
+    expect(api.calls).toHaveLength(1);
+  });
+
+  it('rejects a candidate run with no id before listing its artifacts', async () => {
+    const { id: _id, ...run } = prRun(11, 7);
+    const api = ghApi({ [pulls]: [[pr(7, 'main')]], [runsOf(headSha(7))]: [{ workflow_runs: [run] }] });
+
+    await expect(findBadgeRun({ ghApi: api, repo: REPO, sha: SHA })).rejects.toThrow();
+    expect(api.calls).toHaveLength(2);
+  });
+
+  it.each([
+    ['a pulls page that is not a list', { [pulls]: [{}] }],
+    ['a runs page without workflow_runs', { [pulls]: [[pr(7, 'main')]], [runsOf(headSha(7))]: [{}] }],
+    [
+      'an artifacts page without artifacts',
+      {
+        [pulls]: [[pr(7, 'main')]],
+        [runsOf(headSha(7))]: [{ workflow_runs: [prRun(11, 7)] }],
+        [artifactsOf(11)]: [{}]
+      }
+    ]
+  ])('rejects %s', async (_label, routes) => {
+    await expect(findBadgeRun({ ghApi: ghApi(routes), repo: REPO, sha: SHA })).rejects.toThrow();
+  });
+});
 
 describe('shouldPublish', () => {
   it.each([
@@ -352,6 +389,17 @@ describe('the CLI gh adapter', () => {
     expect(res.stderr).toMatch(/^badge-source-run: .*socket hang up/);
   });
 
+  it.each([
+    ['no status', '{}'],
+    ['an unknown status', '{"status":"weird"}']
+  ])('exits 3 when gh succeeds with a compare body carrying %s', (_label, stdout) => {
+    const res = checkSource({ stdout });
+
+    expect(res.status).toBe(3);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toMatch(/^badge-source-run: /);
+  });
+
   it('exits 3 when gh succeeds but the response is not valid JSON', () => {
     const res = checkSource({ stdout: 'not json' });
 
@@ -367,7 +415,7 @@ describe('the CLI gh adapter', () => {
 describe('the lookup CLI gh adapter', () => {
   const PR_NUMBER = 42;
   const RUN_ID = 555;
-  const HEAD_SHA = 'headshaXYZ';
+  const HEAD_SHA = 'c'.repeat(40);
 
   const mergedPr = {
     number: PR_NUMBER,
@@ -469,6 +517,25 @@ describe('the lookup CLI gh adapter', () => {
     expect(res.status).toBe(1);
     expect(res.stdout).toBe('');
     expect(res.stderr).toMatch(/^badge-source-run: .*Server Error/);
+  });
+
+  it.each([
+    ['a pulls page that is not a list', [{ stdout: '[{}]' }]],
+    ['a runs page without workflow_runs', [{ stdout: JSON.stringify([[mergedPr]]) }, { stdout: '[{}]' }]],
+    [
+      'an artifacts page without artifacts',
+      [
+        { stdout: JSON.stringify([[mergedPr]]) },
+        { stdout: JSON.stringify([{ workflow_runs: [badgeRun] }]) },
+        { stdout: '[{}]' }
+      ]
+    ]
+  ])('exits 3 when gh succeeds with %s', (_label, responses) => {
+    const res = lookup(responses);
+
+    expect(res.status).toBe(3);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toMatch(/^badge-source-run: /);
   });
 
   it('exits 3 when gh succeeds but the pulls response is not the expected shape', () => {
