@@ -59,18 +59,25 @@ jobs:
             *) printf 'Reading coverage from:\n%s\n' "$out" ;;
           esac
       - name: Download badge data
+        id: download
         if: steps.source.outputs.run != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ steps.source.outputs.run }}
-        run: gh run download "$RUN_ID" --repo "$REPO" --name coverage-badge-data --dir "$RUNNER_TEMP/badge"
+        run: |
+          set -euo pipefail
+          # An API failure, or an artifact that expired after the lookup: warn and leave the badges.
+          rc=0
+          gh run download "$RUN_ID" --repo "$REPO" --name coverage-badge-data --dir "$RUNNER_TEMP/badge" || rc=$?
+          if [ "$rc" -ne 0 ]; then echo "::warning::could not download coverage-badge-data from run $RUN_ID; badges left unchanged"; exit 0; fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
       - name: Validate badge data
-        if: steps.source.outputs.run != ''
+        if: steps.download.outputs.ok == 'true'
         id: data
         run: node scripts/badge-data.mjs read "$RUNNER_TEMP/badge/badge-data.json" >> "$GITHUB_OUTPUT"
       - name: Compose shields.io endpoint JSON
-        if: steps.source.outputs.run != ''
+        if: steps.download.outputs.ok == 'true'
         env:
           PCT: ${{ steps.data.outputs.pct }}
           COUNT: ${{ steps.data.outputs.count }}
@@ -86,7 +93,7 @@ jobs:
           printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$COUNT" > /tmp/tests.json
           echo "Total tests: ${COUNT}"
       - name: Publish to `badges` branch
-        if: steps.source.outputs.run != ''
+        if: steps.download.outputs.ok == 'true'
         env:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}

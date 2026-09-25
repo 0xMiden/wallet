@@ -312,7 +312,12 @@ jobs:
         run: |
           set -euo pipefail
           yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
-          node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
+
+      # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
+      # A missing count only makes the gate's record step skip the badge artifact.
+      - name: Count shard tests
+        continue-on-error: true
+        run: node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -321,7 +326,6 @@ jobs:
             coverage/coverage-final.json
             coverage/test-count.json
           if-no-files-found: error
-          retention-days: 1
 
   coverage-gate:
     name: Coverage Check (95% minimum)

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { BADGE_ARTIFACT } from './badge-source-run.mjs';
+
 const repoRoot = resolve(__dirname, '..');
 const script = resolve(repoRoot, 'scripts/badge-data.mjs');
 
@@ -176,7 +178,7 @@ describe('badge workflows', () => {
   // The exact count makes a step the line reader misses (and so never checks) fail here instead.
   it.each([
     ['coverage-badge.yml', 'coverage-badge.yml', null, 5],
-    ['pr.yml job coverage', 'pr.yml', 'coverage', 1],
+    ['pr.yml job coverage', 'pr.yml', 'coverage', 2],
     ['pr.yml job coverage-gate', 'pr.yml', 'coverage-gate', 4]
   ])('%s interpolates no expression into its run scripts', (_label, workflow, job, count) => {
     const scripts = runScripts(job ? jobText(workflow, job) : workflowText(workflow));
@@ -262,6 +264,57 @@ describe('badge workflows', () => {
     expect(record).toMatch(/ "\$RUNNER_TEMP\/badge-data\.json"$/m);
     expect(upload).toMatch(/^\s*if: steps\.badge-data\.outcome == 'success'$/m);
     expect(upload).toMatch(/^\s*path: \$\{\{ runner\.temp \}\}\/badge-data\.json$/m);
+  });
+
+  it('pr.yml counts shard tests in their own step, between the tests and the upload, that cannot fail the shard', () => {
+    const coverage = jobText('pr.yml', 'coverage');
+    const scripts = runScripts(coverage);
+    const blocks = stepBlocks(coverage);
+    const tests = blocks.findIndex(b => runScripts(b).some(r => r.includes('yarn test:coverage')));
+    const count = blocks.findIndex(b => runScripts(b).some(r => r.includes('badge-data.mjs count')));
+    const upload = blocks.findIndex(b => /uses: actions\/upload-artifact@/.test(b));
+
+    expect(scripts.find(r => r.includes('yarn test:coverage'))).not.toContain('badge-data.mjs');
+    expect(scripts.filter(r => r.includes('badge-data.mjs count'))).toHaveLength(1);
+    expect(blocks[count]).toMatch(/^\s*continue-on-error: true$/m);
+    expect(tests).toBeGreaterThan(-1);
+    expect(count).toBeGreaterThan(tests);
+    expect(upload).toBeGreaterThan(count);
+  });
+
+  // A failed-jobs rerun of the gate reads the shards from the earlier attempt, so they keep the default lifetime.
+  it('pr.yml keeps the coverage shard artifacts for the default retention', () => {
+    const upload = stepBlocks(jobText('pr.yml', 'coverage')).find(b => /uses: actions\/upload-artifact@/.test(b));
+
+    expect(upload).toBeDefined();
+    expect(upload).not.toMatch(/retention-days/);
+  });
+
+  it('coverage-badge.yml turns a failed download into a warning and gates every later step on it', () => {
+    const steps = stepBlocks(workflowText('coverage-badge.yml'));
+    const index = steps.findIndex(b => /name: Download badge data$/m.test(b));
+    expect(index).toBeGreaterThan(-1);
+    const lines = runScripts(steps[index]!)[0]!
+      .split('\n')
+      .map(l => l.trim());
+    const invoke = lines.findIndex(l => l.startsWith('gh run download '));
+
+    expect(steps[index]).toMatch(/^\s*id: download$/m);
+    expect(lines[invoke - 1]).toBe('rc=0');
+    expect(lines[invoke]).toMatch(/ \|\| rc=\$\?$/);
+    expect(lines[invoke + 1]).toMatch(/^if \[ "\$rc" -ne 0 \]; then echo "::warning::[^"]+"; exit 0; fi$/);
+    expect(lines[invoke + 2]).toBe('echo "ok=true" >> "$GITHUB_OUTPUT"');
+    const later = steps.slice(index + 1);
+    expect(later).toHaveLength(3);
+    for (const step of later) expect(step).toMatch(/^\s*if: steps\.download\.outputs\.ok == 'true'$/m);
+  });
+
+  it('both workflows name the badge artifact as badge-source-run.mjs looks it up', () => {
+    const upload = stepBlocks(jobText('pr.yml', 'coverage-gate')).find(b => /name: Upload badge data$/m.test(b));
+    const download = runScripts(workflowText('coverage-badge.yml')).find(b => b.includes('gh run download'));
+
+    expect(upload).toMatch(new RegExp(`^\\s*name: ${BADGE_ARTIFACT}$`, 'm'));
+    expect(download).toContain(` --name ${BADGE_ARTIFACT} `);
   });
 
   it('the step reader opens a step on any key, so a step led by if: is checked too', () => {
