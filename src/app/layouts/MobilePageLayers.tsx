@@ -14,8 +14,8 @@ interface LayerStack {
   // this is true stays mounted underneath it, like a navigation stack, so a
   // pop reveals the same instance with its scroll and state intact.
   retain: boolean;
-  // The key of the page a return left. A slide page slides out, and no page a
-  // return left stays covered under the page it went back to.
+  // The layer key of the page a return left. A slide page slides out, and no
+  // page a return left stays covered under the page it went back to.
   poppedKey: string | null;
   // Keys of every mounted layer, present or retained.
   mounted: Set<string>;
@@ -60,10 +60,12 @@ const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, rev
   const uncovering = useRef(false);
   if (present) uncovering.current = false;
   // AnimatePresence unmounts leaving layers together, once every one is done, and a covered layer is
-  // not done until the slide page above it goes. A layer that has finished leaving renders nothing
-  // until then, so a later push to its page never finds a second copy of that page in the DOM.
+  // not done until the slide page above it goes. A layer that has called remove() renders nothing
+  // until then, even if a later navigation would make it `cover`: its page content unmounts and it
+  // leaves `mounted`.
   const [gone, setGone] = useState(false);
   if (present && gone) setGone(false);
+  // An earlier layer of the page on screen renders nothing, so the page is never in the DOM twice.
   const superseded = !present && pageKey === currentPageKey;
 
   let layerMotion: LayerMotion = 'still';
@@ -190,31 +192,50 @@ interface PageEntry {
   revealed: boolean;
   // The layer a return left for this one.
   poppedKey: string | null;
-  // How many times a return has left each page. AnimatePresence unmounts a layer only once every
-  // leaving layer is done, so a popped layer stays mounted, off screen, for as long as a covered
-  // layer does. A later push to its page must open a new layer: reusing that one read the push as
-  // a return, slid the page beneath out instead of covering it, and kept the old page's state.
+  // How many times each page's layer has been retired. AnimatePresence unmounts a layer only once
+  // every leaving layer is done, so a retired layer stays mounted, off screen, for as long as a
+  // covered layer does. A later push to its page must open a new layer: reusing that one read the
+  // push as a return, slid the page beneath out instead of covering it, and kept the old state.
   pops: Record<string, number>;
+  // The pages a push may still return to, from the bottom layer to the page on screen. A page that
+  // leaves it keeps its layer, so a router Pop still reveals it; only a push to it opens a new one.
+  stack: string[];
 }
 
 const layerKeyOf = (pageKey: string, pops: Record<string, number>) => `${pageKey}#${pops[pageKey] ?? 0}`;
+const retire = (pops: Record<string, number>, pageKey: string) => ({ ...pops, [pageKey]: (pops[pageKey] ?? 0) + 1 });
 
 const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location, children }) => {
   const reduce = useReducedMotion();
   const animated = !reduce && !isReturningFromWebview();
   const mounted = useRef(new Set<string>()).current;
-  const [entry, setEntry] = useState<PageEntry>({ key: pageKey, slide, revealed: false, poppedKey: null, pops: {} });
+  const [entry, setEntry] = useState<PageEntry>({
+    key: pageKey,
+    slide,
+    revealed: false,
+    poppedKey: null,
+    pops: {},
+    stack: [pageKey]
+  });
   if (entry.key !== pageKey) {
-    // A return goes back down the stack: the router popped, or the page is still mounted beneath (a close
-    // that navigates to it). Only a return plays the Back animation; a push from a slide page to a plain
-    // page releases the stack without it.
-    const returning = location.trigger === HistoryAction.Pop || mounted.has(layerKeyOf(pageKey, entry.pops));
+    // A return goes back down the stack: the router popped, or the page is in the stack beneath with its
+    // layer still mounted (a close that navigates to it). Only a return plays the Back animation; a push
+    // from a slide page to a plain page releases the stack without it.
+    const live = mounted.has(layerKeyOf(pageKey, entry.pops));
+    const below = entry.stack.slice(0, -1).lastIndexOf(pageKey);
+    const returning = location.trigger === HistoryAction.Pop || (live && below >= 0);
+    let stack: string[];
+    if (returning) stack = below >= 0 ? entry.stack.slice(0, below + 1) : [...entry.stack.slice(0, -1), pageKey];
+    else if (!slide) stack = [pageKey];
+    else stack = [...(location.trigger === HistoryAction.Replace ? entry.stack.slice(0, -1) : entry.stack), pageKey];
     setEntry({
       key: pageKey,
       slide,
       revealed: returning && entry.slide && !slide,
       poppedKey: returning ? layerKeyOf(entry.key, entry.pops) : null,
-      pops: returning ? { ...entry.pops, [entry.key]: (entry.pops[entry.key] ?? 0) + 1 } : entry.pops
+      // A push to a page outside the stack whose old layer is still mounted opens a new layer.
+      pops: returning ? retire(entry.pops, entry.key) : live ? retire(entry.pops, pageKey) : entry.pops,
+      stack
     });
   }
   const layerKey = layerKeyOf(pageKey, entry.pops);

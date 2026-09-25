@@ -279,8 +279,8 @@ describe('LanguageSettings', () => {
   });
 
   it('takes a pick again once the user leaves and reopens the screen', () => {
-    // Reopening within the slide-out brings back the same instance, so a latch that never
-    // resets left every row dead on the second visit.
+    // A screen a pop reveals is the same instance, so a latch that never resets left every
+    // row dead on the second visit.
     render(<LanguageSettings />);
     fireEvent.click(screen.getByText('Deutsch'));
 

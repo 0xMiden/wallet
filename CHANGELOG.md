@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- [FIX][all] **Opening a page again after backing out of it no longer slides the page you opened it from away.** A page you backed out of stayed mounted off screen, so opening it again (Rotate Guardian from Guardian Settings, say) was taken for a Back: the page beneath slid out and exposed the Settings list, and the reopened page kept its old state. It now opens as a new page over the one you opened it from.
 - [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
 
 ## 1.16.2 (2026-09-24)
@@ -148,7 +149,6 @@
 
 ### Fixes
 
-- [FIX][mobile] **Opening a page again after backing out of it no longer slides the page you opened it from away.** A page you backed out of stayed mounted off screen, so opening it again (Rotate Guardian from Guardian Settings, say) was taken for a Back: the page beneath slid out and exposed the Settings list, and the reopened page kept its old state. It now opens as a new page over the one you opened it from.
 - [FIX][all] Switching between Home's Send, Receive, Earn and Swap no longer jumps back to Overview.
 - [FIX][all] Settings → Recovery phrase opens its own page (warning first, then the phrase) instead of an overlay the tab bar covered.
 - [FIX][all] **Usage data described the app, not the person using it.** The first build to reach a real device reported, for a session in which the user did exactly one swap, an abandoned send and a completed receive-address share — and no swap. Three separate causes, all now fixed. The home screen renders Overview, Send, Receive, Earn and Swap as one carousel and mounts all five at once, so any flow begun when its screen mounted began on every launch for screens nobody had looked at; those now begin when the user is actually on the route. Every swipe release navigates, so crossing the carousel emitted a full, matched, entirely meaningless activity for each pane passed over; a route now has to hold still for 600ms before anything is reported, which a crossing never does and a real visit always does. And swap, earn, dApp approvals and guardian rotation had no instrumentation at all, so the things people actually do reported nothing while the screens they passed through reported everything. Separately, the value sent in the analytics provider's "session" field was the per-activity identifier, chosen because it is the least linkable thing that could go there — with the result that every session held exactly one activity, every session duration read 0s, and no session ever described a visit. It now carries an identifier for one run of the app: still random, still in memory only, still gone when the app closes, renewed after thirty minutes of inactivity, and never joinable to another run. The activity identifier moved alongside the other fields, where it still pairs a start with its end. The privacy policy states the new bound directly, in the same place it stated the old one.

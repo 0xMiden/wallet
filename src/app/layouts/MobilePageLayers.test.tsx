@@ -67,6 +67,12 @@ function view(pathname: string, slide = false, key = pathname, trigger = History
   );
 }
 
+// Long enough for every page transition to finish.
+const settle = () =>
+  act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+
 afterEach(() => {
   mockMotion.reduce = false;
   mockMotion.layers = {};
@@ -76,9 +82,7 @@ afterEach(() => {
 it('keeps the covered page mounted for as long as the slide page is present', async () => {
   const { container, rerender } = render(view('/history'));
   rerender(view('/settings', true));
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
   expect(container.querySelector('[data-page-layer="/history"]')).toBeInTheDocument();
   expect(container.querySelector('[data-page-layer="/settings"]')).toBeInTheDocument();
 });
@@ -115,9 +119,7 @@ it('slides a popped slide page out instead of parking it under the page beneath'
   const { container, rerender } = render(view('/'));
   rerender(view('/settings', true));
   rerender(view('/settings/general', true));
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
 
   rerender(view('/settings', true));
   const popped = container.querySelector('[data-page-layer="/settings/general"]');
@@ -136,9 +138,7 @@ it('slides a popped slide page out instead of parking it under the page beneath'
 it('plays no Back animation on a push from a slide page to a plain page, and covers nothing after popping back', async () => {
   const { container, rerender } = render(view('/history'));
   rerender(view('/history-details/one', true));
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
 
   rerender(view('/pending-notes'));
   expect(container.querySelector('[data-page-layer="/pending-notes"]')).not.toHaveStyle({
@@ -200,10 +200,6 @@ it.each(['reduced motion', 'webview return'])('skips retention for %s', async mo
 });
 
 it('covers the page beneath when a push returns to a slide page that was popped earlier', async () => {
-  const settle = () =>
-    act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 600));
-    });
   const { container, rerender } = render(view('/settings', false, 'tabs'));
   rerender(view('/settings/guardian', true));
   await settle();
@@ -214,6 +210,8 @@ it('covers the page beneath when a push returns to a slide page that was popped 
   // Back to Guardian Settings. The covered root keeps the popped page mounted, off screen.
   rerender(view('/settings/guardian', true, '/settings/guardian', HistoryAction.Pop));
   await settle();
+  // The popped page has finished sliding out, so it leaves the DOM rather than waiting on the covered root.
+  await waitFor(() => expect(container.querySelector('[data-page-layer="/rotate-guardian"]')).not.toBeInTheDocument());
 
   // Rotate again. Guardian Settings is covered, not slid out as if the push were a Back.
   rerender(view('/rotate-guardian', true));
@@ -225,19 +223,10 @@ it('covers the page beneath when a push returns to a slide page that was popped 
 
   // The page opens fresh, and it is the only present layer.
   expect(screen.getByRole('button')).toHaveTextContent('/rotate-guardian count 0');
-  const present = [...container.querySelectorAll('[data-page-layer]')].filter(
-    layer => !layer.hasAttribute('aria-hidden')
-  );
-  expect(present).toHaveLength(1);
-  expect(present[0]).toHaveAttribute('data-page-layer', '/rotate-guardian');
-  expect(present[0]).toHaveStyle({ transform: 'none' });
+  expect(container.querySelector('[data-page-layer="/rotate-guardian"]')).toHaveStyle({ transform: 'none' });
 });
 
-it('drops a popped page once it has left, so pushing it again while a covered page waits leaves one copy', async () => {
-  const settle = () =>
-    act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 600));
-    });
+it('drops a popped copy still sliding out at once when its page is pushed again, leaving one copy', async () => {
   // A reload lands on the sub-page itself, with nothing beneath it.
   const { container, rerender } = render(view('/settings/general', true));
   await settle();
@@ -294,9 +283,7 @@ it('reports a covered page off screen at once, and a revealed one on screen only
 
   rerender(view('/history-details/one', true));
   expect(button()).toHaveAttribute('data-fully-on-screen', 'false');
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
 
   rerender(view('/history'));
   const leaving = container.querySelector('[data-page-layer="/history-details/one"]');
@@ -322,9 +309,7 @@ it('reports a page fully on screen at once under reduced motion', () => {
 it('keeps a slide page revealed by a slide-to-slide pop off screen until the popped page has gone', async () => {
   const { container, rerender } = render(view('/settings', true));
   rerender(view('/settings/general', true));
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
 
   rerender(view('/settings', true));
   const popped = container.querySelector('[data-page-layer="/settings/general"]');
@@ -348,17 +333,11 @@ it('reports a page nothing covered on screen at once when it is returned to', ()
 it('keeps a freshly mounted page off screen through its reveal after the stack was released', async () => {
   const { container, rerender } = render(view('/history'));
   rerender(view('/settings', true));
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
   rerender(view('/receive'));
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
   rerender(view('/settings', true, '/settings', HistoryAction.Pop));
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-  });
+  await settle();
 
   rerender(view('/history', false, '/history', HistoryAction.Pop));
   const leaving = container.querySelector('[data-page-layer="/settings"]');
@@ -367,4 +346,88 @@ it('keeps a freshly mounted page off screen through its reveal after the stack w
   expect(history()).toHaveAttribute('data-fully-on-screen', 'false');
   await waitFor(() => expect(leaving).not.toBeInTheDocument());
   await waitFor(() => expect(history()).toHaveAttribute('data-fully-on-screen', 'true'));
+});
+
+it('covers the page beneath when a push reopens a page a Replace left under it', async () => {
+  // A cold open has no history to go back through, so Back replaces to the parent and the page it
+  // left stays covered beneath. Reopening it is a push, not a return.
+  const { container, rerender } = render(view('/rotate-guardian/review', true));
+  await settle();
+  fireEvent.click(screen.getByRole('button', { name: '/rotate-guardian/review count 0' }));
+  rerender(view('/rotate-guardian', true, '/rotate-guardian', HistoryAction.Replace));
+  await settle();
+
+  rerender(view('/rotate-guardian/review', true));
+  const parent = container.querySelector('[data-page-layer="/rotate-guardian"]');
+  await settle();
+  expect(parent).toBeInTheDocument();
+  expect(parent).toHaveStyle({ transform: 'translateX(-24%)' });
+  expect(screen.getByRole('button')).toHaveTextContent('/rotate-guardian/review count 0');
+});
+
+it('covers the page beneath when a push reopens a page a return skipped over', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  fireEvent.click(screen.getByRole('button', { name: '/b count 0' }));
+  rerender(view('/c', true));
+  await settle();
+  // C closes to A, which is mounted beneath: a return that leaves B behind it.
+  rerender(view('/a', true));
+  await settle();
+
+  rerender(view('/b', true));
+  const a = container.querySelector('[data-page-layer="/a"]');
+  await settle();
+  expect(a).toHaveStyle({ transform: 'translateX(-24%)' });
+  expect(screen.getByRole('button')).toHaveTextContent('/b count 0');
+});
+
+it('still reveals the retained pages a return skipped over when the router pops back to them', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  const root = container.querySelector('[data-page-layer="/settings"]');
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  fireEvent.click(screen.getByRole('button', { name: '/b count 0' }));
+  const b = container.querySelector('[data-page-layer="/b"]');
+  rerender(view('/c', true));
+  await settle();
+  rerender(view('/a', true));
+  await settle();
+
+  rerender(view('/c', true, '/c', HistoryAction.Pop));
+  await settle();
+  rerender(view('/b', true, '/b', HistoryAction.Pop));
+  expect(container.querySelector('[data-page-layer="/b"]')).toBe(b);
+  await settle();
+  expect(screen.getByRole('button')).toHaveTextContent('/b count 1');
+
+  rerender(view('/a', true, '/a', HistoryAction.Pop));
+  await settle();
+  rerender(view('/settings', false, 'tabs', HistoryAction.Pop));
+  await settle();
+  expect(container.querySelector('[data-page-layer="/settings"]')).toBe(root);
+});
+
+it('still reveals a page a Replace left under the stack when the router pops back to it', async () => {
+  const { rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/r', true));
+  await settle();
+  fireEvent.click(screen.getByRole('button', { name: '/r count 0' }));
+  rerender(view('/g', true));
+  await settle();
+  rerender(view('/r', true));
+  await settle();
+  rerender(view('/x', true, '/x', HistoryAction.Replace));
+  await settle();
+
+  rerender(view('/g', true, '/g', HistoryAction.Pop));
+  await settle();
+  rerender(view('/r', true, '/r', HistoryAction.Pop));
+  await settle();
+  expect(screen.getByRole('button')).toHaveTextContent('/r count 1');
 });
