@@ -100,6 +100,17 @@ jest.mock('app/icons/v2', () => ({
   IconName: {}
 }));
 
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => (
+    <div data-testid="spending-limit-challenge">
+      <span>{props.assessment.revision}</span>
+      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+        authenticate-limit
+      </button>
+    </div>
+  )
+}));
+
 const FULL_KEY = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
 
 function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
@@ -203,6 +214,41 @@ describe('DesktopDappConfirmationModal', () => {
 
     expect(result.get()).toEqual({ confirmed: false });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps an over-limit desktop send pending until strict authentication succeeds', async () => {
+    render(<DesktopDappConfirmationModal />);
+    const result = pushRequest(
+      buildRequest({
+        type: 'transaction',
+        sourcePublicKey: FULL_KEY,
+        transactionMessages: ['Send 5 MIDEN'],
+        spendingLimitAssessment: {
+          accountId: FULL_KEY,
+          usdAmount: 5_000_000n,
+          revision: 'revision-1',
+          assessedAt: 100,
+          breach: {
+            spent: 8_000_000n,
+            proposedTotal: 13_000_000n,
+            limit: 10_000_000n,
+            overBy: 3_000_000n,
+            resetAt: 200
+          }
+        }
+      })
+    );
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
+    expect(result.get()).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));
+    await flush();
+
+    expect(result.get()).toMatchObject({ confirmed: true, spendingLimitAuthenticated: true });
+    expect(result.get()).not.toHaveProperty('spendingLimitAuthorization');
   });
 
   it('raises the wallet window once per request, since it sits behind the dApp window', async () => {

@@ -49,7 +49,9 @@ describe('EvmBridgeDepositForm (#875)', () => {
 
     const warning = screen.getByTestId('bridge-test-funds-warning');
     expect(screen.getByTestId('select-amount')).toContainElement(warning);
-    expect(warning).toHaveTextContent('bridgeTestFundsTitle');
-    expect(warning).toHaveTextContent('bridgeTestFundsBody');
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('bridgeTestFundsTitle');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeTestFundsBody');
   });
 });

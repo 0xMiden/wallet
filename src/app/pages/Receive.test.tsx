@@ -2,14 +2,42 @@ import React from 'react';
 
 import { Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { waitFor } from '@testing-library/react';
+import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { PageActiveContext } from 'app/layouts/page-active';
+import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
+import { hapticLight } from 'lib/mobile/haptics';
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 import { Receive } from './Receive';
 
-// Pending (claimable) notes moved to their own `/pending-notes` page — see
-// Pending.test.tsx for the claim-flow coverage. Receive is now address-only.
+// Surface the motion props the QR frame hands framer, so the logo's press dip is assertable, and
+// keep every other `motion.*` real (the copy button animates its own glyph).
+let mockReduceMotion = false;
+jest.mock('framer-motion', () => {
+  const actual = jest.requireActual('framer-motion');
+  const ReactActual = jest.requireActual('react');
+  const MotionDiv = ReactActual.forwardRef(({ animate, transition, children, ...rest }: any, ref: any) => (
+    <div
+      ref={ref}
+      data-animate={JSON.stringify(animate ?? null)}
+      data-transition={JSON.stringify(transition ?? null)}
+      {...rest}
+    >
+      {children}
+    </div>
+  ));
+  return {
+    ...actual,
+    useReducedMotion: () => mockReduceMotion,
+    motion: new Proxy(actual.motion, { get: (target: any, key: string) => (key === 'div' ? MotionDiv : target[key]) })
+  };
+});
+
+// Pending (claimable) notes live in the Activity tab's Pending filter - see
+// ActivityPendingHistory.test.tsx for the claim-flow coverage. Receive is address-only.
 
 // Echoes the interpolated values so a test can tell which network reached the copy.
 jest.mock('react-i18next', () => ({
@@ -27,7 +55,13 @@ jest.mock('@capacitor/filesystem', () => ({
   Filesystem: { writeFile: jest.fn() }
 }));
 
-jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
+// The canonical CopyButton (AddressTab's tap-to-copy address) writes through
+// `@capacitor/clipboard`, which jsdom has no native implementation for; mock it the same way
+// CopyButton.test.tsx does so the copied-feedback test below resolves deterministically.
+const mockClipboardWrite = jest.fn().mockResolvedValue(undefined);
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
 
 jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: false, sidePanel: false })
@@ -35,7 +69,14 @@ jest.mock('app/env', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { Add: 'Add', CrossChain: 'CrossChain', Share: 'Share', WarningFill: 'WarningFill' }
+  IconName: {
+    Add: 'Add',
+    Checkmark: 'Checkmark',
+    CopyNew: 'CopyNew',
+    CrossChain: 'CrossChain',
+    Share: 'Share',
+    WarningFill: 'WarningFill'
+  }
 }));
 
 let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
@@ -78,6 +119,9 @@ const mockQRCodeProps = jest.fn();
 let mockQrBlob: Blob | null = null;
 // Set to make rendering the QR image fail; the share then goes out text-only.
 let mockQrError: Error | null = null;
+// The real component only reports `onPaletteCommitted` once a recolour actually paints; false
+// simulates a staged draw that never lands, so the requested palette stays uncommitted.
+let mockPaletteCommits = true;
 jest.mock('components/QRCode', () => ({
   QRCode: React.forwardRef<unknown, Record<string, unknown>>((props, ref) => {
     mockQRCodeProps(props);
@@ -87,12 +131,31 @@ jest.mock('components/QRCode', () => ({
         return mockQrBlob;
       }
     }));
+    React.useEffect(() => {
+      if (mockPaletteCommits) (props.onPaletteCommitted as ((palette: unknown) => void) | undefined)?.(props.palette);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.palette, props.recolourAttempt]);
     return null;
   })
 }));
 
+let mockPublicKey = 'test-account-123';
+
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({ publicKey: 'test-account-123' })
+  useAccount: () => ({ publicKey: mockPublicKey })
+}));
+
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+const telemetryHandles: TelemetryHandle[] = [];
+const beginFlowMock = jest.fn((_flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  telemetryHandles.push(handle);
+  return handle;
+});
+
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => beginFlowMock(flow),
+  classifyError: () => 'unknown'
 }));
 
 const mockIsMobile = jest.fn(() => false);
@@ -110,24 +173,29 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-// One copy spy for every render, so a test can see the fallback fire.
-const mockCopy = jest.fn();
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: false })
-}));
-
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
 }));
 
+let mockPathname = '/receive';
+
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  // The receive flow only reports while its route is showing: the home carousel
+  // keeps this page mounted for the whole session, so a mount-triggered flow
+  // fired on every app open.
+  useLocation: () => ({ pathname: mockPathname })
 }));
 
 jest.mock('utils/string', () => ({
   truncateAddress: (addr: string) => addr?.slice(0, 8) || ''
 }));
+
+// Both suites render this page as if its route were showing; the one test that
+// checks the carousel case sets this to another page for itself.
+beforeEach(() => {
+  mockPathname = '/receive';
+});
 
 describe('Receive - Address', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
@@ -142,12 +210,15 @@ describe('Receive - Address', () => {
   });
 
   beforeEach(() => {
+    mockReduceMotion = false;
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
     mockQrError = null;
-    mockCopy.mockClear();
+    mockPaletteCommits = true;
+    mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
+    jest.mocked(hapticLight).mockClear();
   });
 
   afterEach(async () => {
@@ -163,13 +234,28 @@ describe('Receive - Address', () => {
     }
   });
 
-  const renderReceive = async () => {
+  const renderReceive = async (pageActive = true) => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     await act(async () => {
-      testRoot!.render(<Receive />);
+      testRoot!.render(
+        <PageActiveContext.Provider value={pageActive}>
+          <Receive />
+        </PageActiveContext.Provider>
+      );
     });
     return testContainer;
+  };
+
+  /** Re-renders under a different page-active value, as leaving the tab does. */
+  const setPageActive = async (pageActive: boolean) => {
+    await act(async () => {
+      testRoot!.render(
+        <PageActiveContext.Provider value={pageActive}>
+          <Receive />
+        </PageActiveContext.Provider>
+      );
+    });
   };
 
   it('renders the account address', async () => {
@@ -179,16 +265,296 @@ describe('Receive - Address', () => {
     expect(full?.textContent).toBe('test-account-123');
   });
 
-  it('warns about test funds before the share and bridge actions (#875)', async () => {
+  it('rolls the address to "copied" and morphs the glyph to a check for a beat, then reverts', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const container = await renderReceive();
+    const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
+
+    // The address is a full-width 44px pill on `fill`, aligned with the notice and actions.
+    expect(copyButton).toHaveClass('h-11', 'w-full', 'rounded-full', 'bg-fill', 'text-ink');
+    // The shared CopyButton: the animated glyph leads, the address label rolls to "copied".
+    const label = () => copyButton.querySelector('[data-copy-label] [data-present="true"]');
+    const glyph = () => copyButton.querySelector('[data-copy-icon] [data-present="true"]');
+    expect(copyButton.querySelector('[aria-live]')!.firstElementChild).toHaveAttribute('data-copy-icon');
+    expect(label()?.textContent).toBe('test-acc');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'idle');
+
+    await act(async () => {
+      fireEvent.click(copyButton);
+    });
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
+    expect(label()?.textContent).toBe('copied');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'copied');
+
+    act(() => {
+      jest.advanceTimersByTime(1500);
+    });
+    expect(label()?.textContent).toBe('test-acc');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'idle');
+
+    jest.useRealTimers();
+  });
+
+  it('warns about test funds in a quiet caption under the share and bridge actions (#875)', async () => {
     const container = await renderReceive();
 
     const warning = container.querySelector('[data-testid="receive-test-funds-warning"]')!;
-    expect(warning.textContent).toContain('receiveTestFundsTitle');
-    expect(warning.textContent).toContain('receiveTestFundsBody');
+    // The shared Notice in its inline variant: the warning tone and its glyph, but no tinted block
+    // — between the address and the actions it was the loudest thing on the page.
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning).toHaveAttribute('data-variant', 'inline');
+    expect(warning.className).not.toMatch(/(^|\s)bg-|rounded-2xl|border-dashed/);
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('receiveTestFundsBody:testnet:');
+    expect(warning.querySelector('[data-slot="body"]')).toHaveClass('text-caption', 'text-muted');
+    expect(warning.querySelector('[data-slot="icon"]')).toHaveClass('text-pending-ink');
+    // Last on the page: code, address, actions, then the warning that qualifies them.
     const shareButton = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'share')!;
     const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
-    expect(warning.compareDocumentPosition(shareButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(warning.compareDocumentPosition(crossChain)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(warning.compareDocumentPosition(shareButton)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(warning.compareDocumentPosition(crossChain)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(container.querySelector('[data-testid="receive-actions"]')!.nextElementSibling).toBe(warning);
+  });
+
+  it('renders Share and Cross-chain as rows of one ListGroup, with one haptic per tap', async () => {
+    const container = await renderReceive();
+
+    const actions = container.querySelector('[data-testid="receive-actions"]')!;
+    // The app's grouped fill list, like every other list in the wallet.
+    expect(actions).toHaveClass('rounded-2xl', 'bg-fill');
+    const share = actions.querySelector('[data-testid="receive-share"]')!;
+    const crossChain = actions.querySelector('[data-testid="receive-cross-chain"]')!;
+    expect(share.tagName).toBe('BUTTON');
+    expect(crossChain.tagName).toBe('BUTTON');
+    expect(share.querySelector('[data-slot="title"]')?.textContent).toBe('share');
+    expect(crossChain.querySelector('[data-slot="title"]')?.textContent).toBe('crossChain');
+    // Share opens the system sheet in place; only the cross-chain row goes somewhere.
+    expect(share.querySelector('[data-slot="chevron"]')).toBeNull();
+    expect(crossChain.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    // No label is sized by hand any more (the 40px `text-[2.5rem]` spans).
+    expect(container.querySelector('[class*="text-[2.5rem]"]')).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(crossChain);
+    });
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('leads with the page title, where send puts "Send to" and swap "You Pay"', async () => {
+    const container = await renderReceive();
+
+    const title = container.querySelector('[data-testid="receive-title"]')!;
+    expect(title.tagName).toBe('H1');
+    expect(title.textContent).toBe('receiveAt');
+    // The same type style as the two tabs beside it, so the line does not move as you swipe.
+    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    // First in the column, above the code.
+    const block = container.querySelector('[data-testid="receive-qr-block"]')!;
+    expect(block.parentElement!.contains(title)).toBe(true);
+    expect(title.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('names the network in a NetworkChip and keeps the caption to the shared QR image', async () => {
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-network"]')?.textContent).toBe('qrNetworkCaption:testnet:');
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ caption: 'qrNetworkCaption:testnet:', size: 300 })
+    );
+  });
+
+  it('draws the code at a fixed, scannable size on the page itself, with no card around it', async () => {
+    const container = await renderReceive();
+
+    const card = container.querySelector('[data-testid="receive-qr-card"]')!;
+    // No card: the code, its chip and the address sit straight on the page.
+    expect(card.className).not.toContain('bg-page');
+    expect(card.className).not.toContain('rounded-2xl');
+    const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
+    // 208px, not the leftover height: the rest of the page gets the room back.
+    expect(slot).toHaveClass('relative', 'w-full', 'max-w-52');
+    expect(slot).not.toHaveClass('flex-1');
+    const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+    expect(frame).toHaveClass('aspect-square', 'w-full');
+    expect(frame.className).not.toContain('max-h-72');
+    // The chip and the address stay in the same block as the code.
+    expect(card.contains(container.querySelector('[data-testid="receive-network"]'))).toBe(true);
+    expect(card.contains(container.querySelector('[data-testid="receive-copy-address"]'))).toBe(true);
+    // One column, the shared home-group pane body: the code block sits straight in it, at the
+    // 16px gutter every pane shares.
+    const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
+    expect(column).toBe(container.querySelector('[data-testid="receive-page"]'));
+    expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-9');
+  });
+
+  it('clears the docked tab bar from the same expression the flow CTAs use', async () => {
+    // Was a fixed pb-18/pb-20 of its own. The shell takes it from `stepFooterCushionClass`, so a
+    // pane with no CTA ends where a pane with one ends its button, and it collapses with the
+    // keyboard rather than a frame later.
+    mockIsMobile.mockReturnValue(true);
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-page"]')).toHaveClass(
+      'pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]'
+    );
+  });
+
+  it('leaves the horizontal swipe to the home carousel', async () => {
+    // A pane that can pan sideways takes the carousel's drag before HomeSwipeContainer sees it.
+    const container = await renderReceive();
+
+    const page = container.querySelector<HTMLElement>('[data-testid="receive-page"]')!;
+    expect(page.style.touchAction).toBe('pan-y');
+    expect(page).toHaveClass('overflow-x-hidden');
+  });
+
+  describe('the receive green', () => {
+    it('paints the rows, the chevron and the copy glyph in the flow accent', async () => {
+      const container = await renderReceive();
+
+      // The page keeps the app's surface: the green is in the affordances, not a wash.
+      expect(container.querySelector('[data-testid="receive-page"]')!.className).not.toContain(
+        'bg-accent-receive-tint'
+      );
+
+      for (const testId of ['receive-share', 'receive-cross-chain']) {
+        const row = container.querySelector(`[data-testid="${testId}"]`)!;
+        expect(row.querySelector('[data-slot="icon"]')).toHaveClass('bg-accent-receive-tint', 'text-accent-receive');
+        expect(row).toHaveClass('before:bg-accent-receive/25');
+        // The titles stay `ink`: the accent is under 4.5:1 as text.
+        expect(row.querySelector('[data-slot="title"]')).toHaveClass('text-ink');
+      }
+      expect(container.querySelector('[data-testid="receive-cross-chain"] [data-slot="chevron"]')).toHaveClass(
+        'stroke-accent-receive'
+      );
+
+      const copy = container.querySelector('[data-testid="receive-copy-address"]')!;
+      expect(copy.querySelector('[data-copy-icon]')).toHaveClass('text-accent-receive');
+      expect(copy).toHaveClass('focus-visible:ring-accent-receive');
+    });
+
+    it('leaves the test-funds notice in its own warning tone', async () => {
+      const container = await renderReceive();
+
+      // A status is not an accent: the warning keeps saying "warning", green page or not.
+      expect(container.querySelector('[data-testid="receive-test-funds-warning"]')).toHaveAttribute(
+        'data-tone',
+        'warning'
+      );
+    });
+
+    it('names the network with the shared NetworkChip, in the same tint as send and contacts', async () => {
+      const container = await renderReceive();
+
+      const chip = container.querySelector('[data-testid="receive-network"]')!;
+      expect(chip).toHaveClass('bg-network-miden-tint', 'text-network-miden-text');
+      expect(chip.querySelector('[data-testid="miden-logo"]')).not.toBeNull();
+    });
+  });
+
+  describe('the QR logo easter egg', () => {
+    const logo = (container: HTMLElement) => container.querySelector('[data-testid="receive-qr-logo"]')! as HTMLElement;
+    const palette = () => mockQRCodeProps.mock.lastCall![0].palette;
+
+    it('opens on the brand orange and walks the card palette, one tap at a time', async () => {
+      const container = await renderReceive();
+
+      expect(palette()).toBe('orange');
+      const order = ['green', 'slate', 'blue', 'purple', 'orange'];
+      for (const next of order) {
+        await act(async () => {
+          fireEvent.click(logo(container));
+        });
+        expect(palette()).toBe(next);
+      }
+      // One haptic per tap, and the address never moved.
+      expect(hapticLight).toHaveBeenCalledTimes(order.length);
+      expect(container.querySelector('[data-testid="receive-address-full"]')?.textContent).toBe('test-account-123');
+    });
+
+    it('carries an accessible name and a 44px-clear target over the middle of the code', async () => {
+      const container = await renderReceive();
+
+      const button = logo(container);
+      expect(button.tagName).toBe('BUTTON');
+      expect(button).toHaveAttribute('aria-label', 'receiveQrColorAction');
+      // 28% of the 208px code is 58px, past the 44px minimum.
+      expect(button).toHaveClass('h-[28%]', 'w-[28%]', 'absolute', 'left-1/2', 'top-1/2');
+    });
+
+    it('dips the code while the logo is held, on the tab bar press spring', async () => {
+      const container = await renderReceive();
+      const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+      expect(JSON.parse(frame.getAttribute('data-transition')!)).toEqual(tabBarMotion.press);
+
+      await act(async () => {
+        fireEvent.pointerDown(logo(container));
+      });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: tabBarMotion.pressScale });
+
+      await act(async () => {
+        fireEvent.pointerUp(logo(container));
+      });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+    });
+
+    it('does not dip under reduced motion, and still cycles', async () => {
+      mockReduceMotion = true;
+      const container = await renderReceive();
+      const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+
+      await act(async () => {
+        fireEvent.pointerDown(logo(container));
+      });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+      expect(JSON.parse(frame.getAttribute('data-transition')!)).toEqual(reducedMotionTransition);
+
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('green');
+    });
+
+    it('retries the same palette on the next tap when a recolour never commits', async () => {
+      const container = await renderReceive();
+      expect(palette()).toBe('orange');
+
+      mockPaletteCommits = false;
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('green');
+
+      // The 'green' draw never landed, so the next tap asks for it again, not 'slate'.
+      mockPaletteCommits = true;
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('green');
+
+      // Now that 'green' has committed, the tap after it moves on.
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('slate');
+    });
+
+    it('goes back to the brand orange once the page is no longer the one on screen', async () => {
+      const container = await renderReceive();
+
+      await act(async () => {
+        fireEvent.click(logo(container));
+      });
+      expect(palette()).toBe('green');
+
+      // The tab stays mounted under another one, so leaving is a page-active change.
+      await setPageActive(false);
+      expect(palette()).toBe('orange');
+      await setPageActive(true);
+      expect(palette()).toBe('orange');
+    });
   });
 
   it('does not render a pending tab switcher', async () => {
@@ -240,6 +606,7 @@ describe('Receive - Address', () => {
       // The QR still renders on mainnet; only the test-network copy goes away.
       expect(mockQRCodeProps).toHaveBeenCalled();
       expect(container.querySelector('[data-testid="receive-test-funds-warning"]')).toBeNull();
+      expect(container.querySelector('[data-testid="receive-network"]')).toBeNull();
       expect(mockQRCodeProps.mock.lastCall![0].caption).toBeUndefined();
     });
 
@@ -301,7 +668,7 @@ describe('Receive - Address', () => {
           await new Promise(resolve => setTimeout(resolve, 0));
         });
         expect(used).toHaveBeenCalledTimes(1);
-        expect(mockCopy).not.toHaveBeenCalled();
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
       }
     );
 
@@ -328,7 +695,7 @@ describe('Receive - Address', () => {
 
       await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
       expect(share).toHaveBeenCalledWith({ text: 'shareAddressText:devnet:test-account-123' });
-      expect(mockCopy).not.toHaveBeenCalled();
+      expect(mockClipboardWrite).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -352,7 +719,7 @@ describe('Receive - Address', () => {
         );
         expect(warn).toHaveBeenCalledWith('[Receive] failed to render QR image for share:', mockQrError);
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
-        expect(mockCopy).not.toHaveBeenCalled();
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
       } finally {
         warn.mockRestore();
       }
@@ -402,11 +769,32 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockCopy).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
         expect(warn.mock.calls).toEqual(warns ? dismissed : []);
       } finally {
         warn.mockRestore();
       }
+    });
+
+    // The fallback used to write to the clipboard unawaited and uncaught, so a rejected write was an
+    // unhandled promise rejection. It now goes through the hook the page's copy control uses, which
+    // catches - silently, by design: the address stays on screen to copy by hand. If the write goes
+    // uncaught again, Jest itself fails this test on the unhandled rejection; Node reports one only
+    // after a macrotask, hence the wait. (A process.on('unhandledRejection') listener here would
+    // never fire: each test file gets its own copy of `process`.)
+    it('handles a rejected clipboard write in the fallback', async () => {
+      mockIsMobile.mockReturnValue(false);
+      delete (navigator as { share?: unknown }).share;
+      mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
+      const container = await renderReceive();
+      await clickShare(container);
+
+      await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      });
     });
 
     it('copies the address when reading the QR image fails on native', async () => {
@@ -421,7 +809,8 @@ describe('Receive - Address', () => {
         const container = await renderReceive();
         await clickShare(container);
 
-        await waitFor(() => expect(mockCopy).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
         expect(Filesystem.writeFile).not.toHaveBeenCalled();
         expect(warn).toHaveBeenCalledWith('[Receive] share dismissed:', expect.any(Error));
       } finally {
@@ -437,5 +826,204 @@ describe('Receive - Address', () => {
         'crossChainFromNetwork:ethereumSepolia:'
       );
     });
+  });
+});
+
+// The receive surface is a view: its job is to put a usable address in front of
+// the user (QR, copy, share), so that is what "completed" means here.
+describe('Receive - receive_share telemetry', () => {
+  /** Throwing accessor so a missing handle names how many flows were begun. */
+  const handleAt = (index: number): TelemetryHandle => {
+    const handle = telemetryHandles[index];
+    if (!handle) throw new Error(`no flow was begun at index ${index} (begun: ${telemetryHandles.length})`);
+    return handle;
+  };
+
+  /** Everything this suite handed to telemetry, for the privacy assertions. */
+  const telemetryPayload = () =>
+    JSON.stringify({
+      begun: beginFlowMock.mock.calls,
+      settled: telemetryHandles.map(handle => [
+        handle.complete.mock.calls,
+        handle.cancel.mock.calls,
+        handle.fail.mock.calls
+      ])
+    });
+
+  let testRoot: ReturnType<typeof createRoot> | null = null;
+  let testContainer: HTMLDivElement | null = null;
+
+  /**
+   * Let the route settle. Entering a pane no longer begins its flow on arrival:
+   * the carousel commits a route on every swipe release, so a route has to hold
+   * still to count as a visit — see `useRouteDwell`. Every render helper below
+   * dwells by default, since that is what a real visit does; the tests that
+   * exercise a transit are the ones that deliberately do not.
+   */
+  const dwell = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(ROUTE_DWELL_MS);
+    });
+  };
+
+  const mount = async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+  };
+
+  const renderReceive = async () => {
+    await mount();
+    await dwell();
+  };
+
+  /** Re-render in place, as a route change does — no unmount. */
+  const rerenderReceive = async () => {
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+    await dwell();
+  };
+
+  const unmountReceive = async () => {
+    await act(async () => {
+      testRoot!.unmount();
+    });
+    testRoot = null;
+  };
+
+  beforeAll(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterAll(() => {
+    delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    telemetryHandles.length = 0;
+    mockPublicKey = 'test-account-123';
+  });
+
+  afterEach(async () => {
+    if (testRoot) await unmountReceive();
+    jest.useRealTimers();
+    if (testContainer) {
+      testContainer.remove();
+      testContainer = null;
+    }
+  });
+
+  it('reports nothing while another home page is showing, since the carousel keeps this one mounted', async () => {
+    // TabLayout renders Overview / Send / Receive / Earn / Swap as one carousel
+    // and mounts every page at once for the whole session. The address renders
+    // unconditionally, so a mount-triggered flow both began AND completed a
+    // receive-address share on every single app open — making this the wallet's
+    // most numerous event and none of it evidence that anyone shared anything.
+    mockPathname = '/';
+
+    await renderReceive();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('completes the share when the user arrives from another home page, not just on a direct mount', async () => {
+    // The production sequence, and the one the route gate broke: this page is
+    // mounted by the carousel while the app is at `/`, so the flow starts on the
+    // LATER navigation to `/receive`. An effect keyed only on the address would
+    // have run once at mount, found no flow, and never fired again — reporting
+    // every share as abandoned.
+    mockPathname = '/';
+    await renderReceive();
+    expect(beginFlowMock).not.toHaveBeenCalled();
+
+    mockPathname = '/receive';
+    await rerenderReceive();
+
+    expect(beginFlowMock).toHaveBeenCalledWith('receive_share');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+
+  it('begins one receive_share flow on entry', async () => {
+    await renderReceive();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(beginFlowMock).toHaveBeenCalledWith('receive_share');
+  });
+
+  it('completes the flow once the address is presented', async () => {
+    await renderReceive();
+
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+
+  it('does not re-report the presented address on unmount', async () => {
+    await renderReceive();
+
+    await unmountReceive();
+
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+
+  it('cancels the flow when there is no address to present', async () => {
+    mockPublicKey = '';
+
+    await renderReceive();
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+
+    await unmountReceive();
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes a flow that was waiting once the address arrives', async () => {
+    mockPublicKey = '';
+    await renderReceive();
+
+    mockPublicKey = 'test-account-123';
+    await rerenderReceive();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports nothing for a pane the carousel only swiped past', async () => {
+    // Receive sits between Send and Earn, so it is the pane transited most, and
+    // its flow completes on sight of the address — meaning a swipe past it used
+    // to emit a `completed` share indistinguishable from a real one. No
+    // duration filter on the reading side could separate them, because both
+    // last milliseconds. This is why the gate is a dwell and not a route check.
+    mockPathname = '/';
+    await mount();
+
+    mockPathname = '/receive';
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+    // Swiped straight on to Earn without stopping.
+    await act(async () => {
+      jest.advanceTimersByTime(ROUTE_DWELL_MS - 1);
+    });
+    mockPathname = '/earn';
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+    await dwell();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('never passes the address to telemetry', async () => {
+    await renderReceive();
+
+    expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
+    expect(telemetryPayload()).not.toContain('test-account-123');
   });
 });

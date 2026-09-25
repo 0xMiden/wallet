@@ -3,7 +3,7 @@ import path from 'path';
 
 // #478 — the auto-consume and delegate-proof settings copy must explain the
 // controls in plain language and stay accurate to the wallet's behaviour:
-//   - auto-consume just automates the Claim action and does NOT charge fees
+//   - auto-accept just automates the Accept action and does NOT charge fees
 //     (the reported misconception was that it "absorbs transaction fees");
 //   - delegated proving runs on remote servers (fast) while local proving runs
 //     on-device (private/slower), and the wallet falls back to local when the
@@ -30,17 +30,17 @@ describe('auto-consume + proving settings copy accuracy (#478)', () => {
     expect(desc).toMatch(/unavailable|fall|down|instead/i); // the fallback to local
   });
 
-  it('auto-consume copy explains it claims notes and does not charge fees', () => {
+  it('auto-accept copy explains it accepts incoming transfers and does not charge fees', () => {
     const desc = msg('autoConsumeSettingsDescription');
-    expect(desc).toMatch(/claim/i); // explains what consuming does
+    expect(desc).toMatch(/accept/i); // explains what the toggle does, in the user-facing register
     expect(desc).toMatch(/fee/i); // addresses the "absorbs fees" misconception
   });
 
-  it('does not promise auto-consume is free, which is false on a fee-charging chain', () => {
+  it('does not promise auto-accept is free, which is false on a fee-charging chain', () => {
     const desc = msg('autoConsumeSettingsDescription');
-    // Claiming a note IS a transaction, and since protocol 0.16 every transaction
+    // Accepting a transfer IS a transaction, and since protocol 0.16 every transaction
     // pays a fee out of the acting account's own vault. The copy may still say
-    // auto-consume costs no MORE than claiming by hand -- that stays true, and it
+    // auto-accept costs no MORE than accepting by hand -- that stays true, and it
     // is what #478 was actually correcting. It may not say it costs nothing.
     expect(desc).not.toMatch(/(doesn't|does not|no)\s+\w*\s*(spend|add|charge|cost)[^.]*fee/i);
   });

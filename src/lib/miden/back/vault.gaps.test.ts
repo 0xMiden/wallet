@@ -298,7 +298,7 @@ describe('Vault instance signData — Guardian account (word kind)', () => {
     });
     const data = u8ToB64(new Uint8Array(32).fill(0x22));
 
-    await expect(vault.signData('some-commitment', data, 'word', addr)).rejects.toThrow(/device key/i);
+    await expect(vault.signData('some-commitment', data, 'word', addr)).rejects.toThrow(/everyday key/i);
   });
 
   it('still uses the default key path for a non-Guardian account when accountId is passed', async () => {
@@ -554,6 +554,21 @@ describe('Vault hardware-backed unlock + reveal', () => {
     // Now setup() with no password drops into the `if (vault) return vault` arm.
     const unlocked = await Vault.setup();
     expect(unlocked).toBeInstanceOf(Vault);
+  });
+
+  it('verifyProtector uses hardware without replacing the installed vault', async () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    await Vault.spawn(WalletType.OnChain, undefined as any, VALID_MNEMONIC);
+    const biometric = require('lib/biometric');
+    const { installRealmKeystore } = jest.requireMock('../sdk/miden-client');
+    biometric.decryptWithHardwareKey.mockClear();
+    installRealmKeystore.mockClear();
+
+    await expect(Vault.verifyProtector()).resolves.toBeUndefined();
+
+    expect(biometric.decryptWithHardwareKey).toHaveBeenCalledTimes(1);
+    expect(installRealmKeystore).not.toHaveBeenCalled();
   });
 
   it('spawnFromMidenClient throws when hardware is available but setupHardwareProtector reports failure', async () => {

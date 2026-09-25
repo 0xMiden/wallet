@@ -14,7 +14,7 @@ jest.mock('lib/woozie', () => ({
 }));
 
 // The presentational screen pulls in react-i18next, icons, and the shared
-// NavigationHeader/Message/Button chrome — none of which this container owns.
+// PageHeader/Message/Button chrome — none of which this container owns.
 // Replace it with a lightweight stand-in that surfaces the two callbacks
 // (`onClose`, `onSignOut`) as buttons so we can drive them directly and verify
 // the wiring `ForgotPasswordInfo` provides.

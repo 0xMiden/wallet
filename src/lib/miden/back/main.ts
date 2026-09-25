@@ -24,8 +24,10 @@ import {
   OFFSCREEN_PROVE_MARKER,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
+  OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
-  type OffscreenSignRequest
+  type OffscreenSignRequest,
+  type OffscreenTelemetryEvent
 } from 'lib/miden/back/offscreen-codec';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
@@ -34,7 +36,7 @@ import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
 
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
@@ -208,7 +210,7 @@ function registerOffscreenSignHandler(): void {
   if (offscreenSignHandlerRegistered) return;
   if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
   offscreenSignHandlerRegistered = true;
-  chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
+  chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse: (r?: unknown) => void) => {
     // A SW-targeted message is an OFFSCREEN_SIGN_REQUEST, an OFFSCREEN_OP_STARTED,
     // an OFFSCREEN_STAGE_EVENT or an OFFSCREEN_CONNECTIVITY_EVENT (distinct `type`
     // literals), so type `m` loosely and discriminate on `type` below.
@@ -226,6 +228,19 @@ function registerOffscreenSignHandler(): void {
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
+    // Only this extension's own pages. `chrome.runtime.onMessage` is not private
+    // to the extension: with no `externally_connectable` declared, Chrome's
+    // default is that other EXTENSIONS may send here even though web pages may
+    // not. Everything below this line trusts its message — the op-started signal
+    // arms a write deadline, the sign request reaches the vault — so the check
+    // belongs above all three rather than on the one that happens to be newest.
+    //
+    // Fails CLOSED, including on a sender with no id at all. Chrome populates
+    // `sender.id` on every message from an extension page, so an absent one is
+    // not a legitimate caller this would be excluding — and a security check
+    // whose default is to allow is one that stops working the moment something
+    // upstream changes shape.
+    if (sender.id !== chrome.runtime.id) return false;
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.
@@ -267,6 +282,20 @@ function registerOffscreenSignHandler(): void {
     // last marker to arrive names the call the realm is still inside.
     if (m.type === OFFSCREEN_PROVE_MARKER) {
       if (typeof m.ts === 'number' && typeof m.line === 'string') appendOffscreenProveMarker(m.ts, m.line);
+      return false;
+    }
+    // A telemetry event the offscreen document reported. It has a `window` and
+    // never loads the React app, so it is the one realm that can neither install
+    // a page transport nor be detected as the worker — and proving happens there
+    // by default, so without this forward every prove event is dropped. Handled
+    // exactly like a page's: straight to the same consent-gated sink.
+    // Fire-and-forget, so don't hold the port.
+    if (m.type === OFFSCREEN_TELEMETRY_EVENT) {
+      const { event } = msg as OffscreenTelemetryEvent;
+      // The sink's serializer builds the payload from an allowlist, so a
+      // malformed event cannot widen the wire — but it can throw, and this
+      // listener is shared with signing, which must not fail because of it.
+      void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
@@ -408,15 +437,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       const notes = await withWasmClientLock(async () => midenClientProxy.getSerializedInputNoteDetails(req.noteIds));
       return { type: WalletMessageType.GetInputNoteDetailsResponse, notes };
     }
-    // case WalletMessageType.SendTrackEventRequest:
-    //   await Analytics.trackEvent(req);
-    //   return { type: WalletMessageType.SendTrackEventResponse };
-    // case WalletMessageType.SendPageEventRequest:
-    //   await Analytics.pageEvent(req);
-    //   return { type: WalletMessageType.SendPageEventResponse };
-    // case WalletMessageType.SendPerformanceEventRequest:
-    //   await Analytics.performanceEvent(req);
-    //   return { type: WalletMessageType.SendPerformanceEventResponse };
+    case WalletMessageType.ReportTelemetryEventRequest:
+      return Actions.handleReportTelemetryEvent(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {
@@ -484,20 +506,18 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.RevealPrivateKeyResponse,
         privateKey: privateKey ?? ''
       };
+    case WalletMessageType.ExportAccountFileRequest: {
+      const accountFileBase64 = await Actions.exportAccountFile(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64
+      };
+    }
     case WalletMessageType.RevealHotKeyRequest: {
       const keyPairPayload = await Actions.revealHotKey(req.accountPublicKey, req.password);
       return {
         type: WalletMessageType.RevealHotKeyResponse,
         keyPairPayload: keyPairPayload ?? ''
-      };
-    }
-    case WalletMessageType.RevealGuardianKeysRequest: {
-      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
-      return {
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: keys?.coldPrivateKey ?? '',
-        coldPublicKey: keys?.coldPublicKey ?? '',
-        hotPublicKey: keys?.hotPublicKey
       };
     }
     case WalletMessageType.RemoveSeedPhraseRequest:
@@ -558,6 +578,35 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.UpdateSettingsResponse
       };
+    case WalletMessageType.GetSpendingLimitRequest: {
+      const configuration = await Actions.getSpendingLimit(req.accountId);
+      return {
+        type: WalletMessageType.GetSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+    case WalletMessageType.SaveSpendingLimitRequest: {
+      const configuration = await Actions.saveSpendingLimit(req.draft, req.observedRevision, req.strictlyAuthenticated);
+      return {
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+    case WalletMessageType.AssessSpendingLimitRequest: {
+      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.spends);
+      return {
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        ...(assessment !== undefined && { assessment })
+      };
+    }
+    case WalletMessageType.GetStrictAuthenticationProtectorsRequest:
+      return {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: await Actions.getStrictAuthenticationProtectors()
+      };
+    case WalletMessageType.VerifyStrictActionAuthenticationRequest:
+      await Actions.verifyStrictActionAuthentication(req.credential);
+      return { type: WalletMessageType.VerifyStrictActionAuthenticationResponse };
     case WalletMessageType.SignTransactionRequest:
       const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
       return {

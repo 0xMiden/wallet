@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
 
@@ -15,6 +17,7 @@ const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8, logoSymbo
 
 // Mutable module-level state driven per test (all `mock`-prefixed for hoisting).
 let mockRenderedRoutes: Array<{ name: string }>;
+let mockPathname = '/swap';
 let mockNav: { navigateTo: jest.Mock; goBack: jest.Mock; cardStack: Array<{ name: string }> };
 let mockBackHandler: (() => boolean) | null;
 let mockWalletState: {
@@ -22,6 +25,8 @@ let mockWalletState: {
   lastCompletedTxHash: string | null;
   closeTransactionModal: jest.Mock;
   setLastCompletedTxHash: jest.Mock;
+  assessSpendingLimit: jest.Mock;
+  readSpendingLimit: jest.Mock;
 };
 let mockSwapEtaResult: { loading: boolean; eta?: Record<string, unknown>; error?: string };
 let mockBalanceData: Array<{ tokenId: string; balance: number }>;
@@ -108,12 +113,13 @@ jest.mock('./SwapAmounts', () => ({
 
 jest.mock('./ReviewSwap', () => ({
   ReviewSwap: (props: Record<string, any>) => (
-    <div data-testid="review-swap">
+    <div data-testid="review-swap" data-submitting={String(Boolean(props.submitting))}>
       <span data-testid="rs-offer-token">{props.offerToken.symbol}</span>
       <span data-testid="rs-request-token">{props.requestToken.symbol}</span>
       <span data-testid="rs-offer-amount">{props.offerAmount}</span>
       <span data-testid="rs-request-amount">{props.requestAmount}</span>
       <span data-testid="rs-market-price">{String(props.swapEta?.marketPrice)}</span>
+      <span data-testid="rs-fill-seconds">{String(props.swapEta?.estimatedSeconds)}</span>
       <input
         data-testid="rs-expiry"
         value={props.expirySeconds}
@@ -135,6 +141,42 @@ jest.mock('./SelectSwapToken', () => ({
     return (
       <div data-testid="swap-token-drawer" data-open={String(props.open)} data-current={props.currentFaucetId ?? ''}>
         <button data-testid="drawer-close" onClick={() => props.onOpenChange(false)} />
+      </div>
+    );
+  }
+}));
+
+// Set by a test that needs the mock challenge to hand back an authorization for a DIFFERENT
+// account than the one the challenge itself was opened for - a stale/forged credential, which the
+// real `SpendingLimitChallenge` never produces (its authorization always carries the challenge's
+// own `source.accountId`) but which `runSwap` must independently refuse.
+let mockAuthorizationAccountOverride: string | undefined;
+
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => {
+    const source = props.assessment ?? props.unpriced;
+    return (
+      <div data-testid="spending-limit-challenge">
+        <span>{source.revision}</span>
+        <span data-testid="challenge-kind">{props.assessment !== undefined ? 'assessment' : 'unpriced'}</span>
+        <button
+          type="button"
+          onClick={() =>
+            props.onResult({
+              kind: props.assessment !== undefined ? 'usd' : 'unpriced',
+              id: 'authorization-1',
+              accountId: mockAuthorizationAccountOverride ?? source.accountId,
+              revision: source.revision,
+              issuedAt: 120,
+              expiresAt: 240
+            })
+          }
+        >
+          authorize-limit
+        </button>
+        <button type="button" onClick={() => props.onResult(undefined)}>
+          cancel-limit
+        </button>
       </div>
     );
   }
@@ -205,8 +247,33 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
+  // The swap flow only reports while its route is showing, because the home
+  // carousel keeps this screen mounted the whole time the wallet is open.
+  useLocation: () => ({ pathname: mockPathname }),
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
+
+// Telemetry: record the flow name and hand back a fresh spy handle per flow, so
+// the assertions below can tell a completed swap from an abandoned one.
+type SwapFlowHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+const swapFlowHandles: SwapFlowHandle[] = [];
+const mockBeginFlow = jest.fn((_flow: string) => {
+  const handle: SwapFlowHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  swapFlowHandles.push(handle);
+  return handle;
+});
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => mockBeginFlow(flow),
+  classifyError: () => 'rpc'
+}));
+
+const swapFlow = (index = 0): SwapFlowHandle => {
+  const handle = swapFlowHandles[index];
+  if (!handle) throw new Error(`expected a swap flow at index ${index}`);
+  return handle;
+};
+
+const stepsReported = (index = 0): string[] => swapFlow(index).step.mock.calls.map(([step]) => step);
 
 const renderFlow = () => render(<SwapFlow />);
 
@@ -216,13 +283,25 @@ beforeEach(() => {
   mockBaseFee = 0;
   mockNativeFaucetId = 'MIDEN-ID';
   mockRenderedRoutes = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+  mockPathname = '/swap';
+  swapFlowHandles.length = 0;
+  mockBeginFlow.mockClear();
   mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'SwapAmounts' }] };
   mockBackHandler = null;
+  mockAuthorizationAccountOverride = undefined;
   mockWalletState = {
     isTransactionModalOpen: false,
     lastCompletedTxHash: null,
     closeTransactionModal: jest.fn(),
-    setLastCompletedTxHash: jest.fn()
+    setLastCompletedTxHash: jest.fn(),
+    assessSpendingLimit: jest.fn().mockResolvedValue(undefined),
+    readSpendingLimit: jest.fn().mockResolvedValue({
+      accountId: 'pk-1',
+      limit: 100_000_000n,
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 2
+    })
   };
   mockSwapEtaResult = {
     loading: false,
@@ -249,8 +328,30 @@ afterEach(() => {
   cleanup();
 });
 
+// A new market quote: a new rate and a new fill time together.
+const moveMarket = () => {
+  mockSwapEtaResult = {
+    ...mockSwapEtaResult,
+    eta: { ...mockSwapEtaResult.eta, marketPrice: '3', canFill: true, estimatedSeconds: 42 }
+  };
+};
+
+const expectReviewQuote = (marketPrice: string, fillSeconds: string) => {
+  expect(screen.getByTestId('rs-market-price')).toHaveTextContent(marketPrice);
+  expect(screen.getByTestId('rs-fill-seconds')).toHaveTextContent(fillSeconds);
+};
+
 const setOffer = (value: string) => fireEvent.change(screen.getByTestId('sa-offer-input'), { target: { value } });
 const setRequest = (value: string) => fireEvent.change(screen.getByTestId('sa-request-input'), { target: { value } });
+
+const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
+  accountId: 'pk-1',
+  usdAmount: 10n,
+  revision: 'revision-1',
+  assessedAt: 100,
+  breach: { spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: 200 },
+  ...overrides
+});
 
 describe('SwapFlow / SwapManager', () => {
   it('renders both flow steps with the default token pair and the auto-derived quote', () => {
@@ -431,6 +532,49 @@ describe('SwapFlow / SwapManager', () => {
     expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('5');
   });
 
+  describe('after a flip, before the new pair is quoted', () => {
+    // useSwapEta answers { loading: true } for a pair it has no quote for yet, so the
+    // AAA->BBB rate must not price the BBB->AAA order.
+    beforeEach(() => {
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice?: string) =>
+        Number(offerAmount) > 0 && marketPrice !== undefined ? '5' : ''
+      );
+      mockUseSwapEta.mockImplementation(({ offerToken }: { offerToken: typeof mockTokenA }) =>
+        offerToken.faucetId === mockTokenA.faucetId ? mockSwapEtaResult : { loading: true }
+      );
+    });
+
+    const flip = () => {
+      setOffer('10');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('5');
+      fireEvent.click(screen.getByTestId('sa-swap-direction'));
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
+    };
+
+    it('empties the receive field, disables Continue and shows the calculating state', () => {
+      renderFlow();
+      flip();
+
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('');
+      expect(screen.getByTestId('rs-market-price')).toHaveTextContent('undefined');
+    });
+
+    it('never submits an amount priced off the previous pair', async () => {
+      renderFlow();
+      flip();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+    });
+  });
+
   describe('token drawer', () => {
     it('opens keyed to the offer side and forwards close events', () => {
       renderFlow();
@@ -569,6 +713,302 @@ describe('SwapFlow / SwapManager', () => {
       });
 
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 300, false);
+      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledWith('pk-1', [{ faucetId: 'faucet-A', amount: 10n }]);
+    });
+
+    it('tells the review screen a submission is in flight while the spending limit is assessed', async () => {
+      let settle!: (value: undefined) => void;
+      mockWalletState.assessSpendingLimit.mockReturnValue(new Promise(resolve => (settle = resolve)));
+      renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+
+      await act(async () => settle(undefined));
+    });
+
+    it('holds the review still while a press is in flight: the amount shown is the one sent', async () => {
+      let settle!: (value: undefined) => void;
+      mockWalletState.assessSpendingLimit.mockReturnValue(new Promise(resolve => (settle = resolve)));
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const { rerender } = renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+
+      await act(async () => settle(undefined));
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true);
+    });
+
+    it('holds the rate and fill time with the amount while a press is in flight, then follows the quote', async () => {
+      let releaseConfirm!: (confirmed: boolean) => void;
+      mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (releaseConfirm = resolve)));
+      const { rerender } = renderFlow();
+      setOffer('10');
+      expectReviewQuote('2', 'null');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      moveMarket();
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+      expectReviewQuote('2', 'null');
+
+      await act(async () => releaseConfirm(false));
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+      expectReviewQuote('3', '42');
+    });
+
+    it('catches the review up with the latest quote once a press settles on Review', async () => {
+      let releaseConfirm!: (confirmed: boolean) => void;
+      mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (releaseConfirm = resolve)));
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const { rerender } = renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      mockSwapEtaResult = { ...mockSwapEtaResult, eta: { ...mockSwapEtaResult.eta, marketPrice: '3' } };
+      rerender(<SwapFlow />);
+
+      await act(async () => releaseConfirm(false));
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it('discards a spending-limit assessment minted for another account', async () => {
+      // The staleness guard exists because the account can change under an open challenge. An
+      // assessment naming a different account can never authorize this swap, so it is dropped
+      // before it reaches the user rather than being shown and then refused at the chokepoint.
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment({ accountId: 'pk-someone-else' }));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it('uses strict authentication instead of ordinary confirmation for a spending-limit breach', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(mockConfirmSensitive).not.toHaveBeenCalled();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(mockInitiateSwap).toHaveBeenCalledWith(
+        'pk-1',
+        'faucet-A',
+        10n,
+        'faucet-B',
+        5n,
+        false,
+        120,
+        true,
+        expect.objectContaining({
+          id: 'authorization-1',
+          accountId: 'pk-1',
+          revision: 'revision-1'
+        })
+      );
+      expect(mockConfirmSensitive).not.toHaveBeenCalled();
+    });
+
+    it('discards an authorization for a different account instead of swapping against it', async () => {
+      // `SpendingLimitChallenge` always mints an authorization bound to the account its own
+      // assessment named; this plants a forged/stale one directly to prove `runSwap` refuses it on
+      // its own.
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockAuthorizationAccountOverride = 'pk-someone-else';
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    });
+
+    it('opens the unvalued challenge when the pre-check cannot price the swap', async () => {
+      mockWalletState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'AAA'
+      });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockWalletState.readSpendingLimit).toHaveBeenCalledWith('pk-1');
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the generic error when the pre-check itself cannot open the unpriced challenge', async () => {
+      // Distinct from the "no configured limit" fallback: `readSpendingLimit` fails outright (a
+      // storage fault), reached from `onSubmit`'s own catch before `runSwap` is ever entered.
+      mockWalletState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'AAA'
+      });
+      mockWalletState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).not.toHaveTextContent('');
+    });
+
+    it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
+      mockWalletState.assessSpendingLimit.mockRejectedValue({
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        symbol: 'AAA'
+      });
+      mockWalletState.readSpendingLimit.mockResolvedValue(undefined);
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).not.toHaveTextContent('');
+    });
+
+    it('shows a real Error rejection from the pre-check by its own message', async () => {
+      // Not price-unavailable and not an authorization-required breach - a genuine failure of the
+      // pre-check itself, which must surface as its own reason rather than a swallowed string.
+      mockWalletState.assessSpendingLimit.mockRejectedValue(new Error('assessment backend down'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('assessment backend down');
+    });
+
+    it('opens the unvalued challenge when the actual swap cannot be priced', async () => {
+      mockInitiateSwap.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'AAA' });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+    });
+
+    it('re-enables the swap button when the drawer authorize path cannot open the unpriced challenge', async () => {
+      // The `runSwap` catch's own `openUnpricedChallenge` attempt throws here, not the pre-check's
+      // - reached only once a breach already opened the challenge and the user re-authorizes into
+      // an actual swap that itself cannot be priced.
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      mockInitiateSwap.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'AAA' });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      mockWalletState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).not.toHaveTextContent('');
+    });
+
+    it('cancels a spending-limit challenge without queueing or losing the swap draft', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(
+        breachAssessment({ breach: { spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: null } })
+      );
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+    });
+
+    it('reopens the challenge with the final atomic assessment after an expiry or insertion race', async () => {
+      const firstAssessment = breachAssessment();
+      mockWalletState.assessSpendingLimit.mockResolvedValue(firstAssessment);
+      mockInitiateSwap.mockRejectedValue({
+        code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+        assessment: {
+          ...firstAssessment,
+          revision: 'revision-2',
+          assessedAt: 121,
+          breach: { ...firstAssessment.breach, spent: 99n, proposedTotal: 109n, overBy: 9n }
+        }
+      });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+      expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
     it('rejects a non-positive expiry', async () => {
@@ -658,6 +1098,10 @@ describe('SwapFlow / SwapManager', () => {
       // Second click short-circuits on the `submitting` guard.
       fireEvent.click(screen.getByTestId('rs-submit'));
 
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledTimes(1);
       expect(mockConfirmSensitive).toHaveBeenCalledTimes(1);
 
       await act(async () => {
@@ -735,7 +1179,305 @@ describe('SwapFlow / SwapManager', () => {
     });
   });
 
+  describe('telemetry', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    /**
+     * Let the route settle. Arriving at /swap no longer begins the flow on its
+     * own: the carousel commits a route on every swipe release, so a route has
+     * to hold still to count as a visit — see `useRouteDwell`.
+     */
+    const dwell = () => act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+
+    /** Render and stay, which is what a user who meant to swap does. */
+    const renderSwap = () => {
+      const rendered = renderFlow();
+      dwell();
+      return rendered;
+    };
+
+    // A swap used to report nothing at all: it is not a send, so the send flow
+    // never saw it, and a completed swap left no trace while an abandoned one
+    // was indistinguishable from never opening the screen.
+    it('begins a `swap` flow on entry', () => {
+      renderSwap();
+
+      expect(mockBeginFlow).toHaveBeenCalledTimes(1);
+      expect(mockBeginFlow).toHaveBeenCalledWith('swap');
+    });
+
+    it('completes on a successful submit, before the navigation that unmounts the screen', async () => {
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(swapFlow().complete).toHaveBeenCalledTimes(1);
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+    });
+
+    it('does not report a completed swap as abandoned when the screen then unmounts', async () => {
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      cleanup();
+
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      expect(swapFlow().complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the swap as abandoned when the user leaves without submitting', () => {
+      renderSwap();
+      setOffer('10');
+
+      cleanup();
+
+      expect(swapFlow().cancel).toHaveBeenCalledTimes(1);
+      expect(swapFlow().complete).not.toHaveBeenCalled();
+    });
+
+    it('reports the failure kind when the submit throws, rather than calling it a cancellation', async () => {
+      mockInitiateSwap.mockRejectedValueOnce(new Error('rpc exploded'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(swapFlow().fail).toHaveBeenCalledWith('rpc');
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+    });
+
+    it('begins a fresh flow for a retry after a failure, instead of losing the second attempt', async () => {
+      mockInitiateSwap.mockRejectedValueOnce(new Error('rpc exploded'));
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockBeginFlow).toHaveBeenCalledTimes(2);
+      expect(swapFlow(1).complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the flow open when validation rejects the amount, since the user can still fix it', async () => {
+      renderFlow();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(swapFlow().complete).not.toHaveBeenCalled();
+      expect(swapFlow().fail).not.toHaveBeenCalled();
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+    });
+
+    it('reports nothing while another home page is showing, since the carousel keeps this one mounted', () => {
+      // TabLayout renders Overview / Send / Receive / Earn / Swap in one
+      // carousel and mounts them all at once, for the whole session. A
+      // mount-triggered flow therefore fired on every app open and reported a
+      // swap the user never started — then never ended it, because swiping away
+      // does not unmount this screen either.
+      mockPathname = '/';
+
+      renderFlow();
+
+      expect(mockBeginFlow).not.toHaveBeenCalled();
+    });
+
+    it('reports nothing for a pane the carousel only swiped past', () => {
+      // Swap sits at the far end of the carousel, so it is reached — and left —
+      // by swiping through every other pane. Without a dwell each of those
+      // crossings opened and closed a flow that described nothing anyone did.
+      mockPathname = '/';
+      const { rerender } = renderFlow();
+
+      mockPathname = '/swap';
+      rerender(<SwapFlow />);
+      act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS - 1));
+
+      mockPathname = '/earn';
+      rerender(<SwapFlow />);
+      dwell();
+
+      expect(mockBeginFlow).not.toHaveBeenCalled();
+    });
+
+    it('reports the swap as abandoned when the user swipes away, without waiting for an unmount', () => {
+      const { rerender } = renderSwap();
+
+      mockPathname = '/';
+      rerender(<SwapFlow />);
+
+      expect(swapFlow().cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the step reached, so an abandoned swap says where it stopped', () => {
+      mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'ReviewSwap' }] };
+      renderSwap();
+
+      expect(stepsReported()).toContain('review');
+    });
+
+    it('marks the swap as submitting once past the confirmation, separating our failures from cold feet', async () => {
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(stepsReported()).toContain('submitting');
+    });
+  });
+
+  describe('an open spending-limit challenge holds the review still', () => {
+    const breach = breachAssessment();
+
+    const openChallengeThenMoveMarket = async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const view = renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      moveMarket();
+      view.rerender(<SwapFlow />);
+      return view;
+    };
+
+    it('sends the amount the press reviewed when the challenge is approved after the market moves', async () => {
+      await openChallengeThenMoveMarket();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+      expectReviewQuote('2', 'null');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+
+      expect(mockInitiateSwap).toHaveBeenCalledWith(
+        'pk-1',
+        'faucet-A',
+        10n,
+        'faucet-B',
+        5n,
+        false,
+        120,
+        true,
+        expect.objectContaining({ revision: 'revision-1' })
+      );
+    });
+
+    it('keeps the reviewed amount under a revised challenge and sends it on approval', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
+      mockInitiateSwap.mockRejectedValueOnce({
+        code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+        assessment: { ...breach, revision: 'revision-2', assessedAt: 121 }
+      });
+      mockDeriveRequestAmount.mockImplementation((offerAmount: string, marketPrice: string) =>
+        Number(offerAmount) > 0 ? (marketPrice === '3' ? '7' : '5') : ''
+      );
+      const { rerender } = renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+
+      moveMarket();
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+      expectReviewQuote('2', 'null');
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      });
+      expect(mockInitiateSwap).toHaveBeenLastCalledWith(
+        'pk-1',
+        'faucet-A',
+        10n,
+        'faucet-B',
+        5n,
+        false,
+        120,
+        true,
+        expect.objectContaining({ revision: 'revision-2' })
+      );
+    });
+
+    it('catches the review up to the new quote once the challenge is dismissed', async () => {
+      await openChallengeThenMoveMarket();
+
+      fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expectReviewQuote('3', '42');
+    });
+
+    it('catches the review up once mobile back abandons the challenge', async () => {
+      await openChallengeThenMoveMarket();
+
+      act(() => {
+        mockBackHandler!();
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expectReviewQuote('3', '42');
+    });
+
+    it('catches the review up once the stale-context reset abandons the challenge', async () => {
+      const { rerender } = await openChallengeThenMoveMarket();
+
+      mockAccountReturn = { publicKey: 'pk-2' };
+      rerender(<SwapFlow />);
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
+      expectReviewQuote('3', '42');
+    });
+  });
+
   describe('mobile back handler', () => {
+    it('closes an open spending-limit challenge before anything else', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      let handled: boolean | undefined;
+      act(() => {
+        handled = mockBackHandler!();
+      });
+
+      expect(handled).toBe(true);
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      // The swap draft is untouched - this is a dismissal, not a cancel-and-lose-state action.
+      expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+    });
+
     it('closes the token drawer first when it is open', () => {
       renderFlow();
       fireEvent.click(screen.getByTestId('sa-select-offer'));
@@ -761,6 +1503,25 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(handled).toBe(true);
       expect(mockNav.goBack).toHaveBeenCalled();
+    });
+
+    it('goes nowhere while a submission is in flight at Review', async () => {
+      mockWalletState.assessSpendingLimit.mockReturnValue(new Promise(() => undefined));
+      mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      let handled: boolean | undefined;
+      act(() => {
+        handled = mockBackHandler!();
+      });
+
+      expect(handled).toBe(true);
+      expect(mockNav.goBack).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
     it('closes the flow when the drawer is shut and the stack is at the root', () => {

@@ -207,9 +207,12 @@ test.describe('dApp provider', () => {
    * wait below, otherwise a stuck step reports a bare "Test timeout" instead of
    * the wait's own diagnostic, which is the whole point of bounding them:
    *
-   *   onboarding                380s  (see `completeSeedImportOnboarding`:
+   *   onboarding                420s  (see `completeSeedImportOnboarding`:
    *                                    goto 30 + 5 screen waits at 30
-   *                                    + 14 fills and 6 clicks at 10)
+   *                                    + 14 fills and 6 clicks at 10
+   *                                    + the telemetry-consent detour at 40:
+   *                                    the prompt-or-handoff race at 30, then
+   *                                    its decline click and unmount at 5 each)
    *   readWalletAddress          40s  (goto 20 + attached 20)
    *   openFixtureDapp            60s  (goto 30 + provider injection 30)
    *   connect popup + form       35s  (20 + 15)
@@ -220,7 +223,7 @@ test.describe('dApp provider', () => {
    *   approve click              15s
    *   queued-row poll            20s
    *                            -----
-   *                             660s
+   *                             700s
    *
    * Playwright's `actionTimeout`/`navigationTimeout` both default to 0 (no
    * limit) and this config sets neither, so the helper bounds each of its own
@@ -339,7 +342,7 @@ test.describe('dApp provider', () => {
   /**
    * Budget, itemised (same rule as above — the timeout must exceed the sum):
    *
-   *   onboarding                380s
+   *   onboarding                420s
    *   readWalletAddress          40s
    *   openFixtureDapp            60s
    *   connect popup + form       35s
@@ -354,13 +357,13 @@ test.describe('dApp provider', () => {
    *   re-prompt origin           10s
    *   approve click              15s
    *                            -----
-   *                             695s
+   *                             735s
    *
    * Plus one product timeout that this test can legitimately hit: if a repeat
    * connect DOES prompt but opens after the 20s quiet watch, the connect call
    * then sits until `AUTODECLINE_AFTER` (120s in `dapp.ts`) before rejecting.
    * The budget covers that tail so the failure surfaces as the postcondition
-   * assertion below rather than as a bare "Test timeout" — 695 + 120 = 815s.
+   * assertion below rather than as a bare "Test timeout" — 735 + 120 = 855s.
    */
   test('sign preview, typed decline, and revocation re-prompt', async ({ extensionContext, extensionId }) => {
     test.setTimeout(960_000);

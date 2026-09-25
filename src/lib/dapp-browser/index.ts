@@ -15,13 +15,27 @@ export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-
 export {
   FEATURED_DAPPS,
   CAROUSEL_DAPPS,
-  EXPLORE_GRID_DAPPS,
-  getExploreGridDapps,
   type FeaturedDapp,
   type FeaturedDappBadge,
   type FeaturedDappCategory
 } from './featured-dapps';
 export { CATEGORIES, type CategoryDescriptor } from './category-data';
+export {
+  // `EXPLORE_CATALOG` itself is deliberately NOT re-exported: `getExploreCatalog` is the platform
+  // gate, and a caller reaching past it would show items the gate exists to drop.
+  EXPLORE_FILTERS,
+  getExploreCatalog,
+  resolveExploreSections,
+  searchExploreCatalog,
+  type ExploreCatalog,
+  type ExploreCategory,
+  type ExploreFilter,
+  type ExploreFilterDescriptor,
+  type ExploreItem,
+  type ExploreSection,
+  type ExploreSectionKind,
+  type ResolvedExploreSection
+} from './explore-catalog';
 export { getRecentDapps, recordRecentDapp, forgetRecentDapp, type RecentDapp } from './recent-dapps';
 // PR-6: persistence for cold-bubble restore across app restart.
 export {

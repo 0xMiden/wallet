@@ -113,21 +113,19 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.ExportAccountFileRequest: {
+      const accountFileBase64 = await Actions.exportAccountFile(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64
+      };
+    }
+
     case WalletMessageType.RevealHotKeyRequest: {
       const keyPairPayload = await Actions.revealHotKey(req.accountPublicKey, req.password);
       return {
         type: WalletMessageType.RevealHotKeyResponse,
         keyPairPayload: keyPairPayload ?? ''
-      };
-    }
-
-    case WalletMessageType.RevealGuardianKeysRequest: {
-      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
-      return {
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: keys?.coldPrivateKey ?? '',
-        coldPublicKey: keys?.coldPublicKey ?? '',
-        hotPublicKey: keys?.hotPublicKey
       };
     }
 
@@ -156,6 +154,40 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return {
         type: WalletMessageType.UpdateSettingsResponse
       };
+
+    case WalletMessageType.GetSpendingLimitRequest: {
+      const configuration = await Actions.getSpendingLimit(req.accountId);
+      return {
+        type: WalletMessageType.GetSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+
+    case WalletMessageType.SaveSpendingLimitRequest: {
+      const configuration = await Actions.saveSpendingLimit(req.draft, req.observedRevision, req.strictlyAuthenticated);
+      return {
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+
+    case WalletMessageType.AssessSpendingLimitRequest: {
+      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.spends);
+      return {
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        ...(assessment !== undefined && { assessment })
+      };
+    }
+
+    case WalletMessageType.GetStrictAuthenticationProtectorsRequest:
+      return {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: await Actions.getStrictAuthenticationProtectors()
+      };
+
+    case WalletMessageType.VerifyStrictActionAuthenticationRequest:
+      await Actions.verifyStrictActionAuthentication(req.credential);
+      return { type: WalletMessageType.VerifyStrictActionAuthenticationResponse };
 
     case WalletMessageType.SignTransactionRequest: {
       const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
@@ -299,6 +331,11 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       const { requeued } = await Actions.retryDeadletteredNotes();
       return { type: WalletMessageType.RetryDeadletteredNotesResponse, requeued };
     }
+    // Both in-process adapters must route this: it is the only path telemetry has off
+    // mobile and desktop, and a missing arm here fails silently (`default:` returns
+    // undefined, no throw, no failing test). See back/main.ts for the SW's own routing.
+    case WalletMessageType.ReportTelemetryEventRequest:
+      return Actions.handleReportTelemetryEvent(req);
 
     default:
       console.warn(`${label}: Unknown request type`, req?.type);

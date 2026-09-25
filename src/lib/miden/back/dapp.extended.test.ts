@@ -935,7 +935,8 @@ describe('requestSendTransaction', () => {
       validTx.noteType,
       BigInt(validTx.amount),
       validTx.recallBlocks,
-      true
+      true,
+      undefined
     );
   });
 

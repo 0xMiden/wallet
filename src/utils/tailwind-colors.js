@@ -44,16 +44,12 @@ const colors = {
     300: '#90BA89',
     500: '#2BA84A',
     600: '#1A9C52',
-    700: '#38824A',
-    // Added for green text on a green-50 fill: the darkest existing shade is 700
-    // (#38824A), and at 4.34:1 on green-50 that is short of AA for normal-size
-    // text. 800 is 7.34:1 on the same fill. Additive — nothing used `green-800`.
-    800: '#1F5C33'
+    700: '#38824A'
   },
   red: {
     50: '#FEF2F2',
     100: '#FEE2E2',
-    // Added for red text on a dark red-500/15 fill (the offline status pill):
+    // Added for red text on a dark red-500/15 fill (the guardian fault banner):
     // the lightest existing shade above 100 is 500 (#EF4444), which is only
     // ~4.6:1 on a near-black surface — short of AA for normal-size text.
     // 300 is ~10:1 there. Additive — nothing used `red-300`.

@@ -3,6 +3,8 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { Button } from 'components/ui/Button';
+import { DetailRow } from 'components/ui/DetailCard';
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
 import {
@@ -15,13 +17,13 @@ import { useAccount } from 'lib/miden/front';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { Button } from 'lib/ui/button';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
 
 import HashChip from '../HashChip';
-import { DetailCard, DetailRow, ExternalLinkValue } from './DetailCard';
+import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
+import { ExternalLinkValue } from './TransactionStatus';
 import { BridgeStatus } from './transactionUtils';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
@@ -222,39 +224,36 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
 
   return (
     <div className="mt-6 mb-4">
-      <DetailCard title={t('bridgeDetails')}>
+      <DetailSection title={t('bridgeDetails')}>
         <DetailRow label={t('route')}>
-          <span className="text-sm text-heading-gray font-medium">
-            {entry.bridgeProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
-          </span>
+          {entry.bridgeProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
         </DetailRow>
         {destination && (
           <DetailRow label={t('to')}>
             <ExternalLinkValue
-              displayValue={<HashChip hash={destination} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />}
+              displayValue={<HashChip hash={destination} trimHash className="ml-2" />}
               href={SEPOLIA_ADDRESS_URL(destination)}
             />
           </DetailRow>
         )}
-        <DetailRow label={t('destinationNetwork')} value="Sepolia" />
-        <DetailRow label={isEpoch ? t('status') : t('claimStatus')} isLast={!(isEpoch && fillTxHash)}>
-          <span className="text-sm text-heading-gray font-medium">
-            {transactionFailed
-              ? t('bridgeFailed')
-              : isEpoch
-                ? t(EPOCH_STATUS_LABEL[epochStatus])
-                : t(CLAIM_STATUS_LABEL[status])}
-          </span>
+        {/* eslint-disable-next-line i18next/no-literal-string -- network's proper name, not translatable copy */}
+        <DetailRow label={t('destinationNetwork')}>Sepolia</DetailRow>
+        <DetailRow label={isEpoch ? t('status') : t('claimStatus')}>
+          {transactionFailed
+            ? t('bridgeFailed')
+            : isEpoch
+              ? t(EPOCH_STATUS_LABEL[epochStatus])
+              : t(CLAIM_STATUS_LABEL[status])}
         </DetailRow>
         {isEpoch && fillTxHash && (
-          <DetailRow label={t('receivingTx')} isLast>
+          <DetailRow label={t('receivingTx')}>
             <ExternalLinkValue
-              displayValue={<HashChip hash={fillTxHash} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />}
+              displayValue={<HashChip hash={fillTxHash} trimHash className="ml-2" />}
               href={SEPOLIA_TX_URL(fillTxHash)}
             />
           </DetailRow>
         )}
-      </DetailCard>
+      </DetailSection>
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&
@@ -267,13 +266,13 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
               </p>
             )}
             {!isConnected ? (
-              <Button variant="default" size="lg" onClick={connect}>
+              <Button size="sm" onClick={connect}>
                 {t('connectEvmWallet')}
               </Button>
             ) : !connectedMatchesDestination ? (
-              <p className="text-xs text-heading-gray/60">{t('connectDestinationWalletToClaim')}</p>
+              <p className="text-xs text-ink/60">{t('connectDestinationWalletToClaim')}</p>
             ) : (
-              <Button variant="default" size="lg" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
+              <Button size="sm" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
                 {status === 'claiming' ? t('claiming') : !claimable ? t('claimPending') : t('claimAsset')}
               </Button>
             )}
@@ -296,16 +295,16 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
               {maxNetworkFee && (
                 // Reclaiming consumes the recallable note -- a real transaction with a
                 // real fee, submitted on this tap with no review step in between.
-                <div className="text-center text-xs text-heading-gray">
+                <div className="text-center text-xs text-ink">
                   {t('networkFeeMax')} · {maxNetworkFee}
                 </div>
               )}
-              <Button variant="default" size="lg" onClick={handleReclaim} disabled={reclaiming}>
+              <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
                 {reclaiming ? t('reclaiming') : t('reclaimFunds')}
               </Button>
             </>
           ) : (
-            <p className="text-xs text-heading-gray/60">
+            <p className="text-xs text-ink/60">
               {t('reclaimableAfterBlock')} {reclaimHeight}
             </p>
           )}

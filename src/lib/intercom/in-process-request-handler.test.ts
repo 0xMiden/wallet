@@ -10,8 +10,10 @@ import { WalletMessageType, WalletRequest } from 'lib/shared/types';
 import { processInProcessRequest } from './in-process-request-handler';
 
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
+const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _password?: string) => 'BAUG');
 jest.mock('lib/miden/back/actions', () => ({
-  retryDeadletteredNotes: () => mockRetryDeadletteredNotes()
+  retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
+  exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined]))
 }));
 
 describe('processInProcessRequest', () => {
@@ -29,5 +31,19 @@ describe('processInProcessRequest', () => {
 
     expect(res).toEqual({ type: WalletMessageType.RetryDeadletteredNotesResponse, requeued: 3 });
     expect(mockRetryDeadletteredNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('ExportAccountFileRequest forwards authentication and returns the base64 file', async () => {
+    const res = await processInProcessRequest(
+      {
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey: 'mtst1account',
+        password: 'pw'
+      } as WalletRequest,
+      'test-adapter'
+    );
+
+    expect(res).toEqual({ type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BAUG' });
+    expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account', 'pw');
   });
 });

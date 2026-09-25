@@ -57,6 +57,29 @@ describe('requestConfirmation / resolveConfirmation', () => {
     await promise;
   });
 
+  it('keeps breach details in the wallet and returns only the strict-authentication result', async () => {
+    const store = await freshStore();
+    const request = makeRequest({
+      sessionId: 's1',
+      type: 'transaction',
+      spendingLimitAssessment: {
+        accountId: 'account-a',
+        usdAmount: 5_000_000n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breach: { spent: 8_000_000n, proposedTotal: 13_000_000n, limit: 10_000_000n, overBy: 3_000_000n, resetAt: 200 }
+      }
+    });
+    const promise = store.requestConfirmation(request);
+
+    expect(store.getPendingRequest('s1')).toMatchObject({
+      spendingLimitAssessment: { usdAmount: 5_000_000n, revision: 'revision-1' }
+    });
+    store.resolveConfirmation('s1', { confirmed: true, spendingLimitAuthenticated: true });
+
+    await expect(promise).resolves.toEqual({ confirmed: true, spendingLimitAuthenticated: true });
+  });
+
   it('routes callers without a sessionId through the legacy default slot', async () => {
     const store = await freshStore();
     const promise = store.requestConfirmation(makeRequest()); // no sessionId
@@ -215,5 +238,31 @@ describe('instanceId', () => {
     expect(id1).toBe(id2);
     expect(typeof id1).toBe('string');
     expect(id1.length).toBeGreaterThan(0);
+  });
+});
+
+// The prompt line above the detail list, and whether that list is shown at all.
+// Both the mobile modal and the desktop overlay read these, so a kind that falls
+// through to the wrong arm mislabels a request the user is about to approve —
+// a note import or a private-data grant described as a transaction.
+describe('confirmationPromptKey / isDetailsConfirmation', () => {
+  it.each([
+    ['connect', 'dappConnectionRequest'],
+    ['sign', 'dappSignRequest'],
+    ['importPrivateNote', 'dappImportNoteRequest'],
+    ['privateData', 'dappPrivateDataRequest'],
+    ['transaction', 'dappTransactionRequest'],
+    ['consume', 'dappTransactionRequest']
+  ] as const)('names a %s request with %s', async (type, expected) => {
+    const { confirmationPromptKey } = await import('./confirmation-store');
+    expect(confirmationPromptKey(type)).toBe(expected);
+  });
+
+  it('shows the detail list for every kind except connect', async () => {
+    const { isDetailsConfirmation } = await import('./confirmation-store');
+    expect(isDetailsConfirmation('connect')).toBe(false);
+    for (const type of ['sign', 'transaction', 'consume', 'importPrivateNote', 'privateData'] as const) {
+      expect(isDetailsConfirmation(type)).toBe(true);
+    }
   });
 });

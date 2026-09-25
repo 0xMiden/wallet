@@ -165,9 +165,34 @@ describe('initiateB2AggBridge', () => {
     const call = mockInitiateBridgedSendTransaction.mock.calls[0]!;
     expect(call[0]).toBe('mlcl1sender');
     expect(call[1]).toBe(250n);
+    expect(call[2]).toBe(`mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`);
     expect(call[5]).toBe('agglayer');
     expect(call[6]).toEqual(new Uint8Array([1, 2, 3]));
     expect(call[7]).toBe(true);
+  });
+
+  it('threads the exact spending-limit authorization to atomic row insertion', async () => {
+    const spendingLimitAuthorization = {
+      kind: 'usd' as const,
+      id: 'authorization-1',
+      accountId: 'mlcl1sender',
+      usdAmount: 250n,
+      spendsDigest: 'digest-1',
+      revision: 'revision-1',
+      issuedAt: 100,
+      expiresAt: 220
+    };
+
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      destinationNetwork: 0,
+      spendingLimitAuthorization
+    });
+
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(spendingLimitAuthorization);
   });
 
   // #788 follow-up: the awaited note build parks (the lazy SDK load), and an

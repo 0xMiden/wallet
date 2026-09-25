@@ -1,8 +1,15 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
+import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
+import type {
+  SpendingLimitAssessment,
+  SpendingLimitConfiguration,
+  SpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
@@ -163,15 +170,24 @@ export interface WalletActions {
   revealMnemonic: (password?: string) => Promise<string>;
   exportWalletBackupMaterial: (password?: string) => Promise<WalletBackupMaterial>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  exportAccountFile: (accountPublicKey: string, password?: string) => Promise<Uint8Array>;
   revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
-  revealGuardianKeys: (
-    accountPublicKey: string,
-    password?: string
-  ) => Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }>;
   importAccount: (privateKey: string, name?: string) => Promise<string>;
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
+  readSpendingLimit: (accountId: string) => Promise<SpendingLimitConfiguration | undefined>;
+  saveSpendingLimit: (
+    draft: SpendingLimitDraft,
+    observedRevision: string | undefined,
+    strictlyAuthenticated: boolean
+  ) => Promise<SpendingLimitConfiguration | undefined>;
+  assessSpendingLimit: (
+    accountId: string,
+    spends: readonly IConsumedAssetTotal[]
+  ) => Promise<SpendingLimitAssessment | undefined>;
+  getStrictAuthenticationProtectors: () => Promise<StrictAuthenticationProtectors>;
+  verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
 
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
@@ -204,7 +220,12 @@ export interface WalletActions {
   confirmDAppAssets: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppImportPrivateNote: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppConsumableNotes: (id: string, confirmed: boolean) => Promise<void>;
-  confirmDAppTransaction: (id: string, confirmed: boolean, delegate: boolean) => Promise<void>;
+  confirmDAppTransaction: (
+    id: string,
+    confirmed: boolean,
+    delegate: boolean,
+    spendingLimitAuthenticated?: true
+  ) => Promise<void>;
   getAllDAppSessions: () => Promise<MidenDAppSessions>;
   removeDAppSession: (origin: string) => Promise<void>;
 

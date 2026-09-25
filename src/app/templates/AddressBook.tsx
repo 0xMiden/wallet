@@ -1,89 +1,128 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
-import classNames from 'clsx';
-import { t } from 'i18next';
+import { useTranslation } from 'react-i18next';
 
-import { AddNewContactForm } from 'app/templates/AddNewContactForm';
-import { Avatar } from 'components/Avatar';
-import { CardItem } from 'components/CardItem';
-import { useContacts } from 'lib/miden/front';
+import { Icon, IconName } from 'app/icons/v2';
+import { Button, ButtonVariant } from 'components/Button';
+import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { EmptyState } from 'components/ui/EmptyState';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SearchInput } from 'components/ui/SearchInput';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { useConfirm } from 'lib/ui/dialog';
+import { WalletContact } from 'lib/shared/types';
+import { navigate } from 'lib/woozie';
+import { contactNetwork, contactNetworkName } from 'screens/contacts/contact-network';
+import { contactPath, NEW_CONTACT_PATH } from 'screens/contacts/contact-paths';
 import { truncateAddress } from 'utils/string';
 
-const AddressBook: React.FC = () => {
-  const { removeContact } = useContacts();
-  const { allContacts } = useFilteredContacts();
-  const confirm = useConfirm();
-  const [searchQuery, setSearchQuery] = useState('');
+function matches(contact: WalletContact, query: string): boolean {
+  return contact.name.toLowerCase().includes(query) || contact.address.toLowerCase().includes(query);
+}
 
-  const handleRemoveContactClick = useCallback(
-    async (address: string) => {
-      if (
-        !(await confirm({
-          title: t('actionConfirmation'),
-          children: t('deleteContactConfirm')
-        }))
-      ) {
-        return;
-      }
+const byName = (a: WalletContact, b: WalletContact) => a.name.localeCompare(b.name);
 
-      await removeContact(address);
-    },
-    [confirm, removeContact]
+/** Only a `0x` contact gets the badge: the subtitle names every network, and a Miden badge on every row is noise. */
+function avatarFor(contact: WalletContact): React.ReactNode {
+  const { kind } = contactNetwork(contact.address, contact.network);
+  return (
+    <ContactAvatar address={contact.address} name={contact.name} network={kind === 'ethereum' ? kind : undefined} />
   );
+}
 
-  const filteredContacts = useMemo(() => {
-    if (!searchQuery.trim()) return allContacts;
-    const query = searchQuery.toLowerCase();
-    return allContacts.filter(c => c.name.toLowerCase().includes(query) || c.address.toLowerCase().includes(query));
-  }, [allContacts, searchQuery]);
+/**
+ * Settings → Address Book: saved contacts, then the wallet's own accounts, with one search over
+ * both. A contact opens its own page (send, rename, delete); adding one is its own page too, so
+ * this screen is only the list.
+ */
+const AddressBook: React.FC = () => {
+  const { t } = useTranslation();
+  const { allContacts } = useFilteredContacts();
+  const [searchQuery, setSearchQuery] = useState('');
+  const query = searchQuery.trim().toLowerCase();
+
+  const { contacts, accounts } = useMemo(() => {
+    const visible = query ? allContacts.filter(c => matches(c, query)) : allContacts;
+    return {
+      contacts: visible.filter(c => !c.accountInWallet).sort(byName),
+      accounts: visible.filter(c => c.accountInWallet)
+    };
+  }, [allContacts, query]);
+
+  const nothingFound = Boolean(query) && contacts.length === 0 && accounts.length === 0;
 
   return (
-    <div className="w-full mx-auto" data-testid="address-book">
-      <AddNewContactForm />
-
-      <hr className="border-border-light my-8" />
-
-      <div className="flex flex-col gap-4">
-        <span className="text-heading-gray font-medium text-base">{t('currentContacts')}</span>
-        <input
-          type="text"
-          enterKeyHint="search"
-          placeholder={t('searchContacts')}
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          className={classNames(
-            'w-full h-14 px-4',
-            'bg-gray-25 border border-gray-100 rounded-10',
-            // `font-sans` because Preflight sets `font: inherit` on form controls
-            // and Settings wraps its sub-pages in `font-heading`, which would put
-            // typed wallet addresses in the rounded display face.
-            'font-sans text-base placeholder:text-text-muted placeholder:font-medium',
-            'outline-none focus:border-gray-100'
-          )}
+    <SubPageLayout
+      data-testid="address-book"
+      footer={
+        <Button
+          title={t('newContact')}
+          variant={ButtonVariant.Secondary}
+          onClick={() => navigate(NEW_CONTACT_PATH)}
+          data-testid="address-book-new-contact"
+          className="flex-1 max-w-none"
         />
-      </div>
+      }
+    >
+      <SearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        placeholder={t('searchContacts')}
+        data-testid="address-book-search"
+        className="shrink-0"
+      />
 
-      <div className="flex flex-col gap-y-2 mt-4">
-        {filteredContacts.length === 0 ? (
-          <p className="text-center text-text-muted text-sm py-4">{t('noContactsFound')}</p>
-        ) : (
-          filteredContacts.map(contact => (
-            <CardItem
-              key={contact.address}
-              data-testid={`address-book-contact-${contact.address}`}
-              title={contact.name}
-              subtitle={`${contact.accountInWallet ? (contact.isPublic ? t('public') : t('private')) : t('external')} · ${truncateAddress(contact.address, true, 12)}`}
-              iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
-              hoverable={!contact.accountInWallet}
-              onClick={contact.accountInWallet ? undefined : () => handleRemoveContactClick(contact.address)}
-              className="bg-app-bg rounded-xl h-auto py-3 px-3"
-            />
-          ))
-        )}
-      </div>
-    </div>
+      {nothingFound ? (
+        <EmptyState icon={IconName.ContactsBook} title={t('noContactsFound')} data-testid="address-book-no-results" />
+      ) : (
+        <>
+          {(contacts.length > 0 || !query) && (
+            <SubPageSection title={t('contacts')} icon={<Icon name={IconName.ContactsBook} fill="currentColor" />}>
+              {contacts.length > 0 ? (
+                <ListGroup surface="plain">
+                  {contacts.map(contact => (
+                    <ListRow
+                      key={contact.address}
+                      title={contact.name}
+                      avatar={avatarFor(contact)}
+                      subtitle={`${contactNetworkName(contact.address, contact.network, t('miden'))} · ${truncateAddress(contact.address, true, 8)}`}
+                      onClick={() => navigate(contactPath(contact.address))}
+                      chevron
+                      data-testid={`address-book-contact-${contact.address}`}
+                    />
+                  ))}
+                </ListGroup>
+              ) : (
+                <EmptyState
+                  data-testid="address-book-empty"
+                  icon={IconName.Users}
+                  surface="dashed"
+                  title={t('noContactsYet')}
+                  description={t('noContactsYetHint')}
+                />
+              )}
+            </SubPageSection>
+          )}
+
+          {accounts.length > 0 && (
+            <SubPageSection title={t('myAccounts')} icon={<Icon name={IconName.Wallet} fill="currentColor" />}>
+              <ListGroup surface="plain">
+                {accounts.map(account => (
+                  <ListRow
+                    key={account.address}
+                    title={account.name}
+                    avatar={avatarFor(account)}
+                    subtitle={`${account.isPublic ? t('public') : t('private')} · ${truncateAddress(account.address, true, 8)}`}
+                    data-testid={`address-book-account-${account.address}`}
+                  />
+                ))}
+              </ListGroup>
+            </SubPageSection>
+          )}
+        </>
+      )}
+    </SubPageLayout>
   );
 };
 

@@ -925,3 +925,57 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     }
   });
 });
+
+describe('Meet your Guardian copy survives machine translation', () => {
+  // DeepL reads a `$placeholder$` wedged mid-sentence as a name ("o “$operators$”") or glues it into a
+  // word ("d$operators$s"), and a protected term can land glued to its neighbour ("infraestruturblockchaine").
+  // Only CURRENT translations are checked: an entry whose englishSource no longer matches is stale, is
+  // dropped from the rendered bundle and is re-translated by CI, so it cannot reach a user.
+  const BIO_KEYS = [
+    'guardianBioGeneric',
+    'guardianBioOpenZeppelin',
+    'guardianBioGateway',
+    'guardianBioLambdaClass',
+    'guardianBioKoda'
+  ];
+  const NEW_KEYS = Object.keys(enJson).filter(key => /^(meetGuardian|guardianBio|setUpYourAccount)/.test(key));
+  const UNSPACED_LOCALES = ['ja', 'ko', 'zh_CN', 'zh_TW'];
+  // A plural ("Guardians", "blockchains") is a word, not a glue.
+  const GLUED = /\p{L}(?:blockchain|Guardian|\$\w+\$)|(?:blockchain|Guardian)(?!s\b)\p{L}|\$\w+\$\p{L}/iu;
+
+  const current = (locale: string, key: string): string | undefined => {
+    const entry = readMessages(locale)[key] as (Entry & { englishSource?: string }) | undefined;
+    return entry && entry.englishSource === enJson[key] ? entry.message : undefined;
+  };
+
+  it('covers the new keys, so the sweep below has a subject', () => {
+    expect(NEW_KEYS).toEqual(
+      expect.arrayContaining([...BIO_KEYS, 'meetGuardianFastestOf', 'meetGuardianCannotMoveFunds'])
+    );
+  });
+
+  it('keeps en/messages.json on the same English as en.json for every new key', () => {
+    // The generator re-translates from en/messages.json's englishSource; a key reworded in one file only
+    // ships one English and queues every locale against the other.
+    for (const key of NEW_KEYS) {
+      expect({ key, message: message(key) }).toEqual({ key, message: enJson[key] });
+      expect({ key, englishSource: (messages[key] as Entry & { englishSource?: string }).englishSource }).toEqual({
+        key,
+        englishSource: enJson[key]
+      });
+    }
+  });
+
+  it.each(EXPECTED_LOCALES)('%s: the operator bios carry no placeholder', locale => {
+    const offenders = BIO_KEYS.filter(key => current(locale, key)?.includes('$'));
+    expect(offenders).toEqual([]);
+  });
+
+  it.each(EXPECTED_LOCALES.filter(locale => !UNSPACED_LOCALES.includes(locale)))(
+    '%s: no new string glues a letter to a protected term or placeholder',
+    locale => {
+      const offenders = NEW_KEYS.filter(key => GLUED.test(current(locale, key) ?? ''));
+      expect(offenders).toEqual([]);
+    }
+  );
+});

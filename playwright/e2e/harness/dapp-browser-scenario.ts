@@ -45,7 +45,8 @@ export async function runDappBrowserJourney({ driver, server, steps }: DappJourn
     // The curated grid is real product content (featured-dapps.ts). We assert it
     // renders tiles without opening one — opening a live third-party dApp would
     // put a third party's uptime on this suite's critical path.
-    // The curated grid is EXPLORE_GRID_DAPPS — the two faucet dApps — not the
+    // The curated grid is the catalogue EXPLORE_CATALOG serves through
+    // `getExploreCatalog` (the two faucet dApps), not the
     // whole FEATURED_DAPPS list, and it is a different component from the
     // recents row (only the latter renders `DappTile`). Assert the count the
     // product actually ships plus a real URL per card: a grid that fails to
@@ -132,23 +133,22 @@ export async function runDappBrowserJourney({ driver, server, steps }: DappJourn
     expect(beta?.status, 'beta should have been parked by the switch').toBe('parked');
   });
 
-  await steps.step('open_third_dapp_from_a_tile', async () => {
+  await steps.step('open_third_dapp_from_recents', async () => {
     await driver.minimize();
     await driver.gotoBrowserTab();
-    // Opening gamma by URL first records it in Recents, which renders a real
-    // `DappTile`. Tapping that tile exercises the tile path with a deterministic
-    // target — the same component the curated grid uses.
+    // Opening gamma by URL first records it in Recents. Tapping its row exercises
+    // the Recents path with a deterministic target.
     await driver.openViaUrlBar('gamma');
     await driver.minimize();
     await driver.gotoBrowserTab();
 
     const before = server.loadCount('gamma');
-    await driver.openViaTile('gamma');
+    await driver.openViaRecents('gamma');
     expect(
       server.loadCount('gamma'),
-      'tapping the tile for an already-open dApp should restore it, not re-fetch it'
+      'tapping the Recents row for an already-open dApp should restore it, not re-fetch it'
     ).toBe(before);
-    await driver.expectDappPainted('gamma', 'gamma-from-tile');
+    await driver.expectDappPainted('gamma', 'gamma-from-recents');
   });
 
   await steps.step('navigate_away_keeps_tiles_visible', async () => {

@@ -62,8 +62,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
   const storeExportWalletBackupMaterial = useWalletStore(s => s.exportWalletBackupMaterial);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
+  const storeExportAccountFile = useWalletStore(s => s.exportAccountFile);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
-  const storeRevealGuardianKeys = useWalletStore(s => s.revealGuardianKeys);
   const storeSetGuardianOperatorCommitment = useWalletStore(s => s.setGuardianOperatorCommitment);
   const storeSetGuardianSyncStatus = useWalletStore(s => s.setGuardianSyncStatus);
   const storeCheckGuardianDrift = useWalletStore(s => s.checkGuardianDrift);
@@ -193,18 +193,18 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeRevealPrivateKey]
   );
 
+  const exportAccountFile = useCallback(
+    async (accountPublicKey: string, password?: string) => {
+      return storeExportAccountFile(accountPublicKey, password);
+    },
+    [storeExportAccountFile]
+  );
+
   const revealHotKey = useCallback(
     async (accountPublicKey: string, password?: string) => {
       return storeRevealHotKey(accountPublicKey, password);
     },
     [storeRevealHotKey]
-  );
-
-  const revealGuardianKeys = useCallback(
-    async (accountPublicKey: string, password?: string) => {
-      return storeRevealGuardianKeys(accountPublicKey, password);
-    },
-    [storeRevealGuardianKeys]
   );
 
   const importAccount = useCallback(
@@ -347,8 +347,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const confirmDAppTransaction = useCallback(
-    async (id: string, confirmed: boolean, delegate: boolean) => {
-      await storeConfirmDAppTransaction(id, confirmed, delegate);
+    async (id: string, confirmed: boolean, delegate: boolean, spendingLimitAuthenticated?: true) => {
+      await storeConfirmDAppTransaction(id, confirmed, delegate, spendingLimitAuthenticated);
     },
     [storeConfirmDAppTransaction]
   );
@@ -416,8 +416,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     updateCurrentAccount,
     revealViewKey,
     revealPrivateKey,
+    exportAccountFile,
     revealHotKey,
-    revealGuardianKeys,
     setGuardianOperatorCommitment,
     setGuardianSyncStatus,
     checkGuardianDrift,

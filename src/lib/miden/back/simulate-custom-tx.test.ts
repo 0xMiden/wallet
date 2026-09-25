@@ -87,7 +87,7 @@ describe('simulateCustomTransaction', () => {
       { __req: expect.any(Uint8Array) },
       expect.any(String)
     );
-    expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
   // #784: the dry run has no use for the anchor, but "no use for it" is not the
@@ -144,7 +144,7 @@ describe('simulateCustomTransaction', () => {
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
-    expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
     warn.mockRestore();
   });
 
@@ -216,7 +216,7 @@ describe('simulateCustomTransaction', () => {
       expect.any(String)
     );
     expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
-    expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
   // Regression: web-sdk 0.16 inverted `executeForSummary`'s contract — the summary
@@ -236,7 +236,30 @@ describe('simulateCustomTransaction', () => {
 
     // Executed locally against the same account — nothing proven or submitted.
     expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
-    expect(res).toEqual({ executedBytes: 'b64:9-9' });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
+  });
+
+  // Regression: `executeForSummary` runs on a client `getRawMidenClient` builds itself, without
+  // the create-options keystore this wallet installs, so it has no signer for an ordinary account
+  // and dies inside the kernel's auth-request event. That is not TRANSACTION_ALREADY_AUTHORIZED,
+  // so it used to rethrow, leaving the dApp custom sheet with no verified asset view, and making
+  // an account with a spending limit refuse every custom request, since the wallet could attribute
+  // no effects to it.
+  it.each([
+    [
+      'the kernel auth-request failure',
+      new Error(
+        "failed to execute transaction kernel program: error during processing of event 'miden::protocol::auth::request'\n  |-> failed to generate signature\n  `-> storage error: Failed to get secret key from IndexedDB"
+      )
+    ],
+    ['the bare keystore miss', new Error('storage error: Failed to get secret key from IndexedDB')]
+  ])('falls back to a local execution when the summary client cannot sign (%s)', async (_label, err) => {
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(err);
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
   it('still reports a genuine execution failure as { error } rather than executing locally', async () => {
@@ -391,5 +414,35 @@ describe('simulateCustomTransaction', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('an abandoned dry run', () => {
+  it('reports an interruption rather than wallet-internal eviction text', async () => {
+    // The dApp consent sheet interpolates this string onto a line the signer reads. "WASM client
+    // poisoned (watchdog): held the WASM client lock past its watchdog ceiling" says nothing a
+    // signer can act on, and naming our internals to an untrusted page is its own problem.
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(res).toEqual({ error: 'the simulation was interrupted before it finished' });
+  });
+});
+
+describe('introduced-note provenance', () => {
+  // The spending-limit policy may offset what LEAVES only against what this request BROUGHT IN.
+  // `importNotes` is dApp-authored and its ids can name a note the user already holds, so the
+  // credit is derived from the wallet's own already-held check rather than from the request.
+  it('credits only the notes this request actually introduced', async () => {
+    const result = await simulateCustomTransaction({
+      address: 'mtst1sender',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA', 'noteB']
+    });
+
+    expect(result.introducedCount).toBe(2);
+    expect(result.introducedCredit).toEqual([]);
   });
 });

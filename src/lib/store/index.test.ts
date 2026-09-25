@@ -72,6 +72,12 @@ describe('useWalletStore', () => {
     });
   });
 
+  // The Guardian cold key has no import path, so nothing may request it: the
+  // reveal screen is gone and so is the action behind it.
+  it('exposes no Guardian cold-key reveal action', () => {
+    expect(useWalletStore.getState()).not.toHaveProperty('revealGuardianKeys');
+  });
+
   describe('editAccountName', () => {
     const mockAccounts = [
       { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
@@ -245,6 +251,120 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('spending-limit actions', () => {
+    const draft = { accountId: 'account-a', limit: 90n };
+
+    it('reads the one configuration through a serializable transport response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetSpendingLimitResponse,
+        configuration: {
+          accountId: 'account-a',
+          limit: '90',
+          revision: 'revision-1',
+          createdAt: 1,
+          updatedAt: 2
+        }
+      });
+
+      await expect(useWalletStore.getState().readSpendingLimit('account-a')).resolves.toEqual({
+        accountId: 'account-a',
+        limit: 90n,
+        revision: 'revision-1',
+        createdAt: 1,
+        updatedAt: 2
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.GetSpendingLimitRequest,
+        accountId: 'account-a'
+      });
+    });
+
+    it('reports no configuration for an account with none', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.GetSpendingLimitResponse });
+
+      await expect(useWalletStore.getState().readSpendingLimit('account-a')).resolves.toBeUndefined();
+    });
+
+    it('serializes a bigint limit and parses the saved response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        configuration: {
+          accountId: 'account-a',
+          limit: '90',
+          revision: 'revision-2',
+          createdAt: 1,
+          updatedAt: 2
+        }
+      });
+
+      await expect(useWalletStore.getState().saveSpendingLimit(draft, 'revision-1', false)).resolves.toMatchObject({
+        limit: 90n,
+        revision: 'revision-2'
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft: { accountId: 'account-a', limit: '90' },
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: false
+      });
+    });
+
+    it('serializes a spend list and parses its structured preflight assessment', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        assessment: {
+          accountId: 'account-a',
+          usdAmount: '20',
+          revision: 'revision-1',
+          assessedAt: 100,
+          breach: {
+            spent: '90',
+            proposedTotal: '110',
+            limit: '100',
+            overBy: '10',
+            resetAt: 200
+          }
+        }
+      });
+
+      await expect(
+        useWalletStore.getState().assessSpendingLimit('account-a', [{ faucetId: 'faucet-a', amount: 20n }])
+      ).resolves.toMatchObject({
+        usdAmount: 20n,
+        breach: { overBy: 10n }
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        spends: [{ faucetId: 'faucet-a', amount: '20' }]
+      });
+    });
+  });
+
+  describe('strict authentication actions', () => {
+    it('loads protectors and verifies a credential', async () => {
+      mockRequest
+        .mockResolvedValueOnce({
+          type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+          protectors: { hardware: false, password: true }
+        })
+        .mockResolvedValueOnce({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
+
+      await expect(useWalletStore.getState().getStrictAuthenticationProtectors()).resolves.toEqual({
+        hardware: false,
+        password: true
+      });
+      await expect(useWalletStore.getState().verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
+      expect(mockRequest).toHaveBeenNthCalledWith(1, {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsRequest
+      });
+      expect(mockRequest).toHaveBeenNthCalledWith(2, {
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential: 'secret'
+      });
+    });
+  });
+
   describe('setAssetsMetadata', () => {
     it('merges new metadata with existing', () => {
       useWalletStore.setState({
@@ -384,6 +504,44 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.RevealPrivateKeyRequest,
         accountPublicKey: 'pk1',
+        password: 'password123'
+      });
+    });
+
+    it('exportAccountFile decodes through the imported Buffer, not the extension page stub', async () => {
+      // Every extension page loads public/globals.js first, which installs a Buffer whose from()
+      // ignores the encoding argument, and the entry points keep it (globalThis.Buffer || Buffer).
+      // Reading the bare global here returns an EMPTY array, so the user is handed a 0-byte account
+      // file with a success message. Jest runs on Node, where the real global hides that entirely.
+      const realBuffer = (globalThis as any).Buffer;
+      (globalThis as any).Buffer = { isBuffer: () => false, from: (a: unknown) => new Uint8Array(a as number) };
+      try {
+        mockRequest.mockResolvedValueOnce({
+          type: WalletMessageType.ExportAccountFileResponse,
+          accountFileBase64: 'BAUG'
+        });
+
+        const { exportAccountFile } = useWalletStore.getState();
+
+        await expect(exportAccountFile('mtst1account', 'password123')).resolves.toEqual(new Uint8Array([4, 5, 6]));
+      } finally {
+        (globalThis as any).Buffer = realBuffer;
+      }
+    });
+
+    it('exportAccountFile decodes the base64 response into bytes', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64: 'BAUG'
+      });
+
+      const { exportAccountFile } = useWalletStore.getState();
+      const result = await exportAccountFile('mtst1account', 'password123');
+
+      expect(result).toEqual(new Uint8Array([4, 5, 6]));
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey: 'mtst1account',
         password: 'password123'
       });
     });
@@ -749,19 +907,20 @@ describe('useWalletStore', () => {
       });
     });
 
-    it('confirmDAppTransaction sends correct request with delegate', async () => {
+    it('confirmDAppTransaction sends strict-authentication success only when supplied', async () => {
       mockRequest.mockResolvedValueOnce({
         type: MidenMessageType.DAppTransactionConfirmationResponse
       });
 
       const { confirmDAppTransaction } = useWalletStore.getState();
-      await confirmDAppTransaction('req-id', true, true);
+      await confirmDAppTransaction('req-id', true, true, true);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id: 'req-id',
         confirmed: true,
-        delegate: true
+        delegate: true,
+        spendingLimitAuthenticated: true
       });
     });
 

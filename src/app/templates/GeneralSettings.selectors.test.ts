@@ -8,7 +8,7 @@ import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 // reverse-mapping keys). This covers every line the enum emits.
 
 describe('GeneralSettingsSelectors', () => {
-  // Verbatim expected mapping — one entry per source member (all 11).
+  // Verbatim expected mapping — one entry per source member (all 12).
   const EXPECTED: Record<string, string> = {
     AnalyticsToggle: 'General Settings/AnalyticsToggle',
     DAppToggle: 'General Settings/DAppToggle',
@@ -20,6 +20,7 @@ describe('GeneralSettingsSelectors', () => {
     BiometricToggle: 'General Settings/BiometricToggle',
     HapticFeedbackToggle: 'General Settings/HapticFeedbackToggle',
     DarkModeToggle: 'General Settings/DarkModeToggle',
+    TelemetryToggle: 'General Settings/TelemetryToggle',
     ThemeSelector: 'General Settings/ThemeSelector'
   };
 
@@ -34,6 +35,7 @@ describe('GeneralSettingsSelectors', () => {
     expect(GeneralSettingsSelectors.BiometricToggle).toBe('General Settings/BiometricToggle');
     expect(GeneralSettingsSelectors.HapticFeedbackToggle).toBe('General Settings/HapticFeedbackToggle');
     expect(GeneralSettingsSelectors.DarkModeToggle).toBe('General Settings/DarkModeToggle');
+    expect(GeneralSettingsSelectors.TelemetryToggle).toBe('General Settings/TelemetryToggle');
     expect(GeneralSettingsSelectors.ThemeSelector).toBe('General Settings/ThemeSelector');
   });
 

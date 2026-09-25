@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Numpad } from 'components/Numpad';
+import { PasscodeScreen } from 'components/PasscodeScreen';
 
 const PASSCODE_LENGTH = 6;
 
@@ -24,6 +24,8 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
   const [enteredCode, setEnteredCode] = useState('');
   const [confirmCode, setConfirmCode] = useState('');
   const [mismatch, setMismatch] = useState(false);
+  // Counts mismatched confirmations; each new value shakes the dots once.
+  const [mismatchCount, setMismatchCount] = useState(0);
 
   const activeCode = phase === 'enter' ? enteredCode : confirmCode;
   const setActiveCode = phase === 'enter' ? setEnteredCode : setConfirmCode;
@@ -41,7 +43,13 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
     setActiveCode(prev => prev.slice(0, -1));
   }, [setActiveCode, mismatch]);
 
+  // The completion effect below depends on `onSubmit`, so a parent re-rendering with a new function
+  // re-runs it with the same full, matching code. Record what was submitted so that submits once -
+  // the same guard PasscodeEntry carries.
+  const submittedCodeRef = useRef<string | null>(null);
+
   useEffect(() => {
+    if (confirmCode.length < PASSCODE_LENGTH) submittedCodeRef.current = null;
     if (phase === 'enter' && enteredCode.length === PASSCODE_LENGTH) {
       const timer = setTimeout(() => {
         setPhase('confirm');
@@ -54,11 +62,14 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
       if (confirmCode !== enteredCode) {
         const timer = setTimeout(() => {
           setMismatch(true);
+          setMismatchCount(count => count + 1);
           setConfirmCode('');
         }, 150);
         return () => clearTimeout(timer);
       }
+      if (submittedCodeRef.current === confirmCode) return undefined;
       const timer = setTimeout(() => {
+        submittedCodeRef.current = confirmCode;
         onSubmit?.(confirmCode);
       }, 150);
       return () => clearTimeout(timer);
@@ -67,42 +78,19 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
   }, [phase, enteredCode, confirmCode, onSubmit]);
 
   return (
-    <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-setup-passcode">
-      <div className="min-h-full flex flex-col items-center px-6 pb-8">
-        <div className="flex flex-col items-center w-full mt-8 shrink-0">
-          <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight">
-            {phase === 'enter' ? t('setUpYourPasscode') : t('confirmYourPasscode')}
-          </h1>
-          <p className={`text-lg text-center mt-3 ${mismatch ? 'text-red-500' : 'text-gray-secondary'}`}>
-            {mismatch
-              ? t('passcodesDoNotMatch')
-              : phase === 'enter'
-                ? t('createA6DigitCode')
-                : t('reEnterTheSame6Digits')}
-          </p>
-
-          <div className="flex items-center gap-3.5 mt-6">
-            {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
-              const filled = index < activeCode.length;
-              return (
-                <div
-                  key={index}
-                  className={
-                    filled
-                      ? 'w-3.5 h-3.5 rounded-full bg-[#C7C7CC] border-2 border-[#C7C7CC]'
-                      : 'w-3.5 h-3.5 rounded-full border-2 border-[#C7C7CC]'
-                  }
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="w-full pt-13">
-          <Numpad onDigit={handleDigit} onDelete={handleDelete} />
-        </div>
-      </div>
-    </div>
+    <PasscodeScreen
+      data-testid="onboarding-setup-passcode"
+      title={phase === 'enter' ? t('setUpYourPasscode') : t('confirmYourPasscode')}
+      message={
+        mismatch ? t('passcodesDoNotMatch') : phase === 'enter' ? t('createA6DigitCode') : t('reEnterTheSame6Digits')
+      }
+      isError={mismatch}
+      filled={activeCode.length}
+      length={PASSCODE_LENGTH}
+      errorKey={mismatchCount}
+      onDigit={handleDigit}
+      onDelete={handleDelete}
+    />
   );
 };
 

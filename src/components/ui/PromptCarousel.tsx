@@ -246,7 +246,9 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
               aria-label={`Show prompt ${i + 1} of ${slides.length}`}
               className={classNames(
                 'h-1.5 rounded-full transition-all',
-                i === activeIndex ? 'w-4 bg-accent-primary' : 'w-1.5 bg-gray-50'
+                // `hairline`, not `fill`: the cards above are `page` with a hairline edge now, and
+                // `fill` on the page behind them was all but invisible in the light theme.
+                i === activeIndex ? 'w-4 bg-accent-primary' : 'w-1.5 bg-hairline'
               )}
             />
           ))}

@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
+import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
@@ -35,6 +39,12 @@ let mockSelectedToken: any = { id: 'T1', name: 'TKN', decimals: 2, balance: 100,
 let mockSelectedContact: any = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
 
 let capturedBackHandler: (() => boolean) | null = null;
+let capturedBackHandlerDeps: unknown[] | null = null;
+
+/** Same comparison React uses for a deps array: same length, `Object.is` per slot. */
+function sameDeps(a: unknown[], b: unknown[]): boolean {
+  return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
+}
 
 const navigateToMock = jest.fn();
 const goBackMock = jest.fn();
@@ -62,9 +72,19 @@ const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+const telemetryHandles: TelemetryHandle[] = [];
+const beginFlowMock = jest.fn((_flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  telemetryHandles.push(handle);
+  return handle;
+});
+const classifyErrorMock = jest.fn((_error: unknown) => 'unknown');
+
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
 const walletStoreState = {
+  tokenPrices: { TKN: { price: 3 } } as Record<string, { price: number }>,
   isTransactionModalOpen: false,
   lastCompletedTxHash: null as string | null,
   closeTransactionModal: closeTransactionModalMock,
@@ -92,6 +112,7 @@ jest.mock('./SelectRecipient', () => ({
   SelectRecipient: (props: any) => (
     <div data-testid="select-recipient">
       <span data-testid="sr-address">{props.address}</span>
+      <span data-testid="sr-network">{props.network ?? ''}</span>
       <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
       <span data-testid="sr-error">{props.error ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
@@ -125,6 +146,11 @@ jest.mock('./SendAmount', () => ({
   SendAmount: (props: any) => (
     <div data-testid="select-amount">
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
+      <span data-testid="sa-token-id">{props.token ? props.token.id : ''}</span>
+      <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
+      <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
+      <span data-testid="sa-decimals">{props.token ? String(props.token.decimals) : ''}</span>
+      <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
@@ -161,14 +187,16 @@ jest.mock('./AccountsList', () => ({
   )
 }));
 
-// The add-contact sheet reuses the Settings form, which reaches FormField ->
-// useTippy -> lib/platform at module scope. Stub it to its observable props.
+// The add-contact sheet has its own tests; stub it to its observable props.
 jest.mock('./AddContactDrawer', () => ({
   AddContactDrawer: (props: any) => (
     <div data-testid="add-contact-drawer">
       <span data-testid="acd-open">{String(props.open)}</span>
       <span data-testid="acd-address">{props.address ?? ''}</span>
+      <span data-testid="acd-network">{props.network ?? ''}</span>
       <button data-testid="acd-close" onClick={() => props.onOpenChange(false)} />
+      {/* Lets a test put the sheet into the in-flight-write state the real SheetBody reports. */}
+      <button data-testid="acd-busy" onClick={() => props.onBusyChange?.(true)} />
     </div>
   )
 }));
@@ -178,14 +206,22 @@ jest.mock('./useRecentRecipients', () => ({
   useRecentRecipients: (...a: any[]) => useRecentRecipientsMock(...a)
 }));
 
+let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
 jest.mock('./bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  BRIDGE_NETWORKS: [],
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
   getBridgeNetwork: jest.fn()
 }));
 
+let mockEpochAmount: string | undefined;
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => ({ amount: undefined, loading: false })
+  useEpochQuote: () => ({ amount: mockEpochAmount, loading: false })
+}));
+
+jest.mock('./SendRoute', () => ({
+  SendRoute: (props: any) => <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -222,7 +258,11 @@ jest.mock('lib/qr', () => ({
   isScanAvailable: () => isScanAvailableMock(),
   scanQRCode: () => scanQRCodeMock()
 }));
-jest.mock('lib/store', () => ({ useWalletStore: { getState: () => walletStoreState } }));
+jest.mock('lib/store', () => ({
+  useWalletStore: Object.assign((selector: (state: typeof walletStoreState) => unknown) => selector(walletStoreState), {
+    getState: () => walletStoreState
+  })
+}));
 jest.mock('lib/woozie', () => ({
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
@@ -248,6 +288,12 @@ jest.mock('utils/miden', () => {
   };
 });
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
+// The real `./send-telemetry` is kept so the cross-route handoff it exists for is
+// exercised for real; only the reporting primitive underneath it is mocked.
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => beginFlowMock(flow),
+  classifyError: (error: unknown) => classifyErrorMock(error)
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers.
@@ -261,9 +307,11 @@ beforeEach(() => {
   mockSearch = '';
   mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
   mockRenderRouteName = undefined;
+  mockEpochAmount = undefined;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
+  capturedBackHandlerDeps = null;
 
   useAccountMock.mockReturnValue({ publicKey: 'me-pk' });
   useAllAccountsMock.mockReturnValue([]);
@@ -281,9 +329,16 @@ beforeEach(() => {
   walletStoreState.isTransactionModalOpen = false;
   walletStoreState.lastCompletedTxHash = null;
 
-  // Capture the back-button handler from each render so tests can invoke it.
-  useMobileBackHandlerMock.mockImplementation((cb: any) => {
-    capturedBackHandler = cb;
+  // Capture the back-button handler the way registration actually picks one. The real hook
+  // registers inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately excluded
+  // from the deps, so the live handler is the one from the render that last CHANGED a dep, not the
+  // newest one. Re-capturing on every render hands tests the freshest closure and makes a value
+  // missing from the deps array impossible to catch.
+  useMobileBackHandlerMock.mockImplementation((cb: any, deps: unknown[] = []) => {
+    if (!capturedBackHandlerDeps || !sameDeps(deps, capturedBackHandlerDeps)) {
+      capturedBackHandlerDeps = deps;
+      capturedBackHandler = cb;
+    }
   });
 });
 
@@ -452,6 +507,28 @@ describe('mobile back handler', () => {
     });
     expect(result).toBe(true);
     expect(screen.getByTestId('ad-open')).toHaveTextContent('false');
+    expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('does not close the add-contact drawer on mobile back while its save is in flight', () => {
+    renderFlow();
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-addcontact'));
+    });
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
+    act(() => {
+      fireEvent.click(screen.getByTestId('acd-busy'));
+    });
+
+    // This path writes the sheet's open state directly, so it never reaches the drawer's own
+    // dismiss guard. Tearing the sheet down here destroys the only node that can report a failed
+    // save. The gesture is still consumed, so back does not fall through to the Navigator.
+    let result: boolean | undefined;
+    act(() => {
+      result = capturedBackHandler!();
+    });
+    expect(result).toBe(true);
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
@@ -664,6 +741,56 @@ describe('recipient address entry', () => {
     });
     expect(screen.getByTestId('sr-address')).toHaveTextContent('0xpicked');
     expect(screen.getByTestId('ad-recipient')).toHaveTextContent('0xpicked');
+  });
+
+  it('selects the only bridge network for a valid 0x recipient, so Confirm is ready', () => {
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    } finally {
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it("preselects a 0x contact's saved network when it is picked", () => {
+    mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external', network: 'sepolia' };
+    renderFlow();
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+
+    expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    // The add-contact sheet gets the same network, so saving keeps what was chosen.
+    expect(screen.getByTestId('acd-network')).toHaveTextContent('sepolia');
+  });
+
+  it("starts with the recipient and saved network handed over by a contact's page", () => {
+    mockSearch = '?to=0xfromcontact&network=sepolia';
+    mockBridgeNetworks = [
+      { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+      { id: 'base', name: 'Base', chainId: 84532 }
+    ];
+    try {
+      renderFlow();
+
+      expect(screen.getByTestId('sr-address')).toHaveTextContent('0xfromcontact');
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    } finally {
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('validates a handed-over recipient like a typed one', () => {
+    mockSearch = '?to=me-pk';
+    renderFlow();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
   });
 
   it('rejects the current account when it is selected from contacts', () => {
@@ -1114,6 +1241,207 @@ describe('token preselection', () => {
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('7');
   });
 
+  it('values a preselected token at its feed price', () => {
+    mockSearch = '?tokenId=T1';
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({ data: balanceData });
+    renderFlow();
+    expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^3$/);
+  });
+
+  it('gives a preselected token the feed does not list no price, not the store $1 default', () => {
+    mockSearch = '?tokenId=U1';
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'U1', metadata: { symbol: 'UNLISTED', decimals: 2 }, balance: 5, fiatPrice: 1 }]
+    });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('UNLISTED');
+    expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^0$/);
+  });
+
+  it('values a preselected swap token at the asset it stands for', () => {
+    mockSearch = `?tokenId=${TOKEN_IETH.faucetId}`;
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
+    });
+    walletStoreState.tokenPrices = { ETH: { price: 3000 } };
+    try {
+      renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('IETH');
+      expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^3000$/);
+    } finally {
+      walletStoreState.tokenPrices = { TKN: { price: 3 } };
+    }
+  });
+
+  describe('after the user picks another token', () => {
+    const threeTokens = (t2Balance = 7) => [
+      { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 0 },
+      { tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 2 }, balance: t2Balance, fiatPrice: 0 },
+      { tokenId: 'T3', metadata: { symbol: 'TK3', decimals: 2 }, balance: 9, fiatPrice: 0 }
+    ];
+
+    const preselectT1ThenPickT2 = () => {
+      mockSearch = '?tokenId=T1';
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      useAllBalancesMock.mockReturnValue({ data: threeTokens() });
+      const utils = renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      return utils;
+    };
+
+    afterEach(() => {
+      walletStoreState.tokenPrices = { TKN: { price: 3 } };
+    });
+
+    it('keeps the picked token when prices refresh, and gives it the price that lands', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      walletStoreState.tokenPrices = { TKN: { price: 3 }, TK2: { price: 5 } };
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^5$/);
+    });
+
+    it('keeps the picked token when balances refresh, and copies its new balance', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      useAllBalancesMock.mockReturnValue({ data: threeTokens(11) });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^11$/);
+    });
+
+    it('applies the same preselection again after it went away', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      mockSearch = '';
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      mockSearch = '?tokenId=T1';
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+    });
+
+    it('applies a new preselected token once', () => {
+      const { rerender } = preselectT1ThenPickT2();
+      mockSearch = '?tokenId=T3';
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK3');
+
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      useAllBalancesMock.mockReturnValue({ data: threeTokens() });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+    });
+
+    it('keeps the picked token when a preselected token that was absent appears', () => {
+      mockSearch = '?tokenId=T1';
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      useAllBalancesMock.mockReturnValue({ data: threeTokens().filter(t => t.tokenId !== 'T1') });
+      const { rerender } = renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      useAllBalancesMock.mockReturnValue({ data: threeTokens() });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+    });
+
+    it('keeps a picked token that leaves the balances at a zero balance the amount step cannot confirm', () => {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      walletStoreState.tokenPrices = { TK2: { price: 5 } };
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 5, scaleIsKnown: false };
+      useAllBalancesMock.mockReturnValue({
+        data: [{ tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 2, scaleIsUnknown: true }, balance: 7 }]
+      });
+      const { rerender } = renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      act(() => {
+        fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+      });
+      expect(screen.getByTestId('sa-valid')).toHaveTextContent('true');
+
+      useAllBalancesMock.mockReturnValue({ data: threeTokens().filter(t => t.tokenId !== 'T2') });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent(/^TK2$/);
+      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^T2$/);
+      expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^0$/);
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^2$/);
+      expect(screen.getByTestId('sa-fiat-price')).toHaveTextContent(/^5$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent(/^false$/);
+      expect(screen.getByTestId('sa-error')).toHaveTextContent('amountMustBeLessThanBalance');
+      expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    });
+
+    it('keeps the balance of a picked token a still-loading snapshot does not list', () => {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 2, balance: 7, fiatPrice: 0, scaleIsKnown: true };
+      mockBalancesLoading = true;
+      useAllBalancesMock.mockReturnValue({
+        data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0 }]
+      });
+      const { rerender } = renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      useAllBalancesMock.mockReturnValue({
+        data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 1 }]
+      });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-balance')).toHaveTextContent(/^7$/);
+    });
+  });
+
+  describe('when the token row gains its real scale', () => {
+    const placeholderRow = {
+      tokenId: 'T2',
+      metadata: { symbol: 'TK2', decimals: 6, scaleIsUnknown: true },
+      balance: 7
+    };
+    const resolvedRow = { tokenId: 'T2', metadata: { symbol: 'TK2', decimals: 8 }, balance: 7 };
+
+    it('rebuilds a preselected token from the resolved row', () => {
+      mockSearch = '?tokenId=T2';
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      useAllBalancesMock.mockReturnValue({ data: [placeholderRow] });
+      const { rerender } = renderFlow();
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^6$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent('false');
+      useAllBalancesMock.mockReturnValue({ data: [resolvedRow] });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^8$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent('true');
+    });
+
+    it('rebuilds a token picked in the drawer from the resolved row', () => {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      mockSelectedToken = { id: 'T2', name: 'TK2', decimals: 6, balance: 7, fiatPrice: 0, scaleIsKnown: false };
+      useAllBalancesMock.mockReturnValue({ data: [placeholderRow] });
+      const { rerender } = renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^6$/);
+      useAllBalancesMock.mockReturnValue({ data: [resolvedRow] });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TK2');
+      expect(screen.getByTestId('sa-decimals')).toHaveTextContent(/^8$/);
+      expect(screen.getByTestId('sa-scale-known')).toHaveTextContent('true');
+    });
+  });
+
   it('does not preselect when balances have not loaded yet', () => {
     mockSearch = '?tokenId=T1';
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
@@ -1136,5 +1464,191 @@ describe('token preselection', () => {
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `send` telemetry flow.
+// ---------------------------------------------------------------------------
+describe('send telemetry', () => {
+  /** Throwing accessor so a missing handle names how many flows were begun. */
+  const handleAt = (index: number): TelemetryHandle => {
+    const handle = telemetryHandles[index];
+    if (!handle) throw new Error(`no flow was begun at index ${index} (begun: ${telemetryHandles.length})`);
+    return handle;
+  };
+
+  /** Everything this suite handed to telemetry, for the privacy assertions. */
+  const telemetryPayload = () =>
+    JSON.stringify({
+      begun: beginFlowMock.mock.calls,
+      classified: classifyErrorMock.mock.calls,
+      failed: telemetryHandles.map(handle => handle.fail.mock.calls),
+      steps: telemetryHandles.map(handle => handle.step.mock.calls)
+    });
+
+  beforeEach(() => {
+    // Scoped to this block: route dwell is a timer, and advancing the clock for
+    // every other suite would count a visit those tests never made.
+    jest.useFakeTimers();
+    // The flow handle is module-scoped (it outlives this route on purpose), so
+    // discard any handle a previous test left open.
+    settleSendFlow(flow => flow.cancel());
+    beginFlowMock.mockClear();
+    classifyErrorMock.mockClear();
+    telemetryHandles.length = 0;
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  /**
+   * Let the route settle. Arriving at /send no longer begins the flow on its
+   * own: the carousel commits a route on every swipe release, so a route has to
+   * hold still to count as a visit. See `useRouteDwell`.
+   */
+  const dwell = () => act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+
+  /** Render and stay, which is what a user who meant to send does. */
+  const renderSend = (isLoading = false) => {
+    const rendered = renderFlow(isLoading);
+    dwell();
+    return rendered;
+  };
+
+  const reachReview = (amount: string, recipient: string) => {
+    mockSelectedContact = { id: recipient, name: 'R', isOwned: false, contactType: 'external' };
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr === recipient);
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    const rendered = renderSend();
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: amount } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    return rendered;
+  };
+
+  it('begins the send flow on entry to /send', () => {
+    renderSend();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+  });
+
+  it('begins one flow per entry, not one per render', () => {
+    renderSend();
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecip' } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-addressbook'));
+    });
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels the flow when the user leaves the send flow without handing off', () => {
+    const { unmount } = renderSend();
+
+    unmount();
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the flow open across the handoff to the review page', () => {
+    const { unmount } = reachReview('5', 'mtst1recipient');
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('/send/review'));
+
+    unmount();
+
+    // Settling here would report every successful send as abandoned-at-review;
+    // the review page owns the terminal call.
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing while another home page is showing, since the carousel keeps this one mounted', () => {
+    // TabLayout renders Overview / Send / Receive / Earn / Swap as one carousel
+    // and mounts all of them at once, for the whole session. A mount-triggered
+    // flow therefore began a send on every app open and never ended it, because
+    // swiping away does not unmount this screen — a phantom abandoned send per
+    // launch, which is what the shipped build was actually reporting.
+    mockPathname = '/';
+
+    renderSend();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing for a pane the carousel only swiped past', () => {
+    // Reaching Swap from Overview is four swipe releases, and each release
+    // navigates — so /send is committed on the way past. Before the dwell gate
+    // that emitted a matched, plausible, entirely meaningless send: begun and
+    // abandoned at `select_recipient`, by a finger that never stopped there.
+    mockPathname = '/';
+    const view = renderFlow();
+
+    mockPathname = '/send';
+    view.rerender(<SendFlow isLoading={false} />);
+    act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS - 1));
+
+    mockPathname = '/receive';
+    view.rerender(<SendFlow isLoading={false} />);
+    dwell();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('records the send as abandoned when the user swipes away, without waiting for an unmount', () => {
+    const view = renderSend();
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+
+    mockPathname = '/';
+    view.rerender(<SendFlow isLoading={false} />);
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('never passes the recipient address or the amount to telemetry', () => {
+    reachReview('4200', 'mtst1recipientaddress');
+
+    expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
+    expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
+    expect(telemetryPayload()).not.toContain('4200');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fast-route fee: only a priced token of known scale has a dollar input.
+// ---------------------------------------------------------------------------
+describe('fast-route fee', () => {
+  const renderRouteStep = (metadata: Record<string, unknown>) => {
+    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId: 'T1' });
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    mockEpochAmount = '4';
+    useAllBalancesMock.mockReturnValue({ data: [{ tokenId: 'T1', metadata, balance: 42, fiatPrice: 0 }] });
+    renderFlow();
+    return screen.getByTestId('route-fee');
+  };
+
+  it('is the dollar input less the quoted USDC for a priced token', () => {
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 })).toHaveTextContent(/^11$/);
+  });
+
+  it('is absent for a token the feed does not price, not $0', () => {
+    expect(renderRouteStep({ symbol: 'UNLISTED', decimals: 2 })).toHaveTextContent(/^undefined$/);
+  });
+
+  it('is absent for a priced token whose scale is unknown', () => {
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2, scaleIsUnknown: true })).toHaveTextContent(/^undefined$/);
   });
 });

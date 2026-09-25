@@ -102,7 +102,7 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
         <Icon name={IconName.WarningFill} size="md" fill="#FEA644" />
       </div>
       <div className="flex-1 flex flex-col justify-center items-start min-w-0">
-        <p className="text-black text-sm font-medium">
+        <p className="text-ink text-sm font-medium">
           {count === 1 ? t('deadletteredNotesTitleOne') : t('deadletteredNotesTitle')}
         </p>
         <p className="text-text-muted text-xs">
@@ -113,7 +113,7 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
         type="button"
         onClick={onRetry}
         disabled={retrying}
-        className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-gray-100 disabled:opacity-50"
+        className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-fill-pressed disabled:opacity-50"
       >
         {t('connectivityRetry')}
       </button>

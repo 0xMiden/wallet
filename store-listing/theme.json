@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "colors": {
+    "orange": "#e77537",
+    "orangeDark": "#bd4b19",
+    "cream": "#fff7f2",
+    "ink": "#3f3937",
+    "white": "#ffffff",
+    "grid": "#ffffff"
+  },
+  "font": "fonts/Geist/webfonts/Geist-SemiBold.woff2",
+  "brandMark": "public/misc/brand/new-bread.svg",
+  "headlineMaxHeightRatio": 0.2,
+  "headlineZoneRatio": 0.18,
+  "cornerRadiusRatio": 0.035,
+  "gridSizeRatio": 0.075
+}

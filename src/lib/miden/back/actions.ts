@@ -3,6 +3,7 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { getMessage } from 'lib/i18n';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -27,19 +28,45 @@ import {
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
 import { clearStorage } from 'lib/miden/reset';
-import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  installRealmKeystore,
+  uninstallRealmKeystore,
+  withWasmClientLock
+} from 'lib/miden/sdk/miden-client';
+import {
+  readSpendingLimit as readStoredSpendingLimit,
+  saveSpendingLimit as saveStoredSpendingLimit
+} from 'lib/miden/spending-limits/config';
+import { assessOutgoingSpendingLimitDetails } from 'lib/miden/spending-limits/queue';
+import {
+  PersistedSpendingLimit,
+  SerializedSpendingLimitAssessment,
+  SerializedSpendingLimitDraft,
+  parseSerializedSpendingAmount,
+  parseSerializedSpendingLimitDraft,
+  toPersistedSpendingLimit,
+  toSerializedSpendingLimitAssessment
+} from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
   GuardianRecoveryAction,
   GuardianSyncStatus,
   ImportedAccountBackup,
+  ReportTelemetryEventRequest,
+  ReportTelemetryEventResponse,
+  SerializedSpend,
   SignEvmOperation,
   WalletAccount,
+  WalletMessageType,
   WalletSettings,
   WalletState,
   WalletStatus
 } from 'lib/shared/types';
+import { resolveTelemetryContext } from 'lib/telemetry/context';
+import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
@@ -437,12 +464,40 @@ export function revealPrivateKey(accPubKeyCommitment: string, password?: string)
   return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
 }
 
-export function revealHotKey(accountPublicKey: string, password?: string) {
-  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+export function exportAccountFile(accountPublicKey: string, password?: string) {
+  return withInited(() =>
+    Vault.withAccountFileKeyReader(accountPublicKey, password, async getKey => {
+      try {
+        return await withWasmClientLock(
+          async hold => {
+            installRealmKeystore({ getKey });
+            const client = await getMidenClient();
+            assertWasmHoldCurrent(hold, 'export-account-file', 'after client acquisition');
+            const bytes = await client.exportAccountFile(accountPublicKey, step =>
+              assertWasmHoldCurrent(hold, 'export-account-file', step)
+            );
+            try {
+              // Encoded straight from `bytes` rather than through an intermediate Buffer copy,
+              // because every copy is another live plaintext of the account's auth key that the
+              // screen's own fill(0) cannot reach. The base64 string itself is immutable and stays
+              // resident until GC - the transport is a string here the way revealPrivateKey and
+              // revealMnemonic already are - so this zeroes the one copy it does own.
+              return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+            } finally {
+              bytes.fill(0);
+            }
+          },
+          { label: 'export-account-file' }
+        );
+      } finally {
+        uninstallRealmKeystore({ getKey });
+      }
+    })
+  );
 }
 
-export function revealGuardianKeys(accountPublicKey: string, password?: string) {
-  return withInited(() => Vault.revealGuardianKeys(accountPublicKey, password));
+export function revealHotKey(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
 }
 
 export function revealPublicKey(_accPublicKey: string) {}
@@ -506,6 +561,43 @@ export function updateSettings(settings: Partial<WalletSettings>) {
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
   });
+}
+
+export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
+  const configuration = await readStoredSpendingLimit(accountId);
+  return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);
+}
+
+export async function saveSpendingLimit(
+  serializedDraft: SerializedSpendingLimitDraft,
+  observedRevision: string | undefined,
+  strictlyAuthenticated: boolean
+): Promise<PersistedSpendingLimit | undefined> {
+  const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
+    observedRevision,
+    strictlyAuthenticated
+  });
+  return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
+}
+
+export async function assessOutgoingSpendingLimit(
+  accountId: string,
+  spends: readonly SerializedSpend[]
+): Promise<SerializedSpendingLimitAssessment | undefined> {
+  const details = await assessOutgoingSpendingLimitDetails({
+    accountId,
+    spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
+  });
+  return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
+}
+
+export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {
+  const [hardware, password] = await Promise.all([Vault.hasHardwareProtector(), Vault.hasPasswordProtector()]);
+  return { hardware, password };
+}
+
+export async function verifyStrictActionAuthentication(credential?: string): Promise<void> {
+  await Vault.verifyProtector(credential);
 }
 
 export function signTransaction(publicKey: string, signingInputs: string) {
@@ -782,6 +874,24 @@ export async function processDApp(
       return withInited(() => waitForTransaction(req));
   }
 }
+
+export async function handleReportTelemetryEvent(
+  req: ReportTelemetryEventRequest
+): Promise<ReportTelemetryEventResponse> {
+  // Defence in depth, and only that — `isNameableEvent` inside `sendEvent` is the
+  // control that actually holds. It refuses every case this would: a missing phase
+  // composes `open_undefined`, which has no phase suffix and fails the pattern.
+  // Kept because this is the boundary where an untyped message arrives (the
+  // offscreen document forwards over `chrome.runtime.sendMessage`, which is
+  // `unknown` at the wire) and refusing at the boundary costs one array lookup.
+  // Do not read it as the reason a malformed name cannot egress; that is the sink.
+  if (VALID_PHASES.includes((req.event as { phase?: string } | null)?.phase as string)) {
+    await sendEvent(req.event, resolveTelemetryContext());
+  }
+  return { type: WalletMessageType.ReportTelemetryEventResponse };
+}
+
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {

@@ -122,6 +122,23 @@ describe('ExportFilePassword', () => {
     expect(continueBtn).toBeDisabled();
   });
 
+  it('renders through SubPageLayout: shared fields in the body, Continue pinned in the footer', () => {
+    const { nameInput, passwordInput, continueBtn, passwordEyeBtn } = renderHarness();
+
+    const page = screen.getByTestId('export-file-password');
+    expect(page.querySelector('[data-slot="body"]')).toContainElement(nameInput);
+    expect(page.querySelector('[data-slot="footer"]')).toContainElement(continueBtn);
+    // Every field is the shared TextField: labelled, on the fill pill.
+    expect(screen.getByLabelText('name')).toBe(nameInput);
+    expect(screen.getByLabelText('password')).toBe(passwordInput);
+    expect(passwordInput.parentElement).toHaveClass('bg-fill', 'rounded-full');
+    // The explanation is the section's muted 14px copy, not a grey chip.
+    expect(screen.getByText('enterPasswordToEncrypt')).toHaveClass('text-body', 'text-muted');
+    // The eye toggle is a named, non-submitting IconButton.
+    expect(passwordEyeBtn).toHaveAttribute('type', 'button');
+    expect(passwordEyeBtn).toHaveAccessibleName('show');
+  });
+
   it('reflects password validation counts through to the strength indicator', () => {
     const { setPassword } = renderHarness();
     // Starts with an empty password (0 checks).

@@ -1,6 +1,5 @@
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
@@ -8,7 +7,6 @@ import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about
 import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
 import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
 import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-security.svg';
-import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
@@ -17,16 +15,19 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
-import MenuItem from 'app/templates/MenuItem';
+import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
+import SpendingLimits from 'app/templates/SpendingLimits';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
-import { Button, ButtonVariant } from 'components/Button';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SectionHeader } from 'components/ui/SectionHeader';
+import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayout';
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
-import { TabHeader } from 'components/ui/TabHeader';
+import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -38,21 +39,24 @@ import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileMana
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
+import ExportAccountFile from './ExportAccountFile';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
-import { FEEDBACK_URL, PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
+import { FEEDBACK_URL, PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '../constants';
 
 type SettingsProps = {
   tabSlug?: string | null;
   rootScrollTop?: React.MutableRefObject<number>;
 };
 
-const RevealPrivateKey: FC = () => {
-  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
-  const isGuardian = currentAccountType === WalletType.Guardian;
-  return <RevealSecret reveal={isGuardian ? 'guardian-keys' : 'private-key'} />;
-};
+/** A tab that only opens something outside the wallet: the shared header, and nothing under it. */
+const EmptySubPage: FC = () => <SubPageLayout />;
+
+// A Guardian account has no private-key reveal: its everyday (hot) key is revealed at
+// `reveal-hot-key`, and the cold key has no import path, so showing it gives the
+// user nothing they can do. The route is gated off Guardian accounts below.
+const RevealPrivateKey: FC = () => <RevealSecret reveal="private-key" />;
 
 const RemoveSeedPhrase: FC = () => <VerifySeedPhraseFlow remove />;
 
@@ -82,13 +86,26 @@ type Tab = {
   pageTitleI18nKey?: string;
   // Sub-pages are routed, so they own their own exit — none of them takes a host
   // close handler any more.
+  /**
+   * Every panel renders `SubPageLayout` — the header, the one scrolling body and the pinned
+   * actions — taking its header from the `SubPageHeaderProvider` this host wraps it in. A tab
+   * that is only a link out of the wallet uses `EmptySubPage`, which is the header and nothing
+   * else, so a deep link to its slug still has a way back. An `actionOnly` row never routes, so its
+   * `Component` is never drawn.
+   */
   Component: React.FC;
   testID?: SettingsSelectors;
-  hasOwnLayout?: boolean;
   rightText?: string;
   linksOutsideOfWallet?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
+  /** The page has no meaning for a Guardian account: blocks the route as well as the row. */
+  standardOnly?: boolean;
+  /**
+   * Offered only while the wallet holds a non-Guardian account, whichever account is
+   * current: blocks the route as well as the row. See the encrypted-wallet-file tab.
+   */
+  requiresFileBackup?: boolean;
   requiresSeedPhrase?: boolean;
   /**
    * This tab's panel renders its OWN notice when the seed phrase is not 'stored'
@@ -117,10 +134,23 @@ type Tab = {
   // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
   // set on the WalletAccount or it'll fail immediately on the vault lookup.
   requiresActivatedHotKey?: boolean;
+  /**
+   * A row that only ever performs an action from the menu - it has no sub-page, so its
+   * `Component` is `() => null`. Such a tab must NOT resolve as a route: the generic
+   * `/settings/:tabSlug?` would otherwise match a deep link or restored history and
+   * render the title over an empty body, which this file already rejects for
+   * reveal-private-key ("worse than invalidTab's bounce, not better"). Excluded from
+   * `activeTab` so `invalidTab` bounces it instead.
+   *
+   * Only single-segment slugs need it. The external rows carry an absolute URL as their
+   * slug, which one path segment cannot match, so no route reaches them in the first place.
+   */
+  actionOnly?: boolean;
 };
 
 type TabGroup = {
   titleI18nKey: string;
+  /** The group's coloured 16px glyph, shown in a `SectionHeader`'s 32px circle. */
   Icon: ImportedSVGComponent;
   tabs: Tab[];
 };
@@ -155,21 +185,13 @@ const TAB_GROUPS: TabGroup[] = [
     Icon: GroupSecurityIcon,
     tabs: [
       {
-        slug: 'reveal-seed-phrase',
+        // One section for the phrase, like Keys: the reveal and the removal are
+        // its rows (HIDDEN_TABS below), so the root menu carries one row, not two.
+        slug: 'recovery-phrase',
         titleI18nKey: 'recoveryPhrase',
-        Component: RevealSeedPhraseFlow,
+        Component: RecoveryPhraseSettings,
         requiresSeedPhrase: true,
-        reportsSeedState: true,
-        testID: SettingsSelectors.RevealSeedPhraseButton,
-        hasOwnLayout: true
-      },
-      {
-        slug: 'remove-seed-phrase',
-        titleI18nKey: 'removeSeedPhrase',
-        Component: RemoveSeedPhrase,
-        requiresSeedPhrase: true,
-        reportsSeedState: true,
-        hasOwnLayout: true
+        testID: SettingsSelectors.RecoveryPhraseButton
       },
       {
         slug: 'keys',
@@ -178,11 +200,20 @@ const TAB_GROUPS: TabGroup[] = [
         testID: SettingsSelectors.KeysButton
       },
       {
+        // The file is the only backup of an OffChain account's private state and of an
+        // imported key; the recovery phrase restores neither. A wallet of Guardian
+        // accounts only has nothing the phrase does not already give, so it gets no row.
         slug: 'encrypted-wallet-file',
         titleI18nKey: 'encryptedWalletFile',
         Component: EncryptedFileFlow,
         testID: SettingsSelectors.EncryptedWalletFile,
-        hasOwnLayout: true
+        requiresFileBackup: true
+      },
+      {
+        slug: 'spending-limits',
+        titleI18nKey: 'spendingLimits',
+        Component: SpendingLimits,
+        testID: SettingsSelectors.SpendingLimitsButton
       },
       {
         slug: 'guardian-settings',
@@ -194,7 +225,7 @@ const TAB_GROUPS: TabGroup[] = [
         // `focusTitleOnMount` is on here, tapping the row labelled "Guardian
         // Settings" announced "Rotate Guardian, heading level 1".
         Component: GuardianSettings,
-        // Needed now the row is a routed Link: MenuItem forwards testID to both
+        // Needed now the row is a routed Link: ListRow forwards its testid to both
         // the anchor and Link's analytics call, and an absent one became an
         // empty data-testid plus a ButtonPress event with an empty name.
         testID: SettingsSelectors.GuardianSettingsButton,
@@ -229,14 +260,26 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: PRIVACY_POLICY_URL,
         titleI18nKey: 'privacyPolicy',
-        Component: () => null,
+        Component: EmptySubPage,
         linksOutsideOfWallet: true
       },
       {
         slug: TERMS_OF_USE_URL,
         titleI18nKey: 'termsOfService',
-        Component: () => null,
+        Component: EmptySubPage,
         linksOutsideOfWallet: true
+      },
+      {
+        // Opens the Miden support site. Not an external <a> because that would
+        // hit the system browser on mobile; the row's onClick is wired up in the
+        // render below (not here) so the in-app webview's title can be
+        // localized via `t('support')` — unlike FEEDBACK_URL's hard-coded
+        // English title, this one is user-facing chrome shown on every locale.
+        slug: 'support',
+        titleI18nKey: 'support',
+        Component: () => null,
+        actionOnly: true,
+        testID: SettingsSelectors.SupportButton
       },
       {
         // Opens the hosted feedback form. Not an external <a> because that would
@@ -245,6 +288,7 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'send-feedback',
         titleI18nKey: 'sendFeedback',
         Component: () => null,
+        actionOnly: true,
         testID: SettingsSelectors.SendFeedbackButton,
         onClick: () => {
           openExternalUrl({ url: FEEDBACK_URL, title: 'Send feedback' });
@@ -256,11 +300,29 @@ const TAB_GROUPS: TabGroup[] = [
 
 // Hidden tabs that are routable but not shown in the menu
 const HIDDEN_TABS: Tab[] = [
+  // The two rows of the Recovery Phrase section. They keep `reportsSeedState`:
+  // their panels are the only surface for an interrupted or finished removal,
+  // so the routes resolve after the section row itself is hidden.
+  {
+    slug: 'reveal-seed-phrase',
+    titleI18nKey: 'recoveryPhrase',
+    Component: RevealSeedPhraseFlow,
+    requiresSeedPhrase: true,
+    reportsSeedState: true
+  },
+  {
+    slug: 'remove-seed-phrase',
+    titleI18nKey: 'removeSeedPhrase',
+    Component: RemoveSeedPhrase,
+    requiresSeedPhrase: true,
+    reportsSeedState: true
+  },
   {
     slug: 'reveal-private-key',
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
     requiresSeedPhrase: true,
+    standardOnly: true,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
@@ -274,8 +336,7 @@ const HIDDEN_TABS: Tab[] = [
   {
     slug: 'verify-seed-phrase',
     titleI18nKey: 'verifySeedPhrase',
-    Component: VerifySeedPhraseFlow,
-    hasOwnLayout: true
+    Component: VerifySeedPhraseFlow
   },
   {
     slug: 'edit-miden-faucet-id',
@@ -284,6 +345,11 @@ const HIDDEN_TABS: Tab[] = [
     titleI18nKey: 'editMidenFaucetId',
     Component: EditMidenFaucetId,
     testID: SettingsSelectors.EditMidenFaucetButton
+  },
+  {
+    slug: 'export-account-file',
+    titleI18nKey: 'exportAccountFile',
+    Component: ExportAccountFile
   },
   {
     slug: 'networks',
@@ -306,22 +372,24 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
 
 const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTop }) => {
   const { t } = useTranslation();
-  const reduceMotion = useReducedMotion();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
+  const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => a.type !== WalletType.Guardian));
 
   // Whether the account HAS this page at all. A non-Guardian account has no
   // Guardian page in any sense, so these gates block the route as well as the row.
   const tabIsRoutable = useCallback(
     (tab: Tab) => {
       if (tab.guardianOnly && !isGuardianAccount) return false;
+      if (tab.standardOnly && isGuardianAccount) return false;
+      if (tab.requiresFileBackup && !walletNeedsFileBackup) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
-    [isGuardianAccount, hasActivatedHotKey]
+    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey]
   );
 
   // Whether the MENU offers it. The seed gate is only about the row: see allTabs.
@@ -360,8 +428,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     const devEndpointsTab: Tab = {
       slug: 'network-endpoints',
       titleI18nKey: 'devEndpointsRow',
-      Component: () => null,
-      hasOwnLayout: true
+      // `/settings/network-endpoints` is its own route (PageRouter), served by the read-only
+      // Developer Settings page ahead of this one; this entry only draws the menu row.
+      Component: EmptySubPage
     };
 
     return groups.map(group =>
@@ -392,10 +461,12 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     [tabGroups, tabIsVisible, tabIsRoutable]
   );
 
-  const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);
+  const activeTab = useMemo(
+    () => allTabs.find(tab => tab.slug === tabSlug && !tab.actionOnly) || null,
+    [allTabs, tabSlug]
+  );
   const handleSubPageBack = useBackWithFallback('/settings');
   const languageLabel = getCurrentLanguageLabel();
-  const [showSeedWarning, setShowSeedWarning] = useState(false);
   // PageRouter owns the root offset because changing between TabLayout and
   // FullScreenPage remounts Settings. Standalone instances keep a local fallback.
   const localRootScrollTop = useRef(0);
@@ -408,17 +479,17 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     if (invalidTab) navigate('/settings', HistoryAction.Replace);
   }, [invalidTab]);
 
-  // On mobile, move parked dApp trays out while the seed-warning overlay or a
-  // settings sub-page owns the screen. The sub-pages need it for the same
+  // On mobile, move parked dApp trays out while a settings sub-page owns the
+  // screen. The sub-pages need it for the same
   // reason the drawers they replaced did: the tray floats above the bottom of
   // the viewport, which is where these screens pin their primary action.
   //
   // Through the shared hook rather than the body attribute directly: the flag is
-  // reference-counted, and RevealSecret and every CustomModal are also holders.
-  // Setting it here by hand meant a modal closing over a settings sub-page (the
-  // confirm in Address Book, say) dropped the count to zero and cleared the flag
+  // reference-counted, and RevealSecret and the confirm/alert sheet are also holders.
+  // Setting it here by hand meant a confirmation closing over a settings sub-page (the
+  // one in Address Book, say) dropped the count to zero and cleared the flag
   // while this page still wanted it.
-  useHideDappBubblesWhileOpen(showSeedWarning || activeTab !== null);
+  useHideDappBubblesWhileOpen(activeTab !== null);
 
   // Mark Settings as an edge-to-edge page. The list container below
   // adds its own bottom padding so the last item can still scroll above
@@ -436,219 +507,98 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     };
   }, [showSettingsRoot]);
 
-  // Neither of these buzzes: both are rendered by `Button`, which fires a
-  // hapticLight on every click. Close buzzed twice and View fired a medium AND a
-  // light on one tap — the same double-fire as the recovery-phrase row, hidden
-  // here because the Button mock in the tests does not haptic.
-  const handleSeedWarningClose = useCallback(() => {
-    setShowSeedWarning(false);
-  }, []);
-
-  const handleSeedWarningView = useCallback(() => {
-    setShowSeedWarning(false);
-    navigate('/settings/reveal-seed-phrase');
-  }, []);
-
   if (invalidTab) return null;
+
+  const subPageTitle = activeTab ? t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey) : undefined;
+  // As drawers these screens were dialogs, so they took focus and were announced by name. Routes
+  // are not announced and the row that opened them unmounts with the list, dropping focus to
+  // <body>. Skipped for the pages that focus a field themselves — see `ownsInitialFocus`.
+  const focusSubPageTitle = activeTab ? !activeTab.ownsInitialFocus?.() : false;
+
+  if (activeTab) {
+    return (
+      // Every sub-page draws its own `SubPageLayout`: the header, the one scrolling body and the
+      // pinned actions all come from there, so the host adds no frame of its own - no second
+      // scroller around the page, no padded wrapper, no header the page then has to work around.
+      // No key: every sub-page tab has its own Component, so a sibling-to-sibling move already
+      // remounts the page and re-runs its header's focus effect. A key here claimed to cause that
+      // and changed nothing - removing it left the test written to pin it green.
+      <SubPageHeaderProvider
+        value={{ title: subPageTitle, onBack: handleSubPageBack, focusTitleOnMount: focusSubPageTitle }}
+      >
+        <activeTab.Component />
+      </SubPageHeaderProvider>
+    );
+  }
 
   return (
     <>
-      {/* Headers sit OUTSIDE the scroll container below: a sub-page's header
-          carries its only back affordance, and Language or Address Book
-          overflow the popup, which would scroll it away. */}
-      {activeTab ? (
-        !activeTab.hasOwnLayout && (
-          <NavigationHeader
-            title={t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey)}
-            onBack={handleSubPageBack}
-            variant="prominent"
-            titleAlign="left"
-            // As drawers these screens were dialogs, so they took focus and were
-            // announced by name. Routes are not announced and the row that
-            // opened them unmounts with the list, dropping focus to <body>.
-            // Skipped for the pages that focus a field themselves — see
-            // `ownsInitialFocus`.
-            focusTitleOnMount={!activeTab.ownsInitialFocus?.()}
-            // Prefixed: the scroll container below is a sibling in this same
-            // fragment and keys on the slug too, and two siblings sharing a key
-            // makes React render both of them.
-            key={`header-${activeTab.slug}`}
-          />
-        )
-      ) : (
-        // Settings root is a primary tab destination, so it wears the same
-        // header as Activity and Explore: a plain title, no back chevron.
-        // Sub-pages above keep NavigationHeader — that back arrow is their only
-        // way out.
-        <TabHeader title={t('settings')} />
-      )}
-
-      {/* Sibling sub-pages share a layout, so key their scrollers to prevent
-          one page inheriting another's offset. Restore only the root list. */}
+      {/* Settings root is a primary tab destination, so it wears the same header as Activity and
+          Explore: the shared `TabRootHeader`, here without a filter row, a plain title and no back
+          button. A sub-page above keeps `PageHeader`, drawn by its own layout. */}
+      <TabRootHeader title={t('settings')} />
       <div
-        key={activeTab?.slug ?? 'root'}
         // A ref avoids re-rendering the page on every scroll event.
         ref={node => {
-          if (node && !activeTab) node.scrollTop = rootScrollTop.current;
+          if (node) node.scrollTop = rootScrollTop.current;
         }}
-        onScroll={
-          activeTab
-            ? undefined
-            : event => {
-                rootScrollTop.current = event.currentTarget.scrollTop;
-              }
-        }
+        onScroll={event => {
+          rootScrollTop.current = event.currentTarget.scrollTop;
+        }}
         className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col"
       >
-        {activeTab ? (
-          activeTab.hasOwnLayout ? (
-            <activeTab.Component />
-          ) : (
-            // No `onClose`: the sub-pages that still call it do so immediately
-            // before navigating on, and popping first would race the push. The
-            // one screen whose action means "done here" pops itself.
-            //
-            // `font-heading` stays. Dropping it to fix a font was the wrong scope:
-            // the problem was that Preflight sets `font: inherit` on form controls,
-            // so RevealSecret's recovery-phrase and private-key textareas inherited
-            // the display face for the app's highest-stakes text — but removing the
-            // blanket switched all twelve routed screens to Inter to fix those two
-            // fields, and only LanguageSettings kept Nunito, by way of an inline
-            // style. The textareas ask for `font-sans` themselves instead.
-            <div className="font-heading px-4 flex-1 flex flex-col min-h-0">
-              <activeTab.Component />
-            </div>
-          )
-        ) : (
-          // pb-[88px] reserves space at the bottom so the last menu item
-          // can scroll above the React BottomNav.
-          <div className="flex flex-col w-full pb-22 text-heading-gray px-4">
-            <div className="flex flex-col divide-y divide-border-faint">
-              {tabGroups.map(group => (
-                <div key={group.titleI18nKey} className="py-3">
-                  <div className="flex items-center gap-1.5 pb-3">
-                    {/* Decorative: the heading beside it names the group, so an
-                        unlabelled graphic in the tree just adds an anonymous
-                        node before every section. */}
-                    <div
-                      aria-hidden="true"
-                      className="w-8 h-8 rounded-full bg-gray-25 flex items-center justify-center shrink-0"
-                    >
-                      <group.Icon className="w-4 h-4" />
-                    </div>
-                    {/* h2, not h3: the only heading above these is the page title
-                        the header renders as h1, so h3 left a gap in the outline
-                        and screen-reader heading navigation reported a missing
-                        level. */}
-                    <h2 className="font-heading text-lg font-extrabold text-heading-gray">{t(group.titleI18nKey)}</h2>
-                  </div>
-                  {/* `gap-1` now that MenuItem carries its own `py-2.5`: the rows each
-              grew from a 24px line box to a 44px target, so keeping gap-4 on top
-              would have spread a group much taller than the drawers it replaced.
-              Pitch still rises — 40px to 48px, about 136px over the whole root
-              list — which is extra scroll inside `overflow-y-auto` rather than
-              anything clipped. `gap-1` limits the overshoot; it does not undo it,
-              and the touch target is worth the difference. */}
-                  <div className="overflow-hidden flex flex-col gap-1">
-                    {group.tabs.map(tab => {
-                      const isExternal = tab.linksOutsideOfWallet;
-                      const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
-                      // A tab may carry its own onClick (e.g. Send feedback →
-                      // openExternalUrl); such rows never route to a /settings page.
-                      const hasCustomClick = isSeedPhrase || !!tab.onClick;
-                      const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
-                      // No `hapticLight()` here: MenuItem fires one for every
-                      // branch it renders, so this row buzzed twice on tap while
-                      // every other row buzzed once.
-                      const handleClick = isSeedPhrase ? () => setShowSeedWarning(true) : tab.onClick;
-                      return (
-                        <MenuItem
-                          key={tab.slug + tab.titleI18nKey}
-                          slug={linkTo}
-                          titleI18nKey={tab.titleI18nKey}
-                          testID={tab.testID}
-                          linksOutsideOfWallet={!!isExternal}
-                          rightText={tab.slug === 'language' ? languageLabel : undefined}
-                          onClick={handleClick}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
+        {
+          // pb-22 reserves space at the bottom so the last row can scroll above
+          // the React BottomNav. No top padding: the 8px under the rule is
+          // TabRootHeader's, the same 8px the other tab roots' filter rows get.
+          <div className="flex w-full flex-col gap-5 px-4 pb-22">
+            {tabGroups.map(group => (
+              <section key={group.titleI18nKey}>
+                {/* h2: the only heading above these is the page title the header
+                    renders as h1. `lg` + the group's own coloured glyph: these are
+                    page-level section titles, not the plain 13px list-group label. */}
+                <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
+                  {t(group.titleI18nKey)}
+                </SectionHeader>
+                <ListGroup surface="plain">
+                  {group.tabs.map(tab => {
+                    const isExternal = tab.linksOutsideOfWallet;
+                    const isSupport = tab.slug === 'support';
+                    // A tab may carry its own onClick (e.g. Send feedback →
+                    // openExternalUrl); such rows never route to a /settings page.
+                    // Recovery phrase routes like every other row: its sub-page
+                    // opens on the privacy warning, full screen, so the tab bar
+                    // never covers the warning's buttons.
+                    const hasCustomClick = isSupport || !!tab.onClick;
+                    // Support's webview title needs `t`, which the module-level
+                    // TAB_GROUPS can't reach, so its click is built here.
+                    const handleClick = isSupport
+                      ? () => openExternalUrl({ url: SUPPORT_URL, title: t('support') })
+                      : tab.onClick;
+                    return (
+                      <ListRow
+                        key={tab.slug + tab.titleI18nKey}
+                        title={t(tab.titleI18nKey)}
+                        to={isExternal || hasCustomClick ? undefined : `/settings/${tab.slug}`}
+                        href={isExternal ? tab.slug : undefined}
+                        // No `hapticLight()` here: ListRow fires one for every branch
+                        // it renders, so adding one buzzed twice per tap.
+                        onClick={isExternal ? undefined : handleClick}
+                        value={tab.slug === 'language' ? languageLabel : undefined}
+                        // Every row opens something: a page, a sheet or a site.
+                        chevron
+                        data-testid={tab.testID}
+                      />
+                    );
+                  })}
+                </ListGroup>
+              </section>
+            ))}
 
-            {/* `text-heading-gray`, as with the other muted text this PR touched:
-                `text-text-muted` is #ababab, which is 2.30:1 on the page, and 14px
-                medium is nowhere near the large-text exemption — the PR shrank
-                this from text-base without changing the ink. */}
-            <p className="font-heading text-sm font-medium text-heading-gray pt-2">
-              {t('settingsVersion', { version: pkg.version })}
-            </p>
+            <p className="px-1 text-caption text-muted">{t('settingsVersion', { version: pkg.version })}</p>
           </div>
-        )}
+        }
       </div>
-
-      {/* Seed phrase warning overlay */}
-      <AnimatePresence>
-        {showSeedWarning && (
-          <motion.div
-            key="seed-warning"
-            className="absolute inset-0 z-50 flex flex-col backdrop-blur-sm"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-          >
-            <motion.div
-              className="flex-1 flex flex-col"
-              initial={{ y: reduceMotion ? 0 : 40, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: reduceMotion ? 0 : 40, opacity: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            >
-              <div className="mt-6 px-4">
-                <div className="bg-gray-25 rounded-2xl px-6 py-8">
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
-                    {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-4 bg-white rounded-xl p-4 text-center">
-                  <p className="text-sm text-heading-gray">{t('pleaseWriteDownRecoveryPhrase')}</p>
-                </div>
-              </div>
-
-              <div className="mt-auto pt-6 pb-6 flex flex-col items-center text-center bg-white rounded-t-2xl">
-                <div className="flex flex-col px-6 items-center">
-                  <div className="w-10 h-10 rounded-sm bg-primary-500 flex items-center justify-center mb-4">
-                    <Icon name={IconName.EyeOff} size="md" fill="white" />
-                  </div>
-
-                  <h3 className="text-base font-medium text-black mb-1">{t('viewThisInPrivatePlace')}</h3>
-                  <p className="text-sm text-black mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
-                </div>
-                <div className="flex gap-4 w-full px-4">
-                  <Button
-                    className="flex-1 justify-center"
-                    variant={ButtonVariant.Secondary}
-                    title={t('close')}
-                    onClick={handleSeedWarningClose}
-                  />
-                  <Button
-                    className="flex-1 justify-center"
-                    variant={ButtonVariant.Primary}
-                    title={t('view')}
-                    onClick={handleSeedWarningView}
-                  />
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </>
   );
 };

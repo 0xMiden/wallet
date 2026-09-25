@@ -1,7 +1,9 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
+import { buildBalanceTotalScript } from '../../helpers/balance-script';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -182,6 +184,17 @@ export class AndroidWalletPage implements WalletPage {
       readyTimeoutMs
     );
 
+    // Onboarding now finishes on the one-time telemetry consent prompt rather
+    // than on the wallet home, so decline it before handing the caller a wallet
+    // it expects to be able to navigate. After the Ready poll above, which is
+    // what proves `register()` is done, and raced against the home surface so
+    // that the gap between Ready being published and `Welcome.tsx` actually
+    // navigating is waited out rather than assumed away.
+    await dismissTelemetryConsent(this, {
+      nextSurface: '[data-testid="explore-page"]',
+      timeoutMs: 60_000
+    });
+
     const address = await this.cdp.eval<string>(
       `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
@@ -209,26 +222,10 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Balance ───────────────────────────────────────────────────────────────
 
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
-    return this.cdp.eval<number>(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return 0; ` +
-        `var st = s.getState(); ` +
-        `var total = 0; ` +
-        `var balances = st.balances || {}; ` +
-        `for (var k in balances) { ` +
-        `  var list = balances[k]; ` +
-        `  if (!Array.isArray(list)) continue; ` +
-        `  for (var i = 0; i < list.length; i++) { ` +
-        `    var t = list[i]; ` +
-        `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-        `    if (amt > 0) total += amt; ` +
-        `  } ` +
-        `} ` +
-        `return total;`
-    );
+    return this.cdp.eval<number>(buildBalanceTotalScript(tokenSymbol));
   }
 
   async triggerSync(): Promise<void> {
@@ -242,13 +239,14 @@ export class AndroidWalletPage implements WalletPage {
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
-    // Claimable notes live on their own /pending-notes page (mounts the claim UI
+    // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
+    // filter off the location). The old /pending-notes page (which mounted the claim UI
     // directly).
-    await this.navigateTo('/pending-notes');
+    await this.navigateTo('/history?filter=pending');
     await sleep(3_000);
 
     await this.pollForCondition(
-      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+      `var btn = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
         `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
         `btn.click(); return true;`,
       60_000
@@ -302,7 +300,7 @@ export class AndroidWalletPage implements WalletPage {
     await pumpProveTimings();
 
     // Nothing authoritative has been read yet. The loop above polls the store IN
-    // PLACE, and for the whole of a claim this page sits on /pending-notes (or
+    // PLACE, and for the whole of a claim this page sits on the Pending list (or
     // the transaction-progress route), where no mounted screen refreshes
     // `st.balances` — that projection is written only by the `useAllBalances`
     // poll in Balance/Explore/TokenDetail. So the loop can report 0 for a
@@ -330,8 +328,8 @@ export class AndroidWalletPage implements WalletPage {
     const surface = await this.cdp
       .eval<string>(
         `var h = String(location.hash || ''); ` +
-          `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
-          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
+          `var claimAll = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
+          `return 'hash=' + h + ' acceptAllButton=' + (claimAll ? 'present' : 'absent');`
       )
       .catch(() => 'unreadable');
     await this.navigateHome();
@@ -344,12 +342,7 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async sendTokens(params: SendTokensParams): Promise<void> {
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
