@@ -9,7 +9,7 @@ import { LocationState, useLocation } from 'lib/woozie/location';
 
 import FullScreenPage from './FullScreenPage';
 import MobilePageLayers from './MobilePageLayers';
-import { usePageActive, usePageOnScreen } from './page-active';
+import { usePageActive, usePageMountedByReturn, usePageOnScreen } from './page-active';
 
 const mockMotion: { reduce: boolean; layers: Record<string, any> } = { reduce: false, layers: {} };
 
@@ -47,11 +47,13 @@ function Page() {
   const { pathname } = useLocation();
   const onScreen = usePageActive();
   const fullyOnScreen = usePageOnScreen();
+  const mountedByReturn = usePageMountedByReturn();
   const [count, setCount] = useState(0);
   return (
     <button
       data-on-screen={String(onScreen)}
       data-fully-on-screen={String(fullyOnScreen)}
+      data-mounted-by-return={String(mountedByReturn)}
       onClick={() => setCount(count + 1)}
     >
       {`${pathname} count ${count}`}
@@ -628,4 +630,28 @@ it('never parks a page still sliding out under a new page inside the webview-ret
   rerender(view('/c', true));
   const zIndexes = [...container.querySelectorAll<HTMLElement>('[data-page-layer]')].map(layer => layer.style.zIndex);
   expect(zIndexes).not.toContain('3');
+});
+
+it('keeps a page a router Pop mounted fresh marked as such through a later close back to it', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/x', true));
+  await settle();
+  rerender(view('/a', true, '/a', HistoryAction.Pop));
+  await settle();
+  const a = () => container.querySelector('[data-page-layer="/a"] button');
+  expect(a()).toHaveAttribute('data-mounted-by-return', 'true');
+  rerender(view('/b', true));
+  await settle();
+  // B closes to A, which is still mounted beneath it: a return to a layer that stayed.
+  rerender(view('/a', true));
+  await settle();
+  expect(a()).toHaveAttribute('data-mounted-by-return', 'true');
+});
+
+it('marks a page a router Pop reaches with no layer of its own yet, after a reload', async () => {
+  const { container, rerender } = render(view('/settings/general', true));
+  await settle();
+  rerender(view('/', false, 'tabs', HistoryAction.Pop));
+  await settle();
+  expect(container.querySelector('[data-page-layer="/"] button')).toHaveAttribute('data-mounted-by-return', 'true');
 });
