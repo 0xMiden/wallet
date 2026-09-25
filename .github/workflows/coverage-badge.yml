@@ -2,62 +2,147 @@ name: Badges
 
 # Publishes the Jest line-coverage % (coverage.json) and total test count
 # (tests.json) to the orphan `badges` branch so shields.io renders live badges
-# in README.md. Both are derived from a single `yarn test:coverage` run. Runs
-# only after a push to main. No external service login required — shields.io
-# reads the JSON directly from raw.githubusercontent.com. The `badges` branch
-# is an orphan holding only the endpoint JSON; nothing merges back into main.
+# in README.md. Runs only after a push to main. It does not rerun the suite: the
+# pushed commit's pull request already measured both in pr.yml's Coverage Check,
+# which uploads them as the `coverage-badge-data` artifact, so this reads that
+# artifact from the newest pr.yml run of the PR's head. A push with no PR, or a
+# PR whose runs carry no artifact, leaves the badges as they are. No external
+# service login required - shields.io reads the JSON directly from
+# raw.githubusercontent.com. The `badges` branch is an orphan holding only the
+# endpoint JSON and source.json; nothing merges back into main.
 on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
+# One run at a time and none cancelled once started, so reading the badges
+# branch's source.json, comparing and pushing never interleave. Actions keeps
+# at most one more run pending: a newer push replaces a pending run, which then
+# never runs, so if the run that survives skips (no pull request or no
+# artifact), the badges stay as they are until the next push whose pull request
+# carries badge data. source.json records the main commit the badges came from,
+# and a run publishes only when its commit is ahead of that one, so a rerun for
+# an older commit skips rather than overwriting newer badges.
+concurrency:
+  group: badges
+  cancel-in-progress: false
 
+permissions: {}
+
+# Every value that comes from the API or the artifact reaches a script through
+# `env:`, never `${{ }}` inside `run:`. The artifact comes from the merged PR's
+# own run, so the job that unpacks it holds no token that can push; the publish
+# job gets write access and only the checked numbers.
 jobs:
-  coverage-badge:
-    name: Publish coverage badge
+  badge-data:
+    name: Read the coverage badge data
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      ready: ${{ steps.data.outcome == 'success' }}
+      pct: ${{ steps.data.outputs.pct }}
+      count: ${{ steps.data.outputs.count }}
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node 22
-        uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - name: Install
-        # Plain `yarn install` (no --frozen-lockfile) mirrors the proven pr.yml
-        # coverage job, tolerating any latent lockfile drift on a first run.
-        run: yarn install --network-timeout 600000
-      - name: Run coverage
-        # `--json --outputFile` writes the run summary (incl. numTotalTests) to
-        # jest-results.json for the test-count badge; with --json Jest keeps its
-        # normal console output on stderr, so the CI log is unchanged. Coverage
-        # is still emitted to coverage/ by the json-summary reporter as before.
-        run: yarn test:coverage --json --outputFile=jest-results.json
-      - name: Compose shields.io endpoint JSON
-        id: badge
+          persist-credentials: false
+      - name: Find the pull request's coverage run
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          pct=$(node -e 'process.stdout.write(Number(require("./coverage/coverage-summary.json").total.lines.pct).toFixed(1))')
-          int=$(printf '%.0f' "$pct")
+          # Exit 1 is an API failure: warn and leave the badges. Any other failure (2 is usage) fails the job.
+          rc=0
+          out=$(node scripts/badge-source-run.mjs "$REPO" "$SHA") || rc=$?
+          if [ "$rc" -eq 1 ]; then echo "::warning::could not look up the coverage run for $SHA; badges left unchanged"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          printf '%s\n' "$out" >> "$GITHUB_OUTPUT"
+          case "$out" in
+            *reason=no-pr*) echo "::notice::$SHA came from no merged pull request into main; badges left unchanged" ;;
+            *reason=no-artifact*) echo "::warning::no pr.yml run of the pull request that merged $SHA carries coverage-badge-data; badges left unchanged" ;;
+            *) printf 'Reading coverage from:\n%s\n' "$out" ;;
+          esac
+      - name: Download badge data
+        id: download
+        if: steps.source.outputs.run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.source.outputs.run }}
+        run: |
+          set -euo pipefail
+          # An API failure, or an artifact that expired after the lookup: warn and leave the badges.
+          rc=0
+          gh run download "$RUN_ID" --repo "$REPO" --name coverage-badge-data --dir "$RUNNER_TEMP/badge" || rc=$?
+          if [ "$rc" -ne 0 ]; then echo "::warning::could not download coverage-badge-data from run $RUN_ID; badges left unchanged"; exit 0; fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - name: Validate badge data
+        if: steps.download.outputs.ok == 'true'
+        id: data
+        run: node scripts/badge-data.mjs read "$RUNNER_TEMP/badge/badge-data.json" >> "$GITHUB_OUTPUT"
+
+  coverage-badge:
+    name: Publish coverage badge
+    needs: badge-data
+    if: needs.badge-data.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose shields.io endpoint JSON
+        env:
+          PCT: ${{ needs.badge-data.outputs.pct }}
+          COUNT: ${{ needs.badge-data.outputs.count }}
+        run: |
+          set -euo pipefail
+          int=$(printf '%.0f' "$PCT")
           color=red
           if [ "$int" -ge 80 ]; then color=yellow; fi
           if [ "$int" -ge 90 ]; then color=brightgreen; fi
           if [ "$int" -ge 95 ]; then color=green; fi
-          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > /tmp/coverage.json
-          echo "Line coverage: ${pct}%"
-          echo "pct=${pct}" >> "$GITHUB_OUTPUT"
-
-          count=$(node -e 'process.stdout.write(String(require("./jest-results.json").numTotalTests))')
-          printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$count" > /tmp/tests.json
-          echo "Total tests: ${count}"
-          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$PCT" "$color" > /tmp/coverage.json
+          echo "Line coverage: ${PCT}%"
+          printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$COUNT" > /tmp/tests.json
+          echo "Total tests: ${COUNT}"
       - name: Publish to `badges` branch
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PCT: ${{ needs.badge-data.outputs.pct }}
+          COUNT: ${{ needs.badge-data.outputs.count }}
         run: |
           set -euo pipefail
+          export BADGE_SOURCE_FILE="$RUNNER_TEMP/badges-source.json"
+          rm -f "$BADGE_SOURCE_FILE"
+          has_badges=false
+          if git ls-remote --exit-code --heads origin badges > /dev/null 2>&1; then
+            has_badges=true
+            git fetch origin badges
+            git show FETCH_HEAD:source.json > "$BADGE_SOURCE_FILE" 2> /dev/null || rm -f "$BADGE_SOURCE_FILE"
+          fi
+          # Run from main's checkout: the badges branch holds no scripts.
+          rc=0
+          check=$(node scripts/badge-source-run.mjs --check-source "$REPO" "$SHA") || rc=$?
+          if [ "$rc" -eq 1 ]; then echo "::warning::could not compare $SHA with the commit the badges came from; badges left unchanged"; exit 0; fi
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          verdict=$(printf '%s\n' "$check" | sed -n 's/^publish=//p')
+          if [ "$verdict" != true ]; then
+            case "$check" in
+              *status=diverged*) echo "::notice::$SHA and the commit the badges came from have diverged; badges left unchanged" ;;
+              *) echo "::notice::the badges already come from $SHA or a newer main commit; left unchanged" ;;
+            esac
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --exit-code --heads origin badges > /dev/null 2>&1; then
-            git fetch origin badges
+          if [ "$has_badges" = true ]; then
             git checkout badges
           else
             git checkout --orphan badges
@@ -65,10 +150,11 @@ jobs:
           fi
           cp /tmp/coverage.json coverage.json
           cp /tmp/tests.json tests.json
-          git add coverage.json tests.json
+          printf '{"sha":"%s"}\n' "$SHA" > source.json
+          git add coverage.json tests.json source.json
           if git diff --cached --quiet; then
             echo "Badge JSON unchanged"
           else
-            git commit -m "chore: badges -> coverage ${{ steps.badge.outputs.pct }}%, tests ${{ steps.badge.outputs.count }}"
+            git commit -m "chore: badges -> coverage ${PCT}%, tests ${COUNT}"
             git push origin badges
           fi
