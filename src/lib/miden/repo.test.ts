@@ -650,7 +650,7 @@ describe('spending limits schema', () => {
 // (the defect this test exists to catch) - the private chain never saw the mutation. Routing the
 // reopen through the real `defineSchema` (via `createSchemaFor`) means a future collapse changes
 // what THIS test replays too, so it fails instead of passing green next to a broken migration.
-describe('spending limits schema migration (1.7 -> 1.9)', () => {
+describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
   // A second, independent oracle for the two constants `seedV17` and the real chain
   // (`createSchemaFor`, via `defineSchema`) both read below. Version 1.7 has already shipped on
   // origin/main, so its shape is immutable in every existing user's IndexedDB - coupling this
@@ -732,7 +732,7 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
 
     // Reopen under the same name through the REAL chain repo.ts declares (see the describe-level
     // comment for why this must not be a hand-rolled duplicate): 1.8 drops the old compound-keyed
-    // table, 1.9 recreates it keyed by account alone.
+    // table, 1.9 recreates it keyed by account alone, and 2 adds the `type` index.
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
@@ -747,10 +747,9 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
       .put({ accountId: 'account-a', revision: 'rev-3', limit: '30', createdAt: 2, updatedAt: 2 });
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({ limit: '30' });
 
-    // The sibling `transactions` table (and its ten 1.7 indexes) is untouched by a migration that
-    // only names `spendingLimits` - Dexie's per-version diff carries forward every store this
-    // version doesn't mention, but that is a property of the real schema, not of this test's
-    // assumption, so it is asserted here rather than left for a reader to trust.
+    // The sibling `transactions` table keeps its row and its ten 1.7 indexes through the spending-limit
+    // steps and through v2, which redeclares it with `type` added - asserted here rather than left
+    // for a reader to trust.
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toEqual(
       expect.arrayContaining(TEN_TRANSACTIONS_V17_INDEXES)
     );
@@ -758,6 +757,47 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
       accountId: 'account-a',
       status: ITransactionStatus.Completed
     });
+
+    upgraded.close();
+    await Dexie.delete(name);
+  });
+
+  // Every 1.16.2 install takes this step. The shipped 1.9 shape is pinned to literals for the same
+  // reason as 1.7 above: it can never change in users' IndexedDB. The 1.7 case cannot see a later
+  // step that clears `spendingLimits`, because it expects that table empty.
+  it('upgrades a populated 1.9 database to 2, keeping its spending limit and indexing type', async () => {
+    const name = `schema-migration-v19-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const seed = new Dexie(name);
+    seed.version(1.9).stores({
+      [Table.Transactions]:
+        'id,accountId,transactionId,initiatedAt,completedAt,noteId,*noteIds,noteDelivery,extraInputs.destinationAddress,extraInputs.swapOrderTxId,spendingLimitAuthorizationId',
+      [Table.SpendingLimits]: 'accountId,revision'
+    });
+    await seed.open();
+    await seed
+      .table(Table.SpendingLimits)
+      .add({ accountId: 'account-a', revision: 'rev-1', limit: '100', createdAt: 1, updatedAt: 1 });
+    const row = { status: ITransactionStatus.Completed, accountId: 'account-a', initiatedAt: 1, displayIcon: 'SEND' };
+    await seed.table(Table.Transactions).bulkAdd([
+      { ...row, id: 'tx-send', type: 'bridged-send' },
+      { ...row, id: 'tx-receive', type: 'bridged-receive' },
+      { ...row, id: 'tx-other', type: 'send' }
+    ]);
+    seed.close();
+
+    const upgraded = createSchemaFor(name);
+    await upgraded.open();
+    expect(upgraded.verno).toBe(2);
+    await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
+      revision: 'rev-1',
+      limit: '100'
+    });
+    const bridged = await upgraded
+      .table(Table.Transactions)
+      .where('type')
+      .anyOf('bridged-send', 'bridged-receive')
+      .primaryKeys();
+    expect([...bridged].sort()).toEqual(['tx-receive', 'tx-send']);
 
     upgraded.close();
     await Dexie.delete(name);

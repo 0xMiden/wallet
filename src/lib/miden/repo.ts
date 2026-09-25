@@ -10,7 +10,7 @@ export enum Table {
 
 /**
  * The 1.7 store definitions - the last schema before the spending-limits primary-key change.
- * Exported so the 1.7 -> 1.9 migration-proving test in repo.test.ts seeds a database in this
+ * Exported so the migration-proving tests in repo.test.ts seed a database in this
  * EXACT shape rather than a hand-typed duplicate that could silently drift from what
  * `defineSchema` below actually declares.
  */
@@ -28,6 +28,9 @@ export const TRANSACTIONS_V17_STORE = indexes(
   'spendingLimitAuthorizationId'
 );
 export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision');
+
+/** The current `transactions` shape (2): the 1.7 indexes plus `type`. */
+export const TRANSACTIONS_V2_STORE = indexes(TRANSACTIONS_V17_STORE, 'type');
 
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
@@ -200,23 +203,11 @@ function defineSchema(target: Dexie): void {
   // `bridged-send` rows every eight seconds, and without an index each ask walked the whole
   // history. No upgrade step: IndexedDB builds a new index over the rows already stored.
   target.version(2).stores({
-    [Table.Transactions]: indexes(
-      'id',
-      'accountId',
-      'transactionId',
-      'initiatedAt',
-      'completedAt',
-      'noteId',
-      '*noteIds',
-      'noteDelivery',
-      'extraInputs.destinationAddress',
-      'extraInputs.swapOrderTxId',
-      'spendingLimitAuthorizationId',
-      'type'
-    )
+    [Table.Transactions]: TRANSACTIONS_V2_STORE
   });
 }
 
+// The one construction path, so the production db and `createSchemaFor`'s replay cannot differ.
 // `modifyChunkSize` caps how many records dexie's `modify` materialises at once (`getMany` +
 // `deepClone` per chunk). It defaults to 200, which is also the reaper's batch size, so one trim
 // held ~200 x ~237 KB of result blobs resident inside a single write transaction. Capping the
@@ -224,8 +215,13 @@ function defineSchema(target: Dexie): void {
 // governed by its own batch size, and tuning one constant from two directions is how these two
 // concerns collide. It applies to every `modify` on this database, including the schema upgrades
 // above, which walk the whole table.
-export const db = new Dexie('TridentMain', { modifyChunkSize: 25 });
-defineSchema(db);
+function buildTridentDb(name: string): Dexie {
+  const target = new Dexie(name, { modifyChunkSize: 25 });
+  defineSchema(target);
+  return target;
+}
+
+export const db = buildTridentDb('TridentMain');
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
@@ -237,9 +233,7 @@ export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.Spe
  * hand-authored duplicate - see `defineSchema`'s doc comment for why that distinction matters.
  */
 export function createSchemaFor(name: string): Dexie {
-  const target = new Dexie(name);
-  defineSchema(target);
-  return target;
+  return buildTridentDb(name);
 }
 
 function indexes(...items: string[]) {
