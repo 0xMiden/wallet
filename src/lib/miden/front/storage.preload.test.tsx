@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
 import { preloadStorage, useStorage } from './storage';
 
@@ -11,7 +11,10 @@ jest.mock('lib/platform', () => ({
   isExtension: () => false
 }));
 
-const mockGet = jest.fn(async (keys: string[]) => (keys[0] === 'stored-key' ? { 'stored-key': 'stored-value' } : {}));
+const mockGet = jest.fn(
+  async (keys: string[]): Promise<Record<string, unknown>> =>
+    keys[0] === 'stored-key' ? { 'stored-key': 'stored-value' } : {}
+);
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({ get: mockGet, set: jest.fn() })
 }));
@@ -45,6 +48,42 @@ describe('preloadStorage', () => {
 
     expect(screen.queryByTestId('suspended')).toBeNull();
     expect(screen.getByTestId('value').textContent).toBe('fallback-value');
+  });
+
+  it('never overwrites a value already in the cache', async () => {
+    let release!: () => void;
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ 'race-key': 'old' });
+        })
+    );
+    const preload = preloadStorage(['race-key']);
+    mockGet.mockImplementationOnce(async () => ({ 'race-key': 'new' }));
+    renderReader('race-key');
+    expect((await screen.findByTestId('value')).textContent).toBe('new');
+
+    await act(async () => {
+      release();
+      await preload;
+    });
+    expect(screen.getByTestId('value').textContent).toBe('new');
+  });
+
+  it('caches every key that can be read when another fails', async () => {
+    mockGet.mockImplementationOnce(async () => {
+      throw new Error('storage bridge failed');
+    });
+    mockGet.mockImplementationOnce(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      return { 'good-key': 'good-value' };
+    });
+    await preloadStorage(['bad-key', 'good-key']).catch(() => {});
+
+    renderReader('good-key');
+
+    expect(screen.queryByTestId('suspended')).toBeNull();
+    expect(screen.getByTestId('value').textContent).toBe('good-value');
   });
 
   it('a key that was not preloaded still suspends on its first render', async () => {
