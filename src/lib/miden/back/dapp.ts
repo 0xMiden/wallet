@@ -22,7 +22,8 @@ import type { Runtime } from 'webextension-polyfill';
 
 import {
   declaredRequestToView,
-  summaryBytesToView,
+  netOutflowByFaucet,
+  simulatedBytesToView,
   summaryToView,
   type AssetAmount,
   type TxAssetView
@@ -72,6 +73,18 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
 import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
+import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
+import {
+  assessOutgoingSpendingLimitDetails,
+  hasSpendingLimits,
+  type SpendingLimitAssessmentDetails
+} from 'lib/miden/spending-limits/queue';
+import {
+  isSpendingLimitPriceUnavailable,
+  spendingLimitAssessmentFromError,
+  toSerializedSpendingLimitAssessment,
+  type SpendingLimitAuthorization
+} from 'lib/miden/spending-limits/types';
 import {
   DappMetadata,
   MidenDAppPayload,
@@ -96,9 +109,10 @@ import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '
 import { midenClientProxy } from './miden-client-proxy';
 import { isOperationAbortedError } from './offscreen-codec';
 import { getCurrentMidenNetwork } from './safe-network';
-import { simulateCustomTransaction } from './simulate-custom-tx';
+import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
+import { IConsumedAssetTotal } from '../db/types';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -747,7 +761,7 @@ const generatePromisifySign = async (
               signature
             });
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            reject(dappSendFailure(e));
           }
         } else {
           decline();
@@ -1517,6 +1531,7 @@ export function buildCustomTxConfirmPayload(args: {
   sourcePublicKey: string;
   transactionMessages: string[];
   customTransaction: MidenCustomTransaction;
+  spendingLimitDetails?: SpendingLimitAssessmentDetails;
 }): MidenDAppTransactionPayload {
   const { customTransaction: tx } = args;
   return {
@@ -1527,6 +1542,10 @@ export function buildCustomTxConfirmPayload(args: {
     sourcePublicKey: args.sourcePublicKey,
     transactionMessages: args.transactionMessages,
     preview: null,
+    ...(args.spendingLimitDetails !== undefined &&
+      args.spendingLimitDetails.assessment.breach !== undefined && {
+        spendingLimitAssessment: toSerializedSpendingLimitAssessment(args.spendingLimitDetails.assessment)
+      }),
     txKind: 'custom',
     requestBytes: tx.transactionRequest,
     importNotes: tx.importNotes,
@@ -1539,16 +1558,32 @@ export function buildCustomTxConfirmPayload(args: {
  * for THIS confirm popup (matched by id) with the ground-truth summary. Returns
  * `undefined` for non-matching requests so the caller keeps dispatching.
  */
-export function makeSimulateHandler(id: string, tx: MidenCustomTransaction) {
+export function makeSimulateHandler(
+  id: string,
+  tx: MidenCustomTransaction,
+  /**
+   * The dry run the caller already performed for this confirm id. Answering from it keeps the
+   * request simulated once: the sheet renders the same execution the spending-limit policy
+   * assessed, and the WASM lock is taken once rather than twice per approval.
+   */
+  simulated?: { summaryBytes?: string; executedBytes?: string; error?: string }
+) {
   return async (req: MidenRequest): Promise<any | undefined> => {
     if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
       return undefined;
     }
-    const { summaryBytes, executedBytes, error } = await simulateCustomTransaction({
-      address: tx.address,
-      transactionRequest: tx.transactionRequest,
-      importNotes: tx.importNotes
-    });
+    // Only a SUCCESSFUL dry run is reusable. A timeout or a WASM-lock eviction resolves as
+    // `{ error }`, and caching that would leave the sheet's verified asset view - an anti-phishing
+    // control - permanently unavailable for this confirm id, even once the lock frees.
+    const reusable = simulated?.summaryBytes !== undefined || simulated?.executedBytes !== undefined;
+    const { summaryBytes, executedBytes, error } =
+      reusable && simulated
+        ? simulated
+        : await simulateCustomTransaction({
+            address: tx.address,
+            transactionRequest: tx.transactionRequest,
+            importNotes: tx.importNotes
+          });
     return { type: MidenMessageType.DAppSimulateTransactionResponse, summaryBytes, executedBytes, error };
   };
 }
@@ -1571,6 +1606,97 @@ export function makeSimulateHandler(id: string, tx: MidenCustomTransaction) {
 function delegateFromConfirmation(result: DAppConfirmationResult): boolean {
   return result.delegate ?? DEFAULT_DELEGATE_PROOF;
 }
+
+const DAPP_SPENDING_LIMIT_RETRY = 'Spending limit changed. Review and retry the transaction.';
+
+/**
+ * The one message a dApp ever sees for a spending-limit refusal it can retry past (a policy or
+ * price read that failed, or a stale authorization). One place decides the text so every throw
+ * site - the send path's `dappSendFailure` and the custom path's own conversion below - says the
+ * same thing for the same underlying condition.
+ */
+const spendingLimitRetryError = (): Error =>
+  new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+
+const authorizationForDappSend = (
+  details: SpendingLimitAssessmentDetails | undefined,
+  strictlyAuthenticated: boolean | undefined,
+  spends: readonly IConsumedAssetTotal[]
+): SpendingLimitAuthorization | undefined => {
+  if (details === undefined || details.assessment.breach === undefined) return undefined;
+  if (strictlyAuthenticated !== true) throw new Error(MidenDAppErrorType.NotGranted);
+  return createSpendingLimitAuthorization(details.assessment, spends);
+};
+
+/**
+ * Spending-limit state for a dApp CUSTOM request, or a refusal.
+ *
+ * A custom request states its value only through the dry run, so an unknown `outgoing` is refused
+ * whenever the account has any limit configured - otherwise "make the simulation fail" is the
+ * bypass. A dollar figure sums across every asset the request moves, so there is exactly one
+ * charge and one authorization to bind it to - unlike the old per-asset caps, nothing here refuses
+ * a request for covering more than one asset.
+ */
+const customSpendingLimitState = async (
+  accountId: string,
+  outgoing: IConsumedAssetTotal[] | undefined
+): Promise<{ totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails }> => {
+  if (outgoing === undefined) {
+    if (await hasSpendingLimits(accountId)) throw new Error(MidenDAppErrorType.NotGranted);
+    return { totals: [] };
+  }
+  try {
+    const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
+    return { totals: outgoing, details: details?.assessment.breach === undefined ? undefined : details };
+  } catch (error) {
+    // A value the wallet cannot establish is the same answer as a value it cannot see: an
+    // untrusted page does not get to spend against a cap nobody can check. Converted at this
+    // boundary - not left to propagate for `dappSendFailure` to map downstream - so no internal
+    // error text can ever reach an untrusted page even if some future caller's catch does not
+    // route through that mapper; `spendingLimitRetryError` keeps the wording identical to the
+    // send path's own mapping of the same condition.
+    if (isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
+    throw error;
+  }
+};
+
+const assertDappSendStillAuthorized = async (
+  origin: string,
+  sourcePublicKey: string,
+  senderAddress: string
+): Promise<void> => {
+  const liveSession = await getDApp(origin, sourcePublicKey);
+  const currentAccount = store.getState().currentAccount?.publicKey;
+  if (
+    liveSession === undefined ||
+    currentAccount === undefined ||
+    !sameWalletAccountId(liveSession.accountId, senderAddress) ||
+    !sameWalletAccountId(currentAccount, senderAddress)
+  ) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+};
+
+const dappSendFailure = (error: unknown): Error => {
+  if (spendingLimitAssessmentFromError(error) !== undefined) {
+    return spendingLimitRetryError();
+  }
+  // A policy that cannot be evaluated, and a value the policy cannot see, are both refusals, not a
+  // malformed request. Without this a storage-read failure or an unpriced asset reached the dApp as
+  // `InvalidParams: Error: Spending limit policy is unavailable: ...` - raw internal text on a
+  // line the page renders, and the wrong error class for a permission decision.
+  if (
+    isSpendingLimitPriceUnavailable(error) ||
+    (isRecord(error) && Reflect.get(error, 'code') === 'SPENDING_LIMIT_POLICY_UNAVAILABLE')
+  ) {
+    return spendingLimitRetryError();
+  }
+  if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
+  if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
+  return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 /**
  * The account a dApp request is AUTHORIZED for is `dApp.accountId` — the id
@@ -1683,13 +1809,49 @@ const generatePromisifyTransaction = async (
     return;
   }
 
+  // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
+  // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
+  // platform split because the spending-limit gate below needs the dry run's outgoing totals on
+  // BOTH paths: a custom request moves value too, and before this it reached the queue with no
+  // assessment at all, which made "send it as a custom transaction" the way around a cap.
+  // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit
+  // assessment, and (on the extension arm) the confirm sheet's own simulate request. Running it
+  // twice took the single-threaded WASM lock twice and let the displayed numbers and the enforced
+  // numbers come from two different executions.
+  // A dry run that throws must not take the request down with it: the sheet still rises, saying
+  // the effects are unknown. Previously this catch lived inside the formatter; hoisting the call
+  // moved the failure out of its reach, so it is restated here as the same contract.
+  const simulated = await withUnlocked(async () => {
+    try {
+      return await simulateCustomTransaction({
+        address: customTransaction.address,
+        transactionRequest: customTransaction.transactionRequest,
+        importNotes: customTransaction.importNotes
+      });
+    } catch (e) {
+      console.error('Failed to simulate a custom transaction for approval', e);
+      return { error: consentReason(e) };
+    }
+  });
+  const simulatedEffects = await formatSimulatedCustomEffects(simulated);
+
+  let customLimit: { totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails };
+  try {
+    customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
+  } catch (e) {
+    // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
+    // user decline, so the notes go back to the claimable list; only a decline earns staying
+    // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
+    await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+    // Through the same mapper as every other limit-observing path: this catch also sees a
+    // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
+    reject(dappSendFailure(e));
+    return;
+  }
+
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting transaction confirmation');
-
-    // The effects go in front of the user BEFORE the sheet is raised, because
-    // this sheet cannot ask for them itself — see `formatSimulatedCustomEffects`.
-    const simulatedEffects = await withUnlocked(async () => formatSimulatedCustomEffects(customTransaction));
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
@@ -1702,7 +1864,10 @@ const generatePromisifyTransaction = async (
       privateDataPermission: dApp.privateDataPermission,
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
-      transactionMessages: [...transactionMessages, ...simulatedEffects],
+      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
+      ...(customLimit.details !== undefined && {
+        spendingLimitAssessment: customLimit.details.assessment
+      }),
       sourcePublicKey: req.sourcePublicKey
     });
 
@@ -1716,13 +1881,18 @@ const generatePromisifyTransaction = async (
         const { payload } = req.transaction;
         const { address, recipientAddress, transactionRequest, inputNoteIds, importNotes } =
           payload as MidenCustomTransaction;
+        // The same re-check the send arm performs: the sheet may have sat open while the origin
+        // disconnected or the user switched accounts, and a custom request moves value too.
+        await assertDappSendStillAuthorized(origin, req.sourcePublicKey, address);
         return await requestCustomTransaction(
           address,
           transactionRequest,
           inputNoteIds,
           importNotes,
           delegateFromConfirmation(result),
-          recipientAddress || undefined
+          recipientAddress || undefined,
+          customLimit.totals,
+          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals)
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -1735,7 +1905,7 @@ const generatePromisifyTransaction = async (
         transactionId
       } as any);
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      reject(dappSendFailure(e));
     }
     return;
   }
@@ -1747,10 +1917,11 @@ const generatePromisifyTransaction = async (
       networkRpc,
       appMeta: dApp.appMeta,
       sourcePublicKey: req.sourcePublicKey,
-      transactionMessages,
-      customTransaction
+      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
+      customTransaction,
+      spendingLimitDetails: customLimit.details
     }),
-    handleSimulate: makeSimulateHandler(id, customTransaction),
+    handleSimulate: makeSimulateHandler(id, customTransaction, simulated),
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
     },
@@ -1762,13 +1933,17 @@ const generatePromisifyTransaction = async (
               const { payload } = req.transaction;
               const { address, recipientAddress, transactionRequest, inputNoteIds, importNotes } =
                 payload as MidenCustomTransaction;
+              // See the mobile/desktop arm: same stale-confirmation re-check.
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, address);
               return await requestCustomTransaction(
                 address,
                 transactionRequest,
                 inputNoteIds,
                 importNotes,
                 confirmReq.delegate,
-                recipientAddress || undefined
+                recipientAddress || undefined,
+                customLimit.totals,
+                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated, customLimit.totals)
               );
             });
             // The transaction is queued and will consume these notes —
@@ -1783,7 +1958,7 @@ const generatePromisifyTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            reject(dappSendFailure(e));
           }
         } else {
           decline();
@@ -1868,6 +2043,8 @@ const generatePromisifySendTransaction = async (
   }
 
   let transactionMessages: string[] = [];
+  let spendingLimitDetails: SpendingLimitAssessmentDetails | undefined;
+  let spends: IConsumedAssetTotal[] = [];
   try {
     // Normalize the note type ONCE, before anything reads it. It crosses
     // postMessage from an untrusted page, so its type is a claim rather than a
@@ -1890,8 +2067,15 @@ const generatePromisifySendTransaction = async (
     transactionMessages = await withUnlocked(async () => {
       return await formatSendTransactionPreview(req.transaction);
     });
+    spends = [{ faucetId: req.transaction.faucetId, amount: BigInt(req.transaction.amount) }];
+    spendingLimitDetails = await assessOutgoingSpendingLimitDetails({
+      accountId: senderAddress,
+      spends
+    });
   } catch (e) {
-    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    // Through the mapper: the assessment above can raise a policy error from a storage read or a
+    // malformed record, and a malformed REQUEST is the only thing InvalidParams should mean.
+    reject(dappSendFailure(e));
     return;
   }
 
@@ -1911,7 +2095,11 @@ const generatePromisifySendTransaction = async (
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
       transactionMessages,
-      sourcePublicKey: req.sourcePublicKey
+      sourcePublicKey: req.sourcePublicKey,
+      ...(spendingLimitDetails !== undefined &&
+        spendingLimitDetails.assessment.breach !== undefined && {
+          spendingLimitAssessment: spendingLimitDetails.assessment
+        })
     });
 
     if (!result.confirmed) {
@@ -1921,7 +2109,13 @@ const generatePromisifySendTransaction = async (
 
     try {
       const transactionId = await withUnlocked(async () => {
-        const { senderAddress, recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
+        await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
+        const spendingLimitAuthorization = authorizationForDappSend(
+          spendingLimitDetails,
+          result.spendingLimitAuthenticated,
+          spends
+        );
+        const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
         return await initiateSendTransaction(
           senderAddress,
           recipientAddress,
@@ -1929,7 +2123,8 @@ const generatePromisifySendTransaction = async (
           noteType as any,
           BigInt(amount),
           recallBlocks,
-          delegateFromConfirmation(result)
+          delegateFromConfirmation(result),
+          spendingLimitAuthorization
         );
       });
       startDappBackgroundProcessing();
@@ -1938,7 +2133,7 @@ const generatePromisifySendTransaction = async (
         transactionId
       } as any);
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      reject(dappSendFailure(e));
     }
     return;
   }
@@ -1952,7 +2147,11 @@ const generatePromisifySendTransaction = async (
       appMeta: dApp.appMeta,
       sourcePublicKey: req.sourcePublicKey,
       transactionMessages,
-      preview: null
+      preview: null,
+      ...(spendingLimitDetails !== undefined &&
+        spendingLimitDetails.assessment.breach !== undefined && {
+          spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment)
+        })
     },
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
@@ -1962,7 +2161,13 @@ const generatePromisifySendTransaction = async (
         if (confirmReq.confirmed) {
           try {
             const transactionId = await withUnlocked(async () => {
-              const { senderAddress, recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
+              const spendingLimitAuthorization = authorizationForDappSend(
+                spendingLimitDetails,
+                confirmReq.spendingLimitAuthenticated,
+                spends
+              );
+              const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
               return await initiateSendTransaction(
                 senderAddress,
                 recipientAddress,
@@ -1970,7 +2175,8 @@ const generatePromisifySendTransaction = async (
                 noteType as any,
                 BigInt(amount),
                 recallBlocks,
-                confirmReq.delegate
+                confirmReq.delegate,
+                spendingLimitAuthorization
               );
             });
             startDappBackgroundProcessing();
@@ -1979,7 +2185,7 @@ const generatePromisifySendTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            reject(dappSendFailure(e));
           }
         } else {
           decline();
@@ -2692,16 +2898,38 @@ async function formatCustomTransactionPreview(payload: MidenCustomTransaction): 
  * throws — a preview that fails must not take down the request that a user could
  * still legitimately decline.
  */
-async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Promise<string[]> {
+/**
+ * Effects of a custom request's dry run: the lines the approval sheet renders, and the per-faucet
+ * value LEAVING the account that the spending-limit policy needs.
+ *
+ * `outgoing` is undefined when the dry run produced NEITHER ground-truth shape. That is "unknown
+ * value", not "no value": admitting such a request unassessed would make a deliberately
+ * unsimulatable request the way around a configured cap. Decoding only the summary shape put every
+ * ordinary single-sig account in that bucket and refused all of their custom transactions.
+ *
+ * Takes the dry-run result rather than running it, so the request is simulated ONCE.
+ *
+ * The lines the signer reads are the GROSS legs - what leaves and what enters, stated separately,
+ * because that is what a person checking a transaction wants to see. The figure handed to the
+ * spending-limit policy is the NET outflow after crediting only what this request brought in, so
+ * the two are deliberately not the same number and the sheet is the more conservative of them.
+ */
+async function formatSimulatedCustomEffects(
+  simulated: SimulateCustomTxResult
+): Promise<{ messages: string[]; outgoing?: IConsumedAssetTotal[] }> {
   try {
-    const { summaryBytes, error } = await simulateCustomTransaction({
-      address: payload.address,
-      transactionRequest: payload.transactionRequest,
-      importNotes: payload.importNotes
-    });
-    if (!summaryBytes) throw new Error(error ?? 'no summary was produced');
-
-    const view = summaryBytesToView(summaryBytes);
+    const view = simulatedBytesToView(simulated);
+    if (!view) throw new Error(simulated.error ?? 'no summary was produced');
+    // The summary arm reports a NETTED vault delta with no note identity, so it has already
+    // credited every consumed note - including ones the wallet already held, which are the user's
+    // own value. When it consumed more notes than this request introduced, that figure understates
+    // the outflow and cannot be corrected here.
+    //
+    // This withholds the POLICY's number, not the sheet's. The effect lines are still shown, still
+    // gross, and still useful to a person reading them; it is only the automated cap that must not
+    // act on a figure it cannot attribute, and it refuses on `outgoing === undefined` already.
+    const attributable =
+      simulated.summaryBytes === undefined || view.inputNotesConsumed <= (simulated.introducedCount ?? 0);
     const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
       const metadata = await getTokenMetadata(asset.faucetId);
       const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals, hasKnownScale(metadata));
@@ -2732,10 +2960,21 @@ async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Pr
       effects.push('Changes this account’s stored data');
     }
 
-    return ['Simulated effects:', ...effects];
+    return {
+      messages: ['Simulated effects:', ...effects],
+      // Netted and folded per faucet: the policy charges what actually leaves, once per asset.
+      ...(attributable && {
+        outgoing: netOutflowByFaucet(view, simulated.introducedCredit).map(asset => ({
+          faucetId: asset.faucetId,
+          amount: asset.amount
+        }))
+      })
+    };
   } catch (e: any) {
     console.error('Failed to simulate a custom transaction for approval', e);
-    return ['This transaction could not be simulated, so its effects are unknown.', `Reason, ${consentReason(e)}`];
+    return {
+      messages: ['This transaction could not be simulated, so its effects are unknown.', `Reason, ${consentReason(e)}`]
+    };
   }
 }
 

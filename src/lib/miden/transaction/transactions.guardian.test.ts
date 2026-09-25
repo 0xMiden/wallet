@@ -13,6 +13,9 @@
 
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
+import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
+import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -24,7 +27,8 @@ import {
   ensureGuardianProcedureThresholds,
   generateTransaction,
   initiateReplaceHotKeyTransaction,
-  initiateSwitchGuardianTransaction
+  initiateSwitchGuardianTransaction,
+  initiateUpdateProcedureThresholdTransaction
 } from './index';
 import {
   ITransactionStatus,
@@ -67,7 +71,8 @@ jest.mock('lib/miden/repo', () => ({
     // Applies the predicate against `txStore` for real. A stub returning `[]`
     // would silently pass any dedup/queue-scan check that reads through here.
     filter: jest.fn((predicate: (row: Record<string, unknown>) => boolean) => ({
-      toArray: jest.fn(async () => txStore.filter(predicate))
+      toArray: jest.fn(async () => txStore.filter(predicate)),
+      first: jest.fn(async () => txStore.find(predicate))
     }))
   }
 }));
@@ -77,6 +82,13 @@ jest.mock('../front', () => ({
   putToStorage: (...a: unknown[]) => putToStorage(...a),
   fetchFromStorage: jest.fn(),
   onStorageChanged: jest.fn()
+}));
+
+// The legacy global guardian key is read through storage; drive it per test (undefined by default).
+const mockFetchFromStorage = jest.fn(async (_key: string): Promise<unknown> => undefined);
+jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
+  fetchFromStorage: (key: string) => mockFetchFromStorage(key)
 }));
 
 jest.mock('lib/settings/constants', () => ({
@@ -221,6 +233,14 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
   // nothing downstream inspects it.
   randomFeeSalt: () => 'SALT',
+  // Mirrors the real helper, so each test sees exactly which account and salt reach the SDK.
+  feeAwareRequestBuilder: (
+    client: {
+      feeAwareTransactionRequestBuilder: (account: string, options: { feeConversionSalt: unknown }) => unknown;
+    },
+    account: string,
+    feeSalt: unknown
+  ) => client.feeAwareTransactionRequestBuilder(account, { feeConversionSalt: feeSalt }),
   buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as [])),
   buildPswapCreateRequest: (...args: unknown[]) => mockBuildPswapCreateRequest(...(args as []))
 }));
@@ -300,10 +320,19 @@ const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest
   return { executeRequest, prove, submitProven, apply };
 };
 
+// What the SDK's `feeAwareTransactionRequestBuilder` resolves. Since protocol 0.17 a guarded
+// (multisig) account resolves three words of fee auth args, and `withFeeConversionSalt` committed
+// two (`advice stack read failed` at the proposal), so every guardian request has to be built
+// from THIS builder rather than a fresh one.
+const FEE_AWARE_BUILDER = { kind: 'fee-aware-builder' };
+
 const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
   const transactions = makeTransactionsApi(result, apply);
   return {
     transactions,
+    feeAwareTransactionRequestBuilder: jest.fn(
+      async (_account: string, _options: { feeConversionSalt: unknown }) => FEE_AWARE_BUILDER
+    ),
     _withInnerWebClient: jest.fn(async (fn: (inner: object) => Promise<unknown>) =>
       fn({
         executeTransaction: transactions.executeRequest,
@@ -337,6 +366,25 @@ const makeGuardianProvider = (isGuardian: boolean) => {
   };
 };
 
+// The provider stores the account under its composite id while callers (a dApp, a bare deep link) may
+// pass the bare one. A row queued under the bare spelling leaves every later step to rediscover the
+// stored one, and a step that cannot read the provider then acts on the wrong key.
+const makeSuffixGuardianProvider = () => ({
+  ...makeGuardianProvider(true),
+  getAccounts: async () => [
+    {
+      publicKey: 'acc-1_suffix',
+      name: 'Guardian account',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      guardianEndpoint: 'https://old.guardian',
+      hotPublicKey: 'old-hot-pub',
+      coldPublicKey: 'cold'
+    }
+  ]
+});
+
 describe('initiateSwitchGuardianTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -356,6 +404,13 @@ describe('initiateSwitchGuardianTransaction', () => {
     const extra = row.extraInputs as Record<string, unknown>;
     expect(extra.previousGuardianEndpoint).toBe('https://old.guardian');
     expect(extra.newGuardianEndpoint).toBe('https://new.guardian');
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, makeSuffixGuardianProvider());
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
   });
 
   it('throws when the target account is not a Guardian account', async () => {
@@ -477,6 +532,46 @@ describe('completeSwitchGuardianTransaction', () => {
     // #618: completion stamps the terminal stage through the real complete* layer.
     expect(row.stage).toBe('complete');
     expect(row.displayMessage).toBe('Guardian switched');
+  });
+
+  it('persists the endpoint and evicts the cache under the stored id when the row was queued under another spelling', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }],
+      setGuardianEndpoint
+    };
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
+
+    // The vault matches the account with ===, so the raw queued id writes nothing.
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1_suffix', 'https://new.guardian');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalled();
+    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ endpointPersistFailed: false });
+  });
+
+  it('finalizes a DIRECT switch under the stored id when the row was queued under another spelling', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    mockFinalizeDirectSwitch.mockResolvedValueOnce(undefined);
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold', hotPublicKey: 'hot' }],
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, undefined, provider as never);
+
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeDirectSwitch.mock.calls[0]![0]).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ registerFailed: false });
   });
 
   // By the time this runs, `update_guardian` has COMMITTED — the account's
@@ -865,6 +960,57 @@ describe('generateTransaction — Guardian routing', () => {
       free: jest.fn()
     }));
     txStore.length = 0;
+  });
+
+  it('waits for recovery authorization before it starts a transaction', async () => {
+    const transaction = new SwitchGuardianTransaction('guardian-acc', 'https://new.guardian', false);
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: false }));
+    const releaseRecoveryAuthorization = jest.fn(async () => {});
+    const getAccounts = jest.fn(async () => []);
+    await generateTransaction(transaction, jest.fn(), false, {
+      prepareRecoveryTransaction,
+      releaseRecoveryAuthorization,
+      getAccounts,
+      getPublicKeyForCommitment: jest.fn(),
+      signWord: jest.fn()
+    });
+    expect(prepareRecoveryTransaction).toHaveBeenCalledWith(transaction.id);
+    expect(getAccounts).not.toHaveBeenCalled();
+    expect(mockGetMidenClient).not.toHaveBeenCalled();
+    expect(releaseRecoveryAuthorization).not.toHaveBeenCalled();
+    expect(transaction.status).toBe(ITransactionStatus.Queued);
+  });
+
+  // The release runs in `finally`. On mobile and desktop it is an intercom round
+  // trip, so it can reject - and a throw out of `finally` replaces whatever the
+  // pipeline itself produced, hiding the real failure from the loop that has to
+  // classify it.
+  it('a failing authorization release does not replace the pipeline outcome', async () => {
+    const transaction = new SwitchGuardianTransaction('guardian-acc', 'https://new.guardian', false);
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    const releaseRecoveryAuthorization = jest.fn(async () => {
+      throw new Error('intercom port closed');
+    });
+    const getAccounts = jest.fn(async () => []);
+    // The pre-guardian sync is the first thing the pipeline does, so failing it
+    // gives a deterministic error that is unmistakably the PIPELINE's, not the
+    // release's.
+    mockGetMidenClient.mockResolvedValueOnce({
+      syncState: jest.fn(async () => {
+        throw new Error('pipeline failed for its own reason');
+      })
+    });
+    await expect(
+      generateTransaction(transaction, jest.fn(), false, {
+        prepareRecoveryTransaction,
+        releaseRecoveryAuthorization,
+        getAccounts,
+        getPublicKeyForCommitment: jest.fn(),
+        signWord: jest.fn()
+      })
+    ).rejects.toThrow('pipeline failed for its own reason');
+    // It still ran: the clearing must not be skipped just because it can fail.
+    expect(releaseRecoveryAuthorization).toHaveBeenCalledWith(transaction.id);
   });
 
   it('Guardian send: builds a proposal, signs it, submits the request, and completes the row', async () => {
@@ -1344,6 +1490,7 @@ describe('generateTransaction — Guardian routing', () => {
       const txId = `recallable-${noteType}`;
       const result = makeResult();
       const requestBytes = new Uint8Array([7, 8, 9]);
+      const rebasedBytes = new Uint8Array([107, 108, 109]);
       const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
         id: txId,
         type: 'send',
@@ -1363,7 +1510,11 @@ describe('generateTransaction — Guardian routing', () => {
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
       const multisigService = {
-        createCustomProposal: jest.fn(async () => ({ id: 'recall-proposal' })),
+        createCustomProposal: jest.fn(),
+        createRebasedCustomProposal: jest.fn(async () => ({
+          proposal: { id: 'recall-proposal' },
+          requestBytes: rebasedBytes
+        })),
         createSendProposal: jest.fn(),
         signAndCreateTransactionRequest: jest.fn(async () => ({
           serialize: () => new Uint8Array([1]),
@@ -1398,12 +1549,20 @@ describe('generateTransaction — Guardian routing', () => {
         1000n,
         expectedSdkNoteType,
         125,
-        'SALT'
+        FEE_AWARE_BUILDER
       );
-      expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+      // Asked for by the EXECUTING (guarded) account, with the salt this build drew.
+      expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+        feeConversionSalt: 'SALT'
+      });
+      // The built bytes are proposed re-bound to the current sync height, and the bytes the
+      // proposal was made from are what signing replays and what the row keeps.
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+      expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
       expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', requestBytes);
-      expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', rebasedBytes);
+      expect(transaction.requestBytes).toBe(rebasedBytes);
+      expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
     }
   );
 
@@ -1434,7 +1593,10 @@ describe('generateTransaction — Guardian routing', () => {
     const getAccount = jest.fn(async () => senderAccount);
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'recall-proposal' })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'recall-proposal' },
+        requestBytes: new Uint8Array([107, 108, 109])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1466,8 +1628,11 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       125,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
   });
 
   /**
@@ -1481,6 +1646,7 @@ describe('generateTransaction — Guardian routing', () => {
     const txId = 'guardian-swap-vault-key';
     const result = makeResult();
     const rebuiltBytes = new Uint8Array([11, 12, 13]);
+    const rebasedBytes = new Uint8Array([111, 112, 113]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'swap',
@@ -1501,8 +1667,15 @@ describe('generateTransaction — Guardian routing', () => {
     const newPswapCreateTransactionRequest = jest.fn(async () => reference);
     mockGetRealmReaderClient.mockResolvedValue({ newPswapCreateTransactionRequest });
 
+    // Records what the row held at the moment of proposing, so the freeze is pinned as
+    // happening BEFORE the proposal, not merely by the end of the run.
+    let frozenAtPropose: unknown;
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'swap-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => {
+        frozenAtPropose = txStore.find(row => row.id === txId)?.requestBytes;
+        return { proposal: { id: 'swap-proposal' }, requestBytes: rebasedBytes };
+      }),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1524,25 +1697,30 @@ describe('generateTransaction — Guardian routing', () => {
 
     // The creator's vault, by canonical id, handed to the rewrite verbatim.
     expect(getAccount).toHaveBeenCalledWith('sdk-guardian-acc');
-    // The fee salt is threaded into the BUILD; there is no setter for it on a finished
-    // request, so a swap not built with one can never acquire it, and miden-client
-    // commits no conversion info for a request that declares none.
+    // The fee auth rides on the builder the request STARTS from; there is no setter for it on a
+    // finished request, so a swap not built from the fee-aware builder can never acquire it.
     expect(mockBuildPswapCreateRequest).toHaveBeenCalledWith(
       creatorAccount,
       reference,
       'offered-faucet',
       1000n,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
     // One builder call: each draws a fresh serial number, which IS the order id,
     // so building one request to inspect and another to propose would register a
     // different order than the one the wallet tracks.
     expect(newPswapCreateTransactionRequest).toHaveBeenCalledTimes(1);
-    // And the REWRITTEN bytes are what get frozen and proposed — the whole point,
-    // since these same bytes are replayed for signAndCreateTransactionRequest.
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebuiltBytes);
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(rebuiltBytes, 'swap');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebuiltBytes);
+    // And the REWRITTEN bytes are what get frozen and proposed, which is the whole point. The
+    // proposal rebases them onto the current sync height, and the rebased bytes replace
+    // the frozen ones, since those are what signAndCreateTransactionRequest replays.
+    expect(frozenAtPropose).toBe(rebuiltBytes);
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(rebuiltBytes, 'swap');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebasedBytes);
     // Built through the realm's reader client, never a per-call client (#868's leak class).
     expect(mockGetRealmReaderClient).toHaveBeenCalledTimes(1);
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
@@ -1561,6 +1739,7 @@ describe('generateTransaction — Guardian routing', () => {
   it('Guardian swap reuses bytes the row already carried verbatim, since the fee auth is committed at build time', async () => {
     const txId = 'guardian-swap-preexisting-bytes';
     const existingBytes = new Uint8Array([21, 22, 23]);
+    const rebasedBytes = new Uint8Array([121, 122, 123]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'swap',
@@ -1573,7 +1752,11 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'swap-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'swap-proposal' },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1600,12 +1783,14 @@ describe('generateTransaction — Guardian routing', () => {
     // A row that already holds bytes is NOT rebuilt -- the PSWAP serial number is the order
     // id, so a rebuild would issue a different order.
     expect(mockBuildPswapCreateRequest).not.toHaveBeenCalled();
-    // The same bytes are what get persisted, proposed and replayed for signing. All three
-    // matter: the commitment carries a fresh salt and `prepareCustomExecution` re-derives it
-    // from whatever bytes it is given, so a mismatch between any two is rejected at execution.
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(existingBytes);
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(existingBytes, 'swap');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', existingBytes);
+    // The row's own bytes are what get rebased and proposed, and the bytes the proposal was
+    // made from are what get persisted and replayed for signing. Those two must match: the
+    // commitment carries a fresh salt and `prepareCustomExecution` re-derives it from whatever
+    // bytes it is given, so a mismatch is rejected at execution.
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(existingBytes, 'swap');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebasedBytes);
     // DELIBERATE GAP. Bytes are committed with fee conversion info when they are BUILT, so a
     // row reaching here already carries it and needs no second pass. The SDK exposes no
     // auth-arg setter on a finished request, so bytes that arrived WITHOUT it -- only possible
@@ -1618,6 +1803,7 @@ describe('generateTransaction — Guardian routing', () => {
     const txId = 'guardian-bridged-send';
     const result = makeResult();
     const requestBytes = new Uint8Array([4, 5, 6]);
+    const rebasedBytes = new Uint8Array([104, 105, 106]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'bridged-send',
@@ -1637,7 +1823,11 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createSendProposal: jest.fn(),
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-proposal' },
+        requestBytes: rebasedBytes
+      })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -1673,17 +1863,23 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       230,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('bridge-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
   });
 
   it('Guardian earn-deposit builds a P2IDE collateral note to the allocator via a custom proposal', async () => {
     const txId = 'earn-guardian';
     const result = makeResult();
     const requestBytes = new Uint8Array([11, 12, 13]);
+    const rebasedBytes = new Uint8Array([111, 112, 113]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'earn-deposit',
@@ -1702,7 +1898,11 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-proposal' },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1739,12 +1939,16 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       125,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', requestBytes);
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
 
     // Completion must route to completeEarnDepositTransaction, NOT the generic custom-tx
     // completion — otherwise the row finishes without the collateral note id that
@@ -1778,7 +1982,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-syncfail-proposal' })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-syncfail-proposal' },
+        requestBytes: new Uint8Array([151, 152, 153])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1817,15 +2024,19 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       225,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
   });
 
   it('Guardian earn-deposit reuses persisted request bytes after a retry', async () => {
     const txId = 'earn-guardian-retry';
     const result = makeResult();
     const requestBytes = new Uint8Array([7, 8, 9]);
+    const rebasedBytes = new Uint8Array([107, 108, 109]);
     const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
       id: txId,
       type: 'earn-deposit',
@@ -1839,7 +2050,11 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-retry-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-retry-proposal' },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -1861,10 +2076,14 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // Persisted bytes are reused verbatim — no fresh P2IDE request is built.
+    // Persisted bytes are reused verbatim as the input to the rebase (no fresh P2IDE request
+    // is built), and signing replays the rebased bytes the proposal was made from.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-retry-proposal', requestBytes);
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-retry-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
   });
 
   it('Guardian earn-deposit refuses to build a non-recallable note when recallBlocks is missing', async () => {
@@ -1884,6 +2103,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(),
       sync: jest.fn(async () => {})
@@ -1905,6 +2125,7 @@ describe('generateTransaction — Guardian routing', () => {
     // The row fails fast; no P2IDE request or proposal is built.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -1925,6 +2146,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(),
       sync: jest.fn(async () => {})
@@ -1946,6 +2168,7 @@ describe('generateTransaction — Guardian routing', () => {
     // Same fail-fast as the missing-recallBlocks case — the other half of the guard.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -1970,6 +2193,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(),
       sync: jest.fn(async () => {})
@@ -1991,6 +2215,7 @@ describe('generateTransaction — Guardian routing', () => {
     // No note built or proposed; the row is Failed (terminal), never Completed.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -2026,7 +2251,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
-        createCustomProposal: jest.fn(async () => {
+        createRebasedCustomProposal: jest.fn(async () => {
           throw conflict;
         }),
         createSendProposal: jest.fn(),
@@ -2109,7 +2334,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
-        createCustomProposal: jest.fn(async () => {
+        createRebasedCustomProposal: jest.fn(async () => {
           throw conflict;
         }),
         createSendProposal: jest.fn(),
@@ -2184,7 +2409,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
-        createCustomProposal: jest.fn(async () => {
+        createRebasedCustomProposal: jest.fn(async () => {
           throw conflict;
         }),
         createSendProposal: jest.fn(),
@@ -2253,7 +2478,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-applyfail-proposal', nonce: 5 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-applyfail-proposal', nonce: 5 },
+        requestBytes: new Uint8Array([131, 132, 133])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2320,7 +2548,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'earn-canon-proposal', nonce: 6 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'earn-canon-proposal', nonce: 6 },
+        requestBytes: new Uint8Array([141, 142, 143])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2389,7 +2620,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-applyfail-proposal', nonce: 8 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-applyfail-proposal', nonce: 8 },
+        requestBytes: new Uint8Array([151, 152, 153])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2436,6 +2670,7 @@ describe('generateTransaction — Guardian routing', () => {
     // `status !== Failed`) on funds that already left the account.
     const txId = 'bridge-guardian-agglayer-applyfail';
     const requestBytes = new Uint8Array([71, 72, 73]);
+    const rebasedBytes = new Uint8Array([171, 172, 173]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'bridged-send',
@@ -2454,7 +2689,11 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-agglayer-proposal', nonce: 10 })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-agglayer-proposal', nonce: 10 },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2480,11 +2719,102 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
+    // The pre-built bytes are proposed rebased, as a generic custom transaction, and signing
+    // replays the rebased bytes.
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'custom_transaction');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
+      'bridge-agglayer-proposal',
+      rebasedBytes
+    );
     expect(applyFn).toHaveBeenCalled();
     const row = txStore.find(r => r.id === txId);
     expect(row?.status).toBe(ITransactionStatus.Completed);
     // The label matches what `completeBridgedSendTransaction` writes on the happy path.
     expect(row?.displayMessage).toBe('Bridged to EVM');
+  });
+
+  it('Guardian AGGLAYER bridged-send: a transient 409 on the proposal is waited out and retried with the same bytes', async () => {
+    // The agglayer route used to propose once with no conflict retry, so a prior delta
+    // still canonicalizing turned into a failed attempt. It now shares the retry every
+    // other wallet-built proposal has.
+    jest.useFakeTimers();
+    try {
+      const txId = 'bridge-guardian-agglayer-409';
+      const requestBytes = new Uint8Array([74, 75, 76]);
+      const rebasedBytes = new Uint8Array([174, 175, 176]);
+      const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+        id: txId,
+        type: 'bridged-send',
+        amount: 1000n,
+        faucetId: 'faucet',
+        requestBytes,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xevm',
+          destinationNetwork: 0,
+          sourceFaucetId: 'faucet',
+          claimStatus: 'pending'
+        },
+        delegateTransaction: true
+      });
+      txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createCustomProposal: jest.fn(),
+        createRebasedCustomProposal: jest
+          .fn()
+          .mockRejectedValueOnce(conflict)
+          .mockResolvedValueOnce({
+            proposal: { id: 'bridge-agglayer-retry-proposal', nonce: 11 },
+            requestBytes: rebasedBytes
+          }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
+      });
+      mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+      const pending = generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledTimes(2);
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenNthCalledWith(
+        1,
+        requestBytes,
+        'custom_transaction'
+      );
+      expect(multisigService.createRebasedCustomProposal).toHaveBeenNthCalledWith(
+        2,
+        requestBytes,
+        'custom_transaction'
+      );
+      expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
+        'bridge-agglayer-retry-proposal',
+        rebasedBytes
+      );
+      const row = txStore.find(r => r.id === txId);
+      expect(row?.requestBytes).toBe(rebasedBytes);
+      expect(row?.status).toBe(ITransactionStatus.Completed);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('Guardian bridged-send: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
@@ -2517,7 +2847,10 @@ describe('generateTransaction — Guardian routing', () => {
     mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'bridge-canon-proposal', nonce: 9 })),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'bridge-canon-proposal', nonce: 9 },
+        requestBytes: new Uint8Array([161, 162, 163])
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2556,6 +2889,7 @@ describe('generateTransaction — Guardian routing', () => {
     const txId = 'recallable-retry';
     const result = makeResult();
     const requestBytes = new Uint8Array([4, 5, 6]);
+    const rebasedBytes = new Uint8Array([104, 105, 106]);
     const transaction = Object.assign(new Transaction('guardian-acc', requestBytes), {
       id: txId,
       type: 'send',
@@ -2572,7 +2906,11 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'retry-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'retry-proposal' },
+        requestBytes: rebasedBytes
+      })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -2593,9 +2931,14 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
+    // The persisted bytes are what go INTO the rebase (no fresh request is built), and the
+    // rebased bytes are what signing replays and what the row keeps.
     expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('retry-proposal', requestBytes);
+    expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('retry-proposal', rebasedBytes);
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
   });
 
   it('Guardian send (delegated): a remote-prover timeout falls back to the local prover and completes', async () => {
@@ -3449,7 +3792,7 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 10 } };
@@ -3818,7 +4161,7 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const conflict = { status: 409, body: 'ConflictPendingDelta' };
@@ -4452,12 +4795,15 @@ describe('generateTransaction — Guardian routing', () => {
 
     // Service load round-trips through the OLD guardian — down operator.
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]) },
-      // 'Y2hhaW4tYW5jaG9y' = base64 of 'chain-anchor' — must be REAL base64;
-      // the leaf decodes it with b64ToU8 (atob), which throws on a bare token.
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockImplementation(
+      async (_account: WalletAccount, _endpoint: string, sign: GuardianAccountProvider['signWord']) => {
+        await sign('cold-pub', '0xword');
+        return {
+          request: { serialize: () => new Uint8Array([2]) },
+          chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
+        };
+      }
+    );
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const signWord = jest.fn(async () => 'sig');
@@ -4494,8 +4840,9 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalledWith(
       expect.objectContaining({ publicKey: 'guardian-acc' }),
       'https://new.guardian',
-      signWord
+      expect.any(Function)
     );
+    expect(signWord).toHaveBeenCalledWith('cold-pub', '0xword', txId);
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
     // Same leaf + commit-wait as the proposal path, pinned to the ChainAnchor
     // the direct build signed at (protocol 0.16). The leaf decodes the
@@ -4504,7 +4851,10 @@ describe('generateTransaction — Guardian routing', () => {
     expect(Buffer.from(mockChainAnchorDeserialize.mock.calls[0][0] as Uint8Array).toString()).toBe('chain-anchor');
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     // Completion registers on the NEW guardian standalone (undefined service).
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Guardian switched');
@@ -4577,7 +4927,10 @@ describe('generateTransaction — Guardian routing', () => {
     // coordinated switch outright — leaving it is not harmless.
     expect(multisigService.abandonCandidate).toHaveBeenCalledWith(31);
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
@@ -4703,7 +5056,10 @@ describe('generateTransaction — Guardian routing', () => {
 
     expect(mockDidDirectSwitchLand).toHaveBeenCalled();
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
     // Completing is the lesser harm, but "we went ahead on no evidence" is not
@@ -4948,7 +5304,7 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
 
     const multisigService = {
@@ -4958,6 +5314,8 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
     const coldService = {
+      // A guardian switch completed after initiation: the service is built under the new endpoint.
+      guardianEndpoint: 'https://new.guardian',
       createReplaceHotKeyProposal: jest.fn(async () => ({
         proposal: { id: 'prop-replace' },
         newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
@@ -4990,7 +5348,13 @@ describe('generateTransaction — Guardian routing', () => {
     const submittedRow = txStore.find(r => r.id === txId)!;
 
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5003,8 +5367,76 @@ describe('generateTransaction — Guardian routing', () => {
     expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace', undefined);
     // Persist newHotPublicKey on the transaction row so complete can find it.
     expect((submittedRow.extraInputs as { newHotPublicKey?: string }).newHotPublicKey).toBe('new-hot-pub');
+    // ...beside the guardian the rotation actually ran under, re-stamped from the built service.
+    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://new.guardian');
     // Replace-hot-key shares the confirming wait with switch-guardian.
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+  });
+
+  it('Guardian replace-hot-key: stamps the endpoint it runs under before a proposal failure', async () => {
+    const txId = 'replace-hot-fail';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'replace-hot-key',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
+    });
+
+    const multisigService = {
+      // Hot service unused in replace-hot-key; signingService flips to cold.
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const coldService = {
+      // A guardian switch completed after initiation: the service is built under the new endpoint.
+      guardianEndpoint: 'https://new.guardian',
+      createReplaceHotKeyProposal: jest.fn(async () => {
+        throw new Error('guardian unreachable');
+      }),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      }))
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+    const persistNewHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey,
+      swapHotKey: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result)
+    });
+
+    const submittedRow = txStore.find(r => r.id === txId)!;
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    ).catch(() => undefined);
+
+    expect((submittedRow.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://new.guardian');
   });
 
   it('Guardian update-procedure-threshold: cold-signs the threshold update', async () => {
@@ -5054,6 +5486,132 @@ describe('generateTransaction — Guardian routing', () => {
 
     expect(mockBuildColdMultisigService).toHaveBeenCalled();
     expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledWith('update_guardian', 2);
+  });
+
+  describe('a bare account id finds the composite provider account', () => {
+    const compositeProvider = (extra: Record<string, unknown> = {}) => ({
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      ...extra
+    });
+
+    beforeEach(() => {
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        // The local client knows the account only by its stored id, so a read under
+        // the queued bare id finds nothing and never reaches the cold build.
+        getAccount: jest.fn(async (id: string) =>
+          id === 'acc-1_suffix' ? { id: () => ({ toString: () => 'acc-1' }) } : undefined
+        ),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+    });
+
+    it('replace-hot-key reaches the cold service and stamps its endpoint', async () => {
+      const txId = 'replace-bare-id';
+      txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'acc-1', status: ITransactionStatus.Queued });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      const coldService = {
+        guardianEndpoint: 'https://acc.guardian',
+        createReplaceHotKeyProposal: jest.fn(async () => {
+          throw new Error('guardian unreachable');
+        })
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+      const row = txStore.find(r => r.id === txId)!;
+
+      await generateTransaction(
+        { id: txId, type: 'replace-hot-key', accountId: 'acc-1', delegateTransaction: false } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider({ persistNewHotKey: jest.fn(async () => {}), swapHotKey: jest.fn(async () => {}) }) as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalled();
+      expect((row.extraInputs as { guardianEndpoint?: string }).guardianEndpoint).toBe('https://acc.guardian');
+    });
+
+    it("switch-guardian's cold co-sign reaches the cold service", async () => {
+      const txId = 'switch-bare-id';
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSwitchGuardianProposal: jest.fn(async () => ({
+          proposal: { id: 'prop-switch', metadata: { proposalType: 'switch_guardian' } },
+          newEndpoint: 'https://new.guardian'
+        })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        finalizeGuardianSwitch: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      });
+      const coldService = { signProposal: jest.fn(async () => {}) };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'acc-1',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider() as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch');
+    });
+
+    it('update-procedure-threshold reaches the cold service and its proposal', async () => {
+      const txId = 'upt-bare-id';
+      txStore.push({
+        id: txId,
+        type: 'update-procedure-threshold',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        extraInputs: { procedure: 'update_guardian', threshold: 2 }
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+      const coldService = {
+        createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop-upt' })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'update-procedure-threshold',
+          accountId: 'acc-1',
+          extraInputs: { procedure: 'update_guardian', threshold: 2 },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        compositeProvider() as never
+      ).catch(() => undefined);
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalled();
+      expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledWith('update_guardian', 2);
+    });
   });
 
   it('Guardian: unsupported transaction type cancels the transaction', async () => {
@@ -5128,7 +5686,13 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', status: ITransactionStatus.Queued });
 
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5146,6 +5710,7 @@ describe('generateTransaction — Guardian routing', () => {
   // but never fails the on-chain-successful rotation.
   const runReplaceHotKeyReRegister = async (txId: string, reRegister: () => Promise<void>) => {
     const coldService = {
+      guardianEndpoint: 'https://old.guardian',
       createReplaceHotKeyProposal: jest.fn(async () => ({
         proposal: { id: 'prop-replace' },
         newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
@@ -5177,10 +5742,16 @@ describe('generateTransaction — Guardian routing', () => {
       type: 'replace-hot-key',
       accountId: 'guardian-acc',
       status: ITransactionStatus.Queued,
-      extraInputs: {}
+      extraInputs: { guardianEndpoint: 'https://old.guardian' }
     });
     await generateTransaction(
-      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      {
+        id: txId,
+        type: 'replace-hot-key',
+        accountId: 'guardian-acc',
+        delegateTransaction: false,
+        extraInputs: { guardianEndpoint: 'https://old.guardian' }
+      } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
       provider as never
@@ -5197,8 +5768,9 @@ describe('generateTransaction — Guardian routing', () => {
     // On-chain rotation still succeeds; the miss is recorded, not failed.
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.reRegisterFailed).toBe(true);
-    // newHotPublicKey is preserved through the completion write.
+    // newHotPublicKey and the stamped guardian are preserved through the completion write.
     expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+    expect(row.extraInputs.guardianEndpoint).toBe('https://old.guardian');
   });
 
   it('Guardian replace-hot-key: records reRegisterFailed=false on a clean re-register (#619 gap 1)', async () => {
@@ -5207,6 +5779,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.reRegisterFailed).toBe(false);
     expect(row.extraInputs.newHotPublicKey).toBe('new-hot-pub');
+    expect(row.extraInputs.guardianEndpoint).toBe('https://old.guardian');
   });
 
   it('switch-guardian apply-after-submit-failure re-registers + persists the endpoint instead of cancelling', async () => {
@@ -5355,7 +5928,10 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect((row.extraInputs as Record<string, unknown>).switchedDirectly).toBe(true);
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     expect(row.status).toBe(ITransactionStatus.Completed);
     // This exit is reached from an apply-after-submit failure: the node accepted
@@ -5749,6 +6325,20 @@ describe('initiateReplaceHotKeyTransaction', () => {
     txStore.length = 0;
   });
 
+  it('reuses a pending recovery change but permits a new change after completion', async () => {
+    const provider = makeGuardianProvider(true);
+    const firstId = await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).toBe(firstId);
+    expect(txStore).toHaveLength(1);
+    const row = txStore[0];
+    if (!row) throw new Error('Recovery transaction was not queued');
+    row.status = ITransactionStatus.GeneratingTransaction;
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).toBe(firstId);
+    row.status = ITransactionStatus.Completed;
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).not.toBe(firstId);
+    expect(txStore).toHaveLength(2);
+  });
+
   it('queues a ReplaceHotKeyTransaction row when the account is Guardian', async () => {
     const provider = makeGuardianProvider(true);
     const id = await initiateReplaceHotKeyTransaction('acc-1', false, provider);
@@ -5758,8 +6348,111 @@ describe('initiateReplaceHotKeyTransaction', () => {
     const row = txStore[0] as Record<string, unknown>;
     expect(row.accountId).toBe('acc-1');
     expect(row.type).toBe('replace-hot-key');
-    // extraInputs starts empty; populated during generateGuardianTransaction.
-    expect(row.extraInputs).toEqual({});
+    // The guardian the rotation runs under is recorded now, so its history row names it for good;
+    // newHotPublicKey joins it during generateGuardianTransaction.
+    expect(row.extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the guardian when the provider spells the account id differently', async () => {
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        {
+          publicKey: 'acc-1_suffix',
+          name: 'Guardian account',
+          isPublic: true,
+          type: WalletType.Guardian,
+          hdIndex: 0,
+          guardianEndpoint: 'https://old.guardian'
+        }
+      ]
+    };
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the guardian a legacy account resolves to when it names none of its own', async () => {
+    // An account from before per-account endpoints has no field; every guardian operation resolves it
+    // through the legacy key and then the network default, so the rotation ran under that one.
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      guardianEndpoint: getEffectiveDefaultGuardianEndpoint()
+    });
+  });
+
+  it("records a legacy account's global guardian key when it names none of its own", async () => {
+    mockFetchFromStorage.mockImplementation(async key =>
+      key === 'guardian_url_setting' ? 'https://custom.guardian' : undefined
+    );
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    try {
+      await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+      expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+        guardianEndpoint: 'https://custom.guardian'
+      });
+    } finally {
+      mockFetchFromStorage.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('queues the rotation unstamped when the guardian read fails: the stamp is display only', async () => {
+    mockFetchFromStorage.mockImplementation(async () => {
+      throw new Error('storage unavailable');
+    });
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [
+        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+      ]
+    };
+    try {
+      await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).resolves.toBeDefined();
+      expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+      expect(txStore).toHaveLength(1);
+      expect(
+        (txStore[0] as { extraInputs?: { guardianEndpoint?: string } }).extraInputs?.guardianEndpoint
+      ).toBeUndefined();
+    } finally {
+      mockFetchFromStorage.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeSuffixGuardianProvider());
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
+  });
+
+  // Eligibility and the stored id come from one account read, so a read that fails queues nothing.
+  it('refuses the rotation when the account read fails', async () => {
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => {
+        throw new Error('vault read failed');
+      }
+    };
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).rejects.toThrow('vault read failed');
+    expect(txStore).toHaveLength(0);
+  });
+
+  it('refuses the rotation when the provider has no such account', async () => {
+    const provider = { ...makeGuardianProvider(true), getAccounts: async () => [] };
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider)).rejects.toThrow(
+      'Replace hot key is only supported for Guardian accounts'
+    );
+    expect(txStore).toHaveLength(0);
   });
 
   it('throws when the target account is not a Guardian account', async () => {
@@ -5809,7 +6502,7 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Device key rotated');
+    expect(row.displayMessage).toBe('Everyday key rotated');
   });
 
   it('re-registers via a FRESH cold service (post-rotation allowlist) BEFORE swapping the hot pointer', async () => {
@@ -5951,7 +6644,9 @@ describe('completeReplaceHotKeyTransaction', () => {
       sync: jest.fn(async () => {})
     });
     const provider = {
-      getAccounts: async () => [{ publicKey: 'acc-1', coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }],
+      getAccounts: async () => [
+        { publicKey: 'acc-1', type: WalletType.Guardian, coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }
+      ],
       getPublicKeyForCommitment: async () => 'pk',
       signWord: async () => 'sig',
       swapHotKey: jest.fn(async () => {})
@@ -6024,7 +6719,89 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);
-    expect(row.displayMessage).toBe('Failed to rotate device key');
+    expect(row.displayMessage).toBe('Failed to rotate everyday key');
+  });
+
+  it('moves the hot pointer of the stored account when the row was queued under another spelling', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    // Vault.swapHotKey matches with ===, so the raw queued id leaves the pointer where it was.
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalled();
+    for (const [id] of mockClearGuardianServiceFor.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+  it('moves the stored hot pointer of a rotation initiated under another spelling when every account read fails', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeSuffixGuardianProvider());
+    const row = txStore[0] as Record<string, unknown>;
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.extraInputs = { ...(row.extraInputs as object), newHotPublicKey: 'new-hot-pub' };
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => {
+        throw new Error('vault read failed');
+      },
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey
+    };
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeReplaceHotKeyTransaction(row as never, makeResult() as never, provider as never);
+      await jest.runAllTimersAsync();
+      await completion;
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('reads the account and checks its hardening under the stored id when the row was queued under another spelling', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    // The SDK store knows the account only by its stored id.
+    const getAccount = jest.fn(async (id: string) =>
+      id === 'acc-1_suffix' ? { id: () => ({ toString: () => 'acc-1_suffix' }) } : null
+    );
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), getAccount });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian });
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1_suffix', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey: jest.fn(async () => {})
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(getAccount).toHaveBeenCalled();
+    for (const [id] of getAccount.mock.calls) expect(id).toBe('acc-1_suffix');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
+    for (const [id] of mockGetOrCreateMultisigService.mock.calls) expect(id).toBe('acc-1_suffix');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ reRegisterFailed: false });
   });
 });
 
@@ -6049,10 +6826,33 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
     );
 
     expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    // The cache is keyed canonically, so the queued spelling clears it directly.
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Account secured');
+  });
+
+  it('clears the cache and re-registers without waiting on the account list', async () => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+
+    const completion = completeUpdateProcedureThresholdTransaction(
+      tx,
+      makeResult() as never,
+      {
+        reRegisterCurrentStateOnGuardian
+      } as never
+    );
+    const settled = await Promise.race([
+      completion.then(() => 'done'),
+      new Promise(resolve => setTimeout(() => resolve('hung'), 50))
+    ]);
+
+    expect(settled).toBe('done');
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
   });
 
   it('still completes (best-effort) when the guardian re-registration fails', async () => {
@@ -6074,6 +6874,26 @@ describe('completeUpdateProcedureThresholdTransaction', () => {
   });
 });
 
+describe('initiateUpdateProcedureThresholdTransaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+  });
+
+  it('queues the row under the stored account id when the caller spells it differently', async () => {
+    await initiateUpdateProcedureThresholdTransaction(
+      'acc-1',
+      'update_guardian',
+      2,
+      false,
+      makeSuffixGuardianProvider()
+    );
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).accountId).toBe('acc-1_suffix');
+  });
+});
+
 describe('ensureGuardianProcedureThresholds', () => {
   beforeEach(() => {
     txStore.length = 0;
@@ -6087,7 +6907,8 @@ describe('ensureGuardianProcedureThresholds', () => {
     // left the row Queued for the rest of the session on mobile/desktop.
     mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 1 });
 
-    const txId = await ensureGuardianProcedureThresholds('guardian-acc', false, {} as never);
+    const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc', type: WalletType.Guardian }] };
+    const txId = await ensureGuardianProcedureThresholds('guardian-acc', false, provider as never);
 
     expect(typeof txId).toBe('string');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;

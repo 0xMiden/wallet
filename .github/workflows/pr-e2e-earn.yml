@@ -10,14 +10,12 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  # Runs on EVERY PR (no path filter, by choice) so a change that breaks the
-  # Epoch "Earn" deposit WITHOUT touching earn paths -- an @epoch-protocol SDK
-  # bump, an @miden-sdk bump, a shared-file edit -- is still caught. Runs in
-  # parallel with the other CI workflows on its own runner. DEPOSIT-ONLY for now
-  # (withdraw scenarios land in phase 2). earn-e2e-gate is the stable
-  # required-check name.
+  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # The workflow still triggers on PRs so earn-e2e-gate (the required check) can
+  # report green when the suite is skipped.
   earn-e2e:
     name: earn-e2e (chrome)
+    if: github.event_name != 'pull_request'
     # 2 vCPUs is ADEQUATE — do not "fix" this suite by chasing a larger runner.
     # That was measured twice. On this runner two consumes completed end to end in
     # 12.1s and 9.9s, and the node batched both; capping the prover's rayon pool to
@@ -26,7 +24,7 @@ jobs:
     # here was wrong: at this log level the prover emits only the
     # `Generated execution traces` INFO line, and it emitted one for each request
     # INCLUDING the two that succeeded.
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: warp-ubuntu-latest-arm64-2x
     # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
     # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
@@ -63,8 +61,8 @@ jobs:
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -74,25 +72,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          if [ "${{ runner.arch }}" = X64 ]; then
+            namespace=miden-e2e-cargo-v2
+          else
+            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
+          fi
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild.
           key: ${{ steps.cargo_cache_key.outputs.key }}
       # These suites drive a real extension build, so they need the same unreleased
@@ -210,16 +201,22 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian down -v || true
 
-  # Stable required-check name: passes iff earn-e2e succeeded, fails if it
-  # failed/cancelled. Mark THIS "required" in branch protection (not earn-e2e
-  # directly) so the required check name stays stable if the job is renamed.
+  # Stable required-check name. On PRs the heavy job is skipped and this still
+  # reports success so branch protection is not blocked. On main it requires
+  # earn-e2e to have succeeded.
   earn-e2e-gate:
     name: earn-e2e-gate
     needs: [earn-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
-          if [ "${{ needs.earn-e2e.result }}" != "success" ]; then
-            echo "earn-e2e ${{ needs.earn-e2e.result }}"; exit 1; fi
-          echo "earn-e2e ok"
+          RESULT="${{ needs.earn-e2e.result }}"
+          EVENT="${{ github.event_name }}"
+          if [ "$EVENT" = pull_request ]; then
+            [ "$RESULT" = skipped ] || { echo "earn-e2e $RESULT on PR, expected skipped"; exit 1; }
+            echo "earn-e2e skipped on PR"
+          else
+            [ "$RESULT" = success ] || { echo "earn-e2e $RESULT"; exit 1; }
+            echo "earn-e2e ok"
+          fi

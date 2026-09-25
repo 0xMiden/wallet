@@ -5,7 +5,7 @@
  * `wallet-page.ts` can be reused for it:
  *
  *   Unlock (locked)            `unlock-password`   → `#forgot-password`
- *   ForgotPasswordInfo         (no testid at all)  → "Sign Out"
+ *   ForgotPasswordInfo         `forgot-password-info` → `sign-out-button`
  *   ForgotPassword host        `onboarding-welcome`→ `#import-link`
  *     └ ImportSeedPhrase       `import-seed-phrase`
  *     └ CreatePassword         `create-password-input`
@@ -35,19 +35,15 @@ export const RECOVERY_ERROR_TESTID = 'onboarding-recovery-error';
 /** `Unlock.tsx` password-form subtitle for a rejected password (`incorrectPassword` in en.json). */
 const INCORRECT_PASSWORD_SUBTITLE = 'Incorrect password. Try again.';
 
-/**
- * `ForgotPasswordInfo.tsx`'s only forward control. `Button` renders its `title`
- * prop as the button's text (components/Button.tsx), so the accessible name is
- * the sole stable hook on a screen that carries no `data-testid`.
- */
-const SIGN_OUT_BUTTON = 'Sign Out';
+/** The Sign out button on `ForgotPasswordInfo`, by its own test id rather than its copy. */
+const SIGN_OUT_BUTTON_TEST_ID = 'sign-out-button';
 
 /**
  * The seed-phrase warning on `ForgotPasswordInfo` (`forgotPasswordSecondDescription`).
  * The ONLY thing standing between a user who mistyped their password and an
  * irreversible wipe, so `openForgotPasswordFlow` refuses to walk past it silently.
  */
-const SIGN_OUT_WARNING = 'Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file.';
+const SIGN_OUT_WARNING = 'Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file.';
 
 /** The slice of the Chrome page object these drivers need. */
 type ForgotPasswordDriver = Pick<ChromeWalletPageApi, 'page' | 'navigateHome' | 'completeHotKeyRotation'>;
@@ -74,7 +70,7 @@ export async function openForgotPasswordFlow(wallet: ForgotPasswordDriver): Prom
   // `#seed-phrase-input-N`).
   await page.locator('#forgot-password').click({ timeout: 15_000 });
 
-  const signOut = page.getByRole('button', { name: SIGN_OUT_BUTTON });
+  const signOut = page.getByTestId(SIGN_OUT_BUTTON_TEST_ID);
   await signOut.waitFor({ timeout: 15_000 });
 
   // The interstitial exists to warn that signing out is irreversible without the
@@ -162,6 +158,9 @@ export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; p
   // unbounded on purpose: they target inputs inside a container whose testid the
   // line above has already waited for, so there is nothing left for them to wait
   // on.
+  // No import-type step here: the forgot-password recovery route goes straight to
+  // seed entry, unlike the onboarding import flow. Verified by CI - adding the
+  // chooser wait made both guardian-forgot-password specs time out.
   await page.locator('#import-link').click({ timeout: 15_000 });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
 
@@ -206,10 +205,12 @@ export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; p
  * The whole happy-path journey: locked Unlock → reset flow → recovered wallet
  * re-keyed to `newPassword`, with the device-key rotation gate cleared.
  *
- * Resolves only once `HotKeyRotationGate` has unmounted, so a caller that
- * returns from this has a wallet that is Ready and rotated. If the recovery
- * FAILS instead, this throws carrying the on-screen reason rather than letting
- * the rotation-gate wait expire with an opaque "gate never appeared" timeout.
+ * Resolves only once `HotKeyRotationGate` has unmounted AND the one-time
+ * telemetry consent prompt has been declined, so a caller that returns from
+ * this has a wallet that is Ready, rotated, and on its post-onboarding surface.
+ * If the recovery FAILS instead, this throws carrying the on-screen reason
+ * rather than letting the rotation-gate wait expire with an opaque "gate never
+ * appeared" timeout.
  */
 export async function recoverViaForgotPassword(
   wallet: ForgotPasswordDriver,
@@ -235,6 +236,16 @@ export async function recoverViaForgotPassword(
     );
   }
 
+  // Also declines the telemetry consent prompt a recovered wallet routes to
+  // (`postCreationRoute`), which `HotKeyRotationGate`'s `fixed inset-0` scrim
+  // has been covering for the whole rotation — see `completeHotKeyRotation`.
+  //
+  // Deliberately not in `submitRecoveryFromSeed` above, even though that is
+  // where the confirmation click lives: it returns with registration in flight,
+  // and its other caller (`guardian-forgot-password.spec.ts`) drives a recovery
+  // that FAILS and must stay on the confirmation screen. There is no consent
+  // prompt on that path, and a wait for one would be dead time in the test
+  // whose whole point is the failure surface.
   await wallet.completeHotKeyRotation();
 }
 

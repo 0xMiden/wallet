@@ -29,6 +29,16 @@ export type ITransactionType =
   | 'swap'
   | 'update-procedure-threshold';
 
+/**
+ * Structural Guardian operations: they rewrite the account's own authorization rather
+ * than move value. Activity draws them alike, and none of them is requeueable.
+ */
+export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
+];
+
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
 
@@ -413,7 +423,27 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Execute (dApp custom) only: per-faucet value LEAVING the account, taken from the approval-time
+   * dry run that the confirmation sheet already renders.
+   *
+   * A custom request carries opaque `requestBytes`, so an execute row has no top-level
+   * `faucetId`/`amount` and the spending-limit policy could not see it as a spend at all - which
+   * made "send it as a custom transaction" a way around a configured cap. These totals are what
+   * the policy counts instead.
+   */
+  spentAssetTotals?: IConsumedAssetTotal[];
+  /**
+   * What this row sent, in micro-dollars, as valued when it was queued.
+   *
+   * Stamped once and never revalued: the rolling window sums these, so a price move must not
+   * silently change what a past transaction consumed of the cap. Absent on rows written before
+   * USD limits existed and on rows whose assets the price feed does not cover; both contribute
+   * nothing, which is the same verdict the policy reaches for an uncovered asset today.
+   */
+  spentUsd?: bigint;
   transactionId?: string;
+  spendingLimitAuthorizationId?: string;
   /**
    * Fee this transaction actually paid, in the fee asset's smallest unit.
    *
@@ -424,6 +454,9 @@ export interface ITransaction {
   feeAmount?: bigint;
   feeFaucetId?: string;
   requestBytes?: Uint8Array;
+  awaitingRecoverySeed?: boolean;
+  /** Start of the seed input wait, in seconds. */
+  recoverySeedRequestedAt?: number;
   status: ITransactionStatus;
   initiatedAt: number;
   /**
@@ -659,6 +692,9 @@ export class Transaction implements ITransaction {
   requestBytes?: Uint8Array;
   inputNoteIds?: string[];
   outputNoteIds?: string[];
+  /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
+  spentAssetTotals?: IConsumedAssetTotal[];
+  spentUsd?: bigint;
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
@@ -673,7 +709,8 @@ export class Transaction implements ITransaction {
     requestBytes: Uint8Array,
     inputNoteIds?: string[],
     delegateTransaction?: boolean,
-    recipientAccountId?: string
+    recipientAccountId?: string,
+    spentAssetTotals?: IConsumedAssetTotal[]
   ) {
     this.id = uuid();
     this.type = 'execute';
@@ -682,6 +719,7 @@ export class Transaction implements ITransaction {
     this.inputNoteIds = inputNoteIds;
     this.delegateTransaction = delegateTransaction;
     this.secondaryAccountId = recipientAccountId;
+    this.spentAssetTotals = spentAssetTotals;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();
@@ -1228,7 +1266,9 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // — it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
   // it exists so telemetry/E2E can tell a fully-clean rotation from one whose
   // allowlist push needs the self-heal to catch up.
-  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean };
+  // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
+  // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
+  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean; guardianEndpoint?: string };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
@@ -1239,7 +1279,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000);
     this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
-    this.displayMessage = 'Rotating device key';
+    this.displayMessage = 'Rotating everyday key';
     this.extraInputs = {};
     this.delegateTransaction = delegateTransaction;
   }

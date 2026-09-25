@@ -1,3 +1,5 @@
+import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
 
 test.describe.configure({ mode: 'serial' });
@@ -18,6 +20,14 @@ const IGNORED_CONSOLE_ERRORS = [
 ];
 
 const isIgnoredConsoleError = (text: string) => IGNORED_CONSOLE_ERRORS.some(pattern => pattern.test(text));
+
+/**
+ * `OpenSidePanel.tsx`'s root, and the only unambiguous hook for the side-panel
+ * handoff screen: its "Your Wallet is ready!" title and its "Open wallet" button
+ * are both rendered verbatim by `Confirmation.tsx` too, so neither of those on
+ * its own can tell "handed off" apart from "still on the confirmation screen".
+ */
+const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
 
 test.describe('Fullpage UI', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
@@ -113,8 +123,18 @@ test.describe('Fullpage UI', () => {
     // is gated on the store reaching Ready, so seeing it confirms the wallet was
     // created and is functional. Recovery/import completes the same way (#428) —
     // see the import flow test below.
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
+    //
+    // The consent prompt sits between creation and the handoff for a profile
+    // that has never answered it, and creation runs for as long as it runs —
+    // hence the race rather than a bare wait. See `dismissTelemetryConsent`.
+    const handoff = page.locator(HANDOFF_SELECTOR);
+    await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs: 30000 });
+
+    await expect(handoff).toBeVisible({ timeout: 30000 });
+    // Both of these are now scoped to the handoff container, so they can no
+    // longer be satisfied by the screen this test has just left.
+    await expect(handoff.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
+    await expect(handoff.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
   test('onboarding import flow completes and hands off to the side panel', async ({
@@ -134,7 +154,11 @@ test.describe('Fullpage UI', () => {
     await page.locator('#import-link').click();
 
     // Acknowledge the network notice before entering the seed phrase.
-    await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15000 });
+    await acknowledgeNetworkNotice(page, 15000);
+    // Import now asks WHICH credential first: a seed phrase or an encrypted
+    // wallet file. This flow is the seed-phrase one.
+    await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+    await page.getByTestId('import-type-seed-phrase').click();
     await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
@@ -165,8 +189,21 @@ test.describe('Fullpage UI', () => {
     // Explore page). The in-tab path still applies to non-extension / E2E builds
     // and is covered by the Welcome/ForgotPassword unit tests.
     await page.getByTestId('onboarding-confirmation-submit').click();
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
+
+    // …by way of the one-time telemetry consent prompt, which this profile has
+    // never answered. Raced against the handoff screen because the click above
+    // only starts `register()`; see `dismissTelemetryConsent`.
+    const handoff = page.locator(HANDOFF_SELECTOR);
+    await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs: 30000 });
+
+    await expect(handoff).toBeVisible({ timeout: 30000 });
+    // Scoped to the handoff container, which is what the two assertions below
+    // were missing: unscoped they match the confirmation screen as well, and
+    // cannot tell "handed off" from "never left". That is exactly what happened
+    // when the consent screen was inserted — the text assertion passed on the
+    // confirmation screen while the button assertion failed.
+    await expect(handoff.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
+    await expect(handoff.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {
@@ -182,7 +219,10 @@ test.describe('Fullpage UI', () => {
     }
     await page.locator('#import-link').click();
 
-    await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15000 });
+    await acknowledgeNetworkNotice(page, 15000);
+    // Import now asks WHICH credential first; this flow is the seed-phrase one.
+    await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+    await page.getByTestId('import-type-seed-phrase').click();
     const seedForm = page.getByTestId('import-seed-phrase');
     await seedForm.waitFor({ timeout: 15000 });
 

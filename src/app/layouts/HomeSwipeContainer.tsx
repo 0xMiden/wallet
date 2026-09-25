@@ -5,8 +5,9 @@ import { animate, motion, useDragControls, useMotionValue, useReducedMotion } fr
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
-import { resolveTransition, springToLinearEasing, springs } from 'lib/animation';
+import { resolveTransition, springToLinearEasing, springs, supportsLinearEasing } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 import { navigate, useLocation } from 'lib/woozie';
@@ -22,7 +23,7 @@ import { SwapFlow } from 'screens/swap-flow/SwapManager';
  *
  * Pathname is the source of truth for which page is centered — the
  * SegmentedActionBar in TabLayout reads the same path and stays in sync
- * via its framer-motion layoutId pill.
+ * via its sliding Highlight pill.
  *
  * Earn ships unconditionally; only the Swap (isSwapEnabled) pane is
  * feature-gated and can be absent. Track length, page widths and the index
@@ -97,6 +98,11 @@ const HomeSwipeContainer: FC = () => {
   // while it is set `x` is stale and the element's computed transform is the
   // only source of truth for where the track actually is.
   const releaseRef = useRef<Animation | null>(null);
+  // Whether the current touch has dragged. framer runs `modifyTarget` for a tap
+  // too: once a drag has resolved the constraints, its pan session "resumes" them
+  // whenever a pointer lifts without dragging. That release is a tap stopping the
+  // track, not a swipe, and must not be judged as one — see `snapToPage`.
+  const draggedRef = useRef(false);
 
   // Only the Swap pane is feature-gated (isSwapEnabled); every downstream
   // calculation reads `pages`, so dropping a pane can't desync the track
@@ -109,13 +115,21 @@ const HomeSwipeContainer: FC = () => {
     ...(isSwapEnabled() ? [{ id: 'swap', path: '/swap', node: <SwapFlow /> }] : [])
   ];
 
-  const activeIdx = (() => {
+  // The home page the route names, or -1 when it names none.
+  const routeIdx = (() => {
     const exact = pages.findIndex(p => p.path === pathname);
     if (exact !== -1) return exact;
     // Match by prefix for nested routes (e.g. /send/sub-step).
-    const prefix = pages.findIndex(p => p.path !== '/' && pathname.startsWith(`${p.path}/`));
-    return prefix === -1 ? 0 : prefix;
+    return pages.findIndex(p => p.path !== '/' && pathname.startsWith(`${p.path}/`));
   })();
+  // TabLayout keeps this pane mounted, hidden, while another tab shows, and the
+  // route then names no home page. The track holds the page it was on rather
+  // than sliding to Overview out of sight, which is what the pane showed on the
+  // way back before it slid to the page the action bar named.
+  const onHome = routeIdx !== -1;
+  const lastHomeIdxRef = useRef(0);
+  const wasOnHomeRef = useRef(onHome);
+  const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
 
   // Measure container width — drives both the snap positions and the
   // drag constraints. Set synchronously on mount so the first render
@@ -183,6 +197,11 @@ const HomeSwipeContainer: FC = () => {
   useEffect(() => {
     const dragTargetIdx = dragTargetIdxRef.current;
     dragTargetIdxRef.current = null;
+    // The pane was hidden until now, so this is a tab change, which swaps rather
+    // than slides — across every page in between, it would read as a glitch.
+    const returning = onHome && !wasOnHomeRef.current;
+    wasOnHomeRef.current = onHome;
+    if (onHome) lastHomeIdxRef.current = activeIdx;
     if (!width) {
       x.set(-activeIdx * (containerRef.current?.clientWidth ?? 0));
       return;
@@ -197,9 +216,13 @@ const HomeSwipeContainer: FC = () => {
     if (dragTargetIdx === activeIdx && isReleaseRunning()) return;
     // Any other route change outranks a release still in flight.
     endRelease(true);
+    if (returning) {
+      x.set(-activeIdx * width);
+      return;
+    }
     const controls = animate(x, -activeIdx * width, resolveTransition(reduceMotion, springs.standard));
     return () => controls.stop();
-  }, [activeIdx, width, x, reduceMotion, endRelease, isReleaseRunning]);
+  }, [activeIdx, onHome, width, x, reduceMotion, endRelease, isReleaseRunning]);
 
   useEffect(() => () => releaseRef.current?.cancel(), []);
 
@@ -210,12 +233,15 @@ const HomeSwipeContainer: FC = () => {
    * because the compositor needs a fixed curve; see `springToLinearEasing`. The
    * animation deliberately overrides framer's inline transform for its duration
    * (animations outrank inline styles in the cascade), which is what lets it run
-   * without the main thread writing a frame.
+   * without the main thread writing a frame. An engine that cannot parse `linear()`
+   * jumps to the page, as reduced motion does, since `animate` would throw.
    */
   const startRelease = (from: number, to: number, velocity: number) => {
     const track = trackRef.current;
     const spring =
-      track && !reduceMotion ? springToLinearEasing(springs.dragRelease, { distance: from - to, velocity }) : null;
+      track && !reduceMotion && supportsLinearEasing()
+        ? springToLinearEasing(springs.dragRelease, { distance: from - to, velocity })
+        : null;
     if (!track || !spring) {
       x.set(to);
       return;
@@ -267,11 +293,17 @@ const HomeSwipeContainer: FC = () => {
     const offset = origin + activeIdx * width;
     const projected = offset + velocity * (VELOCITY_PROJECTION_MS / 1000);
 
+    // A tap lands on the page the route is on. Judged as a swipe, a tap that stops
+    // the track mid-slide reads its distance from that page as a drag toward the
+    // neighbour, and commits there with no route change — a tap just after
+    // choosing Send left the track on Overview under a bar still showing Send.
     let newIdx = activeIdx;
-    if (projected < -width * COMMIT_THRESHOLD && activeIdx < pages.length - 1) {
-      newIdx = activeIdx + 1;
-    } else if (projected > width * COMMIT_THRESHOLD && activeIdx > 0) {
-      newIdx = activeIdx - 1;
+    if (draggedRef.current) {
+      if (projected < -width * COMMIT_THRESHOLD && activeIdx < pages.length - 1) {
+        newIdx = activeIdx + 1;
+      } else if (projected > width * COMMIT_THRESHOLD && activeIdx > 0) {
+        newIdx = activeIdx - 1;
+      }
     }
 
     dragTargetIdxRef.current = newIdx;
@@ -284,11 +316,15 @@ const HomeSwipeContainer: FC = () => {
   const handleDragEnd = () => {
     // snapToPage already chose the page and is already animating toward it; this
     // only syncs the route so pathname stays the source of truth for the
-    // SegmentedActionBar pill and back handling.
+    // SegmentedActionBar pill and back handling. A swipe that lands on another
+    // page is a tab switch, so it buzzes once, like a tap on the bar does; the
+    // bar itself only buzzes for taps, so the two never double up.
     const newIdx = dragTargetIdxRef.current;
     if (newIdx === null || newIdx === activeIdx) return;
     const target = pages[newIdx];
-    if (target) navigate(target.path);
+    if (!target) return;
+    hapticSelection();
+    navigate(target.path);
   };
 
   // Drag constraints clamp the track to its valid x-range, with a small
@@ -318,6 +354,11 @@ const HomeSwipeContainer: FC = () => {
    * is up, so a focused field with the keyboard open is untouched by this (#481).
    */
   const handlePointerDownCapture = (event: React.PointerEvent) => {
+    // A second finger landing mid-gesture is not a new gesture: without this the swipe in flight is
+    // downgraded to a tap and never commits. `=== false` rather than `!isPrimary`, because a
+    // synthesized pointerdown carries no `isPrimary` at all and must keep behaving as it does today.
+    if (event.isPrimary === false) return;
+    draggedRef.current = false;
     const interruptingRelease = isReleaseRunning();
     endRelease(true);
     // A touch that lands mid-transition means "stop", and shouldn't also land on
@@ -344,11 +385,43 @@ const HomeSwipeContainer: FC = () => {
    *
    * Deferred by a frame so framer's own release path has run first: if this
    * gesture was a drag, `snapToPage` has started a release by then and there is
-   * nothing to recover. Phrased as "is the track off its resting position" rather
+   * nothing to recover. So has a tap framer "resumed" through `snapToPage`, which
+   * lands it on this same page. Phrased as "is the track off its resting position" rather
    * than tracked with a flag, so it also catches a second tap interrupting this
    * very animation, and any future path that leaves the track adrift.
    */
-  const landAfterInterruptedRelease = () => {
+  /**
+   * Puts the track's transform back after framer resets it to measure layout.
+   *
+   * A draggable node is measured on every layout commit anywhere in the tree (the
+   * tab bars' sliding pill and icon pop, a SegmentedControl), and framer clears
+   * its transform to `none` to take the reading. It then re-renders the track only
+   * if that render isn't deduped against one already scheduled at the same frame
+   * timestamp — and when the measurement lands in the frame the slide last
+   * rendered, it is. The track then sat at `none`, which is Overview, under an
+   * action bar naming another page: for a frame mid-slide, or until the next
+   * route change when the slide had just settled.
+   *
+   * Restored in a microtask, so after every node has been measured untransformed
+   * and before the frame paints. Only a transform still at `none` is touched: if
+   * framer re-rendered the track itself, its value stands.
+   */
+  const restoreAfterLayoutMeasure = () => {
+    queueMicrotask(() => {
+      const track = trackRef.current;
+      const current = x.get();
+      if (!track || track.style.transform !== 'none' || current === 0) return;
+      track.style.transform = `translateX(${current}px)`;
+    });
+  };
+
+  const landAfterInterruptedRelease = (event: React.PointerEvent) => {
+    // The same rule as the pointer-down guard above, at the carousel's other two capture-phase
+    // bindings: a second finger is not the gesture. Without it a second finger LIFTING mid-swipe
+    // lands the track on the current page while the first finger is still dragging. `=== false`
+    // rather than `!isPrimary`, because a synthesized pointerup carries no `isPrimary` at all and
+    // must keep behaving as it does today.
+    if (event.isPrimary === false) return;
     requestAnimationFrame(() => {
       if (isReleaseRunning() || !width) return;
       const resting = -activeIdx * width;
@@ -391,7 +464,11 @@ const HomeSwipeContainer: FC = () => {
         // snap is started from inside `snapToPage` and runs on the compositor.
         dragMomentum
         dragTransition={{ power: DRAG_POWER, modifyTarget: snapToPage }}
+        onDragStart={() => {
+          draggedRef.current = true;
+        }}
         onDragEnd={handleDragEnd}
+        onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
         {pages.map(page => (
           <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>

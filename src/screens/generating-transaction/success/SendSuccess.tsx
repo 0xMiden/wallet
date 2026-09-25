@@ -2,14 +2,16 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 import { buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
-  SuccessDivider,
   SuccessSummaryPill,
   TransactionSuccessLayout,
   TransactionSuccessProps,
@@ -22,12 +24,13 @@ import {
  * consume/claim, execute, guardian ops, …). Shows a summary pill
  * ("amount → recipient") plus the recipient, total paid and transaction-id rows
  * where that data is available. Consume/claim rows relabel the receipt: the
- * address is the note sender ("From"), the amount is "Total Consumed", and the
- * claimed note ids get their own "Notes Consumed" row.
+ * address is the note sender ("From"), the amount is "Total Accepted", and the
+ * accepted note ids get their own "Transfer IDs" row.
  */
 export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, onDoneClick, onViewExplorer }) => {
   const { t } = useTranslation();
   const { amountText, feeText } = useReceiptAmount(transaction);
+  const nativeFaucetId = useMidenFaucetId();
   const isConsume = transaction?.type === 'consume';
   const destinationAddress = transaction?.secondaryAccountId;
   const recipient = destinationAddress ? truncateAddress(destinationAddress, false, 8, 8) : undefined;
@@ -43,7 +46,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
         destinationAddress,
         destinationLabel: isConsume ? t('from') : undefined,
         amountText,
-        amountLabel: isConsume ? t('totalConsumed', { defaultValue: 'Total Consumed' }) : undefined,
+        amountLabel: isConsume ? t('totalConsumed', { defaultValue: 'Total Accepted' }) : undefined,
         noteIds,
         feeText,
         txHash,
@@ -61,6 +64,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   return (
     <TransactionSuccessLayout
       headerTitle=""
+      accent={accentForTransactionType(transaction?.type)}
       title={title}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
@@ -70,9 +74,15 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       }}
       onClose={onDoneClick}
     >
-      <SuccessSummaryPill lhs={amountText} rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient} />
-      <SuccessDivider />
-      <ReceiptRows rows={rows} className="mt-2" />
+      <SuccessSummaryPill
+        lhs={amountText}
+        rhs={isConsume ? t('accepted', { defaultValue: 'Accepted' }) : recipient}
+        // A claim carries the accent its own icon carries in Activity and on its detail page,
+        // not the Send blue: the received green, the bridge slate for a bridge-in claim, or the
+        // faucet's dusty rose when the note was minted by the faucet.
+        fillForArrow={isConsume ? claimAccentColor(transaction, nativeFaucetId) : undefined}
+      />
+      <ReceiptRows rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

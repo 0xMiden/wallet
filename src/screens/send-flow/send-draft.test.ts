@@ -1,4 +1,4 @@
-import { type SendDraft, setSendDraft, consumeSendDraft, hasSendDraft, clearSendDraft } from './send-draft';
+import { type SendDraft, setSendDraft, consumeSendDraft, clearSendDraft } from './send-draft';
 
 const makeDraft = (over: Partial<SendDraft> = {}): SendDraft => ({
   amount: '12.5',
@@ -15,26 +15,20 @@ describe('send-draft', () => {
   });
 
   describe('initial / empty state', () => {
-    it('hasSendDraft is false when no draft has been set', () => {
-      expect(hasSendDraft()).toBe(false);
-    });
-
     it('consumeSendDraft returns null when there is no draft', () => {
       expect(consumeSendDraft()).toBeNull();
     });
 
     it('clearSendDraft is a no-op when already empty', () => {
       expect(() => clearSendDraft()).not.toThrow();
-      expect(hasSendDraft()).toBe(false);
       expect(consumeSendDraft()).toBeNull();
     });
   });
 
   describe('setSendDraft', () => {
-    it('stores a draft so hasSendDraft becomes true', () => {
-      expect(hasSendDraft()).toBe(false);
+    it('stores a draft for the next consume', () => {
       setSendDraft(makeDraft());
-      expect(hasSendDraft()).toBe(true);
+      expect(consumeSendDraft()).toEqual(makeDraft());
     });
 
     it('returns undefined (void)', () => {
@@ -57,25 +51,7 @@ describe('send-draft', () => {
     it('preserves empty-string field values verbatim', () => {
       const empty: SendDraft = { amount: '', recipientAddress: '', tokenId: '' };
       setSendDraft(empty);
-      expect(hasSendDraft()).toBe(true);
       expect(consumeSendDraft()).toEqual(empty);
-    });
-  });
-
-  describe('hasSendDraft', () => {
-    it('reflects presence/absence across a full set → consume cycle', () => {
-      expect(hasSendDraft()).toBe(false);
-      setSendDraft(makeDraft());
-      expect(hasSendDraft()).toBe(true);
-      consumeSendDraft();
-      expect(hasSendDraft()).toBe(false);
-    });
-
-    it('becomes false after clearSendDraft', () => {
-      setSendDraft(makeDraft());
-      expect(hasSendDraft()).toBe(true);
-      clearSendDraft();
-      expect(hasSendDraft()).toBe(false);
     });
   });
 
@@ -90,13 +66,6 @@ describe('send-draft', () => {
       setSendDraft(makeDraft());
       expect(consumeSendDraft()).not.toBeNull();
       expect(consumeSendDraft()).toBeNull();
-      expect(hasSendDraft()).toBe(false);
-    });
-
-    it('does not report a draft after consuming', () => {
-      setSendDraft(makeDraft());
-      consumeSendDraft();
-      expect(hasSendDraft()).toBe(false);
     });
   });
 
@@ -104,7 +73,6 @@ describe('send-draft', () => {
     it('removes an existing draft', () => {
       setSendDraft(makeDraft());
       clearSendDraft();
-      expect(hasSendDraft()).toBe(false);
       expect(consumeSendDraft()).toBeNull();
     });
 
@@ -112,7 +80,7 @@ describe('send-draft', () => {
       setSendDraft(makeDraft());
       clearSendDraft();
       clearSendDraft();
-      expect(hasSendDraft()).toBe(false);
+      expect(consumeSendDraft()).toBeNull();
     });
 
     it('returns undefined (void)', () => {
@@ -122,18 +90,16 @@ describe('send-draft', () => {
   });
 
   describe('full handoff lifecycle', () => {
-    it('supports set → has → consume → cleared, then re-set', () => {
+    it('supports set → consume → cleared, then re-set', () => {
       const first = makeDraft({ amount: '10' });
       setSendDraft(first);
-      expect(hasSendDraft()).toBe(true);
       expect(consumeSendDraft()).toEqual(first);
-      expect(hasSendDraft()).toBe(false);
+      expect(consumeSendDraft()).toBeNull();
 
       const second = makeDraft({ amount: '20', tokenId: 'other' });
       setSendDraft(second);
-      expect(hasSendDraft()).toBe(true);
       expect(consumeSendDraft()).toEqual(second);
-      expect(hasSendDraft()).toBe(false);
+      expect(consumeSendDraft()).toBeNull();
     });
   });
 });

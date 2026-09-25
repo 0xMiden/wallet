@@ -24,10 +24,11 @@ import {
   OFFSCREEN_PROVE_MARKER,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
+  OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
-  type OffscreenSignRequest
+  type OffscreenSignRequest,
+  type OffscreenTelemetryEvent
 } from 'lib/miden/back/offscreen-codec';
-import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
@@ -36,7 +37,7 @@ import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sd
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
 
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
@@ -44,7 +45,6 @@ import { NoteExportType } from '../sdk/constants';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
-  getMidenClient,
   resetMidenClient,
   withWasmClientLock
 } from '../sdk/miden-client';
@@ -103,19 +103,19 @@ export async function start() {
     installBridgeInTestHooks();
     const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');
     installEarnTestHooks();
+    const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');
+    (globalThis as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> }).__TEST_SET_FEE_FAUCET__ = async (
+      id: string
+    ) => {
+      await setFeeFaucetIdForTest(id);
+      // The SW and offscreen each have their own client singleton, built with
+      // the fee faucet at create time. Both may already exist (boot discovery,
+      // idle sync) before the harness injects the genesis id.
+      await resetMidenClient();
+      await reloadOffscreenEndpointOverrides();
+      primeNativeAssetId();
+    };
   }
-
-  // SpeculationManager wires through the same MidenClientInterface singleton
-  // the rest of the SW uses. Lazy because the client is only created on
-  // unlock; the manager doesn't run anything until a SPECULATE_SEND_REQUEST
-  // arrives, by which point the client must already exist (the user is on
-  // the send-flow review screen, which is gated on unlock).
-  //
-  // Returns null — leaving `getSpeculationManager()` null and both SPECULATE
-  // handlers below inert — when the send that would consume the speculation runs
-  // in the offscreen realm instead of here. See `initSpeculationManager` for why
-  // speculating anyway would be harmful rather than merely wasteful.
-  initSpeculationManager(() => getMidenClient());
 
   // Native asset ID is network-wide on-chain state — prime discovery here so
   // the first balance / metadata consumer after SW start already has it cached.
@@ -223,7 +223,7 @@ function registerOffscreenSignHandler(): void {
   if (offscreenSignHandlerRegistered) return;
   if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
   offscreenSignHandlerRegistered = true;
-  chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
+  chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse: (r?: unknown) => void) => {
     // A SW-targeted message is an OFFSCREEN_SIGN_REQUEST, an OFFSCREEN_OP_STARTED,
     // an OFFSCREEN_STAGE_EVENT or an OFFSCREEN_CONNECTIVITY_EVENT (distinct `type`
     // literals), so type `m` loosely and discriminate on `type` below.
@@ -241,6 +241,19 @@ function registerOffscreenSignHandler(): void {
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
+    // Only this extension's own pages. `chrome.runtime.onMessage` is not private
+    // to the extension: with no `externally_connectable` declared, Chrome's
+    // default is that other EXTENSIONS may send here even though web pages may
+    // not. Everything below this line trusts its message — the op-started signal
+    // arms a write deadline, the sign request reaches the vault — so the check
+    // belongs above all three rather than on the one that happens to be newest.
+    //
+    // Fails CLOSED, including on a sender with no id at all. Chrome populates
+    // `sender.id` on every message from an extension page, so an absent one is
+    // not a legitimate caller this would be excluding — and a security check
+    // whose default is to allow is one that stops working the moment something
+    // upstream changes shape.
+    if (sender.id !== chrome.runtime.id) return false;
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.
@@ -282,6 +295,20 @@ function registerOffscreenSignHandler(): void {
     // last marker to arrive names the call the realm is still inside.
     if (m.type === OFFSCREEN_PROVE_MARKER) {
       if (typeof m.ts === 'number' && typeof m.line === 'string') appendOffscreenProveMarker(m.ts, m.line);
+      return false;
+    }
+    // A telemetry event the offscreen document reported. It has a `window` and
+    // never loads the React app, so it is the one realm that can neither install
+    // a page transport nor be detected as the worker — and proving happens there
+    // by default, so without this forward every prove event is dropped. Handled
+    // exactly like a page's: straight to the same consent-gated sink.
+    // Fire-and-forget, so don't hold the port.
+    if (m.type === OFFSCREEN_TELEMETRY_EVENT) {
+      const { event } = msg as OffscreenTelemetryEvent;
+      // The sink's serializer builds the payload from an allowlist, so a
+      // malformed event cannot widen the wire — but it can throw, and this
+      // listener is shared with signing, which must not fail because of it.
+      void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
@@ -429,38 +456,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       const notes = await withWasmClientLock(async () => midenClientProxy.getSerializedInputNoteDetails(req.noteIds));
       return { type: WalletMessageType.GetInputNoteDetailsResponse, notes };
     }
-    case WalletMessageType.SpeculateSendRequest: {
-      // Fire-and-forget. SpeculationManager queues at most one pending; if
-      // it's already running an identical speculation, this is a no-op.
-      // No withWasmClientLock here — the manager handles serialization
-      // internally (it calls executeAndProveForSpeculation which does its
-      // own execute under-lock + offscreen prove with yieldWasmClientLock).
-      const mgr = getSpeculationManager();
-      if (mgr) {
-        mgr.speculate({
-          accountId: req.accountId,
-          recipientAccountId: req.recipientAccountId,
-          faucetId: req.faucetId,
-          noteType: req.noteType,
-          amount: BigInt(req.amount)
-        });
-      }
-      return { type: WalletMessageType.SpeculateSendResponse };
-    }
-    case WalletMessageType.SpeculateInvalidate: {
-      const mgr = getSpeculationManager();
-      mgr?.invalidate();
-      return { type: WalletMessageType.SpeculateInvalidateResponse };
-    }
-    // case WalletMessageType.SendTrackEventRequest:
-    //   await Analytics.trackEvent(req);
-    //   return { type: WalletMessageType.SendTrackEventResponse };
-    // case WalletMessageType.SendPageEventRequest:
-    //   await Analytics.pageEvent(req);
-    //   return { type: WalletMessageType.SendPageEventResponse };
-    // case WalletMessageType.SendPerformanceEventRequest:
-    //   await Analytics.performanceEvent(req);
-    //   return { type: WalletMessageType.SendPerformanceEventResponse };
+    case WalletMessageType.ReportTelemetryEventRequest:
+      return Actions.handleReportTelemetryEvent(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {
@@ -483,8 +480,17 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         throw err;
       }
       return { type: WalletMessageType.NewWalletResponse };
+    case WalletMessageType.NewWalletFromHotKeyRequest:
+      await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
+      return { type: WalletMessageType.NewWalletFromHotKeyResponse };
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
+      await Actions.registerImportedWallet(
+        req.password,
+        req.mnemonic,
+        req.walletAccounts,
+        req.formatVersion,
+        req.importedAccounts
+      );
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
@@ -519,27 +525,46 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.RevealPrivateKeyResponse,
         privateKey: privateKey ?? ''
       };
+    case WalletMessageType.ExportAccountFileRequest: {
+      const accountFileBase64 = await Actions.exportAccountFile(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64
+      };
+    }
     case WalletMessageType.RevealHotKeyRequest: {
-      const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
+      const keyPairPayload = await Actions.revealHotKey(req.accountPublicKey, req.password);
       return {
         type: WalletMessageType.RevealHotKeyResponse,
-        hotPrivateKey: hotPrivateKey ?? ''
+        keyPairPayload: keyPairPayload ?? ''
       };
     }
-    case WalletMessageType.RevealGuardianKeysRequest: {
-      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
+    case WalletMessageType.RemoveSeedPhraseRequest:
+      await Actions.removeSeedPhrase(req.password);
+      return { type: WalletMessageType.RemoveSeedPhraseResponse };
+    case WalletMessageType.ProvideRecoverySeedRequest:
+      await Actions.provideRecoverySeed(req.transactionId, req.mnemonic, req.action);
+      return { type: WalletMessageType.ProvideRecoverySeedResponse };
+    case WalletMessageType.PrepareRecoveryRequest:
       return {
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: keys?.coldPrivateKey ?? '',
-        coldPublicKey: keys?.coldPublicKey ?? '',
-        hotPublicKey: keys?.hotPublicKey
+        type: WalletMessageType.PrepareRecoveryResponse,
+        ...(await Actions.prepareRecoveryTransaction(req.transactionId))
       };
-    }
+    case WalletMessageType.ReleaseRecoveryRequest:
+      await Actions.releaseRecoveryAuthorization(req.transactionId);
+      return { type: WalletMessageType.ReleaseRecoveryResponse };
+
     case WalletMessageType.RevealMnemonicRequest:
       const mnemonic = await Actions.revealMnemonic(req.password);
       return {
         type: WalletMessageType.RevealMnemonicResponse,
         mnemonic
+      };
+    case WalletMessageType.ExportWalletBackupMaterialRequest:
+      const material = await Actions.exportWalletBackupMaterial(req.password);
+      return {
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
       };
     case WalletMessageType.RemoveAccountRequest:
       await Actions.removeAccount(req.accountPublicKey, req.password);
@@ -572,6 +597,35 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.UpdateSettingsResponse
       };
+    case WalletMessageType.GetSpendingLimitRequest: {
+      const configuration = await Actions.getSpendingLimit(req.accountId);
+      return {
+        type: WalletMessageType.GetSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+    case WalletMessageType.SaveSpendingLimitRequest: {
+      const configuration = await Actions.saveSpendingLimit(req.draft, req.observedRevision, req.strictlyAuthenticated);
+      return {
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+    case WalletMessageType.AssessSpendingLimitRequest: {
+      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.spends);
+      return {
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        ...(assessment !== undefined && { assessment })
+      };
+    }
+    case WalletMessageType.GetStrictAuthenticationProtectorsRequest:
+      return {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: await Actions.getStrictAuthenticationProtectors()
+      };
+    case WalletMessageType.VerifyStrictActionAuthenticationRequest:
+      await Actions.verifyStrictActionAuthentication(req.credential);
+      return { type: WalletMessageType.VerifyStrictActionAuthenticationResponse };
     case WalletMessageType.SignTransactionRequest:
       const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
       return {
@@ -579,7 +633,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         signature
       };
     case WalletMessageType.SignWordRequest:
-      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
       return {
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature

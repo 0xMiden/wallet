@@ -9,16 +9,6 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="shortcut icon" href="misc/brand/new-bread.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap"
-      rel="stylesheet"
-    />
     <title>Bread</title>
     <style>
       /* Full height hierarchy for mobile.
@@ -55,13 +45,18 @@
        * the cascade, zeroing out our env() values. We need these to stick.
        */
       body {
+        /* The bottom safe-area floor, declared once here and read by everything that has to
+           line up with this padding: TabLayout's docked footer offset, BottomNav's docked
+           padding and main.css's hidden-navbar strip. Mirroring the number instead is what
+           left the docked bar 4px above the screen edge on insets under 16px. */
+        --app-safe-bottom: max(16px, env(safe-area-inset-bottom));
         padding-top: env(safe-area-inset-top) !important;
         /* --keyboard-height is set by the inline keyboard script below when
            the soft keyboard shows (Keyboard resize is 'none', so the WebView
            itself never resizes). max() keeps the safe-area floor and avoids
            double-counting the bottom inset, which iOS includes in the
            reported keyboard height. */
-        padding-bottom: max(16px, env(safe-area-inset-bottom), var(--keyboard-height, 0px)) !important;
+        padding-bottom: max(var(--app-safe-bottom), var(--keyboard-height, 0px)) !important;
         padding-left: env(safe-area-inset-left) !important;
         padding-right: env(safe-area-inset-right) !important;
         box-sizing: border-box;

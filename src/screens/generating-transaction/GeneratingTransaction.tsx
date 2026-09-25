@@ -7,8 +7,9 @@ import { useTranslation } from 'react-i18next';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
-import { useAnalytics } from 'lib/analytics';
+import { accentForTransactionType } from 'components/flow/accent';
+import { FlowLayout } from 'components/flow/FlowLayout';
+import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import {
   bridgeProviderOf,
   isRequeueableTransaction,
@@ -50,7 +51,6 @@ export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
-  const { pageEvent } = useAnalytics();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -69,10 +69,6 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
     navigate('/');
   }, []);
-
-  useEffect(() => {
-    pageEvent('GeneratingTransaction', '');
-  }, [pageEvent]);
 
   // Driver — unchanged from the queue-observer era. On extension the service
   // worker owns the loop and this is a no-op; on mobile/desktop the page kicks
@@ -195,6 +191,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     if (!explorerUrl) return;
     openExternalUrl({ url: explorerUrl, title: EXPLORER_TITLE });
   }, [explorerUrl]);
+
+  if (active?.awaitingRecoverySeed && active.status === ITransactionStatus.Queued) {
+    return <RecoverySeedPrompt transaction={active} onClose={onClose} />;
+  }
 
   // Unknown id (never existed, or already pruned) — nothing to show.
   if (loaded && !active) {
@@ -374,18 +374,94 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     );
   }
 
+  // Processing wears the flow's accent: blue for a send, the swap/earn/receive colors for theirs.
+  const accent = accentForTransactionType(activeType ?? completedTransaction?.type);
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg px-4 text-heading-gray">
-      <ScreenHeader className="shrink-0" title={processingTitle} closeLabel={t('close')} onClose={onDoneClick} />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
+      <FlowLayout
+        title={processingTitle}
+        onClose={onDoneClick}
+        footer={
+          <div className="flex w-full flex-col items-center gap-3">
+            {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
+                  resubmit) as the primary action; Done demotes to secondary so the
+                  recovery path is the obvious one. */}
+            {transactionComplete && hasErrors && canRetry && onRetry && maxNetworkFee && (
+              // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
+              // every claim, send and swap lands on when it fails, so it is where the cost
+              // of trying again has to be stated.
+              <div className="-mb-2 text-center text-xs text-ink">
+                {t('networkFeeMax')} · {maxNetworkFee}
+              </div>
+            )}
+            {transactionComplete && hasErrors && canRetry && onRetry && (
+              <Button
+                type="button"
+                variant={ButtonVariant.Primary}
+                accent={accent}
+                isLoading={isRetrying}
+                disabled={isRetrying}
+                onClick={onRetry}
+                className="w-full max-w-none"
+              >
+                {t('retry')}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+              accent={accent}
+              onClick={onDoneClick}
+              className="w-full max-w-none"
+            >
+              {actionTitle}
+            </Button>
+            {/* #483 — a failed tx needs a direct route to its Activity detail, like
+                  SwapSuccess / GuardianSwitchSuccess (which link to the per-tx
+                  detail; the other success views only open the history list). Only on
+                  failure — success routes through TransactionSuccess, which renders
+                  its own link. */}
+            {transactionComplete && hasErrors && (
+              <Button
+                type="button"
+                variant={ButtonVariant.Secondary}
+                onClick={() =>
+                  navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
+                }
+                className="w-full max-w-none"
+              >
+                {t('viewInActivities')}
+              </Button>
+            )}
+            {retryError && (
+              <p role="alert" className="text-center text-sm text-status-negative">
+                {retryError}
+              </p>
+            )}
+            {/* The wallet cannot confirm whether this send landed; the user's own
+                balance can. Deliberately a separate, secondary tap AFTER the warning
+                rather than a smarter first Retry. */}
+            {onRetryAnyway && (
+              <Button
+                type="button"
+                data-testid="retry-anyway-button"
+                variant={ButtonVariant.Secondary}
+                isLoading={isRetrying}
+                disabled={isRetrying}
+                onClick={onRetryAnyway}
+                className="w-full max-w-none"
+              >
+                {t('retryAnyway')}
+              </Button>
+            )}
+          </div>
+        }
+      >
+        <section className="flex w-full flex-col items-center pt-6">
+          <TransactionHeroIcon state={heroState} accent={accent} />
 
-      {/* Scroll region: only the steps body scrolls on a short sidepanel/popup;
-          the footer CTAs below stay pinned and reachable (same shape as
-          TransactionSuccessLayout, #463). */}
-      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <section className="flex w-full flex-col items-center pt-5">
-          <TransactionHeroIcon state={heroState} />
-
-          <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray">
+          <h2 className="mt-5 w-full px-1 text-center font-heading text-[1.75rem] font-bold leading-none text-ink">
             {visibleTitle}
           </h2>
 
@@ -393,7 +469,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-4" />
           )}
 
-          <div className="mt-4 w-full overflow-hidden rounded-2xl border border-[#ECEBE8] bg-surface-solid">
+          <div className="mt-6 w-full overflow-hidden rounded-2xl bg-fill">
             {steps.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
@@ -401,6 +477,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                   key={step.id}
                   step={step}
                   state={state}
+                  accent={accent}
                   isLast={index === steps.length - 1}
                   meta={state === 'complete' ? stepDurationLabels[index] : undefined}
                 />
@@ -408,9 +485,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             })}
           </div>
           {footerDescription && (
-            <p className="w-full text-center text-sm font-heading text-heading-gray pt-4 font-bold">
-              {footerDescription}
-            </p>
+            <p className="w-full pt-4 text-center font-heading text-sm font-bold text-ink">{footerDescription}</p>
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>
@@ -418,77 +493,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             {!transactionComplete && <p>{dismissalDescription}</p>}
           </div>
         </section>
-      </main>
-
-      <div className="w-full shrink-0 flex flex-col gap-5 items-center pb-4 pt-6">
-        {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
-              resubmit) as the primary action; Done demotes to secondary so the
-              recovery path is the obvious one. */}
-        {transactionComplete && hasErrors && canRetry && onRetry && maxNetworkFee && (
-          // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
-          // every claim, send and swap lands on when it fails, so it is where the cost
-          // of trying again has to be stated.
-          <div className="-mb-2 text-center text-xs text-heading-gray">
-            {t('networkFeeMax')} · {maxNetworkFee}
-          </div>
-        )}
-        {transactionComplete && hasErrors && canRetry && onRetry && (
-          <Button
-            type="button"
-            variant={ButtonVariant.Primary}
-            isLoading={isRetrying}
-            disabled={isRetrying}
-            onClick={onRetry}
-            className="w-full"
-          >
-            <span className="text-lg font-semibold text-pure-white">{t('retry')}</span>
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
-          onClick={onDoneClick}
-          className="w-full"
-        >
-          <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
-        </Button>
-        {/* #483 — a failed tx needs a direct route to its Activity detail, like
-              SwapSuccess / GuardianSwitchSuccess (which link to the per-tx
-              detail; the other success views only open the history list). Only on
-              failure — success routes through TransactionSuccess, which renders
-              its own link. */}
-        {transactionComplete && hasErrors && (
-          <Button
-            type="button"
-            variant={ButtonVariant.Secondary}
-            onClick={() => navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')}
-            className="w-full"
-          >
-            <span className="text-lg font-semibold">{t('viewInActivities')}</span>
-          </Button>
-        )}
-        {retryError && (
-          <p role="alert" className="text-center text-sm text-status-negative">
-            {retryError}
-          </p>
-        )}
-        {/* The wallet cannot confirm whether this send landed; the user's own
-            balance can. Deliberately a separate, secondary tap AFTER the warning
-            rather than a smarter first Retry. */}
-        {onRetryAnyway && (
-          <Button
-            type="button"
-            data-testid="retry-anyway-button"
-            variant={ButtonVariant.Secondary}
-            isLoading={isRetrying}
-            disabled={isRetrying}
-            onClick={onRetryAnyway}
-            className="w-full"
-          >
-            <span className="text-lg font-semibold">{t('retryAnyway')}</span>
-          </Button>
-        )}
-      </div>
+      </FlowLayout>
     </div>
   );
 };

@@ -17,11 +17,13 @@
  */
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import type { KeyDerivation } from 'lib/shared/types';
 
 import {
   classifyProbeError,
   compareMatches,
   decodeMaxNonce,
+  discoverGuardianForHotKey,
   discoverGuardianForSeed,
   GuardianProbeTimeoutError,
   selectBest,
@@ -63,8 +65,10 @@ const mockBackend = new Map<string, FakeOperator>();
 const mockSecretKeys: object[] = [];
 const mockSigners: object[] = [];
 /** Cold-seed HD indices the probe asked for, in order. */
-const mockSeedsRequested: number[] = [];
+/** `"<hdIndex>:<keyDerivation>"` per seed the probe asked for, in request order. */
+const mockSeedsRequested: string[] = [];
 const mockDeserialize = jest.fn();
+const mockAuthDeserialize = jest.fn();
 
 jest.mock('lib/miden/guardian/native-http', () => ({
   registerGuardianOrigin: jest.fn()
@@ -88,7 +92,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
       const key = { commitmentHex: `commitment-${seed[0]}`, free: jest.fn() };
       mockSecretKeys.push(key);
       return key;
-    }
+    },
+    // Hot-key probe path (indirection: the factory runs before the module
+    // body initializes `mockAuthDeserialize`).
+    deserialize: (bytes: Uint8Array) => mockAuthDeserialize(bytes)
   },
   // Indirection, not a direct reference: the factory runs before the module
   // body initializes `mockDeserialize`.
@@ -136,10 +143,16 @@ jest.mock('@openzeppelin/guardian-client', () => ({
   }
 }));
 
-/** Cold-seed deriver whose first byte is the HD index — the fakes key off it. */
-const fakeDeriveSeed = (hdIndex: number): Uint8Array => {
-  mockSeedsRequested.push(hdIndex);
-  return new Uint8Array([hdIndex, 1, 2, 3]);
+/**
+ * Cold-seed deriver whose first byte is the HD index — the fakes key off it.
+ * A `legacy` seed is offset by 100 so the fake backend, which only ever holds
+ * accounts at small indices, answers a legacy probe with a miss: an account
+ * exists under exactly one derivation scheme, as on a real operator.
+ */
+const LEGACY_FAKE_OFFSET = 100;
+const fakeDeriveSeed = (hdIndex: number, keyDerivation: KeyDerivation): Uint8Array => {
+  mockSeedsRequested.push(`${hdIndex}:${keyDerivation}`);
+  return new Uint8Array([keyDerivation === 'legacy' ? hdIndex + LEGACY_FAKE_OFFSET : hdIndex, 1, 2, 3]);
 };
 
 /** Resolve the scripted nonce for whatever account a state blob names. */
@@ -261,13 +274,13 @@ describe('discoverGuardianForSeed', () => {
     expect(result.best?.hdIndices).toEqual([2]);
   });
 
-  it('probes only HD index 0 by default and honours maxHdIndex', async () => {
+  it('probes only HD index 0 by default, under both derivation schemes, and honours maxHdIndex', async () => {
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ] });
-    expect(mockSeedsRequested).toEqual([0]);
+    expect(mockSeedsRequested).toEqual(['0:v1', '0:legacy']);
 
     mockSeedsRequested.length = 0;
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ], maxHdIndex: 3 });
-    expect(mockSeedsRequested).toEqual([0, 1, 2]);
+    expect(mockSeedsRequested).toEqual(['0:v1', '1:v1', '2:v1', '0:legacy', '1:legacy', '2:legacy']);
   });
 
   it('keeps a lone lookup match even when the follow-up getState fails, with an unknown nonce', async () => {
@@ -307,7 +320,8 @@ describe('discoverGuardianForSeed', () => {
     expect(result.best?.endpoint).toBe(GATEWAY);
     expect(result.best?.nonce).toBe(9n);
     expect(result.failures).toEqual([]);
-    expect(mockBackend.get(GATEWAY)?.lookupCalls).toBe(2);
+    // Two lookups for the v1 probe (the blip, then the retry) plus one legacy miss.
+    expect(mockBackend.get(GATEWAY)?.lookupCalls).toBe(3);
   });
 
   it('does NOT pick a stale operator over the current one when the current getState keeps failing', async () => {
@@ -354,17 +368,19 @@ describe('discoverGuardianForSeed', () => {
 
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], maxHdIndex: 3 });
 
-    // 2 endpoints × 3 HD indices = 6 independent AuthSecretKey/EcdsaSigner pairs.
-    expect(mockSecretKeys).toHaveLength(6);
-    expect(new Set(mockSecretKeys).size).toBe(6);
-    expect(mockSigners).toHaveLength(6);
-    expect(new Set(mockSigners).size).toBe(6);
+    // 2 endpoints × 3 HD indices × 2 derivation schemes = 12 independent
+    // AuthSecretKey/EcdsaSigner pairs.
+    expect(mockSecretKeys).toHaveLength(12);
+    expect(new Set(mockSecretKeys).size).toBe(12);
+    expect(mockSigners).toHaveLength(12);
+    expect(new Set(mockSigners).size).toBe(12);
   });
 
   it('frees every cold secret key it derives', async () => {
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ], maxHdIndex: 3 });
 
-    expect(mockSecretKeys).toHaveLength(3);
+    // 3 HD indices × 2 derivation schemes.
+    expect(mockSecretKeys).toHaveLength(6);
     for (const key of mockSecretKeys) {
       expect(jest.mocked(Reflect.get(key, 'free'))).toHaveBeenCalled();
     }
@@ -545,5 +561,60 @@ describe('selectBest', () => {
     const unknown = match({ endpoint: GATEWAY, nonce: undefined });
     expect(selectBest([known, unknown])).toBeUndefined();
     expect(selectBest([unknown, known])).toBeUndefined();
+  });
+});
+
+/**
+ * The hot-key probe rides the same body as the seed probe (the refactor's
+ * whole point — the seed suites above must pass unmodified), so only what
+ * DIFFERS is asserted here: the key comes from `AuthSecretKey.deserialize`
+ * rather than seed derivation, and there is no HD walk — exactly one key per
+ * operator, whatever maxHdIndex a caller tries to pass.
+ */
+describe('discoverGuardianForHotKey', () => {
+  // Full serialized form (tag byte + scalar), so deserialization never needs
+  // the tag probe — `ecdsaWithRNG` in this file's factory has no `serialize`.
+  const HOT_KEY_HEX = `01${'ab'.repeat(32)}`;
+
+  beforeEach(() => {
+    mockAuthDeserialize.mockImplementation((bytes: Uint8Array) => {
+      // Same shape the seed path's keys have; commitment-0 makes the fake
+      // operators answer with their index-0 accounts.
+      const key = { commitmentHex: 'commitment-0', free: jest.fn(), bytes };
+      mockSecretKeys.push(key);
+      return key;
+    });
+  });
+
+  it('finds the operator holding the account for the pasted key', async () => {
+    mockBackend.set(GATEWAY, { accounts: ['acct-hot'], nonces: { 'acct-hot': 5n } });
+
+    const result = await discoverGuardianForHotKey(HOT_KEY_HEX, testnet);
+
+    expect(result.best?.endpoint).toBe(GATEWAY);
+    expect(result.best?.accountIds).toEqual(['acct-hot']);
+    // The pasted hex reached the SDK, tag byte intact.
+    const bytes = mockAuthDeserialize.mock.calls[0]![0] as Uint8Array;
+    expect(Buffer.from(bytes).toString('hex')).toBe(HOT_KEY_HEX);
+  });
+
+  it('resolves with no best match when no operator knows the key — never throws', async () => {
+    const result = await discoverGuardianForHotKey(HOT_KEY_HEX, testnet);
+
+    expect(result.best).toBeUndefined();
+    expect(result.matches).toEqual([]);
+  });
+
+  it('builds exactly one key per operator: a single key has no HD walk', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-hot'] });
+
+    const result = await discoverGuardianForHotKey(HOT_KEY_HEX, { ...testnet, maxHdIndex: 5 });
+
+    expect(mockSecretKeys).toHaveLength(result.probedEndpoints.length);
+    expect(result.best?.hdIndices).toEqual([0]);
+    // Every per-task WASM handle is released after its probe settles.
+    for (const key of mockSecretKeys) {
+      expect((key as { free: jest.Mock }).free).toHaveBeenCalled();
+    }
   });
 });

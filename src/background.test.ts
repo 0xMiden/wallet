@@ -29,6 +29,7 @@ const mockDoSync = jest.fn(() => Promise.resolve());
 const mockSetupSyncManager = jest.fn();
 const mockSetupTransactionProcessor = jest.fn();
 const mockFailInterruptedTransactions = jest.fn(() => Promise.resolve());
+const mockRegisterChromeUpdateListener = jest.fn();
 
 jest.mock('./xhr-shim', () => ({}));
 
@@ -47,6 +48,10 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
 
 jest.mock('lib/miden/transaction', () => ({
   failInterruptedTransactions: (...args: unknown[]) => mockFailInterruptedTransactions(...(args as [])) as Promise<void>
+}));
+
+jest.mock('lib/update/chrome', () => ({
+  registerChromeUpdateListener: (...args: unknown[]) => mockRegisterChromeUpdateListener(...args)
 }));
 
 // ── Listener-capturing `webextension-polyfill` stub ─────────────────────────
@@ -120,6 +125,7 @@ const loadBackground = (opts: { target?: string; chrome?: any } = {}): Polyfill 
   mockSetupSyncManager.mockClear();
   mockSetupTransactionProcessor.mockClear();
   mockFailInterruptedTransactions.mockClear();
+  mockRegisterChromeUpdateListener.mockClear();
 
   if (opts.target === undefined) {
     delete process.env.TARGET_BROWSER;
@@ -237,13 +243,12 @@ describe('background.ts — Chrome side-panel restore', () => {
 // ── Always-registered listeners (target-independent) ────────────────────────
 
 describe('background.ts — core service-worker listeners', () => {
-  it('reloads the runtime when an update becomes available', () => {
-    const wep = loadBackground({ target: 'firefox' });
-    expect(wep.runtime.reload).not.toHaveBeenCalled();
+  it('registers the passive update listener only for Chrome', () => {
+    loadBackground({ target: 'chrome', chrome: makeChromeStub({}, 'resolve') });
+    expect(mockRegisterChromeUpdateListener).toHaveBeenCalledTimes(1);
 
-    fire(wep.runtime.onUpdateAvailable);
-
-    expect(wep.runtime.reload).toHaveBeenCalledTimes(1);
+    loadBackground({ target: 'firefox' });
+    expect(mockRegisterChromeUpdateListener).not.toHaveBeenCalled();
   });
 
   it('runs a sync when the miden-sync alarm fires', () => {
@@ -315,7 +320,7 @@ describe('background.ts — core service-worker listeners', () => {
     expect(warnSpy).toHaveBeenCalledWith('[Background] Interrupted-transaction sweep error:', err);
   });
 
-  it('opens the pending-notes page when a note notification is clicked', () => {
+  it('opens the Activity pending tab when a note notification is clicked', () => {
     const wep = loadBackground({ target: 'firefox' });
 
     fire(wep.notifications.onClicked, 'note-123');
@@ -323,9 +328,9 @@ describe('background.ts — core service-worker listeners', () => {
     expect(wep.notifications.clear).toHaveBeenCalledWith('note-123');
     // The note-received notification should deep-link to the incoming-notes list
     // (claim actions), matching the mobile handler, not the generic receive page (#467).
-    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/pending-notes');
+    expect(wep.runtime.getURL).toHaveBeenCalledWith('fullpage.html#/history?filter=pending');
     expect(wep.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test-id/fullpage.html#/pending-notes'
+      url: 'chrome-extension://test-id/fullpage.html#/history?filter=pending'
     });
   });
 });

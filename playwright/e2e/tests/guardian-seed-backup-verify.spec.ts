@@ -40,7 +40,7 @@ const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
  *     (`getMainDerivationPath` in `lib/miden/sdk/derive-seed.ts`), so a restore
  *     only reproduces an address when it uses the SAME wallet type as the
  *     create. Production onboarding can only create GUARDIAN wallets
- *     (`Welcome.tsx` routes every create through `#choose-guardian`) and the
+ *     (`Welcome.tsx` routes every create through `#meet-guardian`) and the
  *     real import screen offers only Guardian or public accounts — none of
  *     which this suite can drive: `playwright.e2e.config.ts` runs on the
  *     localnet per-PR job, which stands up no guardian backend (see

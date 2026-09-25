@@ -24,6 +24,15 @@ const mockCurrentAccount = {
   hdIndex: 0
 };
 
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -66,21 +75,8 @@ jest.mock('app/layouts/PageLayout', () => ({
 }));
 
 jest.mock('components/GuardianTransitionHero', () => ({
-  GuardianTransitionHero: ({
-    previousEndpoint,
-    newEndpoint,
-    variant
-  }: {
-    previousEndpoint?: string;
-    newEndpoint?: string;
-    variant?: string;
-  }) => (
-    <div
-      data-testid="guardian-transition"
-      data-previous={previousEndpoint}
-      data-new={newEndpoint}
-      data-variant={variant}
-    />
+  GuardianTransitionHero: ({ previousEndpoint, newEndpoint }: { previousEndpoint?: string; newEndpoint?: string }) => (
+    <div data-testid="guardian-transition" data-previous={previousEndpoint} data-new={newEndpoint} />
   )
 }));
 
@@ -146,15 +142,6 @@ jest.mock('components/Alert', () => ({
   AlertVariant: { Warning: 'warning' }
 }));
 
-jest.mock('lib/ui/DetailCard', () => ({
-  DetailCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DetailRow: ({ label, value }: { label: string; value: string }) => (
-    <div>
-      {label}:{value}
-    </div>
-  )
-}));
-
 jest.mock('lib/biometric', () => ({
   isBiometricEnabled: jest.fn().mockResolvedValue(false),
   checkBiometricAvailability: jest.fn()
@@ -206,6 +193,9 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: mockSearch, historyPosition: 1 }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: 1, href: 'http://localhost/#/rotate-guardian/review' }),
+  listen: () => () => undefined,
   navigate: (...args: unknown[]) => mockNavigate(...args),
   goBack: () => mockGoBack(),
   HistoryAction: { Push: 'push', Replace: 'replace' }
@@ -225,24 +215,48 @@ beforeEach(() => {
   mockGetUncompleted.mockResolvedValue([]);
 });
 
+// This screen commits value, so it names the network. The registry test proves the element is in
+// the file; this proves it actually renders - the distinction a source match cannot make, and how
+// a banner once shipped behind an early return.
+it('names the network it will commit on', () => {
+  render(<RotateGuardianReview />);
+
+  expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+});
+
+// The credential step is a separate render branch, reached by an early return, and it is the one
+// that actually commits: submitting here unlocks and initiates the switch. A banner on the review
+// branch alone leaves this screen unwarned, and the case above cannot see that, because it never
+// leaves the default state.
+it('still names the network on the credential step, where the rotation is submitted', async () => {
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  expect(await screen.findByTestId('rotate-guardian-auth-submit')).toBeInTheDocument();
+  expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+});
+
 it('renders the current and destination endpoints in the shared transition hero', async () => {
   render(<RotateGuardianReview />);
 
   const hero = screen.getByTestId('guardian-transition');
   expect(hero).toHaveAttribute('data-previous', 'https://old.example');
   expect(hero).toHaveAttribute('data-new', 'https://new.example');
-  expect(hero).toHaveAttribute('data-variant', 'review');
-  // The review screen owns its header now (prominent NavigationHeader) instead
+  // The review screen owns its header now (its own PageHeader) instead
   // of PageLayout's toolbar title.
   expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
-it('uses theme-aware text colors for the rotation warning', async () => {
+it('draws the rotation warning as a warning Notice in theme-aware tokens', async () => {
   render(<RotateGuardianReview />);
 
-  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-heading-gray');
-  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-heading-gray');
+  const notice = screen.getByText('oldGuardianCantBlockBody').closest('[role="note"]');
+  expect(notice).toHaveAttribute('data-tone', 'warning');
+  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-pending-ink');
+  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-ink');
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
@@ -307,7 +321,7 @@ it('wraps the long guardian error on the mobile hardware-auth path so it is not 
   await waitFor(() => expect(confirm).toBeEnabled());
   fireEvent.click(confirm);
 
-  expect(await screen.findByText(LONG_GUARDIAN_ERROR)).toHaveClass('wrap-break-word');
+  expect((await screen.findByText(LONG_GUARDIAN_ERROR)).closest('[role="alert"]')).toHaveClass('wrap-break-word');
 });
 
 it('password authentication gates the extension flow and retries with fresh authentication', async () => {
@@ -345,7 +359,7 @@ it('invalid credentials and back navigation leave the Guardian unchanged', async
   expect(await screen.findByText('Invalid password')).toBeInTheDocument();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 
-  fireEvent.click(screen.getByTestId('auth-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
   expect(await screen.findByTestId('rotate-guardian-confirm')).toBeInTheDocument();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });
@@ -525,6 +539,14 @@ describe('hardware back', () => {
   });
 });
 
+it('lays the review out on the shared sub-page frame: header, details card and pinned Continue', async () => {
+  render(<RotateGuardianReview />);
+  expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();
+  expect(screen.getByText('walletKeyHot').closest('.divide-hairline')).not.toBeNull();
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  expect(confirm.closest('[data-slot="footer"]')).not.toBeNull();
+});
+
 it('keeps Continue out of the scroll region so it cannot land below the fold', async () => {
   const { container } = render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
@@ -532,7 +554,7 @@ it('keeps Continue out of the scroll region so it cannot land below the fold', a
   // The illustration plus the prominent header cost ~220px of a 600px popup, so
   // a CTA inside the scroller sat below the fold — the user had to scroll to
   // find the only way forward, and a failure could render off-screen entirely.
-  const scroller = container.querySelector('.flex-1.min-h-0.overflow-y-auto');
+  const scroller = container.querySelector('[data-slot="body"]');
   expect(scroller).not.toBeNull();
   expect(scroller!.contains(confirm)).toBe(false);
 });

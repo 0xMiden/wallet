@@ -1,21 +1,28 @@
-import React, { FC, ReactNode, useLayoutEffect, useRef } from 'react';
+import React, {
+  FC,
+  forwardRef,
+  ReactNode,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
+import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
-import { BottomNav, SegmentedActionBar } from 'components/ui';
-import { useMotion } from 'lib/animation';
-import { pageAppearance } from 'lib/animation/page-appearance';
+import { PageActiveContext, usePageActive, usePageOnScreen } from 'app/layouts/page-active';
+import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
+import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
+import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
-import { useKeyboardVisible } from 'lib/mobile/useKeyboardVisible';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -102,27 +109,98 @@ function activeActionFromPath(pathname: string): string {
   return 'overview';
 }
 
+// Docked-bar hide-on-scroll (mobile): a downward scroll past this many px hides the bar; it
+// returns once no scroll event has fired for SCROLL_IDLE_MS, or as soon as the scroll reverses.
+const SCROLL_HIDE_THRESHOLD_PX = 4;
+const SCROLL_IDLE_MS = 250;
+
+export interface DockedNavBarHandle {
+  handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
+}
+
+interface DockedNavBarProps {
+  items: BottomNavItem[];
+  activeId: string;
+  onChange: (id: string) => void;
+}
+
+/**
+ * The bottom nav plus its own hide-on-scroll state. A leaf on purpose: while this state lived in
+ * TabLayout, every hide, show and idle reset re-rendered the whole home carousel and made Framer
+ * re-measure the action bar's layout nodes, in the middle of the scroll that triggered it.
+ *
+ * Scroll events do not bubble, so TabLayout listens in the capture phase and forwards them here
+ * through this handle, which keeps the pages unaware of the bar.
+ */
+const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items, activeId, onChange }, ref) => {
+  const [scrollHidden, setScrollHidden] = useState(false);
+  const lastScroll = useRef<{ target: EventTarget | null; top: number }>({ target: null, top: 0 });
+  const scrollIdleTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(scrollIdleTimer.current), []);
+
+  useImperativeHandle(ref, () => ({
+    handleScroll: event => {
+      const { target } = event;
+      if (!(target instanceof HTMLElement)) return;
+      const top = target.scrollTop;
+      const previous = lastScroll.current.target === target ? lastScroll.current.top : top;
+      lastScroll.current = { target, top };
+      const delta = top - previous;
+      if (delta > SCROLL_HIDE_THRESHOLD_PX && top > SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(true);
+      else if (delta < -SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(false);
+      window.clearTimeout(scrollIdleTimer.current);
+      scrollIdleTimer.current = window.setTimeout(() => setScrollHidden(false), SCROLL_IDLE_MS);
+    }
+  }));
+
+  /* Off-mobile the pill floats: `px-4` + `justify-center` center it and `pb-2` lifts it off the
+       frame edge. `min-w-0` lets this flex child shrink to the footer width instead of ballooning
+       to the pill's min-content, which otherwise overflowed a 375px-wide viewport. */
+  return (
+    <div
+      className={classNames(
+        'pointer-events-auto flex-1 min-w-0 flex justify-center',
+        !isMobile() && 'px-4 pb-2',
+        isMobile() && 'transition-transform duration-300 ease-out motion-reduce:transition-none',
+        scrollHidden && 'translate-y-full'
+      )}
+    >
+      {/* The test network is named on a ribbon across the bar's lower-right corner, drawn over the
+          tabs, rather than in a banner above every page. */}
+      <BottomNav
+        items={items}
+        activeId={activeId}
+        onChange={onChange}
+        docked={isMobile()}
+        corner={<NetworkModeRibbon docked={isMobile()} />}
+      />
+    </div>
+  );
+});
+
+// A pushed page can mount its own TabLayout over a covered one, so the body mark is counted, not toggled.
+let mountedTabBars = 0;
+
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
-  const hasUnclaimedNotes = useHasUnclaimedNotes();
+  const hasUnreadActivity = useHasUnreadActivity();
   // Content of each tab that has been shown. The active tab's entry is
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
 
-  // Hide the floating BottomNav whenever the mobile soft keyboard is up —
-  // the keyboard inset (mobile.html) shrinks the layout, and the navbar
-  // hovering right above the keyboard looks odd. Refcounted with the other
-  // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
-  useHideNavbarWhileOpen(useKeyboardVisible());
+  // The BottomNav hides while the soft keyboard is up, but that hold is taken by the native keyboard
+  // listener (lib/mobile/keyboard-inset), in the same task as the inset, not here a render later.
 
-  // The fade plays once, when the layout mounts. A tab change swaps panes
-  // with no animation, like a native tab bar.
+  const dockedBar = useRef<DockedNavBarHandle>(null);
+
+  // The `fade` preset plays once, when the layout mounts. A tab change swaps
+  // panes with no animation, like a native tab bar.
   const reduce = useReducedMotion();
-  const appearance = useMotion(pageAppearance);
+  const fade = usePreset('fade');
   const appear = !reduce && !isReturningFromWebview();
-  const initial = appear ? { opacity: 0 } : false;
+  const initial = appear ? (fade.initial ?? false) : false;
 
   const tabs = [
     {
@@ -145,7 +223,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'activity',
       label: t('activity'),
       icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
-      showDot: hasUnclaimedNotes
+      unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
       id: 'settings',
@@ -154,34 +232,35 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     }
   ];
 
+  // Each action's icon is its action colour, the same token its flow's accent aliases (main.css).
   const actionItems = [
     {
       id: 'overview',
-      label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-heading-gray" />
+      label: t('home'),
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-action-overview" />
     },
     {
       id: 'send',
-      label: 'Send',
-      icon: <Icon name={IconName.Send} className="w-5 h-5" />
+      label: t('send'),
+      icon: <Icon name={IconName.Send} className="w-5 h-5 text-action-send" />
     },
     {
       id: 'receive',
-      label: 'Receive',
-      icon: <Icon name={IconName.Receive} className="w-5 h-5" />
+      label: t('receive'),
+      icon: <Icon name={IconName.Receive} className="w-5 h-5 text-action-receive" />
     },
     {
       id: 'earn',
-      label: 'Earn',
-      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+      label: t('earn'),
+      icon: <Icon name={IconName.Earn} className="w-5 h-5 text-action-earn" />
     },
     // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
     ...(isSwapEnabled()
       ? [
           {
             id: 'swap',
-            label: 'Swap',
-            icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+            label: t('swap'),
+            icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap" />
           }
         ]
       : [])
@@ -190,6 +269,32 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeTab = activeTabFromPath(pathname);
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
+  const onScreen = usePageOnScreen();
+
+  // Mobile, Home only: the body paints the status-bar safe area above the
+  // app, so the action bar's band is drawn up there by a fixed pseudo-element
+  // on body (main.css), keyed off this attribute — the panes clip their
+  // overflow, so nothing inside the layout can reach that strip. A slide page
+  // keeps this layer mounted underneath with its own frozen location, so the
+  // band also waits for the layer to be fully on screen: off as a push starts
+  // covering it, back once a pop's slide page has finished sliding off. A layout effect, so the
+  // strip is right in the very frame that changes it.
+  useLayoutEffect(() => {
+    if (!isMobile()) return;
+    document.body.toggleAttribute('data-home-band', showActionBar && onScreen);
+    return () => document.body.removeAttribute('data-home-band');
+  }, [showActionBar, onScreen]);
+
+  // Flow footers reserve the bar's room only while one is mounted (main.css). A layout effect, so a
+  // footer's first painted frame already has the right cushion.
+  useLayoutEffect(() => {
+    mountedTabBars += 1;
+    document.body.setAttribute('data-navbar-mounted', '');
+    return () => {
+      mountedTabBars -= 1;
+      if (mountedTabBars === 0) document.body.removeAttribute('data-navbar-mounted');
+    };
+  }, []);
 
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the
@@ -203,7 +308,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   // SegmentedActionBar already no-ops re-taps on the active segment and
-  // fires the selection haptic itself.
+  // fires the selection haptic itself; a swipe buzzes in HomeSwipeContainer.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
     if (to && to !== pathname) navigate(to);
@@ -221,9 +326,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ? { height: '100%', width: '100%' }
         : fullPage
           ? { height: '640px', width: '600px' }
-          : // Popup: the body is a fixed 600px, and the router's network banner
-            // (#875) now takes part of it, so fill what remains instead of
-            // hard-coding 600px and clipping the bottom nav.
+          : // Popup: fill the body's fixed 600px from the router's container
+            // rather than hard-coding it.
             { height: '100%', width: '360px' };
 
   // The action bar lives inside the Home pane. A tab change swaps whole
@@ -236,7 +340,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           items={actionItems}
           activeId={activeAction}
           onChange={handleActionChange}
-          layoutId="tab-layout-action-fill"
+          // Mobile only: the band continues up through the status bar (see data-home-band above).
+          className={isMobile() ? 'bg-action-bar' : undefined}
         />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
@@ -262,14 +367,15 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         isMobile() ? 'overflow-x-clip' : 'overflow-hidden'
       )}
       style={containerStyles}
+      onScrollCapture={isMobile() ? event => dockedBar.current?.handleScroll(event) : undefined}
     >
       {/* Every visited tab keeps its pane mounted under the same key, so a tab
           change is one visibility swap with no remount and no animation. */}
       <motion.div
         className="flex-1 min-h-0 relative"
         initial={initial}
-        animate={{ opacity: 1 }}
-        transition={appearance}
+        animate={fade.animate}
+        transition={fade.transition}
       >
         {panes.map(id => (
           <TabPane key={id} id={id} active={id === activeTab}>
@@ -278,7 +384,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ))}
       </motion.div>
 
-      {/* Floating bottom nav — overlays content. The data attribute lets
+      {/* Bottom nav — overlays content (floating pill off-mobile, docked bar
+          on mobile). The data attribute lets
           the dApp bubble host measure footer height for corner snap math.
           Forced `display:flex !important` + `z-[60]` guard against legacy
           CSS or stale compiled bundles that try to hide `[data-tabbar-footer]`
@@ -286,20 +393,18 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       <div
         className="absolute bottom-0 left-0 right-0 z-60 pointer-events-none"
         data-tabbar-footer="true"
-        style={{ display: 'flex' }}
+        style={{
+          display: 'flex',
+          // Mobile docks the bar: sink the footer through the body's safe-area
+          // padding, which mobile.html declares as --app-safe-bottom, so the
+          // bar's background runs under the home indicator while its own
+          // safe-area bottom padding keeps the items above it. Reading the
+          // property rather than repeating its value is what keeps the bar on
+          // the screen edge when the inset is smaller than the floor.
+          ...(isMobile() ? { bottom: 'calc(-1 * var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom))))' } : {})
+        }}
       >
-        {/* Mobile: the body's safe-area padding (max(16px, env(...)) in
-            mobile.html) already keeps the pill off the screen edge. */}
-        {/* `min-w-0` lets this flex child shrink to the footer width instead of
-            ballooning to the pill's min-content (the nav's wide `px-13.5` padding
-            makes its min-content ~367px, which otherwise pushed the flex item to
-            399px and overflowed the right edge by ~8px on a 375px-wide viewport).
-            `justify-center` then centers the pill within the row. */}
-        <div
-          className={classNames('pointer-events-auto flex-1 min-w-0 px-4 flex justify-center', !isMobile() && 'pb-2')}
-        >
-          <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
-        </div>
+        <DockedNavBar ref={dockedBar} items={tabs} activeId={activeTab} onChange={handleTabChange} />
       </div>
     </div>
   );

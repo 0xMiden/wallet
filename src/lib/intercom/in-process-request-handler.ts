@@ -44,8 +44,18 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       );
       return { type: WalletMessageType.NewWalletResponse };
 
+    case WalletMessageType.NewWalletFromHotKeyRequest:
+      await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
+      return { type: WalletMessageType.NewWalletFromHotKeyResponse };
+
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
+      await Actions.registerImportedWallet(
+        req.password,
+        req.mnemonic,
+        req.walletAccounts,
+        req.formatVersion,
+        req.importedAccounts
+      );
       return { type: WalletMessageType.ImportFromClientResponse };
 
     case WalletMessageType.UnlockRequest:
@@ -64,11 +74,34 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       await Actions.updateCurrentAccount(req.accountPublicKey);
       return { type: WalletMessageType.UpdateCurrentAccountResponse };
 
+    case WalletMessageType.RemoveSeedPhraseRequest:
+      await Actions.removeSeedPhrase(req.password);
+      return { type: WalletMessageType.RemoveSeedPhraseResponse };
+    case WalletMessageType.ProvideRecoverySeedRequest:
+      await Actions.provideRecoverySeed(req.transactionId, req.mnemonic, req.action);
+      return { type: WalletMessageType.ProvideRecoverySeedResponse };
+    case WalletMessageType.PrepareRecoveryRequest:
+      return {
+        type: WalletMessageType.PrepareRecoveryResponse,
+        ...(await Actions.prepareRecoveryTransaction(req.transactionId))
+      };
+    case WalletMessageType.ReleaseRecoveryRequest:
+      await Actions.releaseRecoveryAuthorization(req.transactionId);
+      return { type: WalletMessageType.ReleaseRecoveryResponse };
+
     case WalletMessageType.RevealMnemonicRequest: {
       const mnemonic = await Actions.revealMnemonic(req.password);
       return {
         type: WalletMessageType.RevealMnemonicResponse,
         mnemonic
+      };
+    }
+
+    case WalletMessageType.ExportWalletBackupMaterialRequest: {
+      const material = await Actions.exportWalletBackupMaterial(req.password);
+      return {
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
       };
     }
 
@@ -80,21 +113,19 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
-    case WalletMessageType.RevealHotKeyRequest: {
-      const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
+    case WalletMessageType.ExportAccountFileRequest: {
+      const accountFileBase64 = await Actions.exportAccountFile(req.accountPublicKey, req.password);
       return {
-        type: WalletMessageType.RevealHotKeyResponse,
-        hotPrivateKey: hotPrivateKey ?? ''
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64
       };
     }
 
-    case WalletMessageType.RevealGuardianKeysRequest: {
-      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
+    case WalletMessageType.RevealHotKeyRequest: {
+      const keyPairPayload = await Actions.revealHotKey(req.accountPublicKey, req.password);
       return {
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: keys?.coldPrivateKey ?? '',
-        coldPublicKey: keys?.coldPublicKey ?? '',
-        hotPublicKey: keys?.hotPublicKey
+        type: WalletMessageType.RevealHotKeyResponse,
+        keyPairPayload: keyPairPayload ?? ''
       };
     }
 
@@ -124,6 +155,40 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
         type: WalletMessageType.UpdateSettingsResponse
       };
 
+    case WalletMessageType.GetSpendingLimitRequest: {
+      const configuration = await Actions.getSpendingLimit(req.accountId);
+      return {
+        type: WalletMessageType.GetSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+
+    case WalletMessageType.SaveSpendingLimitRequest: {
+      const configuration = await Actions.saveSpendingLimit(req.draft, req.observedRevision, req.strictlyAuthenticated);
+      return {
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+
+    case WalletMessageType.AssessSpendingLimitRequest: {
+      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.spends);
+      return {
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        ...(assessment !== undefined && { assessment })
+      };
+    }
+
+    case WalletMessageType.GetStrictAuthenticationProtectorsRequest:
+      return {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: await Actions.getStrictAuthenticationProtectors()
+      };
+
+    case WalletMessageType.VerifyStrictActionAuthenticationRequest:
+      await Actions.verifyStrictActionAuthentication(req.credential);
+      return { type: WalletMessageType.VerifyStrictActionAuthenticationResponse };
+
     case WalletMessageType.SignTransactionRequest: {
       const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
       return {
@@ -133,7 +198,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     }
 
     case WalletMessageType.SignWordRequest: {
-      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
       return {
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature
@@ -277,6 +342,11 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       const { requeued } = await Actions.retryDeadletteredNotes();
       return { type: WalletMessageType.RetryDeadletteredNotesResponse, requeued };
     }
+    // Both in-process adapters must route this: it is the only path telemetry has off
+    // mobile and desktop, and a missing arm here fails silently (`default:` returns
+    // undefined, no throw, no failing test). See back/main.ts for the SW's own routing.
+    case WalletMessageType.ReportTelemetryEventRequest:
+      return Actions.handleReportTelemetryEvent(req);
 
     default:
       console.warn(`${label}: Unknown request type`, req?.type);

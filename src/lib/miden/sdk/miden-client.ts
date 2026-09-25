@@ -1,7 +1,7 @@
 import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
 
 // This import must stay ABOVE the `./miden-client-interface` one: that import
-// forms a cycle (via `speculation-manager`), and the poison bindings this
+// forms a cycle (it imports this module back), and the poison bindings this
 // module's own body reads — the three ceilings in `armWatchdogFor`, the error
 // class in `recoverFromWedgedHolder` — must already be initialized when the
 // cycle re-enters this module. See `wasm-client-poison.ts`.
@@ -854,22 +854,23 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
 /**
  * The SDK keystore callbacks this realm's one client may be asked for (#878):
  * `sign` from inside a write's `executeTransaction`, `insertKey` from an account
- * creation or import. Two lifecycles: `Actions.init` installs the signer once
+ * creation or import, and `getKey` during an explicitly authenticated account
+ * export. Three lifecycles: `Actions.init` installs the signer once
  * in every realm that writes; the insert-key slot is mutable, installed by each
  * vault when it takes its key, re-derived from the store when the flow that
  * constructed a vault ends, and retired by identity on lock. The SDK's third
- * callback, `getKey`, has no installer: secrets live in the vault and the SDK
- * signs through `sign`, so the client is built with `refuseGetKey`. The offscreen
- * document builds its own client with its reverse-IPC signer and never touches
- * this. Byte-shaped, as the SDK calls them: `buildSdkSignCallback` wraps the raw
- * hex signer.
+ * callback is installed only for the mutex-held export and removed in its
+ * `finally`. The offscreen document builds its own client with its reverse-IPC
+ * signer and never touches this. Byte-shaped, as the SDK calls them:
+ * `buildSdkSignCallback` wraps the raw hex signer.
  */
 export interface RealmKeystore {
   sign: SignCallback | null;
   insertKey: InsertKeyCallback | null;
+  getKey: GetKeyCallback | null;
 }
 
-const realmKeystore: RealmKeystore = { sign: null, insertKey: null };
+const realmKeystore: RealmKeystore = { sign: null, insertKey: null, getKey: null };
 
 /**
  * A number per insert-key sink, assigned on first sight and never retaining the
@@ -892,15 +893,10 @@ function sinkIdOf(sink: InsertKeyCallback): number {
 /** The id of the installed insert-key sink, or null when none is. */
 let realmInsertKeySinkId: number | null = null;
 
-const refuseGetKey: GetKeyCallback = async () => {
-  throw new Error(
-    'getKey is not served by this realm: secrets live in the vault and the SDK signs through the sign callback'
-  );
-};
-
 /** Install (or with `null`, clear) the realm's keystore callbacks; a field left out is untouched. */
 export function installRealmKeystore(callbacks: Partial<RealmKeystore>): void {
   if (callbacks.sign !== undefined) realmKeystore.sign = callbacks.sign;
+  if (callbacks.getKey !== undefined) realmKeystore.getKey = callbacks.getKey;
   if (callbacks.insertKey !== undefined) {
     realmKeystore.insertKey = callbacks.insertKey;
     realmInsertKeySinkId = callbacks.insertKey ? sinkIdOf(callbacks.insertKey) : null;
@@ -916,6 +912,7 @@ function logRealmKeystoreSlots(call: string, callbacks: Partial<RealmKeystore>):
   console.log(`[miden-client] ${call}:`, {
     slots: Object.keys(callbacks).join(','),
     sign: realmKeystore.sign ? 'installed' : 'none',
+    getKey: realmKeystore.getKey ? 'installed' : 'none',
     insertKeySinkId: realmInsertKeySinkId
   });
 }
@@ -930,6 +927,7 @@ function logRealmKeystoreSlots(call: string, callbacks: Partial<RealmKeystore>):
 export function isRealmKeystoreInstalled(callbacks: Partial<RealmKeystore>): boolean {
   return (
     (callbacks.sign === undefined || realmKeystore.sign === callbacks.sign) &&
+    (callbacks.getKey === undefined || realmKeystore.getKey === callbacks.getKey) &&
     (callbacks.insertKey === undefined || realmKeystore.insertKey === callbacks.insertKey)
   );
 }
@@ -941,6 +939,7 @@ export function isRealmKeystoreInstalled(callbacks: Partial<RealmKeystore>): boo
  */
 export function uninstallRealmKeystore(callbacks: Partial<RealmKeystore>): void {
   if (callbacks.sign !== undefined && realmKeystore.sign === callbacks.sign) realmKeystore.sign = null;
+  if (callbacks.getKey !== undefined && realmKeystore.getKey === callbacks.getKey) realmKeystore.getKey = null;
   if (callbacks.insertKey !== undefined && realmKeystore.insertKey === callbacks.insertKey) {
     realmKeystore.insertKey = null;
     realmInsertKeySinkId = null;
@@ -954,7 +953,7 @@ export function uninstallRealmKeystore(callbacks: Partial<RealmKeystore>): void 
  * `withWasmClientLock` carries the reason out on that hold's own rejection
  * (`tagLockedSignReason`, the same tag the offscreen path sets per op) and the
  * transaction loop reads only the error (issue #313: a wallet locked mid-sign
- * DEFERS the write). Nothing is ambient: a dry run, a speculation, or an evicted
+ * DEFERS the write). Nothing is ambient: a dry run or an evicted
  * client's late rejection records under its own hold, which no other flow reads,
  * so no write can inherit another's reason (issue #260's rule, which a realm-wide
  * slot broke twice under review). Cleared at the next attempt under the same hold,
@@ -1465,16 +1464,17 @@ class MidenClientSingleton {
    * disposed before the mutex is released): a sign is refused, so an abandoned
    * write cannot gain a signature it could still submit; an insert lands only
    * against the sink its build was retired with (`retiringBuild`), because the
-   * SDK has persisted the account by the time it asks; getKey is refused by
-   * name on every client, since nothing installs it. A call before the realm
-   * installed the callback is a wiring error, named as such.
+   * SDK has persisted the account by the time it asks; getKey is refused on a
+   * replaced client so an abandoned export cannot read from a newer operation's
+   * authenticated callback. A call before the realm installed the callback is a
+   * wiring error, named as such.
    */
   private keystoreTrampolines(
     generationAtBuild: number
   ): Pick<MidenClientCreateOptions, 'signCallback' | 'insertKeyCallback' | 'getKeyCallback'> {
     const retirement: { sinkId?: number | null } = {};
     this.retiringBuild = retirement;
-    const installed = <K extends keyof RealmKeystore>(kind: K): NonNullable<RealmKeystore[K]> => {
+    const assertBuildCurrent = (kind: keyof RealmKeystore): void => {
       if (generationAtBuild !== this.generation) {
         // Logged here: the poison message is a closed set, and a keystore callback's
         // throw crosses the SDK boundary as its message alone, so nothing else names
@@ -1484,6 +1484,9 @@ class MidenClientSingleton {
         );
         throw new WasmClientPoisonedError('watchdog', new Error(`${kind} requested on a replaced WASM client`));
       }
+    };
+    const installed = <K extends keyof RealmKeystore>(kind: K): NonNullable<RealmKeystore[K]> => {
+      assertBuildCurrent(kind);
       const callback = realmKeystore[kind];
       if (!callback) {
         throw new Error(`no ${kind} callback installed in this realm - see installRealmKeystore`);
@@ -1521,7 +1524,13 @@ class MidenClientSingleton {
         }
         return sink(key, secretKey);
       },
-      getKeyCallback: refuseGetKey
+      getKeyCallback: async key => {
+        const result = await installed('getKey')(key);
+        // Replacement can land while an async vault read is parked. Refuse its
+        // secret result before it crosses back into the abandoned WASM client.
+        assertBuildCurrent('getKey');
+        return result;
+      }
     };
   }
 

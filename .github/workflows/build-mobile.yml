@@ -20,8 +20,8 @@ on:
 
 # Minimal permissions for security
 permissions:
-  contents: write   # needed to attach assets to a GitHub Release
-  actions: write    # needed for artifact cleanup
+  contents: write # needed to attach assets to a GitHub Release
+  actions: write # needed for artifact cleanup
 
 # Cancel in-progress runs for the same branch
 concurrency:
@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       networks: ${{ steps.set.outputs.networks }}
     steps:
@@ -74,6 +74,11 @@ jobs:
       - name: Build web app for mobile
         env:
           MIDEN_NETWORK: ${{ matrix.network }}
+          # Baked into the bundle, so not confidential once shipped -- these are
+          # write-only ingestion ids, and a secret only keeps them out of git.
+          # Absent (a fork) each resolves to '' and turns its feature off.
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: yarn build:mobile
 
       - name: Sync Capacitor
@@ -147,6 +152,11 @@ jobs:
       - name: Build web app for mobile
         env:
           MIDEN_NETWORK: ${{ matrix.network }}
+          # Baked into the bundle, so not confidential once shipped -- these are
+          # write-only ingestion ids, and a secret only keeps them out of git.
+          # Absent (a fork) each resolves to '' and turns its feature off.
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: yarn build:mobile
 
       - name: Sync Capacitor
@@ -208,7 +218,7 @@ jobs:
 
   # Cleanup old artifacts, keep only last 10 builds per platform
   cleanup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     needs: [build-android, build-ios]
     steps:
       - name: Delete old artifacts

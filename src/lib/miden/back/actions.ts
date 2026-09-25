@@ -3,8 +3,11 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import { getMessage } from 'lib/i18n';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
+import { PublicError } from 'lib/miden/back/defaults';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift,
@@ -20,23 +23,54 @@ import {
   withInited,
   withUnlocked,
   settingsUpdated,
+  seedPhraseStatusUpdated,
   accountsUpdated,
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
-import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { clearStorage } from 'lib/miden/reset';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  installRealmKeystore,
+  uninstallRealmKeystore,
+  withWasmClientLock
+} from 'lib/miden/sdk/miden-client';
+import {
+  readSpendingLimit as readStoredSpendingLimit,
+  saveSpendingLimit as saveStoredSpendingLimit
+} from 'lib/miden/spending-limits/config';
+import { assessOutgoingSpendingLimitDetails } from 'lib/miden/spending-limits/queue';
+import {
+  PersistedSpendingLimit,
+  SerializedSpendingLimitAssessment,
+  SerializedSpendingLimitDraft,
+  parseSerializedSpendingAmount,
+  parseSerializedSpendingLimitDraft,
+  toPersistedSpendingLimit,
+  toSerializedSpendingLimitAssessment
+} from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
+  GuardianRecoveryAction,
   GuardianSyncStatus,
+  ImportedAccountBackup,
+  ReportTelemetryEventRequest,
+  ReportTelemetryEventResponse,
+  SerializedSpend,
   SignEvmOperation,
   WalletAccount,
+  WalletMessageType,
   WalletSettings,
   WalletState,
   WalletStatus
 } from 'lib/shared/types';
+import { resolveTelemetryContext } from 'lib/telemetry/context';
+import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
+import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
 import { MidenSharedStorageKey } from '../types';
 import {
   dappDebug,
@@ -195,7 +229,14 @@ export function registerNewWallet(
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonicFlag = await vault.isOwnMnemonic();
-        unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+        unlocked({
+          vault,
+          accounts,
+          settings,
+          currentAccount,
+          ownMnemonic: ownMnemonicFlag,
+          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+        });
         console.log('[Actions.registerNewWallet] Completed');
       } catch (err: unknown) {
         console.error('[Actions.registerNewWallet] FAILED:', err);
@@ -207,19 +248,80 @@ export function registerNewWallet(
   );
 }
 
-export function registerImportedWallet(password?: string, mnemonic?: string, walletAccounts: WalletAccount[] = []) {
+/** Seed-less Guardian import: spawn from the existing hot:EVM key pair. */
+export function registerWalletFromHotKey(password?: string, keyPairPayload?: string, guardianEndpoint?: string) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       try {
-        // Password may be undefined for hardware-only wallets
-        // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts);
+        if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
+        const vault = await Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint);
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonicFlag = await vault.isOwnMnemonic();
-        unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+        unlocked({
+          vault,
+          accounts,
+          settings,
+          currentAccount,
+          ownMnemonic: ownMnemonicFlag,
+          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+        });
       } finally {
+        syncRealmInsertKeySink();
+      }
+    })
+  );
+}
+
+export function registerImportedWallet(
+  password?: string,
+  mnemonic?: string,
+  walletAccounts: WalletAccount[] = [],
+  formatVersion?: number,
+  importedAccounts: ImportedAccountBackup[] = []
+) {
+  return withInited(() =>
+    getUnlockQueue().add(async () => {
+      let vault: Vault | undefined;
+      let published = false;
+      try {
+        // Password may be undefined for hardware-only wallets
+        // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
+        vault = await Vault.spawnFromMidenClient(
+          password ?? '',
+          mnemonic ?? '',
+          walletAccounts,
+          formatVersion,
+          importedAccounts
+        );
+        const accounts = await vault.fetchAccounts();
+        const settings = await vault.fetchSettings();
+        const currentAccount = await vault.getCurrentAccount();
+        const ownMnemonicFlag = await vault.isOwnMnemonic();
+        unlocked({
+          vault,
+          accounts,
+          settings,
+          currentAccount,
+          ownMnemonic: ownMnemonicFlag,
+          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+        });
+        published = true;
+      } finally {
+        if (!published && vault) {
+          // The spawn's own undo cannot fire here: it already RESOLVED, and the
+          // four awaits above are what failed. Without this the profile keeps a
+          // complete vault - protector, mnemonic, accounts, current-account
+          // pointer - that a reload would route straight to Unlock, while the UI
+          // reported a failed restore.
+          vault.retire();
+          // Never let the undo replace the cause: this runs in a finally, so a
+          // throw here would surface a storage error instead of the real failure.
+          await clearStorage(false).catch(undoError =>
+            console.error('[registerImportedWallet] could not undo a failed restore:', undoError)
+          );
+        }
         syncRealmInsertKeySink();
       }
     })
@@ -236,6 +338,7 @@ export function lock() {
     // coincided with LOCK_REQUEST arriving while a consume loop was active.
     await withWasmClientLock(async () => {
       const { vault } = store.getState();
+      clearRecoveryAuthorizations();
       locked();
       // Only the vault being locked gives up its insert-key sink; one an unlock in
       // flight just installed stays (#878).
@@ -252,6 +355,26 @@ export function unlock(password?: string) {
       // construction throws (#878).
       try {
         const vault = await Vault.setup(password);
+        // Resuming an interrupted removal is best-effort like the two migrations
+        // below it. It reaches the keystore, a client build and the offscreen
+        // document, and it throws seedRemovalFailed by design; letting that
+        // escape would leave the wallet permanently unopenable, because the
+        // status stays 'removing' and every retry re-runs the same failing step.
+        // Staying at 'removing' is the designed outcome - it is what the
+        // seedRemovalIncomplete notice asks the user to retry.
+        // It also takes the same mutual exclusion the explicit Settings removal
+        // takes, for the same reason: removeSeedPhrase calls
+        // clearRecoveryAuthorizations(), which zeroes a secret without checking
+        // whether a pipeline is mid-sign with it, and unlock() can run over an
+        // already-Ready vault whose transaction loop is live (#878). Declining
+        // the lock leaves the status at 'removing', which is the designed retry.
+        if ((await vault.fetchSeedPhraseStatus()) === 'removing') {
+          await navigator.locks
+            .request('generate-transactions-loop', { ifAvailable: true }, async lock => {
+              if (lock) await vault.removeSeedPhrase();
+            })
+            .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
+        }
         // Bring any pre-3-key Guardian accounts into the 3-key model in place
         // (best-effort, never throws) so they surface the Activate Device Key
         // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
@@ -263,7 +386,14 @@ export function unlock(password?: string) {
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
-        unlocked({ vault, accounts, settings, currentAccount, ownMnemonic });
+        unlocked({
+          vault,
+          accounts,
+          settings,
+          currentAccount,
+          ownMnemonic,
+          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+        });
         // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
         // predate the field, by resolving their on-chain guardian commitment to a
         // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
@@ -327,16 +457,48 @@ export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
+export function exportWalletBackupMaterial(password?: string) {
+  return withInited(() => Vault.exportWalletBackupMaterial(password));
+}
+
 export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
   return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
 }
 
-export function revealHotKey(accountPublicKey: string, password?: string) {
-  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+export function exportAccountFile(accountPublicKey: string, password?: string) {
+  return withInited(() =>
+    Vault.withAccountFileKeyReader(accountPublicKey, password, async getKey => {
+      try {
+        return await withWasmClientLock(
+          async hold => {
+            installRealmKeystore({ getKey });
+            const client = await getMidenClient();
+            assertWasmHoldCurrent(hold, 'export-account-file', 'after client acquisition');
+            const bytes = await client.exportAccountFile(accountPublicKey, step =>
+              assertWasmHoldCurrent(hold, 'export-account-file', step)
+            );
+            try {
+              // Encoded straight from `bytes` rather than through an intermediate Buffer copy,
+              // because every copy is another live plaintext of the account's auth key that the
+              // screen's own fill(0) cannot reach. The base64 string itself is immutable and stays
+              // resident until GC - the transport is a string here the way revealPrivateKey and
+              // revealMnemonic already are - so this zeroes the one copy it does own.
+              return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+            } finally {
+              bytes.fill(0);
+            }
+          },
+          { label: 'export-account-file' }
+        );
+      } finally {
+        uninstallRealmKeystore({ getKey });
+      }
+    })
+  );
 }
 
-export function revealGuardianKeys(accountPublicKey: string, password?: string) {
-  return withInited(() => Vault.revealGuardianKeys(accountPublicKey, password));
+export function revealHotKey(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
 }
 
 export function revealPublicKey(_accPublicKey: string) {}
@@ -402,15 +564,52 @@ export function updateSettings(settings: Partial<WalletSettings>) {
   });
 }
 
+export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
+  const configuration = await readStoredSpendingLimit(accountId);
+  return configuration === undefined ? undefined : toPersistedSpendingLimit(configuration);
+}
+
+export async function saveSpendingLimit(
+  serializedDraft: SerializedSpendingLimitDraft,
+  observedRevision: string | undefined,
+  strictlyAuthenticated: boolean
+): Promise<PersistedSpendingLimit | undefined> {
+  const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
+    observedRevision,
+    strictlyAuthenticated
+  });
+  return saved === undefined ? undefined : toPersistedSpendingLimit(saved);
+}
+
+export async function assessOutgoingSpendingLimit(
+  accountId: string,
+  spends: readonly SerializedSpend[]
+): Promise<SerializedSpendingLimitAssessment | undefined> {
+  const details = await assessOutgoingSpendingLimitDetails({
+    accountId,
+    spends: spends.map(spend => ({ faucetId: spend.faucetId, amount: parseSerializedSpendingAmount(spend.amount) }))
+  });
+  return details === undefined ? undefined : toSerializedSpendingLimitAssessment(details.assessment);
+}
+
+export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {
+  const [hardware, password] = await Promise.all([Vault.hasHardwareProtector(), Vault.hasPasswordProtector()]);
+  return { hardware, password };
+}
+
+export async function verifyStrictActionAuthentication(credential?: string): Promise<void> {
+  await Vault.verifyProtector(credential);
+}
+
 export function signTransaction(publicKey: string, signingInputs: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.signTransaction(publicKey, signingInputs);
   });
 }
 
-export function signWord(publicKey: string, wordHex: string) {
+export function signWord(publicKey: string, wordHex: string, transactionId?: string) {
   return withUnlocked(async ({ vault }) => {
-    return await vault.signWord(publicKey, wordHex);
+    return await vault.signWord(publicKey, wordHex, transactionId);
   });
 }
 
@@ -714,6 +913,24 @@ export async function processDApp(
   }
 }
 
+export async function handleReportTelemetryEvent(
+  req: ReportTelemetryEventRequest
+): Promise<ReportTelemetryEventResponse> {
+  // Defence in depth, and only that — `isNameableEvent` inside `sendEvent` is the
+  // control that actually holds. It refuses every case this would: a missing phase
+  // composes `open_undefined`, which has no phase suffix and fails the pattern.
+  // Kept because this is the boundary where an untyped message arrives (the
+  // offscreen document forwards over `chrome.runtime.sendMessage`, which is
+  // `unknown` at the wire) and refusing at the boundary costs one array lookup.
+  // Do not read it as the reason a malformed name cannot egress; that is the sink.
+  if (VALID_PHASES.includes((req.event as { phase?: string } | null)?.phase as string)) {
+    await sendEvent(req.event, resolveTelemetryContext());
+  }
+  return { type: WalletMessageType.ReportTelemetryEventResponse };
+}
+
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
+
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {
 //     if (settings.customNetworks) {
@@ -723,3 +940,35 @@ export async function processDApp(
 //     }
 //   } catch {}
 // }
+
+export function removeSeedPhrase(password?: string) {
+  return withUnlocked(() =>
+    getAccountsWriteQueue().add(async () => {
+      try {
+        const vault = await Vault.setup(password);
+        await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
+          if (!lock) throw new PublicError(getMessage('seedRemovalBusy'));
+          try {
+            await vault.removeSeedPhrase(() => seedPhraseStatusUpdated('removing'));
+          } finally {
+            seedPhraseStatusUpdated(await vault.fetchSeedPhraseStatus());
+          }
+        });
+      } finally {
+        syncRealmInsertKeySink();
+      }
+    })
+  );
+}
+
+export function provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction) {
+  return withUnlocked(({ vault }) => vault.provideRecoverySeed(transactionId, mnemonic, action));
+}
+
+export function prepareRecoveryTransaction(transactionId: string) {
+  return withUnlocked(({ vault }) => vault.prepareRecoveryTransaction(transactionId));
+}
+
+export function releaseRecoveryAuthorization(transactionId: string) {
+  return clearRecoveryAuthorization(transactionId);
+}

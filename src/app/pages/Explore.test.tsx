@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import BigNumber from 'bignumber.js';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -29,6 +30,7 @@ let mockFaucetId: string | null = 'faucet-native';
 let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
+let mockClaimableNotesAreCached = false;
 let mockIsExtension = true;
 let mockIsMobile = true;
 let mockAutoConsume = false;
@@ -59,12 +61,11 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 
-// Balance is a render-prop that hands its child the total fiat BigNumber; the
-// child immediately runs it through the (mocked) toLocalFormat, so any value is
-// fine here.
+// Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
+// to a number for `AnimatedNumber` and formats it through the (mocked) toLocalFormat.
 jest.mock('app/templates/Balance', () => ({
   __esModule: true,
-  default: ({ children }: { children: (b: unknown) => React.ReactElement }) => children(0)
+  default: ({ children }: { children: (b: BigNumber) => React.ReactElement }) => children(new BigNumber(0))
 }));
 
 jest.mock('app/templates/HomePrompts', () => ({
@@ -72,15 +73,18 @@ jest.mock('app/templates/HomePrompts', () => ({
   default: ({
     account,
     claimableNotes,
+    fundingNotes,
     tokenPrices
   }: {
     account: { publicKey: string };
     claimableNotes?: unknown[];
+    fundingNotes?: unknown[];
     tokenPrices: Record<string, unknown>;
   }) => (
     <div
       data-testid="home-prompts"
       data-note-count={claimableNotes?.length ?? 0}
+      data-funding-notes={fundingNotes === undefined ? 'unloaded' : String(fundingNotes.length)}
       data-price-symbols={Object.keys(tokenPrices).join(',')}
     >
       {account?.publicKey}
@@ -105,20 +109,26 @@ jest.mock('components/Loader', () => ({
 }));
 
 jest.mock('components/ui', () => ({
+  AnimatedNumber: ({ value, format }: { value: number | null; format: (value: number) => string }) =>
+    typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
   BalanceCard: ({
     accountNumber,
     accountId,
     amount,
     onMore,
-    state
+    state,
+    delta
   }: {
     accountNumber: string;
     accountId: string;
-    amount: string;
+    amount: React.ReactNode;
     onMore: () => void;
     state?: string;
+    // Surfaced so a test can see what Home passes: a stub that drops it makes the call site
+    // unobservable, which is how a fabricated change pill shipped.
+    delta?: unknown;
   }) => (
-    <div data-testid="balance-card" data-state={state}>
+    <div data-testid="balance-card" data-state={state} data-delta={delta === undefined ? 'none' : 'passed'}>
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
       <span data-testid="balance-amount">{amount}</span>
@@ -179,7 +189,11 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 jest.mock('lib/miden/front/claimable-notes', () => ({
-  useClaimableNotes: () => ({ data: mockClaimableNotes, mutate: mockMutateClaimableNotes })
+  useClaimableNotes: () => ({
+    data: mockClaimableNotes,
+    isFallback: mockClaimableNotesAreCached,
+    mutate: mockMutateClaimableNotes
+  })
 }));
 
 jest.mock('lib/miden/front/guardian-sync', () => ({
@@ -244,6 +258,7 @@ describe('Explore', () => {
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
     mockClaimableNotes = undefined;
+    mockClaimableNotesAreCached = false;
     mockIsExtension = true;
     mockIsMobile = true;
     mockAutoConsume = false;
@@ -287,6 +302,25 @@ describe('Explore', () => {
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
     });
 
+    it('hands the faucet lifecycle only a live note list, never the cached fallback', async () => {
+      // The hook serves last session's saved list first. A faucet baseline taken
+      // from it would count any native note newer than that cache as this
+      // request's mint arriving, so the funding list stays unloaded until live.
+      mockClaimableNotes = [makeNote('note-1', 'faucet-native')];
+      mockClaimableNotesAreCached = true;
+      await renderExplore();
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-funding-notes', 'unloaded');
+      // The attention list is unaffected: the pending-notes card may show cached notes.
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
+    });
+
+    it('hands the faucet lifecycle the live note list once it has landed', async () => {
+      mockClaimableNotes = [makeNote('note-1', 'faucet-native')];
+      mockClaimableNotesAreCached = false;
+      await renderExplore();
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-funding-notes', '1');
+    });
+
     it('puts the balance card in its loading state until the first balance read completes (#844)', async () => {
       // Right after a recovery the store has no entry for the address yet, so
       // the hook hands back a zero placeholder with `isLoading: true`. The card
@@ -317,6 +351,15 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
+    });
+
+    // The same rule as the "$-" total above, one row down: a change figure the app does not have is
+    // not displayed. Home passed a hardcoded +0.00 / 0.00% before, so the card showed a fabricated
+    // zero-change pill on every visit.
+    it('passes no change figure until a real price-change source exists', async () => {
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
     });
 
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {
@@ -408,46 +451,19 @@ describe('Explore', () => {
     });
   });
 
-  describe('token search filtering', () => {
+  describe('asset list', () => {
     beforeEach(() => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden'),
         makeToken('t-btc', 'BTC', 'Bitcoin'),
-        makeToken('t-eth', 'ETH') // name is undefined -> optional chaining short-circuits
+        makeToken('t-eth', 'ETH')
       ];
     });
 
-    it('shows all tokens (sorted) when the search box is empty', async () => {
+    it('lists every token under the Assets heading with no search box', async () => {
       await renderExplore();
       expect(screen.getAllByTestId('asset-row')).toHaveLength(3);
-      // Placeholder text flows through i18n (mock echoes the key).
-      expect(screen.getByTestId('search-input')).toHaveAttribute('placeholder', 'searchForTokens');
-    });
-
-    it('filters by symbol (left match) and name (right match), excluding undefined-name tokens', async () => {
-      await renderExplore();
-
-      // query "i": MIDEN symbol matches (left true); BTC symbol misses but
-      // "Bitcoin" name matches (right true); ETH symbol misses and name is
-      // undefined (right short-circuits to falsy) -> excluded.
-      await act(async () => {
-        fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'i' } });
-      });
-
-      const rows = screen.getAllByTestId('asset-row');
-      const tokens = rows.map(r => r.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-btc']);
-      expect(tokens).not.toContain('t-eth');
-    });
-
-    it('treats a whitespace-only query as empty (trim branch)', async () => {
-      await renderExplore();
-
-      await act(async () => {
-        fireEvent.change(screen.getByTestId('search-input'), { target: { value: '   ' } });
-      });
-
-      expect(screen.getAllByTestId('asset-row')).toHaveLength(3);
+      expect(screen.queryByTestId('search-input')).toBeNull();
     });
   });
 

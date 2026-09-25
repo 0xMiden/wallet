@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E82100000000000000000001 /* UpdateAvailabilityLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000002 /* UpdateAvailabilityLogic.swift */; };
+		E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */; };
+		E82100000000000000000010 /* UpdateAvailabilityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -29,7 +32,21 @@
 		C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		E82100000000000000000005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 504EC3031FED79650016851F;
+			remoteInfo = App;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		E82100000000000000000002 /* UpdateAvailabilityLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogic.swift; sourceTree = "<group>"; };
+		E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogicTests.swift; sourceTree = "<group>"; };
+		E82100000000000000000006 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityPlugin.swift; sourceTree = "<group>"; };
 		1A6B2865F76F213517CFCCD1 /* AppViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppViewController.swift; sourceTree = "<group>"; };
 		21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalBiometricPlugin.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -52,6 +69,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		E82100000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3011FED79650016851F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -71,6 +95,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3061FED79650016851F /* App */,
+				E82100000000000000000008 /* AppTests */,
 				504EC3051FED79650016851F /* Products */,
 				7BF04FDF2F1F799A005E306E /* Recovered References */,
 			);
@@ -80,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				E82100000000000000000006 /* AppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -105,8 +131,18 @@
 				1A6B2865F76F213517CFCCD1 /* AppViewController.swift */,
 				873F0344C8952CB5585102E0 /* App.entitlements */,
 				AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */,
+				E82100000000000000000002 /* UpdateAvailabilityLogic.swift */,
+				E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		E82100000000000000000008 /* AppTests */ = {
+			isa = PBXGroup;
+			children = (
+				E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */,
+			);
+			path = AppTests;
 			sourceTree = "<group>";
 		};
 		7BF04FDF2F1F799A005E306E /* Recovered References */ = {
@@ -119,6 +155,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		E82100000000000000000009 /* AppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E8210000000000000000000A /* Build configuration list for PBXNativeTarget "AppTests" */;
+			buildPhases = (
+				E8210000000000000000000B /* Sources */,
+				E82100000000000000000007 /* Frameworks */,
+				E8210000000000000000000C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E8210000000000000000000D /* PBXTargetDependency */,
+			);
+			name = AppTests;
+			productName = AppTests;
+			productReference = E82100000000000000000006 /* AppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		504EC3031FED79650016851F /* App */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
@@ -152,6 +206,10 @@
 				LastSwiftUpdateCheck = 0920;
 				LastUpgradeCheck = 0920;
 				TargetAttributes = {
+					E82100000000000000000009 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = 504EC3031FED79650016851F;
+					};
 					504EC3031FED79650016851F = {
 						CreatedOnToolsVersion = 9.2;
 						LastSwiftMigration = 1100;
@@ -179,11 +237,19 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				E82100000000000000000009 /* AppTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		E8210000000000000000000C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3021FED79650016851F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -201,6 +267,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		E8210000000000000000000B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3001FED79650016851F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -213,10 +287,20 @@
 				C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */,
 				7B5E86162FD4243200930C68 /* ReownPlugin.swift in Sources */,
 				83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */,
+				E82100000000000000000001 /* UpdateAvailabilityLogic.swift in Sources */,
+				E82100000000000000000010 /* UpdateAvailabilityPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		E8210000000000000000000D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 504EC3031FED79650016851F /* App */;
+			targetProxy = E82100000000000000000005 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -238,6 +322,38 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		E8210000000000000000000E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = LHU7B7J5WL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/App";
+			};
+			name = Debug;
+		};
+		E8210000000000000000000F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = LHU7B7J5WL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/App";
+			};
+			name = Release;
+		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
@@ -354,7 +470,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
@@ -363,7 +479,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.17.0;
+				MARKETING_VERSION = 1.17.0-rc.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -379,7 +495,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
@@ -388,7 +504,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.17.0;
+				MARKETING_VERSION = 1.17.0-rc.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
@@ -400,6 +516,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		E8210000000000000000000A /* Build configuration list for PBXNativeTarget "AppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E8210000000000000000000E /* Debug */,
+				E8210000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

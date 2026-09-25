@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SuccessDivider, TransactionSuccessLayout } from './TransactionSuccessLayout';
+import { ReceiptRows, SuccessSummaryPill, TransactionSuccessLayout } from './TransactionSuccessLayout';
 
 /**
  * Covers the two props the Guardian receipt introduced to the shared layout:
@@ -19,25 +19,15 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title: string; onClick: () => void }) => (
-    <button data-testid="footer-action" onClick={onClick}>
+  Button: ({ title, onClick, accent }: { title: string; onClick: () => void; accent?: string }) => (
+    <button data-testid="footer-action" data-accent={accent} onClick={onClick}>
       {title}
     </button>
   ),
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
 }));
 
-// Exposes onClose rather than swallowing it: the receipt's header X is one of the
-// two ways out of the screen, and a stub that drops the prop lets the layout stop
-// wiring it without a single test noticing.
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
-    <div>
-      {title}
-      <button data-testid="header-close" onClick={onClose} />
-    </div>
-  )
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: jest.fn()
@@ -52,13 +42,13 @@ const baseProps = {
 
 const footerLabels = () => screen.getAllByTestId('footer-action').map(button => button.textContent);
 
-it('promotes the body title to h1 when the header carries no title', () => {
+it('titles the page when the receipt passes no header title, so the page always has an h1', () => {
   render(<TransactionSuccessLayout {...baseProps} headerTitle="" />);
 
-  // Every receipt passes an empty header title, so this is the screen's only
-  // heading — as an h2 it left the page with no h1 and the header announcing a
-  // nameless level-1 heading.
-  expect(screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' })).toBeInTheDocument();
+  // The shared flow frame always renders the page title as the h1; an empty header
+  // title falls back to "Success" rather than a nameless heading.
+  expect(screen.getByRole('heading', { level: 1, name: 'success' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
 it('keeps the body title one level below a titled header', () => {
@@ -67,14 +57,25 @@ it('keeps the body title one level below a titled header', () => {
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
-it('draws the receipt divider in a shade that survives both themes', () => {
-  const { container } = render(<SuccessDivider />);
+// The flow's own accent (e.g. `accent-send`) sits at ~2:1 on `fill` — under AA
+// for text (Rule 6). `accent-tint-ink` is the accent pair that actually clears
+// 4.5:1 there, so every clickable row value uses it regardless of flow.
+it('colours the clickable row value with accent-tint-ink, never the flow accent', () => {
+  const row = { label: 'Transaction ID', value: '0xabc', onClick: jest.fn(), actionLabel: 'View on Midenscan' };
+  render(<ReceiptRows rows={[row]} />);
 
-  // Nothing mounted the real divider — GuardianSwitchSuccess stubs it and this
-  // suite never imported it — so it shipped as a literal #F2F2F4 with no dark
-  // counterpart, a bright bar across the dark receipt. `gray-50` is that same
-  // near-white in light and composites to ~#333 in dark.
-  expect(container.firstElementChild).toHaveClass('bg-gray-50');
+  const value = screen.getByRole('button', { name: 'View on Midenscan' });
+  expect(value).toHaveClass('text-accent-tint-ink');
+  expect(value.className).not.toMatch(/text-accent-(send|receive|earn|swap)\b/);
+});
+
+// One element owns the gap: the card takes its margin from its caller. While an empty spacer sat
+// in front of it as well, the card carried two margin classes and one of them never applied.
+it('leaves the summary-to-card gap to the caller, with one margin class on the card', () => {
+  const { container } = render(<ReceiptRows rows={[{ label: 'Network fee', value: '1 MDN' }]} className="mt-6" />);
+
+  const card = container.firstElementChild!;
+  expect(card.className.match(/\bmt-\d+\b/g)).toEqual(['mt-6']);
 });
 
 it('takes focus on mount so the outcome is announced', () => {
@@ -83,7 +84,7 @@ it('takes focus on mount so the outcome is announced', () => {
   // The receipt replaces the in-progress view in place — no navigation, no live
   // region — so without this the result of the transaction the user just
   // authorized was never announced, and focus sat on the unmounted view's body.
-  const heading = screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' });
+  const heading = screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' });
   expect(heading).toHaveFocus();
   // Focusable, but not a tab stop: -1 is the standard shape for a focus target.
   expect(heading).toHaveAttribute('tabindex', '-1');
@@ -93,7 +94,7 @@ it('renders the green check hero when no custom artwork is supplied', () => {
   render(<TransactionSuccessLayout {...baseProps} />);
 
   // The default hero is decorative, so it is only reachable through the DOM.
-  expect(document.querySelector('svg')).toBeInTheDocument();
+  expect(document.querySelector('.bg-status-positive')).toBeInTheDocument();
   expect(screen.queryByTestId('custom-hero')).not.toBeInTheDocument();
 });
 
@@ -103,7 +104,7 @@ it('replaces the check hero entirely with custom artwork', () => {
   expect(screen.getByTestId('custom-hero')).toBeInTheDocument();
   // A rotation receipt shows robot-and-shield art instead of the check, so the
   // default must not render alongside it.
-  expect(document.querySelector('svg')).not.toBeInTheDocument();
+  expect(document.querySelector('.bg-status-positive')).not.toBeInTheDocument();
 });
 
 it('stacks the primary action above the secondary one by default', () => {
@@ -124,6 +125,26 @@ it('inverts the stack when secondaryFirst is set', () => {
   );
 
   expect(footerLabels()).toEqual(['View in Activities', 'Done']);
+});
+
+it("gives the footer actions the flow's own colour, so the receipt matches the pages before it", () => {
+  render(
+    <TransactionSuccessLayout
+      {...baseProps}
+      accent="swap"
+      secondaryAction={{ label: 'View in Activities', onClick: jest.fn() }}
+    />
+  );
+
+  for (const action of screen.getAllByTestId('footer-action')) {
+    expect(action).toHaveAttribute('data-accent', 'swap');
+  }
+});
+
+it('falls back to the brand orange when no flow is named', () => {
+  render(<TransactionSuccessLayout {...baseProps} />);
+
+  expect(screen.getByTestId('footer-action')).toHaveAttribute('data-accent', 'brand');
 });
 
 it('renders a lone primary action when there is no secondary one, ordering flag notwithstanding', () => {
@@ -149,9 +170,31 @@ it("invokes the caller's own handlers from both CTAs and the header close", () =
   // left the layout free to render buttons that do nothing.
   fireEvent.click(screen.getByText('Done'));
   fireEvent.click(screen.getByText('View in Activities'));
-  fireEvent.click(screen.getByTestId('header-close'));
+  fireEvent.click(screen.getByTestId('flow-close'));
 
   expect(primary).toHaveBeenCalledTimes(1);
   expect(secondary).toHaveBeenCalledTimes(1);
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+// The receipt reuses the in-progress screen's badge, which falls back to the SEND hue when no
+// fill is given. Dropping the caller's `fillForArrow` therefore painted a swap's success receipt
+// in the send colour - the same "one transaction in two shades" the badge itself was fixed for,
+// one component further along.
+describe('SuccessSummaryPill', () => {
+  it("forwards the caller's arrow fill to the badge", () => {
+    const { container } = render(<SuccessSummaryPill lhs="1 ETH" rhs="2 USDC" fillForArrow="var(--tx-swap)" />);
+
+    expect(container.querySelector('rect')?.style.fill).toBe('var(--tx-swap)');
+  });
+
+  it('leaves the badge on its own default when the caller gives none', () => {
+    const { container } = render(<SuccessSummaryPill lhs="1 ETH" rhs="2 USDC" />);
+
+    // The rect has to EXIST for this to mean anything: an optional chain on a missing element
+    // yields undefined, which satisfies `.not.toBe` and passes on a badge that renders nothing.
+    const rect = container.querySelector('rect');
+    expect(rect).not.toBeNull();
+    expect(rect?.style.fill).not.toBe('var(--tx-swap)');
+  });
 });

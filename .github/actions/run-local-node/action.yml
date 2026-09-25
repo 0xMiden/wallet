@@ -181,7 +181,10 @@ runs:
 
         # The node source start-test-node.sh would have installed from crates.io. Its own
         # --print-rev is the single place that decides it, so ask it rather than re-deriving.
+        # Since rust-sdk v0.17.0-rc.3 it prints a cache key, `<rev>-bins.<cksum>`; the
+        # suffix names the binary set, not a fetchable ref.
         node_rev=$("$clone/scripts/start-test-node.sh" --print-rev)
+        node_rev="${node_rev%-bins.*}"
         [ -n "$node_rev" ] || {
           echo "::error title=run-local-node::start-test-node.sh --print-rev printed nothing; the node source cannot be identified."
           exit 1
@@ -321,12 +324,29 @@ runs:
     #
     # The protocol rev is in the key, not just in the build: without it a stock
     # node restores over a patched one and the whole pin is a no-op that looks green.
+    - name: Compute node cache key
+      id: node_cache_key
+      shell: bash
+      env:
+        ARCH: ${{ runner.arch }}
+        REV: ${{ steps.pins.outputs.rev }}
+        FEE: ${{ inputs.verification-base-fee }}
+        PROTOCOL_SUFFIX: ${{ steps.protocol.outputs.cache_suffix }}
+      run: |
+        # The old architecture-neutral key contains x64 binaries. Reuse it only on
+        # x64 so current main caches stay warm, and name every other architecture.
+        if [ "$ARCH" = X64 ]; then
+          namespace=local-node-install
+        else
+          namespace=local-node-install-$ARCH
+        fi
+        echo "key=${namespace}-${REV}-fee${FEE}${PROTOCOL_SUFFIX}-rust1.98.0" >> "$GITHUB_OUTPUT"
     - name: Restore node build
       id: node_cache
       uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
-        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.98.0
+        key: ${{ steps.node_cache_key.outputs.key }}
     # Fails in ~2 min instead of after the ~36 min cold build. NOT skipped on a cache
     # hit: the node binaries are restored, but gen-genesis is not — start-test-node.sh
     # rebuilds it every run from the miden-client workspace, whose target/release is
@@ -417,8 +437,11 @@ runs:
         mkdir -p "$install" "$build"
         cd "$NODE_DIR"
         # Same four binaries, same profile overrides, as start-test-node.sh's own install.
+        # Every binary in the script's NODE_BINS: one missing makes its cached-binaries
+        # check fail, and it would then reinstall the whole node unpatched.
         for spec in bin/node:miden-node bin/validator:miden-validator \
-                    bin/ntx-builder:miden-ntx-builder bin/remote-prover:miden-remote-prover; do
+                    bin/ntx-builder:miden-ntx-builder bin/remote-prover:miden-remote-prover \
+                    bin/funding-service:miden-funding-service bin/note-transport:miden-note-transport; do
           p="${spec%%:*}"; b="${spec##*:}"
           echo "::group::cargo install $b (from $NODE_DIR/$p)"
           CARGO_PROFILE_RELEASE_DEBUG=false CARGO_PROFILE_RELEASE_STRIP=symbols \
@@ -450,7 +473,8 @@ runs:
           want=" $nodever (registry+"
         fi
         sed -i "s|(path+file://[^)]*)|($src)|g" "$meta"
-        for b in miden-validator miden-node miden-ntx-builder miden-remote-prover; do
+        for b in miden-validator miden-node miden-ntx-builder miden-remote-prover miden-funding-service \
+                 miden-note-transport; do
           [ -x "$install/bin/$b" ] || { echo "::error title=run-local-node::$b was not installed to $install/bin"; exit 1; }
           grep -F -- "\"$b " "$meta" | grep -qF -- "$want" || {
             echo "::error title=run-local-node::$meta does not record $b the way start-test-node.sh looks it up (expected to contain '$want')."
@@ -521,8 +545,7 @@ runs:
       env:
         MIDEN_PROVER_TIMEOUT: 10m
         MIDEN_PROVER_CAPACITY: '4'
-        # Read by miden-client's test-node-genesis when it renders genesis.toml.
-        # Unset (or 0) means `verification_base_fee = 0` and a fee-free chain.
+        # The chain's verification base fee; start-test-node.sh passes it to genesis.
         # The name start-test-node.sh actually reads; MIDEN_TEST_NODE_VERIFICATION_BASE_FEE
         # is read by nothing, so the requested fee never reached genesis.
         MIDEN_VERIFICATION_BASE_FEE: ${{ inputs.verification-base-fee }}
@@ -613,14 +636,39 @@ runs:
         [ "$n" -gt 0 ] || { echo "::error::no funder wallets were exposed by the node"; exit 1; }
         echo "assembled $n funder wallet(s) + native_faucet.mac in $dir"
         echo "MIDEN_E2E_FUNDER_DIR=$dir" >> "$GITHUB_ENV"
+        # 0.17 clients need this at WASM create. Bake it into the extension build
+        # (vite define); a runtime injector cannot reach the offscreen bundle.
+        log="$clone/target/test-node/data/logs/bootstrap.log"
+        faucet=$(grep -oE 'Native faucet account id: [^[:space:]]+' "$log" | awk '{print $NF}' | head -n1)
+        [ -n "$faucet" ] || {
+          echo "::error::no 'Native faucet account id' line in $log"
+          exit 1
+        }
+        echo "native fee faucet $faucet"
+        echo "MIDEN_FEE_FAUCET_ID=$faucet" >> "$GITHUB_ENV"
 
     - name: Verify genesis fee parameters
       shell: bash
       run: |
         set -euo pipefail
         g="${{ runner.temp }}/miden-client/target/test-node/data/genesis-config/genesis.toml"
-        actual=$(grep -E '^verification_base_fee' "$g" | tr -dc '0-9')
         want='${{ inputs.verification-base-fee }}'
+        if [ -f "$g" ]; then
+          actual=$(grep -E '^verification_base_fee' "$g" | tr -dc '0-9')
+        else
+          # Since rust-sdk v0.17.0-rc.3 no genesis file records the fee: the script hands its
+          # MIDEN_VERIFICATION_BASE_FEE (set on the start step) to `miden-validator genesis` as a
+          # flag. Guard both ends of that hand-off, since a renamed variable is how the requested
+          # fee silently never reached genesis before.
+          f="${{ runner.temp }}/miden-client/scripts/start-test-node.sh"
+          for line in 'VERIFICATION_BASE_FEE="${MIDEN_VERIFICATION_BASE_FEE:-' '--verification-base-fee "$VERIFICATION_BASE_FEE"'; do
+            grep -qF -- "$line" "$f" || {
+              echo "::error::start-test-node.sh no longer contains '$line'; the requested fee may not reach genesis."
+              exit 1
+            }
+          done
+          actual=$want
+        fi
         echo "genesis verification_base_fee=$actual (requested $want)"
         if [ "$actual" != "$want" ]; then
           echo "::error::genesis has verification_base_fee=$actual but $want was requested; the chain is not charging what the suite assumes"
@@ -634,7 +682,7 @@ runs:
       uses: actions/cache/save@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
-        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.98.0
+        key: ${{ steps.node_cache_key.outputs.key }}
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.

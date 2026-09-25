@@ -24,6 +24,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { useSprings } from 'lib/animation';
 import {
   confirmationPromptKey,
@@ -32,6 +33,7 @@ import {
   type DAppConfirmationResult
 } from 'lib/dapp-browser/confirmation-store';
 import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -55,7 +57,12 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const isTransaction = isDetailsConfirmation(request.type);
   const appName = request.appMeta?.name || request.origin;
   const transactionMessages = request.transactionMessages ?? [];
-  const canApprove = isTransaction || Boolean(accountId);
+  const transactionAccountMatches =
+    request.type !== 'transaction' ||
+    (accountId !== null &&
+      request.sourcePublicKey !== undefined &&
+      sameWalletAccountId(accountId, request.sourcePublicKey));
+  const canApprove = request.type === 'transaction' ? transactionAccountMatches : isTransaction || Boolean(accountId);
 
   // Private-data scope of a connect request. `Auto` + a non-empty
   // `allowedPrivateData` is STANDING access: the private-notes /
@@ -69,6 +76,8 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   );
   const allowedPrivateDataList = formatAllowedPrivateData(request.allowedPrivateData);
   const [standingAccessAcknowledged, setStandingAccessAcknowledged] = useState(false);
+  const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
+  const resolvedRef = useRef(false);
 
   // PR-7: focus management. On mount we store the element that was
   // focused before the modal opened, move focus to the first focusable
@@ -79,6 +88,17 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // implementation covers the same ground for our single-modal case.
   const containerRef = useRef<HTMLDivElement>(null);
   const approveButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    resolvedRef.current = false;
+    setShowSpendingLimitChallenge(false);
+  }, [request.id]);
+
+  useEffect(() => {
+    if (request.type !== 'transaction' || transactionAccountMatches || resolvedRef.current) return;
+    resolvedRef.current = true;
+    onResolve({ confirmed: false });
+  }, [onResolve, request.type, transactionAccountMatches]);
 
   useEffect(() => {
     const previouslyFocused = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null;
@@ -151,12 +171,16 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   }, []);
 
   function handleDeny() {
+    if (resolvedRef.current) return;
+    resolvedRef.current = true;
     hapticLight();
     onResolve({ confirmed: false });
   }
 
-  function handleApprove() {
+  function resolveApproval(spendingLimitAuthenticated?: true) {
     if (!canApprove) return;
+    if (resolvedRef.current) return;
+    resolvedRef.current = true;
     hapticMedium();
     onResolve({
       confirmed: true,
@@ -171,11 +195,21 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
       // Mobile has no confirm-popup equivalent of ConfirmPage, which reads this
       // for the extension; without it the backend hard-coded delegated proving
       // and silently overrode the user's Delegated-proving setting.
-      delegate: isDelegateProofEnabled()
+      delegate: isDelegateProofEnabled(),
+      ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
     });
   }
 
-  return (
+  function handleApprove() {
+    if (!canApprove || resolvedRef.current) return;
+    if (request.spendingLimitAssessment !== undefined) {
+      setShowSpendingLimitChallenge(true);
+      return;
+    }
+    resolveApproval();
+  }
+
+  const approvalModal = (
     <motion.div
       key="dapp-confirmation-overlay"
       className="fixed inset-0 z-[70] flex items-center justify-center p-4"
@@ -206,7 +240,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <Icon name={IconName.Globe} className="text-primary-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-black">
+            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-ink">
               {appName}
             </h2>
             <p className="truncate text-sm text-text-muted">{request.origin}</p>
@@ -218,7 +252,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           <p className="mb-4 text-sm text-text-muted">{t(confirmationPromptKey(request.type))}</p>
 
           {isTransaction && transactionMessages.length > 0 && (
-            <div className="mb-4 rounded-xl bg-gray-50 p-4">
+            <div className="mb-4 rounded-xl bg-fill p-4">
               {transactionMessages.map((msg, i) => (
                 <div
                   key={i}
@@ -268,9 +302,9 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             </div>
           )}
 
-          <div className="rounded-xl bg-gray-50 p-4">
+          <div className="rounded-xl bg-fill p-4">
             <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
-            <p className="text-sm capitalize text-black">{request.network}</p>
+            <p className="text-sm capitalize text-ink">{request.network}</p>
           </div>
         </div>
 
@@ -295,5 +329,24 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
         </div>
       </motion.div>
     </motion.div>
+  );
+
+  return (
+    <>
+      {approvalModal}
+      {showSpendingLimitChallenge && request.spendingLimitAssessment !== undefined && (
+        <SpendingLimitChallenge
+          assessment={request.spendingLimitAssessment}
+          onResult={authorization => {
+            setShowSpendingLimitChallenge(false);
+            if (authorization === undefined) {
+              handleDeny();
+            } else {
+              resolveApproval(true);
+            }
+          }}
+        />
+      )}
+    </>
   );
 };

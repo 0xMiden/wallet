@@ -65,6 +65,13 @@ describe('GuardianNeedsUrlBanner', () => {
     }
   });
 
+  it('renders the submit action as the compact in-card sm button, not a full 48px CTA', () => {
+    render(<GuardianNeedsUrlBanner />);
+    // sm is `h-9`; the default lg CTA is `h-12` — assert the compact size landed.
+    expect(getSubmitButton()).toHaveClass('h-9');
+    expect(getSubmitButton()).not.toHaveClass('h-12');
+  });
+
   it('rejects an invalid URL without calling the apply action', () => {
     render(<GuardianNeedsUrlBanner />);
     fireEvent.change(getUrlInput(), { target: { value: 'not-a-url' } });

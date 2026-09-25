@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, render, renderHook, screen } from '@testing-library/react';
 
+import { pageStepOffset, pageStepPresentOffset, pageStepTransition, reducedMotionTransition } from 'lib/animation';
+
 import {
   DefaultAnimationConfig,
   Navigator,
@@ -17,15 +19,17 @@ import {
 // `variants` functions can be invoked directly and asserted. Movement is
 // otherwise never driven by jsdom, so capturing is the only way to reach
 // the variant/branch logic. `useReducedMotion` is a switch the tests flip.
-const mockMotionCapture: { props: any } = { props: null };
+const mockMotionCapture: { props: any; presence: any } = { props: null, presence: null };
 let mockReduceMotion = false;
 let mockIsMobile = false;
 
 jest.mock('framer-motion', () => {
   const ReactLib = require('react');
   return {
-    AnimatePresence: ({ children }: { children?: React.ReactNode }) =>
-      ReactLib.createElement(ReactLib.Fragment, null, children),
+    AnimatePresence: ({ children, ...presence }: { children?: React.ReactNode }) => {
+      mockMotionCapture.presence = presence;
+      return ReactLib.createElement(ReactLib.Fragment, null, children);
+    },
     motion: {
       div: ReactLib.forwardRef((props: any, ref: any) => {
         mockMotionCapture.props = props;
@@ -60,6 +64,7 @@ const setupHook = (initialRouteName?: string) =>
 
 beforeEach(() => {
   mockMotionCapture.props = null;
+  mockMotionCapture.presence = null;
   mockReduceMotion = false;
   mockIsMobile = false;
 });
@@ -99,6 +104,22 @@ describe('NavigatorProvider — initial state', () => {
     expect(result.current.activeRoute).toBeUndefined();
     // activeRoute is undefined -> activeIndex falls back to 0
     expect(result.current.activeIndex).toBe(0);
+  });
+
+  it('starts with a whole stack from initialRouteNames, so back pops to the earlier route', () => {
+    const { result } = renderHook(() => useNavigator(), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <NavigatorProvider routes={routes} initialRouteNames={['home', 'settings']}>
+          {children}
+        </NavigatorProvider>
+      )
+    });
+    expect(result.current.cardStack).toEqual([routeHome, routeSettings]);
+    expect(result.current.activeRoute).toBe(routeSettings);
+
+    act(() => result.current.goBack());
+
+    expect(result.current.cardStack).toEqual([routeHome]);
   });
 
   it('starts empty when no initialRouteName is provided', () => {
@@ -278,6 +299,44 @@ describe('Navigator component', () => {
     expect(mockMotionCapture.props.transition.duration).toBe(0.15);
   });
 
+  it('swaps one step at a time: the leaving step goes before the next one mounts', () => {
+    renderNavigator();
+    expect(mockMotionCapture.presence).toEqual({ mode: 'wait', initial: false });
+  });
+
+  it('runs a step swap on the page step transition on mobile', () => {
+    mockIsMobile = true;
+    renderNavigator();
+    expect(mockMotionCapture.props.transition).toEqual({ ...pageStepTransition, when: 'beforeChildren' });
+  });
+
+  it('keeps the page step curve when a caller sets the duration', () => {
+    mockIsMobile = true;
+    renderNavigator({ animationDuration: 0.5 });
+    expect(mockMotionCapture.props.transition).toEqual({
+      ...pageStepTransition,
+      duration: 0.5,
+      when: 'beforeChildren'
+    });
+  });
+
+  it.each([true, false])('makes the swap instant under reduced motion (mobile: %s)', mobile => {
+    mockIsMobile = mobile;
+    mockReduceMotion = true;
+    renderNavigator({ animationDuration: 0.5 });
+    expect(mockMotionCapture.props.transition).toEqual({ ...reducedMotionTransition, when: 'beforeChildren' });
+  });
+
+  it('nudges a pushed step in by pageStepOffset, from the right forward and the left back', () => {
+    expect(DefaultAnimationConfig.pushInitialPosition.x).toBe(pageStepOffset);
+    expect(DefaultAnimationConfig.pushBackInitialPosition.x).toBe(`-${pageStepOffset}`);
+  });
+
+  it('presents a step from pageStepPresentOffset below and dismisses it back there', () => {
+    expect(DefaultAnimationConfig.presentInitialPosition.y).toBe(pageStepPresentOffset);
+    expect(DefaultAnimationConfig.presentExitPosition.y).toBe(pageStepPresentOffset);
+  });
+
   describe('animation variants (default config)', () => {
     beforeEach(() => {
       mockReduceMotion = false;
@@ -296,9 +355,11 @@ describe('Navigator component', () => {
       expect(initialPosition({ in: 'push', out: 'pop', direction: 'forward' })).toEqual(
         DefaultAnimationConfig.pushInitialPosition
       );
+      // Back mirrors forward: the previous step slides in from the left.
       expect(initialPosition({ in: 'push', out: 'pop', direction: 'backward' })).toEqual(
-        DefaultAnimationConfig.pushHiddenPosition
+        DefaultAnimationConfig.pushBackInitialPosition
       );
+      expect(DefaultAnimationConfig.pushBackInitialPosition.x).toBe('-8%');
     });
 
     it('initialPosition for a present route uses the present initial position', () => {
@@ -342,6 +403,10 @@ describe('Navigator component', () => {
       ReducedMotionAnimationConfig.presentInitialPosition
     );
     expect(ReducedMotionAnimationConfig.presentInitialPosition.y).toBe('0vw');
+    expect(initialPosition({ in: 'push', out: 'pop', direction: 'backward' })).toEqual(
+      ReducedMotionAnimationConfig.pushBackInitialPosition
+    );
+    expect(ReducedMotionAnimationConfig.pushBackInitialPosition.x).toBe('0vw');
   });
 
   it('uses a caller-supplied animationConfig when reduced motion is off', () => {

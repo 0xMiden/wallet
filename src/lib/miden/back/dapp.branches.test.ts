@@ -10,6 +10,7 @@
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
@@ -21,9 +22,50 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   })
 );
 
+// dapp.ts assesses a custom request's simulated outgoing value against the spending-limit policy
+// before raising a sheet, so this suite stands that module in. `false` is "no limit configured",
+// which is what every case here assumes.
+// The custom path now dry-runs before either sheet and assesses the result, so this suite controls
+// the dry run. The default is "no usable result", which is what the real module produced here
+// before (no client in this environment), so the pre-existing cases are unaffected.
+const mockReleaseNoteIds = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
+jest.mock('lib/miden/note-quarantine', () => ({
+  importedNoteIds: (notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`),
+  quarantineNoteIds: jest.fn(),
+  releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...args)
+}));
+
+const mockSimulateCustomTransaction = jest.fn((..._args: unknown[]) =>
+  Promise.resolve({ error: 'no client in this suite' } as Record<string, unknown>)
+);
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: (...args: unknown[]) => mockSimulateCustomTransaction(...args)
+}));
+
+// Only the decoder is stood in: what the bytes decode TO is decode.test.ts's subject, while this
+// file's subject is what the gate does with the result. `netOutflowByFaucet` stays REAL, so these
+// cases exercise the actual per-faucet netting and folding.
+const mockSimulatedBytesToView = jest.fn((..._args: unknown[]) => undefined as unknown);
+jest.mock('app/confirm/decode', () => {
+  const actual = jest.requireActual('app/confirm/decode');
+  return { ...actual, simulatedBytesToView: (...args: unknown[]) => mockSimulatedBytesToView(...args) };
+});
+
+const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
+const mockAssessOutgoingSpendingLimitDetails = jest.fn(
+  (..._args: unknown[]): Promise<unknown> => Promise.resolve(undefined)
+);
+jest.mock('lib/miden/spending-limits/queue', () => ({
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args),
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
+}));
+
+// Mutable so a test can switch accounts mid-confirmation, which is what the approval-time
+// re-check exists to catch.
+let currentAccountPublicKey = 'miden-account-1';
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: 'Ready' })
+    getState: () => ({ currentAccount: { publicKey: currentAccountPublicKey }, status: 'Ready' })
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -724,5 +766,222 @@ describe('formatConsumeTransactionPreview', () => {
       }
     } as never);
     expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
+  });
+});
+
+// ── the dApp custom path's spending-limit gate ──────────────────
+//
+// Every other suite here stubs this module to "no limit configured", so nothing drove the gate
+// down a breach or refusal path: deleting the whole dapp.ts side of the enforcement left every
+// test green. Each case below fails if its production line is removed.
+describe('requestTransaction - custom spending-limit gate', () => {
+  const ASSET = { symbol: 'TOK', decimals: 6 };
+  const breach = (usdAmount: bigint) => ({
+    assessment: {
+      accountId: 'miden-account-1',
+      usdAmount,
+      revision: 'revision-1',
+      assessedAt: 1_000,
+      breach: { spent: 0n, proposedTotal: usdAmount, limit: 1n, overBy: usdAmount - 1n, resetAt: null }
+    }
+  });
+  const customRequest = () =>
+    ({
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'base64req' }
+      }
+    }) as never;
+  const viewMoving = (assets: { faucetId: string; amount: bigint }[]) => ({
+    account: 'miden-account-1',
+    outgoing: assets,
+    incoming: [],
+    inputNotesConsumed: 0,
+    outputNotesCreated: assets.length,
+    fee: undefined,
+    storageChanged: false
+  });
+
+  beforeEach(() => {
+    mockGetTokenMetadata.mockResolvedValue(ASSET);
+    mockSimulateCustomTransaction.mockResolvedValue({ executedBytes: 'exec' });
+    mockSimulatedBytesToView.mockReturnValue(viewMoving([{ faucetId: 'faucet-a', amount: 100n }]));
+    mockRequestCustomTransaction.mockResolvedValue('tx-1');
+  });
+
+  it('raises the challenge on the approval sheet when the simulated spend breaches', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(100n));
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    // Without this the sheet renders no challenge and the user is never asked to authenticate.
+    const confirmation = mockRequestConfirmation.mock.calls[0]![0] as Record<string, unknown>;
+    expect(confirmation).toMatchObject({ spendingLimitAssessment: expect.objectContaining({ usdAmount: 100n }) });
+    // No per-asset snapshot any more: a dollar figure names no single asset.
+    expect(confirmation).not.toHaveProperty('spendingLimitAsset');
+  });
+
+  it('passes the simulated totals and a bound authorization to the queue once authenticated', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(100n));
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    const args = mockRequestCustomTransaction.mock.calls[0]!;
+    expect(args[6]).toEqual([{ faucetId: 'faucet-a', amount: 100n }]);
+    expect(args[7]).toMatchObject({
+      kind: 'usd',
+      accountId: 'miden-account-1',
+      usdAmount: 100n,
+      revision: 'revision-1'
+    });
+  });
+
+  it('refuses a breaching request approved WITHOUT strict authentication, and ignores forged fields', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(100n));
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+    const forged = customRequest() as unknown as Record<string, unknown> & { transaction: Record<string, unknown> };
+    // Planted on the dApp's own request, the only object an attacker controls. The decision is
+    // taken from the wallet's confirmation result, so these must not change the outcome.
+    forged.spendingLimitAuthenticated = true;
+    forged.transaction.spendingLimitAuthorization = { id: 'attacker-controlled' };
+
+    await expect(dapp.requestTransaction('https://miden.xyz', forged as never)).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the dry run yields no usable result and any limit is configured', async () => {
+    // "Make the simulation fail" must not be the way around a cap.
+    mockSimulatedBytesToView.mockReturnValue(undefined);
+    mockHasSpendingLimits.mockResolvedValueOnce(true);
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('allows an unsimulatable request when the account has no limit at all', async () => {
+    mockSimulatedBytesToView.mockReturnValue(undefined);
+    mockHasSpendingLimits.mockResolvedValueOnce(false);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    expect(mockRequestCustomTransaction).toHaveBeenCalled();
+  });
+
+  it('no longer refuses a custom request that moves two capped assets', async () => {
+    // A dollar figure sums across every asset a request moves, so two covered assets in one
+    // request is one charge and one authorization - not the two-faucet refusal the old per-asset
+    // caps needed.
+    mockSimulatedBytesToView.mockReturnValue(
+      viewMoving([
+        { faucetId: 'faucet-a', amount: 100n },
+        { faucetId: 'faucet-b', amount: 200n }
+      ])
+    );
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(300n));
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    // One assessment call over the whole spend list - not a per-faucet loop.
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledTimes(1);
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: [
+        { faucetId: 'faucet-a', amount: 100n },
+        { faucetId: 'faucet-b', amount: 200n }
+      ]
+    });
+    expect(mockRequestCustomTransaction).toHaveBeenCalled();
+    const args = mockRequestCustomTransaction.mock.calls[0]!;
+    expect(args[6]).toEqual([
+      { faucetId: 'faucet-a', amount: 100n },
+      { faucetId: 'faucet-b', amount: 200n }
+    ]);
+  });
+
+  it('refuses a dApp request when a covered asset has no price', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new SpendingLimitPriceUnavailableError('faucet-a'));
+
+    // The full retry-suffixed message, not a bare NotGranted substring: the custom path converts
+    // this error at its own throw site (see the boundary-conversion comment in
+    // `customSpendingLimitState`), and a substring match can't tell that conversion apart from one
+    // that dropped the retry text - which is exactly the divergence this asserts against.
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      /spending limit changed.*retry/i
+    );
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    // Same reasoning as every other wallet-side refusal here: the carried notes must not stay
+    // hidden past a refusal that was never the user's decline.
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
+  });
+
+  it('lets a non-price-unavailable valuation failure surface as itself, not the retry wording', async () => {
+    // Only a price-unavailable refusal earns the retry-suffixed text (see the boundary-conversion
+    // comment in `customSpendingLimitState`). A storage fault or any other failure to resolve the
+    // spend must reach the dApp as its own reason, through the same mapper as every other refusal
+    // here - not be reshaped into the same "review and retry" wording a price outage gets.
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValue(new Error('policy storage offline'));
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      /INVALID_PARAMS.*policy storage offline/i
+    );
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.not.toThrow(
+      /spending limit changed.*retry/i
+    );
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
+  });
+
+  it('simulates the request exactly once per approval', async () => {
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    // The dry run takes the single-threaded WASM lock; running it twice also let the numbers
+    // displayed and the numbers enforced come from two different executions.
+    expect(mockSimulateCustomTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the note quarantine when the WALLET refuses, since the user never declined', async () => {
+    // The dry run quarantines carried notes before the gate runs. A decline deliberately leaves
+    // them hidden; a wallet-side refusal must not, or a dApp hides the user's own claimable notes
+    // for the 7-day TTL by making a request the gate then turns down.
+    mockSimulatedBytesToView.mockReturnValue(undefined);
+    mockHasSpendingLimits.mockResolvedValueOnce(true);
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
+  });
+
+  it('refuses after the active account changed while the confirmation sat open', async () => {
+    // The send arm has always re-checked this; the custom arm did not, so a stale confirmation
+    // could still execute.
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+    mockRequestConfirmation.mockImplementationOnce(async () => {
+      // Switches only once the sheet is open, so the request passed every check on the way in.
+      currentAccountPublicKey = 'miden-account-2';
+      return { confirmed: true, delegate: false };
+    });
+
+    try {
+      await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+        MidenDAppErrorType.NotGranted
+      );
+      expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    } finally {
+      currentAccountPublicKey = 'miden-account-1';
+    }
   });
 });

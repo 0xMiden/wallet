@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { SwapEta } from 'lib/miden/swap/tokens';
 
@@ -10,6 +10,15 @@ import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 // returned string so we can assert that `swapSolverFeeNote`'s `{percent}` was
 // computed from SOLVER_MARGIN (mirrors sibling atom/screen tests that mock
 // `useTranslation` with `t: (key) => key`).
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -19,6 +28,12 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+// The fee estimate needs a discovered base fee and a balance; pin it so the Max-network-fee
+// row (and its hint) actually render here.
+jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
+  useNetworkFeeEstimate: () => '0.02 MIDEN'
+}));
+
 // Pin SOLVER_MARGIN so the disclosed fee percent is deterministic (0.05 -> 5%).
 // The `SwapToken` type import in the source is erased at compile time, so the
 // mock only needs to supply the runtime `SOLVER_MARGIN` value.
@@ -26,43 +41,44 @@ jest.mock('lib/miden/swap/tokens', () => ({
   SOLVER_MARGIN: 0.05
 }));
 
-// The real review components transitively pull in `components/Button`
-// (framer-motion + Capacitor haptics), `TokenLogo` and the navbar hook. Stub
-// them with light DOM so the test stays focused on ReviewSwap's own branches
-// (matches how the sibling SelectRecipient test stubs `components/Button`).
-jest.mock('components/review', () => {
+// The real ReviewLayout transitively pulls in `components/Button` (framer-motion +
+// Capacitor haptics) and the navbar hook. Stub those with light DOM so the test stays
+// focused on ReviewSwap's own branches (matches how the sibling SelectRecipient test
+// stubs `components/Button`); Hero/Pill/DetailCard/DetailRow are the canonical design-system
+// primitives and render for real, same as ReviewTransaction's and TransactionSuccessLayout's
+// suites.
+jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
+  useHideNavbarWhileOpen: jest.fn()
+}));
+
+jest.mock('components/Button', () => {
   const R = require('react');
   return {
     __esModule: true,
-    ReviewAmount: ({ label, symbol, logoSymbol, amount }: any) =>
+    ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+    Button: ({ title, onClick, type, accent, disabled, isLoading, 'data-testid': dataTestId }: any) =>
       R.createElement(
-        'div',
-        { 'data-testid': 'review-amount', 'data-symbol': symbol, 'data-logo': logoSymbol ?? '' },
-        R.createElement('span', { 'data-testid': 'ra-label' }, label),
-        R.createElement('span', { 'data-testid': 'ra-amount' }, `${amount} ${symbol}`)
-      ),
-    ReviewLabel: ({ children, className }: any) =>
-      R.createElement('span', { 'data-testid': 'review-label', className }, children),
-    ReviewRow: ({ label, value, children }: any) =>
-      R.createElement(
-        'div',
-        { 'data-testid': 'review-row', 'data-label': label },
-        R.createElement('span', { 'data-testid': 'rr-value' }, children ?? value ?? '')
-      ),
-    ReviewLayout: ({ hero, heroDivider, dividers, primary, secondary, children }: any) =>
-      R.createElement(
-        'div',
+        'button',
         {
-          'data-testid': 'review-layout',
-          'data-herodivider': String(heroDivider),
-          'data-dividers': String(dividers)
+          type,
+          onClick,
+          disabled,
+          'data-accent': accent,
+          'data-loading': String(Boolean(isLoading)),
+          'data-testid': dataTestId
         },
-        R.createElement('div', { 'data-testid': 'hero' }, hero),
-        R.createElement('div', { 'data-testid': 'rows' }, children),
-        R.createElement('button', { 'data-testid': primary['data-testid'], onClick: primary.onPress }, primary.label),
-        secondary &&
-          R.createElement('button', { 'data-testid': 'secondary', onClick: secondary.onPress }, secondary.label)
+        title
       )
+  };
+});
+
+// Stub the token logo: a real Avatar/TokenLogo pulls in image-fallback and network-badge
+// machinery unrelated to this screen's own branches.
+jest.mock('components/TokenLogo', () => {
+  const R = require('react');
+  return {
+    TokenLogo: ({ symbol, size }: any) =>
+      R.createElement('div', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': size })
   };
 });
 
@@ -109,24 +125,19 @@ const renderComponent = (overrides: Partial<ReviewSwapProps> = {}) => {
 
 describe('ReviewSwap', () => {
   describe('hero', () => {
-    it('renders both You Send / You Receive amount blocks with symbol + logoSymbol', () => {
+    it('renders both You Send / You Receive amounts as Hero values, with the offer/request logos', () => {
       renderComponent();
 
-      const amounts = screen.getAllByTestId('review-amount');
-      expect(amounts).toHaveLength(2);
+      const logos = screen.getAllByTestId('token-logo');
+      expect(logos).toHaveLength(2);
+      expect(logos[0]).toHaveAttribute('data-symbol', 'MIDEN');
+      expect(logos[1]).toHaveAttribute('data-symbol', 'ETH');
 
-      // Send block (first) reflects the offer token.
-      expect(amounts[0]).toHaveAttribute('data-symbol', 'IMIDEN');
-      expect(amounts[0]).toHaveAttribute('data-logo', 'MIDEN');
-      // Receive block (second) reflects the request token.
-      expect(amounts[1]).toHaveAttribute('data-symbol', 'IETH');
-      expect(amounts[1]).toHaveAttribute('data-logo', 'ETH');
-
-      // Labels come from the translated keys.
+      // Captions come from the translated keys, as neutral Pills beside each Hero.
       expect(screen.getByText('youSend')).toBeInTheDocument();
       expect(screen.getByText('youReceive')).toBeInTheDocument();
 
-      // Amount strings composed from amount + symbol.
+      // Amount strings composed from amount + symbol, rendered as the Hero value.
       expect(screen.getByText('1.5 IMIDEN')).toBeInTheDocument();
       expect(screen.getByText('3 IETH')).toBeInTheDocument();
     });
@@ -136,113 +147,312 @@ describe('ReviewSwap', () => {
       expect(container.querySelector('svg')).not.toBeNull();
     });
 
-    it('passes heroDivider=false and dividers=false to the layout (swap owns its own dividers)', () => {
-      renderComponent();
-      const layout = screen.getByTestId('review-layout');
-      expect(layout).toHaveAttribute('data-herodivider', 'false');
-      expect(layout).toHaveAttribute('data-dividers', 'false');
+    it('draws the swap-arrows glyph in the swap on-colour', () => {
+      const { container } = renderComponent();
+      const arrows = container.querySelector('.bg-accent-swap');
+      expect(arrows).toHaveClass('text-accent-swap-on');
+      expect(arrows).not.toHaveClass('text-pure-white');
+    });
+
+    it('owns its own dividers, so ReviewLayout adds neither the orange hero bar nor an outer row-list divide-y', () => {
+      const { container } = renderComponent();
+      // The swap hero draws its own pair of horizontal rules around the arrow glyph; the layout
+      // adds no bar under it.
+      expect(container.querySelector('.bg-primary-500.h-2')).not.toBeInTheDocument();
+      // dividers={false}: the rows' hairlines come from the DetailCard itself, so ReviewLayout's
+      // outer children wrapper carries no divide-y.
+      expect(container.querySelector('.divide-y.divide-rule-default')).not.toBeInTheDocument();
     });
   });
 
   describe('rate row', () => {
-    const rateValue = () => screen.getAllByTestId('rr-value')[0];
+    const rateRow = () => screen.getByTestId('swap-rate-row');
 
-    it('shows no rate value and no solver-fee note when there is no quote', () => {
+    it('shows no rate value and offers no solver-fee hint when there is no quote', () => {
       renderComponent({ swapEta: undefined });
 
-      const row = screen.getAllByTestId('review-row')[0];
-      expect(row).toHaveAttribute('data-label', 'rate');
-      expect(rateValue()).toHaveTextContent('');
+      expect(rateRow()).toHaveTextContent('rate');
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is zero (falsy)', () => {
       renderComponent({ swapEta: etaWithRate('0') });
-      expect(rateValue()).toHaveTextContent('');
-      expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is not a number', () => {
       renderComponent({ swapEta: etaWithRate('not-a-number') });
-      expect(rateValue()).toHaveTextContent('');
-      expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is non-finite', () => {
       renderComponent({ swapEta: etaWithRate('Infinity') });
-      expect(rateValue()).toHaveTextContent('');
-      expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
-    it('renders a whole-number rate and the solver-fee note when the market price is valid', () => {
+    it('renders a whole-number rate when the market price is valid', () => {
       renderComponent({ swapEta: etaWithRate('2') });
 
-      expect(rateValue()).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
-      // Percent is Math.round(0.05 * 100) = 5.
-      expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
-    });
-
-    it('colours the solver-fee note with a theme token that flips in dark mode, not a hardcoded light hex', () => {
-      renderComponent({ swapEta: etaWithRate('2') });
-
-      // The note sits on the dark app background in dark mode, so its colour must
-      // come from a token that flips. `text-heading-gray` (--color-text-secondary)
-      // is #484848 in light (9.15:1 on white) and #ffffff in dark — both clear AA.
-      const note = screen.getByText('swapSolverFeeNote_5%');
-      expect(note.className).toContain('text-heading-gray');
-      expect(note.className).not.toContain('text-[#6B6862]');
+      expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
     });
 
     it('renders a fractional rate rounded to 4 significant figures', () => {
       renderComponent({ swapEta: etaWithRate('0.333333333') });
-      expect(rateValue()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
+      expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
+    });
+
+    it('lands a five-figure rate on its four significant figures', () => {
+      renderComponent({ swapEta: etaWithRate('12345.678') });
+      expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 12350 IETH');
+    });
+
+    describe('while the rate travels', () => {
+      beforeEach(() => {
+        Object.defineProperty(window, 'matchMedia', {
+          configurable: true,
+          writable: true,
+          value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+        });
+      });
+
+      afterEach(() => {
+        Reflect.deleteProperty(window, 'matchMedia');
+      });
+
+      /** Every text the rate figure shows while it travels from `from` to `to`. */
+      const travel = async (from: string, to: string) => {
+        const { rerender, props } = renderComponent({ swapEta: etaWithRate(from) });
+        const node = rateRow().querySelector('.tabular-nums') as HTMLElement;
+        const frames: string[] = [];
+        const observer = new MutationObserver(() => frames.push(node.textContent ?? ''));
+        observer.observe(node, { characterData: true, childList: true, subtree: true });
+
+        rerender(<ReviewSwap {...props} swapEta={etaWithRate(to)} />);
+        frames.push(node.textContent ?? '');
+        await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+        observer.disconnect();
+        frames.push(node.textContent ?? '');
+        return frames;
+      };
+
+      it("keeps the destination's decimals on every frame of a plain rate", async () => {
+        const frames = await travel('9.5', '12.4');
+
+        const start = '1 IMIDEN ≈ 9.5 IETH';
+        const end = '1 IMIDEN ≈ 12.4 IETH';
+        expect(frames.some(frame => frame !== start && frame !== end)).toBe(true);
+        expect(frames.filter(frame => !/^1 IMIDEN ≈ \d+\.\d IETH$/.test(frame))).toEqual([]);
+        expect(frames[frames.length - 1]).toBe(end);
+      });
+
+      it("keeps the destination's mantissa digits on every frame of an exponential rate", async () => {
+        const frames = await travel('2.5e-7', '3.1e-7');
+
+        const start = '1 IMIDEN ≈ 2.5e-7 IETH';
+        const end = '1 IMIDEN ≈ 3.1e-7 IETH';
+        expect(frames.some(frame => frame !== start && frame !== end)).toBe(true);
+        expect(frames.filter(frame => !/^1 IMIDEN ≈ \d\.\de-7 IETH$/.test(frame))).toEqual([]);
+        expect(frames[frames.length - 1]).toBe(end);
+      });
+    });
+
+    it('keeps the solver-fee sentence out of the layout until the (i) is tapped', () => {
+      renderComponent({ swapEta: etaWithRate('2') });
+
+      // Percent is Math.round(0.05 * 100) = 5.
+      expect(screen.queryByText('swapSolverFeeNote_5%')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('swap-rate-info'));
       expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
+    });
+
+    it('names the row the rate hint belongs to', () => {
+      renderComponent({ swapEta: etaWithRate('2') });
+
+      expect(screen.getByTestId('swap-rate-info')).toHaveAttribute('aria-label', 'moreInfoAbout_rate');
+    });
+  });
+
+  describe('network fee row', () => {
+    it('keeps the fee explanation behind its own (i)', () => {
+      renderComponent();
+
+      expect(screen.queryByText('networkFeeEstimateNote')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('swap-network-fee-info'));
+      expect(screen.getByText('networkFeeEstimateNote')).toBeInTheDocument();
     });
   });
 
   describe('usually-fills-in row', () => {
-    const fillsInValue = () => screen.getAllByTestId('rr-value')[1];
+    const fillsInRow = () => screen.getByTestId('swap-fills-in-row');
 
     it('falls back to the static estimate when both live signals are absent', () => {
       renderComponent({ swapEta: undefined });
-      expect(screen.getAllByTestId('review-row')[1]).toHaveAttribute('data-label', 'usuallyFillsIn');
-      expect(fillsInValue()).toHaveTextContent('swapEtaFallback');
+      expect(fillsInRow()).toHaveTextContent('swapEtaFallback');
     });
 
     it('prefers the next-batch ETA in seconds when the order can fill', () => {
       renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 12 } });
-      expect(fillsInValue()).toHaveTextContent('swapEtaSeconds_12');
+      expect(fillsInRow()).toHaveTextContent('swapEtaSeconds_12');
     });
 
     it('renders minutes once the estimate reaches 90s', () => {
       renderComponent({ swapEta: { ...etaWithRate('2'), canFill: true, estimatedSeconds: 150 } });
-      expect(fillsInValue()).toHaveTextContent('swapEtaMinutes_3');
+      expect(fillsInRow()).toHaveTextContent('swapEtaMinutes_3');
     });
 
     it('falls back to the 24h median when the order cannot fill right now', () => {
       renderComponent({ swapEta: { ...etaWithRate('2'), estimatedSeconds: 12, median24hSeconds: 45 } });
-      expect(fillsInValue()).toHaveTextContent('swapEtaSeconds_45');
+      expect(fillsInRow()).toHaveTextContent('swapEtaSeconds_45');
     });
   });
 
   describe('settlement controls', () => {
-    it('renders the expiry in seconds and auto-consume enabled by default', () => {
+    const expiryInput = () => screen.getByTestId('swap-expiry-seconds');
+
+    it('reopens the stored seconds in the coarsest unit that holds them', () => {
       renderComponent();
-      const expiry = screen.getByTestId('swap-expiry-seconds');
-      const toggle = screen.getByTestId('swap-auto-consume');
-      expect(expiry).toHaveValue(120);
-      expect(expiry).toHaveClass('[appearance:textfield]');
-      expect(toggle).toHaveAttribute('data-value', 'true');
-      expect(toggle).toHaveClass('!h-8', '!w-16');
-      expect(screen.getByText('expires').parentElement).toHaveClass('justify-between');
-      expect(screen.getByText('swapAutoConsume').parentElement).toHaveClass('justify-between');
+
+      // 120 stored seconds reads back as 2 Minutes, not 120 Seconds.
+      expect(expiryInput()).toHaveValue(2);
+      expect(screen.getByTestId('swap-expiry-unit-minutes')).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByText('expires')).toBeInTheDocument();
     });
 
-    it('forwards expiry edits and auto-consume toggles', () => {
-      const { props } = renderComponent();
-      fireEvent.change(screen.getByTestId('swap-expiry-seconds'), { target: { value: '300' } });
+    it('keeps seconds for a stored value no coarser unit divides', () => {
+      renderComponent({ expirySeconds: '90' });
+
+      expect(expiryInput()).toHaveValue(90);
+      expect(screen.getByTestId('swap-expiry-unit-seconds')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('renders auto-consume enabled by default', () => {
+      renderComponent();
+      const toggle = screen.getByTestId('swap-auto-consume');
+
+      expect(expiryInput()).toHaveClass('[appearance:textfield]');
+      expect(toggle).toHaveAttribute('data-value', 'true');
+      expect(toggle).toHaveClass('!h-8', '!w-16');
+      expect(screen.getByText('swapAutoConsume')).toBeInTheDocument();
+    });
+
+    it('never submits while the draft is out of range or empty: the expiry shown is the one that goes', () => {
+      const onSubmit = jest.fn();
+      renderComponent({ onSubmit });
+
+      // 99999 minutes is past the 7-day cap; the last valid value (2 minutes) is no longer on screen.
+      fireEvent.change(expiryInput(), { target: { value: '99999' } });
+      expect(screen.getByTestId('swap-submit')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('swap-submit'));
+
+      fireEvent.change(expiryInput(), { target: { value: '' } });
+      expect(screen.getByTestId('swap-submit')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('swap-submit'));
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      fireEvent.change(expiryInput(), { target: { value: '5' } });
+      expect(screen.getByTestId('swap-submit')).toBeEnabled();
+    });
+
+    it('holds the expiry still while a submission is in flight', () => {
+      renderComponent({ submitting: true });
+
+      expect(expiryInput()).toBeDisabled();
+      for (const unit of ['seconds', 'minutes', 'hours', 'days']) {
+        expect(screen.getByTestId(`swap-expiry-unit-${unit}`)).toBeDisabled();
+      }
+      expect(screen.getByTestId('swap-submit')).toHaveAttribute('data-loading', 'true');
+    });
+
+    it('holds the rest of the intent still too: auto-consume and Back', () => {
+      const onAutoConsumeChange = jest.fn();
+      const onGoBack = jest.fn();
+      const { unmount } = renderComponent({ submitting: true, onAutoConsumeChange, onGoBack });
+
       fireEvent.click(screen.getByTestId('swap-auto-consume'));
+      fireEvent.click(screen.getByRole('button', { name: 'back' }));
+      expect(onAutoConsumeChange).not.toHaveBeenCalled();
+      expect(onGoBack).not.toHaveBeenCalled();
+      unmount();
+
+      renderComponent({ onAutoConsumeChange, onGoBack });
+      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+      fireEvent.click(screen.getByRole('button', { name: 'back' }));
+      expect(onAutoConsumeChange).toHaveBeenCalledTimes(1);
+      expect(onGoBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('forwards an edit as SECONDS, whatever unit is showing', () => {
+      const { props } = renderComponent();
+
+      fireEvent.change(expiryInput(), { target: { value: '5' } });
+
       expect(props.onExpirySecondsChange).toHaveBeenCalledWith('300');
+    });
+
+    it('re-expresses the same duration when the unit changes, and pushes the seconds up', () => {
+      const { props } = renderComponent();
+
+      fireEvent.click(screen.getByTestId('swap-expiry-unit-hours'));
+
+      // 120s cannot be held in whole hours, so it clamps to this unit's floor.
+      expect(expiryInput()).toHaveValue(1);
+      expect(props.onExpirySecondsChange).toHaveBeenLastCalledWith('3600');
+    });
+
+    it('converts a round value across units without changing the duration', () => {
+      const { props } = renderComponent({ expirySeconds: '7200' });
+
+      expect(expiryInput()).toHaveValue(2);
+      fireEvent.click(screen.getByTestId('swap-expiry-unit-minutes'));
+
+      expect(expiryInput()).toHaveValue(120);
+      expect(props.onExpirySecondsChange).toHaveBeenLastCalledWith('7200');
+    });
+
+    it('refuses a value under the unit floor, with the range named', () => {
+      const { props } = renderComponent({ expirySeconds: '90' });
+
+      fireEvent.change(expiryInput(), { target: { value: '5' } });
+
+      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
+      expect(expiryInput()).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByRole('alert')).toHaveTextContent('swapExpiryRange_30_604800');
+    });
+
+    it('refuses a value over the unit ceiling', () => {
+      const { props } = renderComponent();
+
+      fireEvent.change(expiryInput(), { target: { value: '99999' } });
+
+      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent('swapExpiryRange_1_10080');
+    });
+
+    it('refuses an emptied field rather than submitting zero', () => {
+      const { props } = renderComponent();
+
+      fireEvent.change(expiryInput(), { target: { value: '' } });
+
+      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
+      expect(expiryInput()).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    it('bounds the native input to the unit it is showing', () => {
+      renderComponent();
+
+      expect(expiryInput()).toHaveAttribute('min', '1');
+      expect(expiryInput()).toHaveAttribute('max', '10080');
+    });
+
+    it('forwards auto-consume toggles', () => {
+      const { props } = renderComponent();
+
+      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+
       expect(props.onAutoConsumeChange).toHaveBeenCalledWith(false);
     });
   });
@@ -276,15 +486,29 @@ describe('ReviewSwap', () => {
 
     it('wires the secondary CTA to onGoBack', () => {
       const { props } = renderComponent();
-      fireEvent.click(screen.getByTestId('secondary'));
+      fireEvent.click(screen.getByText('back'));
       expect(props.onGoBack).toHaveBeenCalledTimes(1);
       expect(props.onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('gives the primary CTA the swap flow colour', () => {
+      renderComponent();
+      expect(screen.getByTestId('swap-submit')).toHaveAttribute('data-accent', 'swap');
     });
 
     it('labels the primary CTA "swap" and the secondary CTA "back"', () => {
       renderComponent();
       expect(screen.getByTestId('swap-submit')).toHaveTextContent('swap');
-      expect(screen.getByTestId('secondary')).toHaveTextContent('back');
+      expect(screen.getByText('back')).toBeInTheDocument();
     });
+  });
+
+  // This screen commits value, so it names the network. The banner comes from the shared
+  // ReviewLayout, not from this component: ReviewLayout hides the tab bar, and the network ribbon
+  // lives in the tab bar's footer, so this screen showed no network at all.
+  it('names the network it will commit on', () => {
+    renderComponent();
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });

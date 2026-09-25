@@ -185,6 +185,7 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('mobile'),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'true'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: hardcoded OFF on mobile — Capacitor / WKWebView / Android
     // WebView have no chrome.offscreen document to rehost the client into.
@@ -193,6 +194,7 @@ export default defineConfig({
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
     // (The side-panel one is inert on mobile — no chrome.sidePanel — but it is
     // still defined so the read folds to a constant like every other flag here;
@@ -227,11 +229,9 @@ export default defineConfig({
     // (isOffscreenAvailable) also catches it, but pinning the build-time
     // constant lets dead-code elimination drop the offscreen import entirely.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify('false'),
-    // Speculative pre-prove also pinned false on mobile: speculation
-    // dispatches the prove to a chrome.offscreen document, which doesn't
-    // exist in WKWebView/Capacitor. Without offscreen, there's nothing
-    // to speculate against.
-    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify('false'),
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   }

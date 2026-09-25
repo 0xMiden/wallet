@@ -10,6 +10,7 @@ import { keccak256, toBytes } from 'viem';
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
@@ -17,7 +18,7 @@ import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
 import { readEpochIntentStatus } from './intent-status';
-import type { BridgeNoteDeps } from './miden-note';
+import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
@@ -33,7 +34,7 @@ import type { IntentResult } from './types';
  */
 
 // Miden-side collateral token (the wallet's USDC faucet) and its decimals.
-export const MIDEN_USDC_FAUCET = '0x2458e5446128e6b150b75b8ebd9ce1';
+export const MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
 export const MIDEN_USDC_DECIMALS = 6;
 
 // E2E-only collateral-faucet override. The fixed `MIDEN_USDC_FAUCET` testnet id
@@ -47,8 +48,12 @@ export function setEarnCollateralFaucetForTest(faucetHex: string | undefined): v
   earnCollateralFaucetOverride = faucetHex;
 }
 
-function getEarnCollateralFaucet(): string {
+export function getEarnCollateralFaucet(): string {
   return earnCollateralFaucetOverride ?? MIDEN_USDC_FAUCET;
+}
+
+export function getEarnCollateralFaucetId(): string {
+  return ifHextoBech32(getEarnCollateralFaucet());
 }
 
 // Lending market the deposit targets (testnet `DUMMY_LENDING`). `EARN_UNDERLYING`
@@ -344,6 +349,7 @@ export interface OpenEarnPositionArgs {
   deps: BridgeNoteDeps;
   /** Fired once the `earn-deposit` row is created (mid-solve, before it proves + submits). */
   onRowCreated?: (txId: string) => void;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
 }
 
 /**
@@ -383,6 +389,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   };
 
   let earnTxId: string | undefined;
+  let spendingLimitError: unknown;
   const quote = await getEarnQuote(sdk, params, evmRecipient);
   const intent = await buildEarnIntent(sdk, {
     ...params,
@@ -398,22 +405,30 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
       );
     },
     createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
-      const res = await createEarnP2IDENote({
-        senderAccountId: args.senderPublicKey,
-        faucetId: faucet,
-        amount,
-        allocatorId,
-        recallBlocks,
-        bindingAttachmentFelts,
-        evmRecipient,
-        marketUid: EARN_MARKET_UID,
-        deps: args.deps,
-        onRowCreated: args.onRowCreated
-      });
-      earnTxId = res.txId;
-      return { success: res.success, noteId: res.noteId };
+      try {
+        const res = await createEarnP2IDENote({
+          senderAccountId: args.senderPublicKey,
+          faucetId: faucet,
+          amount,
+          allocatorId,
+          recallBlocks,
+          bindingAttachmentFelts,
+          evmRecipient,
+          marketUid: EARN_MARKET_UID,
+          deps: args.deps,
+          onRowCreated: args.onRowCreated,
+          spendingLimitAuthorization: args.spendingLimitAuthorization
+        });
+        earnTxId = res.txId;
+        return { success: res.success, noteId: res.noteId };
+      } catch (error) {
+        spendingLimitError = error;
+        return { success: false };
+      }
     }
   });
+
+  if (spendingLimitError !== undefined) throw spendingLimitError;
 
   if (intent.error) {
     if (earnTxId) {

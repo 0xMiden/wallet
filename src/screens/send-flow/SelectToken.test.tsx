@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
 
@@ -54,9 +56,9 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
 }));
 
-// `components/ui` barrel — stub SearchInput to a controlled input so typing
-// drives the component's `onChange(value)` contract directly.
-jest.mock('components/ui', () => ({
+// Stub SearchInput to a controlled input so typing drives the component's
+// `onChange(value)` contract directly.
+jest.mock('components/ui/SearchInput', () => ({
   SearchInput: ({
     value,
     onChange,
@@ -72,23 +74,20 @@ jest.mock('components/ui', () => ({
   )
 }));
 
-// `components/AssetRow` wraps TokenLogo + sparkline + price plumbing; stub it to
-// a button that surfaces the symbol and forwards the click so we can assert the
-// UIToken the drawer builds on select.
-jest.mock('components/AssetRow', () => ({
-  AssetRow: ({
-    asset,
-    onClick,
-    'data-testid': dataTestId
-  }: {
-    asset: { metadata: { symbol: string } };
-    onClick?: () => void;
-    'data-testid'?: string;
-  }) => (
-    <button data-testid={dataTestId} onClick={onClick}>
-      {asset.metadata.symbol}
-    </button>
+// `components/TokenLogo` renders inline SVG logos; stub it to a probe that
+// surfaces the `symbol`/`size` props the row passes through.
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
+    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
   )
+}));
+
+// `lib/prices` reaches for the live price feed; the fiat column only needs a
+// deterministic price per symbol here.
+jest.mock('lib/prices', () => ({
+  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 1, percentageChange24h: 0 }),
+  listedFiatValue: jest.requireActual('lib/prices/binance').listedFiatValue,
+  listedPrice: jest.requireActual('lib/prices/binance').listedPrice
 }));
 
 type Balance = {
@@ -116,6 +115,14 @@ const XYZ: Balance = {
   metadata: { symbol: 'XYZ', decimals: 6 },
   balance: 5,
   fiatPrice: 1
+};
+
+// A swap test token that stands for ETH, held under its registry faucet id.
+const IETH: Balance = {
+  tokenId: TOKEN_IETH.faucetId,
+  metadata: { symbol: 'IETH', decimals: 8 },
+  balance: 2,
+  fiatPrice: 0
 };
 
 const setBalances = (balances: Balance[]) => {
@@ -151,6 +158,19 @@ describe('SelectTokenDrawer', () => {
     expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
     expect(screen.getByTestId('send-token-ETH')).toBeInTheDocument();
     expect(screen.getByTestId('send-token-XYZ')).toBeInTheDocument();
+  });
+
+  it('exposes the exact token id for duplicate-symbol rows', () => {
+    const duplicateBtc = { ...BTC, tokenId: 't-btc-duplicate', balance: 2 };
+    setBalances([BTC, duplicateBtc]);
+    renderDrawer();
+
+    const rows = screen.getAllByTestId('send-token-BTC');
+    expect(rows).toHaveLength(2);
+    // The row itself carries both ids: the E2E harness clicks the matched [data-token-id] row, so the
+    // id must not move to a wrapper or a child of it.
+    expect(rows[0]).toHaveAttribute('data-token-id', BTC.tokenId);
+    expect(rows[1]).toHaveAttribute('data-token-id', duplicateBtc.tokenId);
   });
 
   it('passes the account public key and base metadata through to useAllBalances', () => {
@@ -216,6 +236,7 @@ describe('SelectTokenDrawer', () => {
   });
 
   it('builds the UIToken, resets the search and closes the drawer on select', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
     setBalances([BTC, ETH]);
     const { onSelect, onOpenChange } = renderDrawer();
 
@@ -243,6 +264,16 @@ describe('SelectTokenDrawer', () => {
     expect(screen.getByTestId('send-token-ETH')).toBeInTheDocument();
   });
 
+  it('hands the amount step no price for a token the feed does not list, not the store $1 default', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
+    setBalances([XYZ]);
+    const { onSelect } = renderDrawer();
+
+    fireEvent.click(screen.getByTestId('send-token-XYZ'));
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 't-xyz', fiatPrice: 0 }));
+  });
+
   it('forwards the sheet onOpenChange handler to the drawer', () => {
     setBalances([BTC]);
     const { onOpenChange } = renderDrawer();
@@ -261,5 +292,49 @@ describe('SelectTokenDrawer', () => {
 
     const row = within(screen.getByTestId('drawer-content')).getByTestId('send-token-BTC');
     expect(row).toBeInTheDocument();
+  });
+
+  it('draws each row like the home assets list: 36px logo, name, balance and fiat value', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
+    setBalances([BTC]);
+    renderDrawer();
+
+    const row = screen.getByTestId('send-token-BTC');
+    // No explicit size: the home asset row's 36px default.
+    expect(within(row).getByTestId('token-logo')).not.toHaveAttribute('data-size');
+    expect(within(row).getByText('Bitcoin')).toBeInTheDocument();
+    expect(within(row).getByText('1.50 BTC')).toBeInTheDocument();
+    expect(within(row).getByText('$3.00')).toBeInTheDocument();
+  });
+
+  it('shows no fiat for a token the price feed does not list, rather than a $1-default figure', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
+    setBalances([ETH]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('values a swap token at the asset it stands for and hands the amount step that price', () => {
+    mockStoreState = { tokenPrices: { ETH: { price: 3 } } };
+    setBalances([IETH]);
+    const { onSelect } = renderDrawer();
+
+    const row = screen.getByTestId('send-token-IETH');
+    expect(within(row).getByText('$6.00')).toBeInTheDocument();
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TOKEN_IETH.faucetId, fiatPrice: 3 }));
+  });
+
+  it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
+    setBalances([BTC, ETH]);
+    renderDrawer();
+
+    const list = screen.getByTestId('send-token-BTC').parentElement!;
+    expect(list.className).toContain('divide-y');
+    expect(list.className).toContain('divide-rule-default');
+    expect(list.className).not.toContain('bg-fill');
+    expect(list.className).not.toContain('rounded-2xl');
+    expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
   });
 });

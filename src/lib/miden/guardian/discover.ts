@@ -53,6 +53,7 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { DEFAULT_NETWORK, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import type { KeyDerivation } from 'lib/shared/types';
 
 /** One operator that answered the probe with at least one account. */
 export interface GuardianProbeMatch {
@@ -360,12 +361,56 @@ function resolveTargets(options: GuardianDiscoveryOptions): ProbeTarget[] {
  * detection failing is an expected outcome the UI recovers from with the manual
  * picker). Individual operator failures are collected in `failures`.
  *
+ * The seed may have been used under either key-derivation scheme (a wallet
+ * created before #918 derived under `legacy`), so every index is probed under
+ * both; `Vault.spawn`'s recovery scan later settles which one the account is.
+ *
  * @param deriveColdSeed - Sync closure returning the HD-derived cold seed for an
- *   index; use `makeColdSeedDeriver` from `lib/miden/sdk/derive-seed` so the
- *   PBKDF2 cost is paid once.
+ *   index and scheme; use `makeColdSeedDeriver` from `lib/miden/sdk/derive-seed`
+ *   so the PBKDF2 cost is paid once.
  */
 export async function discoverGuardianForSeed(
-  deriveColdSeed: (hdIndex: number) => Uint8Array,
+  deriveColdSeed: (hdIndex: number, keyDerivation: KeyDerivation) => Uint8Array,
+  options: GuardianDiscoveryOptions = {}
+): Promise<GuardianDiscoveryResult> {
+  return discoverGuardianForKeys(
+    (hdIndex, keyDerivation) => AuthSecretKey.ecdsaWithRNG(deriveColdSeed(hdIndex, keyDerivation)),
+    SEED_PROBE_KEY_DERIVATIONS,
+    options
+  );
+}
+
+/** Schemes a seed probe walks, current first. */
+const SEED_PROBE_KEY_DERIVATIONS: readonly KeyDerivation[] = ['v1', 'legacy'];
+
+/**
+ * Probe every known guardian operator for the account authorized by a pasted
+ * HOT secret key (the seed-less import flow). The guardian lookup is by key
+ * commitment and indexes every registered signer, so the hot commitment finds
+ * the account exactly like the cold one does. A single key has no HD walk —
+ * one probe task per operator.
+ */
+export async function discoverGuardianForHotKey(
+  hotSecretKeyHex: string,
+  options: GuardianDiscoveryOptions = {}
+): Promise<GuardianDiscoveryResult> {
+  const { deserializeHotSecretKey } = await import('./hot-key-import');
+  // A pasted key has no derivation scheme either: one task per operator.
+  return discoverGuardianForKeys(() => deserializeHotSecretKey(hotSecretKeyHex), ['v1'], {
+    ...options,
+    maxHdIndex: 1
+  });
+}
+
+/**
+ * Shared probe body: `makeKey` must return a FRESH `AuthSecretKey` handle per
+ * call (one per task) — sharing a WASM handle across concurrent `sign` calls is
+ * the "recursive use of an object … unsafe aliasing" hazard. The handle is
+ * freed here after the task settles.
+ */
+async function discoverGuardianForKeys(
+  makeKey: (hdIndex: number, keyDerivation: KeyDerivation) => AuthSecretKey,
+  keyDerivations: readonly KeyDerivation[],
   options: GuardianDiscoveryOptions = {}
 ): Promise<GuardianDiscoveryResult> {
   const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
@@ -378,22 +423,24 @@ export async function discoverGuardianForSeed(
     registerGuardianOrigin(endpoint);
   }
 
-  const tasks: { target: ProbeTarget; hdIndex: number }[] = [];
+  const tasks: { target: ProbeTarget; hdIndex: number; keyDerivation: KeyDerivation }[] = [];
   for (const target of targets) {
-    for (let hdIndex = 0; hdIndex < maxHdIndex; hdIndex++) {
-      tasks.push({ target, hdIndex });
+    for (const keyDerivation of keyDerivations) {
+      for (let hdIndex = 0; hdIndex < maxHdIndex; hdIndex++) {
+        tasks.push({ target, hdIndex, keyDerivation });
+      }
     }
   }
 
-  const settled = await runPooled(tasks, GUARDIAN_PROBE_CONCURRENCY, async ({ target, hdIndex }) => {
+  const settled = await runPooled(tasks, GUARDIAN_PROBE_CONCURRENCY, async ({ target, hdIndex, keyDerivation }) => {
     if (signal?.aborted) return [];
-    // One AuthSecretKey + EcdsaSigner PER TASK. `ecdsaWithRNG(seed)` is
+    // One AuthSecretKey + EcdsaSigner PER TASK. Key construction is
     // deterministic, so per-task instances are byte-identical to a shared one —
     // and sharing a WASM handle across concurrent `sign` calls is exactly the
     // "recursive use of an object … unsafe aliasing" hazard.
-    const coldSecretKey = AuthSecretKey.ecdsaWithRNG(deriveColdSeed(hdIndex));
+    const secretKey = makeKey(hdIndex, keyDerivation);
     try {
-      const signer = new EcdsaSigner(coldSecretKey);
+      const signer = new EcdsaSigner(secretKey);
       const client = new GuardianHttpClient(target.endpoint);
       client.setSigner(signer);
 
@@ -433,7 +480,7 @@ export async function discoverGuardianForSeed(
       return hits;
     } finally {
       try {
-        coldSecretKey.free();
+        secretKey.free();
       } catch {
         // Already freed / stubbed handle — nothing to release.
       }

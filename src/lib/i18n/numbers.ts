@@ -6,7 +6,12 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { getAdaptiveDecimalPlaces } from './adaptive-precision';
 import { getCurrentLocale, getNumberSymbols } from './core';
 
-export { getAdaptiveDecimalPlaces, toAdaptiveFixed, MAX_DISPLAY_DECIMAL_PLACES } from './adaptive-precision';
+export {
+  getAdaptiveDecimalPlaces,
+  toAdaptiveFixed,
+  adaptiveFormatterFor,
+  MAX_DISPLAY_DECIMAL_PLACES
+} from './adaptive-precision';
 
 /**
  * Tiny single-argument memoizer — was `micro-memoize` until we removed
@@ -78,11 +83,21 @@ export function getPluralKey(keyPrefix: string, amount: number) {
 }
 
 export function formatUsd(value: number): string {
-  const decimalPlaces = getAdaptiveDecimalPlaces(value);
-  return `$${value.toLocaleString('en-US', {
-    minimumFractionDigits: decimalPlaces,
-    maximumFractionDigits: decimalPlaces
-  })}`;
+  return usdFormatterFor(value)(value);
+}
+
+/**
+ * `formatUsd` with its decimal places pinned to the ones `target` earns, for a USD figure animated
+ * towards `target` (`components/ui/AnimatedNumber`). Per value, a frame like 13.0071 on the way to
+ * 15.67 would widen to four decimals; pinned, every frame keeps the destination's shape.
+ */
+export function usdFormatterFor(target: number): (value: number) => string {
+  const decimalPlaces = getAdaptiveDecimalPlaces(target);
+  return value =>
+    `$${value.toLocaleString('en-US', {
+      minimumFractionDigits: decimalPlaces,
+      maximumFractionDigits: decimalPlaces
+    })}`;
 }
 
 export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.decimals): string {

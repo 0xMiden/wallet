@@ -62,6 +62,7 @@ import { ReactComponent as Fullscreen } from './fullscreen.svg';
 import { ReactComponent as Globe } from './globe.svg';
 import { ReactComponent as Hammer } from './hammer.svg';
 import { ReactComponent as Home } from './home-new.svg';
+import { ReactComponent as Hourglass } from './hourglass.svg';
 import { ReactComponent as ImagePrivate } from './image-private.svg';
 import { ReactComponent as ImagePublic } from './image-public.svg';
 import { ReactComponent as Image } from './image.svg';
@@ -100,6 +101,7 @@ import { ReactComponent as Users } from './users.svg';
 import { ReactComponent as Wallet } from './wallet.svg';
 import { ReactComponent as WarningFill } from './warning-fill.svg';
 import { ReactComponent as Warning } from './warning.svg';
+import { ReactComponent as Fingerprint } from '../onboarding/fingerprint.svg';
 
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 
@@ -151,6 +153,7 @@ export enum IconName {
   EyeOff = 'eye-off',
   Eye = 'eye',
   FaceId = 'face-id',
+  Fingerprint = 'fingerprint',
   Faucet = 'faucet',
   FileCopy = 'file-copy',
   FileSettings = 'file-settings',
@@ -160,6 +163,7 @@ export enum IconName {
   Globe = 'globe',
   Hammer = 'hammer',
   Home = 'home',
+  Hourglass = 'hourglass',
   ImagePrivate = 'image-private',
   ImagePublic = 'image-public',
   Image = 'image',
@@ -304,6 +308,8 @@ const IconSwitch = (props: IconProps) => {
       return <Eye {...props} />;
     case IconName.FaceId:
       return <FaceId {...props} />;
+    case IconName.Fingerprint:
+      return <Fingerprint {...props} />;
     case IconName.Faucet:
       return <Faucet {...props} />;
     case IconName.FileCopy:
@@ -324,6 +330,8 @@ const IconSwitch = (props: IconProps) => {
       return <Hammer {...props} />;
     case IconName.Home:
       return <Home {...props} />;
+    case IconName.Hourglass:
+      return <Hourglass {...props} />;
     case IconName.ImagePrivate:
       return <ImagePrivate {...props} />;
     case IconName.ImagePublic:

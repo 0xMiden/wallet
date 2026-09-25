@@ -22,7 +22,7 @@ const PrivateDataPermissionCheckbox: React.FC<PrivateDataPermissionCheckboxProps
   return (
     <div className={classNames('w-full', 'mb-4', 'flex flex-col')}>
       <label className="leading-tight flex flex-col" htmlFor="confirmPrivateDataPermission">
-        <span className="mt-1 text-sm text-black" style={{ maxWidth: '90%' }}>
+        <span className="mt-1 text-sm text-ink" style={{ maxWidth: '90%' }}>
           {t('confirmPrivateDataPermissionDescription')}
         </span>
       </label>

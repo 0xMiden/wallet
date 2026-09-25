@@ -1,4 +1,4 @@
-import { FungibleAsset, Note } from '@miden-sdk/miden-sdk/lazy';
+import { FungibleAsset, Note, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 
@@ -35,18 +35,21 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     this.notes = notes;
   }),
   NoteType: { Private: 'Private', Public: 'Public' },
-  TransactionRequestBuilder: jest.fn(function (this: any) {
-    this.withOwnOutputNotes = (notes: any) => {
-      this.ownOutputNotes = notes;
-      return this;
-    };
-    this.withFeeConversionSalt = (salt: any) => {
-      this.feeSalt = salt;
-      return this;
-    };
-    this.build = () => ({ serialize: () => new Uint8Array([1, 2, 3]) });
-  })
+  // The request starts from the fee-aware builder, never a fresh one: constructing this
+  // would mean the multisig fee auth args were dropped.
+  TransactionRequestBuilder: jest.fn()
 }));
+
+// The builder `feeAwareTransactionRequestBuilder` hands back. The request has to be built
+// from THIS object, since it is the one carrying the committed fee auth args.
+const feeAwareBuilder = {
+  withOwnOutputNotes: jest.fn(),
+  withFeeConversionSalt: jest.fn(),
+  build: jest.fn(() => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
+};
+const mockFeeAwareTransactionRequestBuilder = jest.fn(
+  async (_account: string, _options: { feeConversionSalt: unknown }) => feeAwareBuilder
+);
 
 // The lock hands its callback a HOLD, and the builder re-checks ownership after
 // the account read (#788 follow-up). Model both here: a hold-less pass-through
@@ -65,6 +68,9 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
     if (hold !== null && hold === currentWasmHold) return;
     throw new Error(`operation abandoned ${where}`);
   },
+  getMidenClient: async () => ({
+    client: { feeAwareTransactionRequestBuilder: mockFeeAwareTransactionRequestBuilder }
+  }),
   withWasmClientLock: async (fn: (hold: object) => unknown) => {
     const hold = { mock: 'wasm-lock-hold' };
     currentWasmHold = hold;
@@ -114,6 +120,7 @@ const build = (overrides: Partial<Parameters<typeof buildEpochCollateralRequestB
 
 beforeEach(() => {
   jest.clearAllMocks();
+  feeAwareBuilder.withOwnOutputNotes.mockReturnValue(feeAwareBuilder);
 });
 
 // The collateral note REMOVES the asset from the sender's vault, so it is subject
@@ -198,6 +205,50 @@ describe('the build is abandoned when the WASM lock hold is evicted', () => {
 
     expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
     expect(Note.createP2IDENote).not.toHaveBeenCalled();
+  });
+});
+
+// Since protocol 0.17 a guarded (multisig) sender resolves three words of fee auth args;
+// `withFeeConversionSalt` committed two and the proposal died with `advice stack read failed`.
+// The request therefore starts from the SDK's fee-aware builder for the account that will
+// execute it, and that builder is the one the collateral note lands on.
+describe('the request carries the fee auth args of the executing account', () => {
+  beforeEach(() => {
+    mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
+  });
+
+  it('asks the fee-aware builder for the sender, with the declared salt', async () => {
+    await build({ senderAccountId: '0xsender_guardiansuffix' });
+
+    expect(mockFeeAwareTransactionRequestBuilder).toHaveBeenCalledTimes(1);
+    // The composite guardian form names the account in its address part only; the salt is
+    // the one `randomFeeSalt` drew for this build.
+    expect(mockFeeAwareTransactionRequestBuilder).toHaveBeenCalledWith('accountId-0xsender', {
+      feeConversionSalt: (Word.newFromFelts as jest.Mock).mock.results[0]!.value
+    });
+    expect(Word.newFromFelts).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds the collateral note to that builder and builds from it', async () => {
+    await expect(build()).resolves.toEqual(new Uint8Array([1, 2, 3]));
+
+    const [notes] = feeAwareBuilder.withOwnOutputNotes.mock.calls[0];
+    expect(notes.notes).toEqual([(Note.createP2IDENote as jest.Mock).mock.results[0]!.value]);
+    expect(feeAwareBuilder.build).toHaveBeenCalledTimes(1);
+    expect(feeAwareBuilder.withFeeConversionSalt).not.toHaveBeenCalled();
+    expect(TransactionRequestBuilder).not.toHaveBeenCalled();
+  });
+
+  it('is abandoned when the hold is evicted while the fee-aware builder resolves', async () => {
+    mockFeeAwareTransactionRequestBuilder.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return feeAwareBuilder;
+    });
+
+    await expect(build()).rejects.toThrow('operation abandoned after the fee-aware collateral builder');
+
+    expect(feeAwareBuilder.withOwnOutputNotes).not.toHaveBeenCalled();
+    expect(feeAwareBuilder.build).not.toHaveBeenCalled();
   });
 });
 

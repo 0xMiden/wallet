@@ -127,4 +127,125 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     expect(senderArg).toBe('mlcl1sender');
     expect(sendParams).toMatchObject({ recipientId: 'mlcl1allocator' });
   });
+
+  it('threads exact spending-limit authorizations to both atomic row insertions', async () => {
+    const authorization = {
+      kind: 'usd' as const,
+      id: 'authorization-1',
+      accountId: 'mlcl1sender',
+      usdAmount: 250n,
+      spendsDigest: 'digest-1',
+      revision: 'revision-1',
+      issuedAt: 100,
+      expiresAt: 220
+    };
+
+    await createBridgeP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      destinationAddress: '0xevm',
+      destinationNetwork: 8453,
+      deps,
+      spendingLimitAuthorization: authorization
+    });
+    await createEarnP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      evmRecipient: '0xevm',
+      marketUid: 'AAVE:11155111:USDC',
+      deps,
+      spendingLimitAuthorization: authorization
+    });
+
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(authorization);
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![8]).toBe(authorization);
+  });
+
+  it('preserves structured spending-limit rejections for the calling flow', async () => {
+    const error = {
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: {
+        accountId: 'mlcl1sender',
+        usdAmount: 250_000_000n,
+        revision: 'revision-2',
+        assessedAt: 220,
+        breach: {
+          spent: 90_000_000n,
+          proposedTotal: 340_000_000n,
+          limit: 100_000_000n,
+          overBy: 240_000_000n,
+          resetAt: 300
+        }
+      }
+    };
+    mockInitiateBridgedSendTransaction.mockRejectedValueOnce(error);
+    mockInitiateEarnDepositTransaction.mockRejectedValueOnce(error);
+
+    await expect(
+      createBridgeP2IDENote({
+        senderAccountId: 'mlcl1sender',
+        faucetId: '0xfaucet',
+        amount: '250',
+        allocatorId: '0xallocator',
+        recallBlocks: 5_000,
+        bindingAttachmentFelts: [1n, 2n],
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        deps
+      })
+    ).rejects.toBe(error);
+    await expect(
+      createEarnP2IDENote({
+        senderAccountId: 'mlcl1sender',
+        faucetId: '0xfaucet',
+        amount: '250',
+        allocatorId: '0xallocator',
+        recallBlocks: 5_000,
+        bindingAttachmentFelts: [1n, 2n],
+        evmRecipient: '0xevm',
+        marketUid: 'AAVE:11155111:USDC',
+        deps
+      })
+    ).rejects.toBe(error);
+  });
+
+  it('keeps generic note-creation failures as unsuccessful callback results', async () => {
+    mockInitiateBridgedSendTransaction.mockRejectedValueOnce(new Error('bridge failed'));
+    mockInitiateEarnDepositTransaction.mockRejectedValueOnce(new Error('earn failed'));
+
+    await expect(
+      createBridgeP2IDENote({
+        senderAccountId: 'mlcl1sender',
+        faucetId: '0xfaucet',
+        amount: '250',
+        allocatorId: '0xallocator',
+        recallBlocks: 5_000,
+        bindingAttachmentFelts: [1n, 2n],
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        deps
+      })
+    ).resolves.toEqual({ success: false });
+    await expect(
+      createEarnP2IDENote({
+        senderAccountId: 'mlcl1sender',
+        faucetId: '0xfaucet',
+        amount: '250',
+        allocatorId: '0xallocator',
+        recallBlocks: 5_000,
+        bindingAttachmentFelts: [1n, 2n],
+        evmRecipient: '0xevm',
+        marketUid: 'AAVE:11155111:USDC',
+        deps
+      })
+    ).resolves.toEqual({ success: false });
+  });
 });

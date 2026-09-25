@@ -82,7 +82,7 @@ describe('PasswordStrengthIndicator', () => {
     // checks === 5 >= every threshold [2,3,5] => all three bars coloured green.
     const bars = container.querySelectorAll('div.h-1.w-10');
     expect(bars).toHaveLength(3);
-    bars.forEach(bar => expect(bar).toHaveClass('bg-green-500'));
+    bars.forEach(bar => expect(bar).toHaveClass('bg-status-positive'));
   });
 
   it('renders "medium" with yellow bars when four checks pass (third bar stays gray)', () => {
@@ -95,10 +95,10 @@ describe('PasswordStrengthIndicator', () => {
     expect(screen.getByText('medium')).toBeInTheDocument();
     const bars = container.querySelectorAll('div.h-1.w-10');
     // checks === 4: >= 2 and >= 3 => yellow; >= 5 is false => gray. Covers both
-    // arms of the per-bar `validationChecks >= check ? color : 'bg-gray-100'`.
-    expect(bars[0]).toHaveClass('bg-yellow-500');
-    expect(bars[1]).toHaveClass('bg-yellow-500');
-    expect(bars[2]).toHaveClass('bg-gray-100');
+    // arms of the per-bar `validationChecks >= check ? color : 'bg-fill-pressed'`.
+    expect(bars[0]).toHaveClass('bg-status-pending');
+    expect(bars[1]).toHaveClass('bg-status-pending');
+    expect(bars[2]).toHaveClass('bg-fill-pressed');
   });
 
   it('renders "medium" when exactly three checks pass (>= 3 boundary)', () => {
@@ -118,9 +118,9 @@ describe('PasswordStrengthIndicator', () => {
     expect(screen.getByText('low')).toBeInTheDocument();
     const bars = container.querySelectorAll('div.h-1.w-10');
     // checks === 2: only first bar (>= 2) coloured red; the rest gray.
-    expect(bars[0]).toHaveClass('bg-red-500');
-    expect(bars[1]).toHaveClass('bg-gray-100');
-    expect(bars[2]).toHaveClass('bg-gray-100');
+    expect(bars[0]).toHaveClass('bg-status-negative');
+    expect(bars[1]).toHaveClass('bg-fill-pressed');
+    expect(bars[2]).toHaveClass('bg-fill-pressed');
   });
 
   it('renders the "8chars1number" fallback with all-gray bars for a non-empty weak password', () => {
@@ -130,7 +130,7 @@ describe('PasswordStrengthIndicator', () => {
     expect(screen.getByText('8chars1number')).toBeInTheDocument();
     const bars = container.querySelectorAll('div.h-1.w-10');
     // checks === 1: below every threshold => all bars gray (fallback color).
-    bars.forEach(bar => expect(bar).toHaveClass('bg-gray-100'));
+    bars.forEach(bar => expect(bar).toHaveClass('bg-fill-pressed'));
   });
 });
 
@@ -191,11 +191,11 @@ describe('CreatePasswordScreen', () => {
     expect(screen.getByText('minimumCharsWithAtLeast')).toBeInTheDocument();
   });
 
-  it('forwards extra props (className / arbitrary attrs) onto the root container', () => {
-    const { container } = renderScreen({ className: 'custom-class', 'data-testid': 'create-pw-root' } as never);
-    const root = container.firstChild as HTMLElement;
-    expect(root).toHaveClass('custom-class');
-    expect(root).toHaveAttribute('data-testid', 'create-pw-root');
+  it('renders on the step layout with its test id, title and a pinned Continue', () => {
+    renderScreen({ 'data-testid': 'create-pw-root' });
+    expect(screen.getByTestId('create-pw-root')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'createPassword' })).toBeInTheDocument();
+    expect(screen.getByTestId('continue-btn').closest('[data-slot="footer"]')).not.toBeNull();
   });
 
   it('updates the password value and recomputes validation as the user types', () => {

@@ -97,8 +97,30 @@ describe('AccountsDrawer', () => {
 
     expect(screen.getByTestId('drawer-title').textContent).toBe('accounts');
     expect(screen.getByText('cardColor')).toBeTruthy();
-    expect(screen.getByText('settings').closest('button')?.className).toContain('dark:text-pure-white');
-    expect(screen.getByText('addAccountComingSoon')).toBeTruthy();
+    expect(screen.getByText('settings')).toBeTruthy();
+    expect(screen.getByText('importAccount')).toBeTruthy();
+  });
+
+  it('draws the Settings and Import Account actions as one grouped fill list with chevrons', () => {
+    renderDrawer();
+
+    const rows = [
+      screen.getByText('settings').closest('button')!,
+      screen.getByText('importAccount').closest('button')!
+    ];
+    const group = rows[0]!.parentElement!;
+    expect(group.className).toContain('bg-fill');
+    expect(group.className).toContain('rounded-2xl');
+    expect(rows[1]!.parentElement).toBe(group);
+
+    for (const row of rows) {
+      // A row that navigates carries the chevron, and the hairline is inset past its icon.
+      expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
+      expect(row.className).toContain('before:bg-hairline');
+      expect(row.className).toContain('active:bg-fill-pressed');
+      expect(row.className).not.toContain('#ECEAE7');
+      expect(row.className).not.toContain('dark:text-pure-white');
+    }
   });
 
   it('renders one swatch per card color with its background class', () => {
@@ -158,11 +180,17 @@ describe('AccountsDrawer', () => {
     expect(navigate).toHaveBeenCalledWith('/settings');
   });
 
-  it('renders the "Add Account" placeholder as a disabled button', () => {
-    renderDrawer();
+  it('closes the drawer, fires haptics, and opens private-key import', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer({ onOpenChange });
 
-    const addButton = screen.getByText('addAccountComingSoon').closest('button')!;
-    expect(addButton).toBeDisabled();
-    expect(addButton.getAttribute('aria-disabled')).toBe('true');
+    const addButton = screen.getByText('importAccount').closest('button')!;
+    expect(addButton).toBeEnabled();
+
+    fireEvent.click(addButton);
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(navigate).toHaveBeenCalledWith('/import-account');
   });
 });

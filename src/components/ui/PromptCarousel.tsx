@@ -1,4 +1,14 @@
-import React, { Children, FC, ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  Children,
+  FC,
+  isValidElement,
+  Key,
+  ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react';
 
 import classNames from 'clsx';
 import { animate, motion, PanInfo, useMotionValue } from 'framer-motion';
@@ -20,36 +30,70 @@ const COMMIT_THRESHOLD = 0.3;
 const VELOCITY_PROJECTION_MS = 300;
 const SLIDE_GAP_PX = 12;
 
+// The one name of a slide, for React's reconciliation and for the selection alike.
+const slideKey = (slide: ReactNode, index: number): Key =>
+  isValidElement(slide) && slide.key !== null ? slide.key : index;
+
 /**
  * Horizontal carousel that wraps a list of prompts with optional drag-paging
  * and dot indicators. Behavior collapses gracefully:
  *  - 0 visible prompts → renders nothing
- *  - 1 visible prompt  → renders the slide bare, no carousel chrome
+ *  - 1 visible prompt  → no dots, no drag, no gesture claim
  *  - 2+ visible        → draggable track + dot row
+ * Every count renders through the same tree, with each slide keyed by its own key,
+ * so a slide never remounts when a sibling appears or disappears: a card that swaps
+ * its content in the same render keeps its DOM, and the user's focus in it.
  */
 export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className }) => {
   const slides = Children.toArray(children).filter(Boolean);
-  // Held as state (callback ref) rather than a plain ref: the track div only
-  // exists once there are 2+ slides, so setup effects must re-run when it
-  // (un)mounts — with a plain ref and [] deps they'd observe null forever
-  // whenever the carousel mounts with 0/1 slides.
+  const slideKeys = slides.map(slideKey);
+  const paging = slides.length > 1;
+  // Held as state (callback ref) rather than a plain ref: the track div does not
+  // exist while there are no slides, so setup effects must re-run when it mounts;
+  // with a plain ref and [] deps they would observe null forever.
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const suppressClickRef = useRef(false);
   const releaseClickTimerRef = useRef<number | null>(null);
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
-  const [index, setIndex] = useState(0);
+  // What is on stage, by key, so a sibling appearing or disappearing before it moves its
+  // position, not the choice. A page (a dot, a drag, or focus moving into a slide off stage)
+  // lasts while its slide exists; focus inside the slide on stage holds it only while focus
+  // stays in the carousel. With neither, the first slide shows, so a prompt that arrives
+  // ahead of the others (they come in priority order) takes the stage.
+  const [pageKey, setPageKey] = useState<Key | null>(null);
+  const [focusKey, setFocusKey] = useState<Key | null>(null);
+  // Set when the user pages, so only that move springs; a slide-list change places
+  // the track at once, before paint, instead of sliding the selected card away.
+  // Placing uses jump, not set: set leaves a running spring (a drag's snap-back) to
+  // pull the track back to the old offset.
+  const pagedRef = useRef(false);
 
-  // Compute the visible index inline so a slide disappearing mid-flight
-  // (e.g. ActivateHotKeyBanner returning null once the rotation lands)
-  // doesn't briefly leave the track translated off-screen waiting for the
-  // clamp effect below to catch up.
-  const activeIndex = Math.min(index, Math.max(0, slides.length - 1));
+  // Computed inline so a slide disappearing mid-flight (e.g. ActivateHotKeyBanner
+  // returning null once the rotation lands) never leaves the track translated
+  // off-screen waiting for the effect below to catch up.
+  const pageIndex = pageKey === null ? -1 : slideKeys.indexOf(pageKey);
+  const focusIndex = focusKey === null ? -1 : slideKeys.indexOf(focusKey);
+  const activeIndex = pageIndex >= 0 ? pageIndex : Math.max(0, focusIndex);
 
-  // Persist the clamp so state stays in sync with what's actually rendered.
+  // A choice whose slide has gone is dropped, so the slide coming back later does not take
+  // the stage again. Only the key seen here is cleared: a newer choice queued meanwhile stays.
   useEffect(() => {
-    if (index !== activeIndex) setIndex(activeIndex);
-  }, [activeIndex, index]);
+    if (pageKey !== null && pageIndex < 0) setPageKey(current => (current === pageKey ? null : current));
+    if (focusKey !== null && focusIndex < 0) setFocusKey(current => (current === focusKey ? null : current));
+  }, [focusIndex, focusKey, pageIndex, pageKey]);
+
+  const selectSlide = (i: number) => {
+    pagedRef.current = true;
+    setPageKey(slideKeys[i] ?? null);
+  };
+
+  // Focus moving into a slide off stage pages to it; focus inside the slide on stage keeps it
+  // there while focus stays in the carousel, so a prompt arriving ahead does not push it away.
+  const handleSlideFocus = (i: number) => {
+    if (i !== activeIndex) selectSlide(i);
+    else setFocusKey(slideKeys[i] ?? null);
+  };
 
   useLayoutEffect(() => {
     if (!container) return;
@@ -67,7 +111,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   }, [container]);
 
   useEffect(() => {
-    if (!container) return;
+    if (!container || !paging) return;
 
     // HomePrompts sits inside HomeSwipeContainer, which is another horizontal
     // Framer Motion drag surface. Let the prompt track start its drag session,
@@ -75,7 +119,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
     const claimPromptGesture = (event: PointerEvent) => event.stopPropagation();
     container.addEventListener('pointerdown', claimPromptGesture);
     return () => container.removeEventListener('pointerdown', claimPromptGesture);
-  }, [container]);
+  }, [container, paging]);
 
   useEffect(
     () => () => {
@@ -88,15 +132,23 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   // paging steps by width + gap rather than width alone.
   const step = width + SLIDE_GAP_PX;
 
-  useEffect(() => {
+  // Runs on `paging` too: a slide-list change that turns drag off without moving the
+  // selection (the other slide going mid-drag) must still settle the track.
+  useLayoutEffect(() => {
+    const paged = pagedRef.current;
+    pagedRef.current = false;
     if (!width) {
       const fallbackWidth = container?.clientWidth ?? 0;
-      x.set(-activeIndex * (fallbackWidth ? fallbackWidth + SLIDE_GAP_PX : 0));
+      x.jump(-activeIndex * (fallbackWidth ? fallbackWidth + SLIDE_GAP_PX : 0));
+      return;
+    }
+    if (!paged) {
+      x.jump(-activeIndex * step);
       return;
     }
     const controls = animate(x, -activeIndex * step, springs.standard);
     return () => controls.stop();
-  }, [activeIndex, container, step, width, x]);
+  }, [activeIndex, container, paging, step, width, x]);
 
   const handleDragStart = () => {
     if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
@@ -111,7 +163,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
       else if (projected > width * COMMIT_THRESHOLD && activeIndex > 0) nextIdx = activeIndex - 1;
       if (nextIdx !== activeIndex) {
         hapticSelection();
-        setIndex(nextIdx);
+        selectSlide(nextIdx);
       } else {
         animate(x, -activeIndex * step, springs.standard);
       }
@@ -134,21 +186,36 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   const handleDotTap = (i: number) => {
     if (i === activeIndex) return;
     hapticSelection();
-    setIndex(i);
+    selectSlide(i);
   };
 
   if (slides.length === 0) return null;
-  if (slides.length === 1) return <div className={className}>{slides[0]}</div>;
 
   const dragMaxLeft = width ? -(slides.length - 1) * step : 0;
 
   return (
-    <div className={classNames('flex flex-col gap-2', className)}>
-      <div ref={setContainer} className="w-full overflow-hidden touch-pan-y">
+    <div
+      className={classNames('flex flex-col gap-2', className)}
+      onBlur={event => {
+        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+          setFocusKey(null);
+        }
+      }}
+    >
+      <div
+        ref={setContainer}
+        className={classNames('w-full overflow-hidden', paging && 'touch-pan-y')}
+        // Only the track's transform moves the slides. A browser scrolls this overflow-hidden
+        // viewport to reveal a control focused in a hidden slide, and that offset would add to
+        // the page focus moves the track by. (overflow: clip would stop it, but not on iOS 15.)
+        onScroll={event => {
+          if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
+        }}
+      >
         <motion.div
           className="flex items-start"
           style={{ x, gap: SLIDE_GAP_PX }}
-          drag="x"
+          drag={paging ? 'x' : false}
           dragDirectionLock
           dragConstraints={{ left: dragMaxLeft, right: 0 }}
           dragElastic={0.15}
@@ -158,26 +225,35 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
           onClickCapture={handleClickCapture}
         >
           {slides.map((slide, i) => (
-            <div key={i} className="shrink-0" style={{ width: width || '100%' }}>
+            <div
+              key={slideKey(slide, i)}
+              className="shrink-0"
+              style={{ width: width || '100%' }}
+              onFocus={() => handleSlideFocus(i)}
+            >
               {slide}
             </div>
           ))}
         </motion.div>
       </div>
-      <div className="flex justify-center gap-1.5">
-        {slides.map((_, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => handleDotTap(i)}
-            aria-label={`Show prompt ${i + 1} of ${slides.length}`}
-            className={classNames(
-              'h-1.5 rounded-full transition-all',
-              i === activeIndex ? 'w-4 bg-accent-primary' : 'w-1.5 bg-gray-50'
-            )}
-          />
-        ))}
-      </div>
+      {paging && (
+        <div className="flex justify-center gap-1.5">
+          {slides.map((slide, i) => (
+            <button
+              key={slideKey(slide, i)}
+              type="button"
+              onClick={() => handleDotTap(i)}
+              aria-label={`Show prompt ${i + 1} of ${slides.length}`}
+              className={classNames(
+                'h-1.5 rounded-full transition-all',
+                // `hairline`, not `fill`: the cards above are `page` with a hairline edge now, and
+                // `fill` on the page behind them was all but invisible in the light theme.
+                i === activeIndex ? 'w-4 bg-accent-primary' : 'w-1.5 bg-hairline'
+              )}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

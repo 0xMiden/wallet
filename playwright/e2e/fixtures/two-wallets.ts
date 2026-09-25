@@ -14,6 +14,11 @@ import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
 import { installFetchFaultControls, isFetchFaultTarget, toFetchWire } from '../harness/fetch-faults';
+import {
+  createGuardianCommitmentLedger,
+  waitForGuardianLedgerSettled,
+  type GuardianCommitmentLedger
+} from '../harness/guardian-commitments';
 import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
@@ -83,6 +88,21 @@ export interface GuardianFaultTestApi {
    */
   networkFaultHits(): Promise<number>;
   clearFaults(): Promise<void>;
+  /**
+   * Start recording this wallet's guardian pushes and state reads, for
+   * `waitForGuardianSettled`. Call it before the wallet's first guardian
+   * transaction; it survives a relaunch.
+   */
+  trackGuardianCommitments(): void;
+  /**
+   * Resolve once nothing is left settling on this wallet's guardian: the
+   * transaction queue has drained and the guardian's canonical state has caught
+   * up with the last delta the wallet pushed. A spec that hands the account to
+   * another wallet waits on this, since the guardian refuses a new proposal
+   * (a recovered wallet's hot-key rotation among them) while a candidate is
+   * pending.
+   */
+  waitForGuardianSettled(timeoutMs?: number): Promise<void>;
 }
 
 export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
@@ -111,6 +131,11 @@ type TwoWalletFixtures = {
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
+
+// Budget for `waitForGuardianSettled`'s queue drain and then its canonicalization
+// wait. The guardian promotes a candidate within seconds once the chain has it, so
+// two minutes runs out only on a discarded candidate or a stalled guardian.
+const GUARDIAN_SETTLE_TIMEOUT_MS = 120_000;
 
 // The guardian operator origins fault injection keys on, for the active
 // E2E_NETWORK: local containers on localhost, the real operators on
@@ -347,7 +372,8 @@ async function launchWalletInstance(
   label: 'A' | 'B',
   extensionPath: string,
   timeline: TimelineRecorder,
-  outputDir: string
+  outputDir: string,
+  feeFaucetId?: string
 ) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
 
@@ -362,6 +388,26 @@ async function launchWalletInstance(
 
   const serviceWorker = await waitForExtensionServiceWorker(context);
   const extensionId = new URL(serviceWorker.url()).host;
+
+  if (feeFaucetId) {
+    const deadline = Date.now() + 30_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      ready = await serviceWorker
+        .evaluate(() => typeof (self as { __TEST_SET_FEE_FAUCET__?: unknown }).__TEST_SET_FEE_FAUCET__ === 'function')
+        .catch(() => false);
+      if (ready) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (!ready) {
+      throw new Error(`__TEST_SET_FEE_FAUCET__ was not installed on wallet ${label} within 30s`);
+    }
+    await serviceWorker.evaluate(async id => {
+      const setFee = (self as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> }).__TEST_SET_FEE_FAUCET__;
+      if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+      await setFee(id);
+    }, feeFaucetId);
+  }
 
   // Attach observability
   attachConsoleCapture(context, label, timeline);
@@ -519,6 +565,15 @@ async function launchWalletInstance(
         .first()
         .waitFor({ timeout: ATTEMPT_TIMEOUT });
 
+      if (feeFaucetId) {
+        await page.evaluate(async id => {
+          const setFee = (window as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> })
+            .__TEST_SET_FEE_FAUCET__;
+          if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+          await setFee(id);
+        }, feeFaucetId);
+      }
+
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'info',
@@ -583,6 +638,8 @@ async function launchWalletInstance(
   // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
   // clearFaults() (captured by reference below) keep targeting the live context.
   let faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
+  // Outlives `faults`: a relaunch re-attaches it to the new context's handler.
+  let guardianLedger: GuardianCommitmentLedger | undefined;
 
   // Fetch-layer faults for node/prover/transport (gRPC-web inside the SW / SDK
   // worker — context.route can't reach it). Live SW via the context thunk so it
@@ -611,6 +668,7 @@ async function launchWalletInstance(
     context = next.context;
     page = next.page;
     faults = next.faults;
+    if (guardianLedger) faults.trackGuardianCommitments(guardianLedger);
     // Fresh Page instance -- re-install the screen-change capture binding.
     await installScreenCapture(page, label, outputDir);
     return page;
@@ -632,6 +690,23 @@ async function launchWalletInstance(
       clearFaults: async () => {
         faults.clear();
         await fetchFaults.clear();
+      },
+      trackGuardianCommitments: () => {
+        guardianLedger ??= createGuardianCommitmentLedger();
+        faults.trackGuardianCommitments(guardianLedger);
+      },
+      waitForGuardianSettled: async (timeoutMs: number = GUARDIAN_SETTLE_TIMEOUT_MS) => {
+        if (!guardianLedger) {
+          throw new Error('waitForGuardianSettled: call trackGuardianCommitments() before the wallet transacts');
+        }
+        await walletPage.waitForQueueDrained(timeoutMs);
+        const waitedMs = await waitForGuardianLedgerSettled(guardianLedger, { timeoutMs });
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'info',
+          wallet: label,
+          message: `Wallet ${label}: guardian canonicalized its last pushed delta ${waitedMs}ms after the queue drained`
+        });
       }
     }
   );
@@ -863,9 +938,10 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletA: async ({ timeline, steps, failureSnapshots }, use, testInfo) => {
+  walletA: async ({ timeline, steps, failureSnapshots, midenCli }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir);
+    const feeFaucetId = await midenCli.ensureNativeFaucetId();
+    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'A', steps.outputDir);
 
@@ -910,7 +986,8 @@ export const test = base.extend<TwoWalletFixtures>({
 
   walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir);
+    const feeFaucetId = await midenCli.ensureNativeFaucetId();
+    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'B', steps.outputDir);
 

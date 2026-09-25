@@ -293,7 +293,7 @@ beforeEach(() => {
   mockedMultisigClient.chainAnchorToBase64.mockReturnValue('chain-anchor-b64');
   mockedMultisigClient.executeForSummary.mockResolvedValue({
     summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) },
-    anchor: { kind: 'anchor' }
+    anchor: { kind: 'anchor', blockNum: () => 4242 }
   });
   mockedMultisigClient.buildUpdateGuardianTransactionRequest.mockResolvedValue({
     request: { kind: 'update-guardian-request' },
@@ -516,10 +516,15 @@ describe('createDirectSwitchGuardianRequest', () => {
 
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
     expect(summaryBuild[2]).toEqual({
+      accountId: '0xacct-id',
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: 'https://rpc.test'
     });
+    // The auth args bind a block, so the rebuild pins the one the summary anchor
+    // names rather than taking whatever the store synced to while the vault signed.
     expect(rebuild[2]).toEqual({
+      accountId: '0xacct-id',
+      boundBlockNum: 4242,
       salt: { hex: '0xsalt', toFelts: expect.any(Function) },
       signatureAdviceMap: expect.anything(),
       signatureScheme: 'ecdsa',
@@ -542,7 +547,7 @@ describe('createDirectSwitchGuardianRequest', () => {
   it('releases the chain anchor through freeChainAnchor', async () => {
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith({ kind: 'anchor' });
+    expect(mockFreeChainAnchor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anchor' }));
   });
 
   // The anchor carries a partial blockchain, so it must not leak when the
@@ -555,7 +560,7 @@ describe('createDirectSwitchGuardianRequest', () => {
     await expect(
       createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
     ).rejects.toThrow('anchor serialize blew up');
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith({ kind: 'anchor' });
+    expect(mockFreeChainAnchor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anchor' }));
   });
 
   // Cold resolves as `commitments[1] ?? commitments[0]`, so a single-signer

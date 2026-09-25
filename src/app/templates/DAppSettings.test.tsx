@@ -8,6 +8,11 @@ import { useConfirm } from 'lib/ui/dialog';
 
 import DAppSettings from './DAppSettings';
 
+// `__mocks__/utils/string.ts` sits adjacent to node_modules and `utils/string` is a bare specifier,
+// so the identity mock applies without an opt-in. The row's whole change is the shortening, so this
+// suite needs the real helper or the assertion below cannot see it.
+jest.unmock('utils/string');
+
 // The wallet-adapter package ships as ESM and is not transformed by jest, so we
 // provide just the `PrivateDataPermission` enum the component reads. Values
 // mirror the real enum (`UPON_REQUEST` / `AUTO`) so the equality check behaves
@@ -22,22 +27,43 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// `AddressShortView` pulls in `utils/string`; render the raw address so the
-// account value is directly assertable.
-jest.mock('app/atoms/AddressShortView', () => ({
+// The canonical CopyButton does its own clipboard write internally (covered by its own test
+// suite); stub it to a marker that surfaces the `text` it would copy.
+jest.mock('components/ui/CopyButton', () => ({
   __esModule: true,
-  default: ({ address }: { address: string }) => <span data-testid="addr-short">{address}</span>
-}));
-
-// `CopyButton` reaches into analytics / tippy / haptics; stub it to a marker
-// that surfaces the `text` it would copy plus its children.
-jest.mock('app/atoms/CopyButton', () => ({
-  __esModule: true,
-  default: ({ text, children }: { text: string; children?: React.ReactNode }) => (
-    <button data-testid="copy-btn" data-copy-text={text}>
-      {children}
+  CopyButton: (props: { text: string; className?: string }) => (
+    <button data-testid="copy-btn" data-copy-text={props.text} className={props.className}>
+      copy
     </button>
   )
+}));
+
+jest.mock('components/Button', () => ({
+  Button: ({
+    title,
+    onClick,
+    variant,
+    size,
+    'data-testid': testId
+  }: {
+    title: string;
+    onClick?: () => void;
+    variant?: string;
+    size?: string;
+    'data-testid'?: string;
+  }) => (
+    <button type="button" onClick={onClick} data-variant={variant} data-size={size} data-testid={testId}>
+      {title}
+    </button>
+  ),
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
+}));
+
+jest.mock('app/icons/v2', () => ({
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} className={className} />
+  ),
+  IconName: { Apps: 'apps' }
 }));
 
 // `lib/miden/front` is a barrel over the SDK; mock only the two members used.
@@ -138,11 +164,10 @@ describe('DAppSettings', () => {
     expect(screen.getByText('testnet')).toBeInTheDocument();
     expect(screen.getByText('localnet')).toBeInTheDocument();
 
-    // AddressShortView receives the matched accountId for every card.
-    expect(screen.getAllByTestId('addr-short')).toHaveLength(2);
-    expect(screen.getAllByTestId('addr-short')[0]).toHaveTextContent(ACCOUNT_ID);
-
-    // CopyButton is wired with the accountId as its copy text.
+    // A literal, not `truncateAddress(ACCOUNT_ID, false, 8)`: recomputing the component's own
+    // expression mirrors it, so it could not catch the arguments changing.
+    expect(screen.getAllByText('mtst1acc...ount')).toHaveLength(2);
+    expect(screen.getAllByTestId('copy-btn')).toHaveLength(2);
     expect(screen.getAllByTestId('copy-btn')[0]).toHaveAttribute('data-copy-text', ACCOUNT_ID);
 
     // UponRequest → permissionUponRequest; Auto → permissionAutomatic.
@@ -150,6 +175,27 @@ describe('DAppSettings', () => {
     expect(screen.getByText('permissionAutomatic')).toBeInTheDocument();
     // The static permission chip renders once per card.
     expect(screen.getAllByText('permissionLabel')).toHaveLength(2);
+  });
+
+  it('renders each dApp through SubPageLayout as a labelled section over a detail card', () => {
+    render(<DAppSettings />);
+
+    const page = screen.getByTestId('dapp-settings');
+    const sections = screen.getAllByTestId('dapp-session');
+    expect(sections).toHaveLength(2);
+    expect(sections[0]!.parentElement).toBe(page.querySelector('[data-slot="body"]'));
+    // The hostname is the section label; the rows sit in the shared DetailCard, labels without
+    // the legacy trailing colon.
+    expect(within(sections[0]!).getByRole('heading', { name: 'app.example.com' })).toHaveClass('text-muted');
+    expect(within(sections[0]!).getByText('originLabel').closest('.rounded-2xl')).toHaveClass('bg-fill');
+    // Permissions are Pills; the explorer link is named for assistive tech.
+    expect(within(sections[0]!).getByText('permissionLabel').closest('.rounded-full')).not.toBeNull();
+    expect(within(sections[0]!).getByRole('link')).toHaveAccessibleName('viewOnMidenscan');
+    // Disconnecting is a compact destructive button, not an unlabelled ✕.
+    const disconnect = within(sections[0]!).getByTestId('dapp-disconnect');
+    expect(disconnect).toHaveTextContent('disconnect');
+    expect(disconnect).toHaveAttribute('data-variant', 'destructive');
+    expect(disconnect).toHaveAttribute('data-size', 'sm');
   });
 
   it('builds the explorer link from the accountId prefix before the underscore', () => {
@@ -164,13 +210,14 @@ describe('DAppSettings', () => {
   it('removes the session and revalidates when the confirm dialog is accepted', async () => {
     render(<DAppSettings />);
 
-    const header = screen.getByText('app.example.com').parentElement as HTMLElement;
-    fireEvent.click(within(header).getByRole('button'));
+    fireEvent.click(within(screen.getAllByTestId('dapp-session')[0]!).getByTestId('dapp-disconnect'));
 
     await waitFor(() => expect(removeDAppSession).toHaveBeenCalledWith('https://app.example.com'));
     expect(confirm).toHaveBeenCalledWith({
       title: 'actionConfirmation',
-      children: 'resetPermissionsConfirmation'
+      children: 'resetPermissionsConfirmation',
+      confirmLabel: 'disconnect',
+      destructive: true
     });
     expect(mutate).toHaveBeenCalledTimes(1);
   });
@@ -179,20 +226,23 @@ describe('DAppSettings', () => {
     confirm.mockResolvedValue(false);
     render(<DAppSettings />);
 
-    const header = screen.getByText('app.example.com').parentElement as HTMLElement;
-    fireEvent.click(within(header).getByRole('button'));
+    fireEvent.click(within(screen.getAllByTestId('dapp-session')[0]!).getByTestId('dapp-disconnect'));
 
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(removeDAppSession).not.toHaveBeenCalled();
     expect(mutate).not.toHaveBeenCalled();
   });
 
-  it('renders nothing when there are no matching sessions', () => {
+  it('shows the shared empty state when there are no matching sessions', () => {
     setData({});
     const { container } = render(<DAppSettings />);
 
     expect(container.querySelectorAll('a')).toHaveLength(0);
     expect(screen.queryByText('originLabel')).not.toBeInTheDocument();
+    const empty = screen.getByTestId('dapp-settings-empty');
+    expect(empty).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(within(empty).getByRole('heading', { name: 'noConnectedDApps' })).toBeInTheDocument();
+    expect(within(empty).getByText('noConnectedDAppsDescription')).toBeInTheDocument();
   });
 
   it('falls back to the full accountId for the explorer link when the prefix is empty', () => {

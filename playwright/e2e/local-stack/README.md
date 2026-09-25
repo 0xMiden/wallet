@@ -5,16 +5,16 @@ CI (`pr-e2e-local.yml`) is the source of truth — this README documents how to 
 
 ## Version pins
 
-Every pin lives in `versions.env` (node + note-transport + guardian) or `package.json`
+Every pin lives in `versions.env` (node + guardian) or `package.json`
 (`midenClientCliVersion` / `midenClientCliGit.rev`). The table below is a snapshot of what
 those files currently say; when they disagree, the files win.
 
 | Component | Pin | Source |
 |---|---|---|
-| `miden-node` / `miden-validator` / `miden-ntx-builder` / `miden-remote-prover` | built from **miden-client `v0.16.0-rc.1`** (`efebb6a7`) | `NODE_SRC_REPO` / `NODE_SRC_REF` in `versions.env` |
-| `note-transport-service` | `v0.5.0-rc.1` | `NOTE_TRANSPORT_REF` in `versions.env` |
-| `miden-client-cli` | `0.16.0-rc.3` (rev `4fec7b22`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
-| `guardian` (Tier-2) | `v0.17.0-rc.3` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
+| `miden-node` / `miden-validator` / `miden-ntx-builder` / `miden-remote-prover` | built from **rust-sdk `v0.17.0-rc.3`** (`253b6d0f`) | `NODE_SRC_REPO` / `NODE_SRC_REF` in `versions.env` |
+| `miden-note-transport` | built with the node at `NODE_SRC_REF` | installed by `start-test-node.sh` |
+| `miden-client-cli` | `0.17.0-rc.3` (rev `253b6d0f`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
+| `guardian` (Tier-2) | `v0.18.0-rc.1` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
 
 > **No node image tag.** The published `ghcr.io/0xmiden/*` node images lag the node the SDK is
 > built against, so the node is **compiled and run from source** — miden-client's
@@ -22,16 +22,15 @@ those files currently say; when they disagree, the files win.
 
 > **Keep `GUARDIAN_IMAGE_TAG` in lockstep with the client.** The guardian server image and
 > `@openzeppelin/miden-multisig-client` in `package.json` have to agree on the MASM procedure
-> roots, and the guardian's version line is independent of Miden's — `v0.17.0-rc.3` is the first
-> release whose guarded accounts come from the upstream `AuthGuardedMultisig` component, which is
-> what lets miden-client classify them and commit their fee conversion info. Bumping one without
+> roots, and the guardian's version line is independent of Miden's. `v0.18.0-rc.1` is the first
+> release on the Miden 0.17 line, built against the same `@miden-sdk/miden-sdk` 0.17.0-rc.3 the
+> wallet ships. Bumping one without
 > the other still installs and starts cleanly; it fails at runtime on procedure-root mismatch.
 
 ## Prerequisites
 
-- `cargo` + `rustc` (CI pins 1.98.0) — for building the node, the CLI and note-transport
+- `cargo` + `rustc` (CI pins 1.98.0) - for building the node and the CLI
 - `protobuf-compiler`, `clang`, `cmake` — node build deps
-- `nc` (netcat) — for the port-readiness wait in `run-note-transport.sh`
 - Docker with Compose v2 (`docker compose`) — only for the optional Tier-2 guardian profile
 
 ## Running the stack locally
@@ -66,11 +65,10 @@ caches. Logs land in `/tmp/miden-client/target/test-node/data/logs`.
 playwright/e2e/local-stack/run-note-transport.sh
 ```
 
-Clones + builds `note-transport-service` at `NOTE_TRANSPORT_REF` on first run (several
-minutes); subsequent runs reuse the cached binary under
-`${RUNNER_TEMP:-/tmp}/note-transport/target/release/`. The binary's name depends on the
-pinned ref, so the script resolves it from `bin/node/Cargo.toml` rather than hardcoding one.
-Waits until `:57292` is open.
+Runs the node repo's `miden-note-transport`, which `start-test-node.sh` installs with the
+node binaries, through the rust-sdk clone's `scripts/start-note-transport-bg.sh` (clone at
+`${MIDEN_CLIENT_DIR:-${RUNNER_TEMP:-/tmp}/miden-client}`). It starts from an empty database,
+waits until `:57292` is open, and logs to `target/test-node/data/logs/note-transport.log`.
 
 ### 3. Build the extension for localnet
 
@@ -87,7 +85,7 @@ E2E_NETWORK=localhost yarn test:e2e:blockchain:run
 `playwright.e2e.config.ts` ignores `guardian-*.spec.ts` and the `swap/`, `bridge/`, `earn/`
 and `resilience/` subsuites, so this is the core set: `wallet-lifecycle`, `mint-and-balance`,
 `send-public`, `send-public-local-prove`, `send-private`, `multi-account`, `multi-claim`,
-`recall-reclaim`, `contacts-send`, `group-claim`, `history-cancel`, `receive-address`,
+`recall-reclaim`, `contacts-send`, `history-cancel`, `receive-address`,
 `settings-toggles`, `unlock-lockout`.
 
 ### 5. (Tier-2) Guardian specs — optional, currently quarantined
@@ -111,7 +109,7 @@ what `pr-e2e-guardian-lifecycle.yml` brings up.
 ```bash
 cd playwright/e2e/local-stack
 docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v
-kill "$(cat /tmp/note-transport.pid)"
+/tmp/miden-client/scripts/stop-note-transport.sh
 pkill -f 'miden-(node|validator|ntx-builder|remote-prover)'   # the host-process node
 ```
 
@@ -120,10 +118,9 @@ pkill -f 'miden-(node|validator|ntx-builder|remote-prover)'   # the host-process
 | Variable | Default | Purpose |
 |---|---|---|
 | `NODE_SRC_REPO` / `NODE_SRC_REF` | from `versions.env` | miden-client repo + rev the test node is built from |
-| `NOTE_TRANSPORT_REPO` / `NOTE_TRANSPORT_REF` | from `versions.env` | note-transport repo + tag `run-note-transport.sh` builds |
 | `MIDEN_NTX_AUTH` | `e2e-ntx-secret` | Shared auth header: sequencer `--rpc.network-tx-auth-header-value` = ntx-builder `--rpc.auth-header-value` |
-| `MIDEN_NODE_BLOCK_INTERVAL` / `MIDEN_NODE_BATCH_INTERVAL` | node defaults | Block/batch cadence; the CI matrix runs a `500ms` leg for the timing-critical private-note specs |
-| `RUNNER_TEMP` | `/tmp` | Where the note-transport build cache lives (set automatically by GitHub Actions) |
+| `MIDEN_NODE_BLOCK_INTERVAL` / `MIDEN_NODE_BATCH_INTERVAL` | node defaults (3s / 1s) | Block/batch cadence. Keep it at or above the default: a 0.17 transaction expires 20 blocks after its reference block |
+| `RUNNER_TEMP` | `/tmp` | Parent of the rust-sdk clone `run-note-transport.sh` starts the transport from (set automatically by GitHub Actions) |
 | `GUARDIAN_IMAGE_TAG` | from `versions.env` | ghcr.io/openzeppelin/guardian tag (Tier-2 `guardian` profile) |
 | `GUARDIAN_URL` | `http://localhost:3000` | Guardian endpoint the guardian specs point the wallet at |
 

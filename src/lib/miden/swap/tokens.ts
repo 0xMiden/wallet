@@ -1,10 +1,11 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
- * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and adds the
+ * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
  * network's discovered native asset at runtime. The fixed test tokens use
  * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
  * and `stringToBigInt(amount, token.decimals)` converts it to base units.
@@ -25,6 +26,11 @@ export interface SwapToken {
   decimals: number;
   /** Symbol understood by `TokenLogo` (MIDEN/ETH/USDC/BTC) for the round logo. */
   logoSymbol: string;
+  /**
+   * The asset this token stands for, as the price feed names it. Set only where the feed prices
+   * that asset; absent means unpriced. Never inferred from `logoSymbol`, which is only a logo.
+   */
+  priceSymbol?: string;
 }
 
 export const SWAP_TOKEN_DECIMALS = 8;
@@ -39,13 +45,15 @@ export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
   faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
   decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'ETH'
+  logoSymbol: 'ETH',
+  priceSymbol: 'ETH'
 };
 export const TOKEN_IBTC: SwapToken = {
   symbol: 'IBTC',
   faucetId: 'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x',
   decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'BTC'
+  logoSymbol: 'BTC',
+  priceSymbol: 'BTC'
 };
 export const TOKEN_IUSDT: SwapToken = {
   symbol: 'IUSDT',
@@ -62,8 +70,8 @@ let _swapTokensOverride: SwapToken[] | undefined;
  * Live registry read — all consumers use this so an E2E override takes effect.
  *
  * The native asset ID is network-derived and may not be available during the
- * first render. Once discovery populates the synchronous cache, include MIDEN
- * alongside the fixed DEX test tokens. Callers naturally re-read this accessor
+ * first render. Once discovery populates the synchronous cache, put MIDEN ahead
+ * of the fixed DEX test tokens. Callers naturally re-read this accessor
  * on their next render (for example, when opening the token drawer).
  */
 export const getSwapTokens = (): SwapToken[] => {
@@ -74,14 +82,29 @@ export const getSwapTokens = (): SwapToken[] => {
 
   const nativeMetadata = getNativeAssetMetadataSync();
   return [
-    ...SWAP_TOKENS,
     {
       symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
       faucetId: nativeAssetId,
       decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
       logoSymbol: 'MIDEN'
-    }
+    },
+    ...SWAP_TOKENS
   ];
+};
+
+/**
+ * The pair the swap form opens on. Chosen by SYMBOL, never by list position:
+ * `getSwapTokens()` puts the discovered native asset first once discovery has
+ * landed, so seeding from index 0/1 gave a cold start into /swap a different
+ * default pair than a warm one - same build, same user, different defaults on a
+ * money screen. Falls back to the fixed list when a symbol is not present.
+ */
+export const getDefaultSwapPair = (): { offer: SwapToken; request: SwapToken } => {
+  const tokens = getSwapTokens();
+  const bySymbol = (symbol: string) => tokens.find(token => token.symbol === symbol);
+  const offer = bySymbol(TOKEN_IMIDEN.symbol) ?? tokens[0]!;
+  const request = bySymbol(TOKEN_IETH.symbol) ?? tokens[1]!;
+  return { offer, request };
 };
 
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
@@ -94,6 +117,38 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
+
+// Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
+// stringify. A failed parse is not cached, so it is retried once the SDK can parse the id.
+const normalizedFaucetIds = new Map<string, string>();
+
+/** Test-only: forget every cached conversion. */
+export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
+
+/** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
+export function normalizedFaucetId(faucetId: string): string {
+  const key = `${getEffectiveNetworkName()}:${faucetId}`;
+  const cached = normalizedFaucetIds.get(key);
+  if (cached !== undefined) return cached;
+  try {
+    const normalized = getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
+    normalizedFaucetIds.set(key, normalized);
+    return normalized;
+  } catch {
+    return faucetId;
+  }
+}
+
+/**
+ * The symbol to look a held token's price up under: a swap token's `priceSymbol` (IETH at ETH),
+ * matched by faucet in either id encoding as the swap picker matches balances, else its own symbol.
+ */
+export function priceSymbolFor(faucetId: string, symbol: string): string {
+  const swapToken = getSwapTokens().find(
+    token => token.faucetId === faucetId || normalizedFaucetId(token.faucetId) === faucetId
+  );
+  return swapToken?.priceSymbol ?? symbol;
+}
 
 /**
  * A single quote for an (offered, requested) pair from the DEX `swap-eta`

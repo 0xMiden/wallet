@@ -110,6 +110,9 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'false'),
+    'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.
@@ -136,6 +139,15 @@ export default defineConfig({
     'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    // Needed here and not only in the extension/mobile configs because
+    // `App.tsx` is shared, so the desktop bundle reaches the telemetry modules
+    // too. Omitting them does NOT fail the build: `nodePolyfills` shims
+    // `process`, so the reads resolve to undefined and both features turn
+    // themselves off — telemetry silently absent on desktop while the consent
+    // toggle still offers it, which is the worst of the three outcomes.
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   },

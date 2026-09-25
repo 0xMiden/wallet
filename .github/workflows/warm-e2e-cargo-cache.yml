@@ -2,8 +2,9 @@ name: Warm E2E cargo cache
 
 # WHY THIS EXISTS
 #
-# Every E2E job needs two compiled Rust binaries: miden-client-cli and
-# note-transport. Building them costs ~12 min (7.8 + 3.9 measured on
+# Every E2E job needs a compiled miden-client-cli (the note-transport service
+# now comes with the node binaries, cached by warm-node-cache.yml). Building
+# the CLI and the old standalone transport cost ~12 min (7.8 + 3.9 measured on
 # run 31744132121), and it was being paid on essentially every PR.
 #
 # GitHub scopes a cache to the ref that wrote it: a PR can read caches from its
@@ -46,7 +47,13 @@ concurrency:
 
 jobs:
   warm:
-    runs-on: warp-ubuntu-latest-x64-8x
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - warp-ubuntu-latest-arm64-8x
+          - warp-ubuntu-latest-x64-8x
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -60,26 +67,20 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          # Keep the old x64 namespace so existing main caches remain usable.
+          if [ "${{ runner.arch }}" = X64 ]; then
+            namespace=miden-e2e-cargo-v2
+          else
+            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
+          fi
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         id: cache
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           key: ${{ steps.cargo_cache_key.outputs.key }}
       - name: Build miden-client-cli
         if: steps.cache.outputs.cache-hit != 'true'
@@ -88,12 +89,6 @@ jobs:
         # already did. A PR that needs the CLI rebuilt against a protocol rev gets its
         # own cache inside the action rather than a patched binary in the shared one.
         uses: ./.github/actions/install-miden-client-cli
-      - name: Build note-transport
-        if: steps.cache.outputs.cache-hit != 'true'
-        env:
-          NOTE_TRANSPORT_BUILD_ONLY: '1'
-          GH_TOKEN: ${{ github.token }}
-        run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Report
         run: |
           echo "cache-hit: ${{ steps.cache.outputs.cache-hit }}"

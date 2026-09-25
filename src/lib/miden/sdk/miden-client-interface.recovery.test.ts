@@ -114,7 +114,8 @@ async function loadClient(): Promise<RecoveryClientInterface> {
     getEffectiveNetworkName: () => 'testnet',
     getEffectiveRpcUrl: () => 'https://rpc.example',
     getEffectiveProverUrl: () => undefined,
-    getEffectiveNoteTransportUrl: () => undefined
+    getEffectiveNoteTransportUrl: () => undefined,
+    getEffectiveFeeFaucetId: () => '0xfee'
   }));
   jest.doMock('./helpers', () => ({
     ...jest.requireActual('./helpers'),

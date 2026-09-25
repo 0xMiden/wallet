@@ -1,3 +1,4 @@
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { isExtension } from 'lib/platform';
 
 /**
@@ -23,7 +24,7 @@ export async function showExtensionNotification(title: string, message: string):
       notif.onclick = () => {
         // Deep-link to the incoming-notes list (claim actions), matching the
         // mobile handler — not the generic wallet QR/receive page (#467).
-        chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html#/pending-notes') });
+        chrome.tabs.create({ url: chrome.runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) });
         notif.close();
       };
       return;

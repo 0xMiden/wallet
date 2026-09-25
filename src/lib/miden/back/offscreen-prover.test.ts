@@ -7,7 +7,7 @@
  * a hand-rolled mock that tracks lifecycle calls (create / close / has)
  * and the runtime message channel (sendMessage / onMessage), then re-import
  * the module under test per-suite via `jest.resetModules()` so the
- * module-scope `lifecycleQueue` and `nonSpeculativeProveCount` start clean.
+ * module-scope `lifecycleQueue` and `inFlightProveCount` start clean.
  */
 
 // A top-level import marks this file as an ES module so its helpers
@@ -237,10 +237,10 @@ describe('offscreen-prover', () => {
     });
   });
 
-  describe('abortSpeculativeProve', () => {
+  describe('forceCloseOffscreenDocument', () => {
     it('returns false when no document exists', async () => {
       const mod = await import('./offscreen-prover');
-      const ok = await mod.abortSpeculativeProve();
+      const ok = await mod.forceCloseOffscreenDocument();
       expect(ok).toBe(false);
       expect(fakeChrome.offscreen!.closeDocument).not.toHaveBeenCalled();
     });
@@ -248,17 +248,19 @@ describe('offscreen-prover', () => {
     it('closes the document and returns true when one exists', async () => {
       const mod = await import('./offscreen-prover');
       docExists = true;
-      const ok = await mod.abortSpeculativeProve();
+      const ok = await mod.forceCloseOffscreenDocument();
       expect(ok).toBe(true);
       expect(fakeChrome.offscreen!.closeDocument).toHaveBeenCalledTimes(1);
       expect(docExists).toBe(false);
     });
+  });
 
-    it('bails when a non-speculative prove is in flight', async () => {
+  describe('isCriticalOpInFlight', () => {
+    it('counts an in-flight prove until it settles', async () => {
       const mod = await import('./offscreen-prover');
 
-      // Start a non-speculative prove. It'll await ensureOffscreenDocument
-      // which we'll let resolve, then sit on sendMessage forever.
+      // Start a prove. It'll await ensureOffscreenDocument, which we let
+      // resolve, then sit on sendMessage until released.
       let resolveSend: (value: any) => void = () => {};
       fakeChrome.runtime.sendMessage.mockReturnValueOnce(
         new Promise(r => {
@@ -270,14 +272,12 @@ describe('offscreen-prover', () => {
       fireReady();
       await flush();
 
-      // Now non-speculative prove is in flight — abort should bail.
-      const ok = await mod.abortSpeculativeProve();
-      expect(ok).toBe(false);
-      expect(fakeChrome.offscreen!.closeDocument).not.toHaveBeenCalled();
+      // A deadline must not tear down the realm under a live prove.
+      expect(mod.isCriticalOpInFlight()).toBe(true);
 
-      // Resolve the prove so the test exits cleanly.
       resolveSend({ ok: true, provenB64: '', durationMs: 0 });
       await provePromise;
+      expect(mod.isCriticalOpInFlight()).toBe(false);
     });
   });
 
@@ -348,7 +348,7 @@ describe('offscreen-prover', () => {
       await expect(promise).rejects.toThrow(/WASM exploded/);
     });
 
-    it('decrements nonSpeculativeProveCount even when sendMessage rejects', async () => {
+    it('stops counting the prove as in flight even when sendMessage rejects', async () => {
       const mod = await import('./offscreen-prover');
       fakeChrome.runtime.sendMessage.mockRejectedValueOnce(new Error('chrome boom'));
       const promise = mod.proveViaOffscreen(new Uint8Array([1]), null);
@@ -356,39 +356,7 @@ describe('offscreen-prover', () => {
       fireReady();
       await expect(promise).rejects.toThrow(/chrome boom/);
 
-      // Counter should have decremented; abort should now be free to close.
-      docExists = true;
-      const ok = await mod.abortSpeculativeProve();
-      expect(ok).toBe(true);
-    });
-
-    it('speculative=true does not increment the non-speculative counter', async () => {
-      const mod = await import('./offscreen-prover');
-
-      // Hold the speculative prove open with a never-resolving sendMessage.
-      let resolveSend: (value: any) => void = () => {};
-      fakeChrome.runtime.sendMessage.mockReturnValueOnce(
-        new Promise(r => {
-          resolveSend = r;
-        })
-      );
-      const provePromise = mod.proveViaOffscreen(new Uint8Array([1]), null, { speculative: true });
-      await flush();
-      fireReady();
-      await flush();
-
-      // Speculative prove is in flight — abort should NOT bail (counter is 0).
-      docExists = true;
-      const ok = await mod.abortSpeculativeProve();
-      expect(ok).toBe(true);
-
-      // Resolve to clean up.
-      resolveSend({ ok: true, provenB64: '', durationMs: 0 });
-      try {
-        await provePromise;
-      } catch {
-        /* may throw if the test environment closed the doc — that's fine */
-      }
+      expect(mod.isCriticalOpInFlight()).toBe(false);
     });
 
     it('chunked base64 encode handles arrays larger than 0x8000', async () => {

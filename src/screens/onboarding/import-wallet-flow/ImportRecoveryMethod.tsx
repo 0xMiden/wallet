@@ -1,17 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Input } from 'components/Input';
+import { GuardianLogoTile } from 'components/GuardianLogoTile';
+import { Card } from 'components/ui/Card';
+import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
+import { Spinner } from 'components/ui/Spinner';
+import { TextAction } from 'components/ui/TextAction';
+import { TextField } from 'components/ui/TextField';
 import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
-import { hapticLight } from 'lib/mobile/haptics';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
-import { Badge } from 'lib/ui/badge';
-import { cn } from 'lib/ui/util';
 
+import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 import { GuardianProbeState, WalletType } from '../types';
 
 /**
@@ -26,6 +31,11 @@ export interface ImportRecoveryMethodScreenProps {
   isError?: boolean;
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
+  /**
+   * Hot-key import: a pasted hot key only ever belongs to a Guardian multisig
+   * account, so the public-account option is hidden and Guardian stays pinned.
+   */
+  guardianOnly?: boolean;
   onRetryProbe?: () => void;
   onSubmit: (payload: { walletType: WalletType; guardianEndpoint?: string }) => void;
 }
@@ -33,6 +43,7 @@ export interface ImportRecoveryMethodScreenProps {
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({
   isError,
   probe,
+  guardianOnly = false,
   onRetryProbe,
   onSubmit
 }) => {
@@ -100,7 +111,6 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   };
 
   const handleToggleCustom = () => {
-    hapticLight();
     // Opening the escape hatch during a probe IS the manual choice: the
     // prefilled endpoint is valid, so Continue must work right away instead of
     // demanding a redundant preset click or keystroke.
@@ -110,7 +120,6 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   };
 
   const handleSelectPreset = (endpoint: string) => {
-    hapticLight();
     setUserOverrodeEndpoint(true);
     setEndpointInput(endpoint);
     setIsCustomizing(false);
@@ -131,54 +140,55 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     }
   }, [detected]);
 
-  const options = useMemo(
-    () => [
-      {
-        id: WalletType.Guardian,
-        title: t('importViaGuardian'),
-        description: t('importViaGuardianDescription'),
-        isDefault: true,
-        onSelect: handleSelectGuardian
-      },
-      {
-        id: WalletType.OnChain,
-        title: t('importPublicAccount'),
-        description: t('importPublicAccountDescription'),
-        onSelect: handleSelectOnChain
-      }
-    ],
-    [t]
+  const options: ChoiceCardItem<WalletType>[] = useMemo(
+    () =>
+      [
+        {
+          id: WalletType.Guardian,
+          title: t('importViaGuardian'),
+          subtitle: t('importViaGuardianDescription'),
+          badge: (
+            <Pill size="xs" tone="selected" data-testid="default-badge">
+              {t('default')}
+            </Pill>
+          )
+        },
+        {
+          id: WalletType.OnChain,
+          title: t('importPublicAccount'),
+          subtitle: t('importPublicAccountDescription')
+        }
+      ].filter(option => !guardianOnly || option.id === WalletType.Guardian),
+    [t, guardianOnly]
   );
 
-  // The preset grid + endpoint readout + URL input. Always on for the classic
-  // (no-probe / no-match) screen; behind the "use a custom one instead"
-  // disclosure once a guardian has been detected.
+  const presetItems: ChoiceCardItem[] = guardianPresets.map(provider => ({
+    id: provider.id,
+    title: provider.name,
+    subtitle: provider.location,
+    leading: <GuardianLogoTile guardianId={provider.id} />
+  }));
+  const activePreset = isCustomizing
+    ? null
+    : (guardianPresets.find(provider => sanitizedEndpoint === provider.endpoint)?.id ?? null);
+
   const renderEndpointPicker = (showPresets: boolean) => (
     <>
       {showPresets && (
-        <div className="grid grid-cols-3 gap-2">
-          {guardianPresets.map(provider => {
-            const isActive = !isCustomizing && sanitizedEndpoint === provider.endpoint;
-            return (
-              <button
-                key={provider.id}
-                type="button"
-                onClick={() => handleSelectPreset(provider.endpoint)}
-                className={cn(
-                  'flex flex-col items-start p-2 rounded-lg bg-white text-left border-2 transition-colors',
-                  isActive ? 'border-primary-500' : 'border-grey-200'
-                )}
-              >
-                <span className="text-xs font-semibold text-heading-gray leading-tight">{provider.name}</span>
-                <span className="text-[10px] text-grey-600 mt-0.5">{provider.location}</span>
-              </button>
-            );
-          })}
-        </div>
+        <ChoiceCardGroup
+          items={presetItems}
+          value={activePreset}
+          onChange={id => {
+            const provider = guardianPresets.find(p => p.id === id);
+            if (provider) handleSelectPreset(provider.endpoint);
+          }}
+          aria-label={t('guardianEndpoint')}
+        />
       )}
       {isCustomizing && (
-        <Input
+        <TextField
           id="guardian-endpoint-input"
+          label={t('guardianEndpoint')}
           value={endpointInput}
           inputMode="url"
           autoCapitalize="none"
@@ -201,30 +211,27 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   );
 
   const renderCustomToggle = (label: string) => (
-    <button
-      type="button"
-      onClick={handleToggleCustom}
-      className="flex items-center gap-1 text-sm text-primary-500 font-medium self-start"
-    >
+    <TextAction onClick={handleToggleCustom} aria-expanded={isCustomizing} className="-mx-1 gap-1 self-start">
       <span>{label}</span>
-      <Icon name={isCustomizing ? IconName.ChevronUp : IconName.ChevronDown} size="sm" />
-    </button>
+      <Icon name={isCustomizing ? IconName.ChevronUp : IconName.ChevronDown} size="sm" fill="currentColor" />
+    </TextAction>
   );
 
   const renderEndpointReadout = () => (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-grey-600">{t('guardianEndpoint')}</span>
-      <span className="text-sm font-inter break-all">{endpointInput}</span>
-    </div>
+    <DetailCard>
+      <DetailRow label={t('guardianEndpoint')} stacked>
+        <span className="break-all">{endpointInput}</span>
+      </DetailRow>
+    </DetailCard>
   );
 
   const renderGuardianBody = () => {
     if (isProbing) {
       return (
         <>
-          <div className="flex items-center gap-2" data-testid="guardian-probe-spinner">
-            <span className="w-4 h-4 rounded-full border-2 border-grey-200 border-t-primary-500 animate-spin" />
-            <span className="text-sm text-grey-600">{t('detectingGuardian')}</span>
+          <div className="flex items-center gap-2 px-1" data-testid="guardian-probe-spinner">
+            <Spinner size="sm" />
+            <span className="font-sans text-[15px] leading-[22px] text-muted">{t('detectingGuardian')}</span>
           </div>
           {escapeHatchVisible && (
             <>
@@ -236,17 +243,23 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       );
     }
 
-    // Once the user overrides, the detected banner must go: headlining
-    // "found your guardian: B" while Continue submits their manual pick A
-    // would contradict the endpoint actually used.
     if (detected && !userOverrodeEndpoint) {
       return (
         <>
-          <div className="flex flex-col gap-1" data-testid="guardian-detected">
-            <span className="text-sm font-semibold">{t('guardianDetectedTitle', { name: detectedName })}</span>
-            {detected.option && <span className="text-xs text-grey-600">{detected.option.location}</span>}
-            {probeMatchCount > 1 && <span className="text-xs text-grey-600">{t('guardianDetectedMultiple')}</span>}
-          </div>
+          <Card padding="row" data-testid="guardian-detected" className="flex items-center gap-3">
+            <GuardianLogoTile guardianId={detected.option?.id} />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-heading text-base leading-5 font-bold text-ink">
+                {t('guardianDetectedTitle', { name: detectedName })}
+              </span>
+              {detected.option && (
+                <span className="font-sans text-[13px] leading-[17px] text-muted">{detected.option.location}</span>
+              )}
+              {probeMatchCount > 1 && (
+                <span className="font-sans text-[13px] leading-[17px] text-muted">{t('guardianDetectedMultiple')}</span>
+              )}
+            </span>
+          </Card>
           {!isCustomizing && renderEndpointReadout()}
           {renderCustomToggle(t('useCustomGuardianInstead'))}
           {renderEndpointPicker(isCustomizing)}
@@ -257,26 +270,17 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     return (
       <>
         {probeFinishedWithoutMatch && (
-          <div className="flex flex-col gap-1" data-testid="guardian-not-detected">
-            <span className="text-sm text-grey-600">{t('guardianNotDetected')}</span>
-            {probeFailureCount > 0 && (
-              <span className="text-xs text-grey-600">
-                {t('guardianProbePartialFailure', { count: probeFailureCount })}
-              </span>
-            )}
-            {onRetryProbe && (
-              <button
-                type="button"
-                onClick={() => {
-                  hapticLight();
-                  onRetryProbe();
-                }}
-                className="text-sm text-primary-500 font-medium self-start"
-              >
-                {t('retryGuardianDetection')}
-              </button>
-            )}
-          </div>
+          <Notice data-testid="guardian-not-detected">
+            <span className="flex flex-col items-start gap-1">
+              <span>{t('guardianNotDetected')}</span>
+              {probeFailureCount > 0 && <span>{t('guardianProbePartialFailure', { count: probeFailureCount })}</span>}
+              {onRetryProbe && (
+                <TextAction onClick={onRetryProbe} className="-mx-1">
+                  {t('retryGuardianDetection')}
+                </TextAction>
+              )}
+            </span>
+          </Notice>
         )}
         {renderEndpointPicker(true)}
         {!isCustomizing && renderEndpointReadout()}
@@ -286,59 +290,39 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   };
 
   return (
-    <div
-      className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full px-4 text-heading-gray gap-6"
+    <OnboardingStepLayout
       data-testid="import-recovery-method"
-    >
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="font-semibold text-2xl lh-title">{t('importRecoveryMethodTitle')}</h1>
-        <p className="text-xs text-center lh-title px-4">{t('chooseRecoveryMethodDescription')}</p>
-      </div>
-
-      <div className="flex flex-col w-full">
-        {options.map(option => {
-          const isSelected = selected === option.id;
-          const isGuardian = option.id === WalletType.Guardian;
-          return (
-            <div
-              key={option.id}
-              className={classNames('flex flex-col p-4 rounded-lg cursor-pointer bg-white mb-2', {
-                'opacity-50': !isSelected
-              })}
-              onClick={option.onSelect}
-            >
-              <div className="flex flex-row justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <h2 className="font-medium text-base">{option.title}</h2>
-                  {option.isDefault && (
-                    <Badge variant={'default'} className="bg-primary-500 text-white">
-                      {t('default')}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              <p className="text-grey-600 text-sm">{option.description}</p>
-
-              {isGuardian && isSelected && (
-                <div className="mt-4 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
-                  {renderGuardianBody()}
-                  {showError && <p className="text-red-500 text-xs mt-1">{t('guardianAccountNotFound')}</p>}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-col gap-2 self-center w-full mt-auto">
+      title={t('importRecoveryMethodTitle')}
+      description={t('chooseRecoveryMethodDescription')}
+      footer={
         <Button
+          className="max-w-none"
           data-testid="recovery-method-continue"
           title={t('continue')}
           onClick={handleContinue}
           disabled={!canContinue}
-          className="text-base"
         />
-      </div>
-    </div>
+      }
+    >
+      <ChoiceCardGroup
+        items={options}
+        value={selected}
+        onChange={id => (id === WalletType.Guardian ? handleSelectGuardian() : handleSelectOnChain())}
+        aria-label={t('importRecoveryMethodTitle')}
+      />
+
+      {/* The guardian's details belong to the Guardian choice, so they open under the cards while it
+          is the one chosen. */}
+      {selected === WalletType.Guardian && (
+        <div className="flex flex-col gap-3">
+          {renderGuardianBody()}
+          {showError && (
+            <Notice tone="negative" role="alert">
+              {t('guardianAccountNotFound')}
+            </Notice>
+          )}
+        </div>
+      )}
+    </OnboardingStepLayout>
   );
 };

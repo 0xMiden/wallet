@@ -1,13 +1,16 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
-import { validateMnemonic } from 'bip39';
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { validateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
 import { Button } from 'components/Button';
-import { Input } from 'components/Input';
+import { Notice } from 'components/ui/Notice';
+import { TextAction } from 'components/ui/TextAction';
+import { TextField } from 'components/ui/TextField';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+
+import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
 const DELIMITERS = /[\s,;.\-:/\\_|]+/;
 const PHRASE_LENGTH = 12;
@@ -17,17 +20,28 @@ const PHRASE_LENGTH = 12;
 const cleanWord = (word: string) => word.toLowerCase().replace(/\s+/g, '');
 
 export interface ImportSeedPhraseScreenProps {
-  className?: string;
-  wordslist: string[];
+  titleKey?: string;
+  descriptionKey?: string;
+  submitting?: boolean;
+  wordslist: readonly string[];
   isError?: boolean;
   onSubmit?: (seedPhrase: string) => void;
+  /**
+   * When set, renders the "Import with key instead" link below the word grid
+   * (the seed-less Guardian import). Left unset by the non-onboarding hosts
+   * (RecoverySeedPrompt), which renders no link.
+   */
+  onImportWithKey?: () => void;
 }
 
 export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
-  className,
+  titleKey = 'importWallet',
+  descriptionKey = 'enterYourWalletSeedPhrase',
+  submitting = false,
   wordslist,
   isError: isErrorProp,
-  onSubmit
+  onSubmit,
+  onImportWithKey
 }) => {
   const { t } = useTranslation();
   const [seedPhrase, setSeedPhrase] = useState<string[]>(Array.from({ length: PHRASE_LENGTH }, () => ''));
@@ -81,31 +95,40 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
   );
 
   return (
-    <div
-      className={classNames(
-        'flex-1',
-        'flex flex-col justify-start items-center',
-        'bg-app-bg text-heading-gray px-4 pt-6',
-        className
-      )}
+    <OnboardingStepLayout
       data-testid="import-seed-phrase"
+      title={t(titleKey)}
+      description={
+        <>
+          <span>{t(descriptionKey)}</span> <span>{t('onlyMidenSeedPhrasesAreSupported')}</span>
+        </>
+      }
+      footer={
+        <Button
+          id={'submit-button'}
+          data-testid="import-seed-submit"
+          title={t('continue')}
+          onClick={handleSubmit}
+          disabled={!isValid || submitting}
+          className="max-w-none"
+        />
+      }
     >
-      <h1 className="text-2xl font-semibold">{t('importWallet')}</h1>
-      <p className="mt-2 text-sm">{t('enterYourWalletSeedPhrase')}</p>
-      <p className="text-sm">{t('onlyMidenSeedPhrasesAreSupported')}</p>
-
       {isGuardReady && (
-        <div className="grid grid-cols-3 mt-8 gap-2">
+        // Two columns: a 16px word beside its number fits a 360px screen, which three did not.
+        <div className="grid grid-cols-2 gap-2.5">
           {Array.from({ length: PHRASE_LENGTH }).map((_, index) => (
-            <Input
+            <TextField
               id={`seed-phrase-input-${index}`}
               key={index}
               value={seedPhrase[index]}
+              aria-label={t('word', { number: String(index + 1) })}
+              aria-invalid={errorsMap[index] || undefined}
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
               enterKeyHint={index === PHRASE_LENGTH - 1 ? 'done' : 'next'}
-              prefix={`${index + 1}.`}
+              leading={`${index + 1}.`}
               onPaste={onInputPaste}
               onChange={event => {
                 const newSeedPhrase = [...seedPhrase];
@@ -116,19 +139,21 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
           ))}
         </div>
       )}
-      {isError && <p className="text-red-500 text-xs mt-4">{t('importSeedPhraseError')}</p>}
-      {isChecksumError && <p className="text-red-500 text-xs mt-4">{t('justValidPreGeneratedMnemonic')}</p>}
-
-      <div className="mt-auto w-full shrink-0 pt-6">
-        <Button
-          id={'submit-button'}
-          data-testid="import-seed-submit"
-          title={t('continue')}
-          onClick={handleSubmit}
-          disabled={!isValid}
-          className="w-full"
-        />
-      </div>
-    </div>
+      {isError && (
+        <Notice tone="negative" role="alert">
+          {t('importSeedPhraseError')}
+        </Notice>
+      )}
+      {isChecksumError && (
+        <Notice tone="negative" role="alert">
+          {t('justValidPreGeneratedMnemonic')}
+        </Notice>
+      )}
+      {onImportWithKey && (
+        <TextAction data-testid="import-with-key-link" onClick={onImportWithKey} className="-mx-1 self-start">
+          {t('importWithKeyInstead')}
+        </TextAction>
+      )}
+    </OnboardingStepLayout>
   );
 };

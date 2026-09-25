@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Loader } from 'components/Loader';
+import { IconName } from 'app/icons/v2';
+import { EmptyState } from 'components/ui/EmptyState';
+import { Spinner } from 'components/ui/Spinner';
 import { createQrDetector, detectAddressFromFrame } from 'lib/qr/webcam-scanner';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useIsMounted from 'lib/ui/useIsMounted';
@@ -16,6 +18,8 @@ export interface ScanQrDrawerProps {
   onDetected: (address: string) => void;
   /** An i18n error key (e.g. a QR that decoded to a non-Miden value). */
   onError: (errorKey: string) => void;
+  /** Return the unmodified payload to a caller-owned validator. */
+  rawPayload?: boolean;
 }
 
 /**
@@ -31,7 +35,13 @@ export interface ScanQrDrawerProps {
  * never lingers. Async state updates are guarded by `useIsMounted`, and the
  * camera is never requested while `open` is false.
  */
-export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, onDetected, onError }) => {
+export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
+  open,
+  onOpenChange,
+  onDetected,
+  onError,
+  rawPayload = false
+}) => {
   const { t } = useTranslation();
   const isMounted = useIsMounted();
 
@@ -70,6 +80,10 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
 
     let cancelled = false;
     const detector = createQrDetector();
+    if (!detector) {
+      setScanState('no-camera');
+      return;
+    }
     setScanState('requesting');
     setInvalidScan(false);
 
@@ -85,12 +99,12 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
       if (typeof video.requestVideoFrameCallback === 'function') {
         usingVideoCallbackRef.current = true;
         frameHandleRef.current = video.requestVideoFrameCallback(() => {
-          void scanFrame();
+          scanFrame();
         });
       } else {
         usingVideoCallbackRef.current = false;
         frameHandleRef.current = requestAnimationFrame(() => {
-          void scanFrame();
+          scanFrame();
         });
       }
     };
@@ -98,7 +112,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
     const scanFrame = async () => {
       const video = videoRef.current;
       if (cancelled || !detector || !video) return;
-      const result = await detectAddressFromFrame(detector, video);
+      const result = await detectAddressFromFrame(detector, video, rawPayload);
       if (cancelled) return;
       if (result?.success && result.address) {
         finishWithAddress(result.address);
@@ -131,7 +145,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
         if (isMounted()) setScanState('scanning');
         // Kick off the first decode immediately; subsequent frames are driven by
         // requestVideoFrameCallback / requestAnimationFrame.
-        void scanFrame();
+        scanFrame();
       } catch (error) {
         if (cancelled || !isMounted()) return;
         const name = error instanceof Error ? error.name : '';
@@ -150,7 +164,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
       cancelled = true;
       stopCamera();
     };
-  }, [open, onDetected, onError, onOpenChange, stopCamera, isMounted]);
+  }, [open, onDetected, onError, onOpenChange, stopCamera, isMounted, rawPayload]);
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
@@ -176,41 +190,35 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
 
           {scanState === 'requesting' && (
             <div className="flex flex-col items-center gap-3 py-4">
-              <Loader size="lg" className="text-primary-500" />
-              <p className="text-sm text-text-muted">{t('requestingCamera')}</p>
+              <Spinner size="lg" className="text-accent-send" />
+              <p className="text-body-sm text-muted">{t('requestingCamera')}</p>
             </div>
           )}
 
           {scanState === 'scanning' && (
             <div className="flex flex-col items-center gap-1">
-              <p className="text-sm text-text-muted">{t('pointCameraAtQr')}</p>
-              {invalidScan && <p className="text-sm text-red-500">{t('invalidMidenAddress')}</p>}
+              <p className="text-body-sm text-muted">{t('pointCameraAtQr')}</p>
+              {invalidScan && <p className="text-body-sm text-negative-ink">{t('invalidMidenAddress')}</p>}
             </div>
           )}
 
           {scanState === 'permission-denied' && (
-            <div data-testid="scan-qr-permission-denied" className="flex flex-col items-center gap-3 py-6">
-              <p className="text-sm text-text-muted">{t('cameraPermissionDenied')}</p>
-              <button
-                type="button"
-                onClick={close}
-                className="rounded-full bg-primary-500 px-6 py-2.5 text-sm font-medium text-pure-white"
-              >
-                {t('close')}
-              </button>
+            <div data-testid="scan-qr-permission-denied" className="w-full">
+              <EmptyState
+                icon={IconName.Lock}
+                title={t('cameraPermissionDenied')}
+                secondaryAction={{ label: t('close'), onClick: close }}
+              />
             </div>
           )}
 
           {scanState === 'no-camera' && (
-            <div data-testid="scan-qr-no-camera" className="flex flex-col items-center gap-3 py-6">
-              <p className="text-sm text-text-muted">{t('noCameraFound')}</p>
-              <button
-                type="button"
-                onClick={close}
-                className="rounded-full bg-primary-500 px-6 py-2.5 text-sm font-medium text-pure-white"
-              >
-                {t('close')}
-              </button>
+            <div data-testid="scan-qr-no-camera" className="w-full">
+              <EmptyState
+                icon={IconName.QrScan}
+                title={t('noCameraFound')}
+                secondaryAction={{ label: t('close'), onClick: close }}
+              />
             </div>
           )}
         </div>

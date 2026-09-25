@@ -26,7 +26,7 @@
 
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
@@ -44,6 +44,9 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 const mockEnv = { popup: false, fullPage: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
 const mockSwapEnabled = { value: true };
+// Whether the user has already answered the telemetry consent prompt. Read by
+// the `/help-improve-wallet` route factory, which refuses to re-ask.
+const mockTelemetryChoice = { made: false };
 const mockSettingsProps = jest.fn();
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
@@ -56,6 +59,14 @@ jest.mock('lib/woozie', () => ({
   HistoryAction: { Push: 'PUSH', Pop: 'POP', Replace: 'REPLACE' },
   resetHistoryPosition: jest.fn(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
+}));
+
+// Partial mock: only the consent probe is driven. A wholesale mock would strip
+// `getThemeSetting`, which one of the router's transitive imports calls at module
+// scope, taking the whole suite down before a single test runs.
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  hasTelemetryChoice: () => mockTelemetryChoice.made
 }));
 
 // root-view: partial mock. By default `resolveRootView` delegates to the real
@@ -80,6 +91,14 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => mockMiden
 }));
 
+// App-lifecycle telemetry (`open` / `return`) is a leaf concern here and has its
+// own suite; stub it so it cannot disturb the `resolveRootView` call-order
+// assertions below, while still letting us assert PageRouter feeds it the ctx.
+const mockUseAppLifecycleTelemetry = jest.fn();
+jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
+  useAppLifecycleTelemetry: (ctx: unknown) => mockUseAppLifecycleTelemetry(ctx)
+}));
+
 // The loading spinner shown during MV3 cold-start (before hydration).
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
@@ -89,6 +108,7 @@ jest.mock('app/a11y/RootSuspenseFallback', () => ({
 // Layouts render their children so the wrapped page stays assertable.
 jest.mock('app/layouts/FullScreenPage', () => ({
   __esModule: true,
+  defaultPageEntrance: () => 'fade',
   default: ({ children, entrance }: { children?: React.ReactNode; entrance?: string }) => (
     <div data-testid="full-screen-page" data-entrance={entrance}>
       {children}
@@ -105,13 +125,17 @@ jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('app/pages/ImportAccount', () => ({
+  __esModule: true,
+  default: () => <div data-testid="import-account" />
+}));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
 }));
-jest.mock('app/pages/PendingNotes', () => ({
+jest.mock('app/pages/HelpImproveWallet', () => ({
   __esModule: true,
-  default: () => <div data-testid="pending" />
+  default: () => <div data-testid="help-improve-wallet" />
 }));
 jest.mock('app/pages/Receive', () => ({ Receive: () => <div data-testid="receive" /> }));
 jest.mock('app/pages/BridgeDeposit', () => ({
@@ -202,6 +226,15 @@ jest.mock('./templates/history/HistoryDetails', () => ({
   )
 }));
 
+jest.mock('./pages/ActivityGroup', () => ({
+  ActivityGroupPage: ({ kind, id }: { kind?: string; id?: string }) => (
+    <div data-testid="activity-group" data-kind={kind} data-id={id} />
+  )
+}));
+jest.mock('screens/contacts/ContactDetailPage', () => ({
+  ContactDetailPage: ({ address }: { address: string }) => <div data-testid="contact-detail" data-address={address} />
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -235,18 +268,21 @@ beforeEach(() => {
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
+  mockTelemetryChoice.made = false;
 });
 
-describe('app/PageRouter — network banner (#875)', () => {
-  it('mounts the network banner above every routed page', () => {
+describe('app/PageRouter — no network banner', () => {
+  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout); only the dApp
+  // confirm window keeps the full-width banner.
+  it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
-    const banner = screen.getByTestId('network-mode-banner');
-    expect(banner.compareDocumentPosition(screen.getByTestId('explore'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 
-  it('mounts the network banner on pre-ready screens too', () => {
+  it('renders no banner above pre-ready screens either', () => {
     renderAt('/reset-required');
-    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 });
 
@@ -260,6 +296,61 @@ describe('app/PageRouter — pre-ready / special routes', () => {
     renderAt('/finish-side-panel', { locked: true });
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
     expect(screen.queryByTestId('open-side-panel')).not.toBeInTheDocument();
+  });
+
+  // The telemetry consent prompt. Same placement rationale as
+  // `/finish-side-panel`: it is reached the moment the wallet is created, and
+  // creation flips the app to the wallet home, so it must render either side of
+  // that flip or the user never gets to answer.
+  it('/help-improve-wallet renders the prompt before the wallet reports Ready', () => {
+    // The exact state the create flow navigates in: hydrated, unlocked, and
+    // Ready not yet broadcast. Ahead of the `!ready` catch-all, so the prompt
+    // wins over Welcome.
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: true });
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet keeps rendering once Ready arrives', () => {
+    // Ready lands while the user is still reading. The prompt must not be
+    // swapped out from under them for the wallet home.
+    renderAt('/help-improve-wallet', ready);
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet renders on a cold start, and with no wallet at all', () => {
+    // Reached directly — a reopened tab, a bookmark, a hand-typed URL — before
+    // the service worker has hydrated and with nothing created. The prompt only
+    // reads and writes a setting, so it needs no wallet and must not sit behind
+    // the hydration spinner waiting for one.
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: false });
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('root-suspense-fallback')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet SKIPs to the locked catch-all (Unlock) when locked', () => {
+    renderAt('/help-improve-wallet', { locked: true, ready: true, hydrated: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet SKIPs once a choice exists, so nobody is ever re-asked', () => {
+    // The guard lives on the route, not just on the flows that navigate here, so
+    // a bookmark or hand-typed URL cannot re-open a settled question either.
+    mockTelemetryChoice.made = true;
+    renderAt('/help-improve-wallet', ready);
+
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/');
+  });
+
+  it('/help-improve-wallet with a choice already made and no wallet falls through to onboarding', () => {
+    mockTelemetryChoice.made = true;
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: true });
+
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('welcome')).toBeInTheDocument();
   });
 
   it('/reset-required renders ResetRequired', () => {
@@ -437,6 +528,19 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
   });
 
+  // Recovery phrase used to open a warning overlay on the Settings root, where the
+  // tab bar covered its buttons. It is a routed sub-page now, so it gets the
+  // full-screen layout, which hides the tab bar (FullScreenPage.test.tsx asserts
+  // the `data-hide-navbar` flag it sets).
+  it('/settings/reveal-seed-phrase renders full screen, outside TabLayout', () => {
+    renderAt('/settings/reveal-seed-phrase', ready);
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', 'reveal-seed-phrase');
+  });
+
   it('retains the root scroll reference across Settings layout changes', () => {
     const { rerender } = renderAt('/settings', ready);
     const initialRef = mockSettingsProps.mock.lastCall![0].rootScrollTop;
@@ -477,9 +581,20 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('receive'));
   });
 
-  it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
+  it('/import-account renders private-key import inside FullScreenPage', () => {
+    renderAt('/import-account', ready);
+
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('import-account'));
+  });
+
+  it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {
     renderAt('/pending-notes', ready);
-    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history?filter=pending');
+    cleanup();
+
+    // Where that redirect lands: the Activity page, which reads `filter` off the location.
+    renderAt('/history', ready);
+    expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('all-history'));
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {
@@ -601,5 +716,46 @@ describe('app/PageRouter — scroll & history side effects', () => {
     renderAt('/', ready, Woozie.HistoryAction.Push);
     expect(scrollToMock).toHaveBeenCalledWith(0, 0);
     expect(resetHistoryPositionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('app/PageRouter — app-lifecycle telemetry', () => {
+  it('feeds the wallet readiness ctx to the lifecycle telemetry hook', () => {
+    renderAt('/', ready);
+
+    expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ ready: true, locked: false, hydrated: true })
+    );
+  });
+
+  it('reports the un-hydrated cold-start ctx so the open flow stays pending', () => {
+    renderAt('/some/cold-start/path', { locked: false, ready: false, hydrated: false });
+
+    expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ ready: false, locked: false, hydrated: false })
+    );
+  });
+});
+
+describe('app/PageRouter - encoded route parameters', () => {
+  it('hands a malformed activity group id on as absent, which the group page redirects', () => {
+    renderAt('/activity/group/address/%', ready);
+    const page = screen.getByTestId('activity-group');
+    expect(page).toHaveAttribute('data-kind', 'address');
+    expect(page).not.toHaveAttribute('data-id');
+  });
+
+  it('redirects a contact whose address will not decode to the address book', () => {
+    renderAt('/contacts/%', ready);
+    expect(screen.queryByTestId('contact-detail')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/settings/address-book');
+  });
+
+  it('still decodes a well-formed address for both pages', () => {
+    const { unmount } = renderAt('/activity/group/address/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('activity-group')).toHaveAttribute('data-id', 'mtst1:abc');
+    unmount();
+    renderAt('/contacts/mtst1%3Aabc', ready);
+    expect(screen.getByTestId('contact-detail')).toHaveAttribute('data-address', 'mtst1:abc');
   });
 });

@@ -89,9 +89,8 @@ jest.mock('app/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }: any) => <div data-testid="error-boundary">{children}</div>
 }));
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 jest.mock('app/pages/Unlock', () => ({
   __esModule: true,
@@ -103,19 +102,36 @@ jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
 
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => (
+    <div data-testid="spending-limit-challenge">
+      <span>{props.assessment.revision}</span>
+      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+        authenticate-limit
+      </button>
+      <button type="button" onClick={() => props.onResult(undefined)}>
+        cancel-limit
+      </button>
+    </div>
+  )
+}));
+
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!isLoading)} data-variant={variant}>
+  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+    <button
+      type={type ?? 'button'}
+      onClick={onClick}
+      data-loading={String(!!isLoading)}
+      data-variant={variant}
+      data-size={size}
+      className={className}
+      data-testid={dataTestId}
+    >
       {children}
     </button>
   )
 }));
-
-jest.mock('lib/analytics', () => {
-  const React2 = require('react');
-  return { CustomRpsContext: React2.createContext(undefined) };
-});
 
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
 // counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
@@ -136,32 +152,38 @@ jest.mock('./confirm/TransactionAssetView', () => ({
 // Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
 // below assert on its actual mapping); only the custom-tx decode entry points
 // are stubbed so these UI tests don't touch the WASM SDK.
-jest.mock('./confirm/decode', () => ({
-  ...jest.requireActual('./confirm/decode'),
-  declaredRequestToView: jest.fn(() => ({
+jest.mock('./confirm/decode', () => {
+  const view = (account: string, incoming: { faucetId: string; amount: bigint }[] = []) => ({
+    account,
     outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [],
-    inputNotesConsumed: 0,
+    incoming,
+    inputNotesConsumed: incoming.length,
     outputNotesCreated: 1,
     storageChanged: false
-  })),
-  summaryBytesToView: jest.fn(() => ({
-    account: 'mtst1acct',
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [{ faucetId: 'fB', amount: 3n }],
-    inputNotesConsumed: 1,
-    outputNotesCreated: 1,
-    storageChanged: false
-  })),
-  executedBytesToView: jest.fn(() => ({
-    account: 'mtst1executed',
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [],
-    inputNotesConsumed: 0,
-    outputNotesCreated: 1,
-    storageChanged: false
-  }))
-}));
+  });
+  const summaryBytesToView = jest.fn(() => view('mtst1acct', [{ faucetId: 'fB', amount: 3n }]));
+  const executedBytesToView = jest.fn(() => view('mtst1executed'));
+  return {
+    ...jest.requireActual('./confirm/decode'),
+    declaredRequestToView: jest.fn(() => ({
+      outgoing: [{ faucetId: 'fA', amount: 10n }],
+      incoming: [],
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false
+    })),
+    summaryBytesToView,
+    executedBytesToView,
+    // Dispatches to the two stubs above. The real selector calls its builders module-internally,
+    // where a jest.mock override cannot reach them, so without this the page would decode these
+    // fixture strings for real.
+    simulatedBytesToView: jest.fn((result: { summaryBytes?: string; executedBytes?: string }) => {
+      if (result.summaryBytes) return summaryBytesToView();
+      if (result.executedBytes) return executedBytesToView();
+      return undefined;
+    })
+  };
+});
 
 jest.mock('./atoms/Alert', () => ({
   __esModule: true,
@@ -172,22 +194,6 @@ jest.mock('./atoms/Alert', () => ({
         close
       </button>
     </div>
-  )
-}));
-jest.mock('./atoms/FormSecondaryButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick }: any) => (
-    <button type="button" onClick={onClick} data-testid="form-secondary">
-      {children}
-    </button>
-  )
-}));
-jest.mock('./atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick, loading, testID }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!loading)} data-testid={testID}>
-      {children}
-    </button>
   )
 }));
 jest.mock('./atoms/Name', () => ({
@@ -375,7 +381,12 @@ describe('connect payload', () => {
     expect(screen.queryByTestId('pdp-checkbox')).not.toBeInTheDocument();
     // Confirm/decline labels.
     expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toHaveTextContent('connect');
-    expect(screen.getByText('deny')).toBeInTheDocument();
+    const declineButton = screen.getByText('deny').closest('button')!;
+    expect(declineButton).toBeInTheDocument();
+    // Only layout survives on the decline button: no restyled text color/weight
+    // or transition fighting the Secondary variant's own anatomy.
+    expect(declineButton).toHaveClass('w-full');
+    expect(declineButton.className).not.toMatch(/text-ink|font-medium|transition/);
   });
 
   it('auto-confirms an existing permission during render', () => {
@@ -578,6 +589,58 @@ describe('transaction payload', () => {
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true));
   });
 
+  it('does not confirm an over-limit transaction until strict authentication succeeds', async () => {
+    mockIsDelegateProofEnabled.mockReturnValue(true);
+    ctx.confirmDAppTransaction.mockResolvedValue(undefined);
+    setPayload({
+      ...txPayload(),
+      spendingLimitAssessment: {
+        accountId: ACCOUNT.publicKey,
+        usdAmount: '5000000',
+        revision: 'revision-1',
+        assessedAt: 100,
+        breach: { spent: '8000000', proposedTotal: '13000000', limit: '10000000', overBy: '3000000', resetAt: 200 }
+      }
+    });
+    render(<ConfirmPage />);
+
+    fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
+    expect(ctx.confirmDAppTransaction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));
+    });
+
+    // The deep-equality call above already pins all four arguments, so the UI-minted id cannot be
+    // among them. (The previous `not.toContain` line here could not fail either way: the id would
+    // have travelled as an object property, which toContain's element match never inspects.)
+    await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true, true));
+  });
+
+  it('denies an over-limit transaction when strict authentication is cancelled', async () => {
+    ctx.confirmDAppTransaction.mockResolvedValue(undefined);
+    setPayload({
+      ...txPayload(),
+      spendingLimitAssessment: {
+        accountId: ACCOUNT.publicKey,
+        usdAmount: '5000000',
+        revision: 'revision-1',
+        assessedAt: 100,
+        breach: { spent: '8000000', proposedTotal: '13000000', limit: '10000000', overBy: '3000000', resetAt: 200 }
+      }
+    });
+    render(<ConfirmPage />);
+
+    fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+    });
+
+    await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', false, false));
+  });
+
   it('renders the payloadError instead of the derived content when present', () => {
     setPayload({ ...txPayload(), error: 'preview failed' });
     render(<ConfirmPage />);
@@ -639,8 +702,11 @@ describe('privateNotes payload', () => {
     render(<ConfirmPage />);
 
     // The intro copy is split across text nodes by a <br/>; match the button.
-    expect(screen.getByText('downloadPrivateNoteData')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('downloadPrivateNoteData'));
+    const downloadButton = screen.getByText('downloadPrivateNoteData').closest('button')!;
+    expect(downloadButton).toBeInTheDocument();
+    // Was FormSecondaryButton's `small` prop; the canonical Button uses `sm`.
+    expect(downloadButton).toHaveAttribute('data-size', 'sm');
+    fireEvent.click(downloadButton);
 
     expect(createObjSpy).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalled();

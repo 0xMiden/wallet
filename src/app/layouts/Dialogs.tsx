@@ -1,24 +1,25 @@
 import React, { FC, useCallback } from 'react';
 
-import AlertModal from 'app/templates/AlertModal';
-import ConfirmationModal from 'app/templates/ConfirmationModal';
-import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { useTranslation } from 'react-i18next';
+
+import { AlertSheet } from 'components/ui/AlertSheet';
+import { ButtonVariant } from 'components/ui/Button';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { dispatchAlertClose, dispatchConfirmClose, useModalsParams } from 'lib/ui/dialog';
 
+/**
+ * Renders what `useConfirm()` and `useAlert()` ask, as bottom sheets (`AlertSheet`). Each sheet
+ * publishes its E2E screen-key segment (`drawer:confirm`, `drawer:alert`) while open.
+ */
 const Dialogs: FC = () => {
+  const { t } = useTranslation();
   const { alertParams, confirmParams } = useModalsParams();
 
-  // E2E-only. Publishes which alert/confirm dialog is open into the
-  // screen-key overlay stack (see `lib/ui/dialog` for the isOpen source).
-  useOverlayScreenKey(alertParams.isOpen, 'dialog:alert');
-  useOverlayScreenKey(confirmParams.isOpen, 'dialog:confirm');
-
-  const handleConfirmationModalClose = useCallback(() => {
+  const handleCancel = useCallback(() => {
     dispatchConfirmClose(false);
   }, []);
 
-  const handleConfirmation = useCallback(() => {
+  const handleConfirm = useCallback(() => {
     dispatchConfirmClose(true);
   }, []);
 
@@ -41,12 +42,29 @@ const Dialogs: FC = () => {
 
   return (
     <>
-      <ConfirmationModal
-        {...confirmParams}
-        onRequestClose={handleConfirmationModalClose}
-        onConfirm={handleConfirmation}
-      />
-      <AlertModal {...alertParams} onRequestClose={dispatchAlertClose} />
+      <AlertSheet
+        open={confirmParams.isOpen}
+        title={confirmParams.title}
+        actionLabel={confirmParams.confirmLabel ?? t('ok')}
+        actionVariant={confirmParams.destructive ? ButtonVariant.Destructive : ButtonVariant.Primary}
+        onAction={handleConfirm}
+        onCancel={handleCancel}
+        cancelLabel={t('cancel')}
+        actionTestId="confirmation-modal-confirm"
+        cancelTestId="confirmation-modal-cancel"
+        screenKey="confirm"
+      >
+        {confirmParams.children}
+      </AlertSheet>
+      <AlertSheet
+        open={alertParams.isOpen}
+        title={alertParams.title}
+        actionLabel={t('ok')}
+        onAction={dispatchAlertClose}
+        screenKey="alert"
+      >
+        {alertParams.children}
+      </AlertSheet>
     </>
   );
 };

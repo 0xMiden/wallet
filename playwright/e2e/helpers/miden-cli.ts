@@ -2,6 +2,8 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { coerce } from 'semver';
+
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
@@ -47,11 +49,51 @@ const faucetInitToml = (symbol: string, decimals: number, maxSupply: number | bi
  *    delegated prover endpoint flakes intermittently on the macOS CI runners
  *    (a sibling mint in the same test connects fine), so a connection-level
  *    prover error is transient, not a proving-logic failure.
+ *  - `transaction expired at block height N`: the proof outlived the transaction's
+ *    20-block window (see `awaitCommit`); a rebuild at a fresh sync height fits.
  */
 export function isTransientCliError(stderr: string): boolean {
-  return /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce|failed\s+to\s+connect\s+to(\s+the)?(\s+remote)?\s+prover|transport\s+error|no\s+native\s+certs/i.test(
+  return /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce|failed\s+to\s+connect\s+to(\s+the)?(\s+remote)?\s+prover|transport\s+error|no\s+native\s+certs|transaction\s+expired\s+at\s+block/i.test(
     stderr
   );
+}
+
+/**
+ * The status `miden-client tx` lists for `txId`, or undefined when the table has no row for it.
+ * Rows read `│ <id> ┆ Pending ┆ …`, `│ <id> ┆ Committed (Block: N) ┆ …` or `│ <id> ┆ Discarded (Cause) ┆ …`:
+ * comfy-table's UTF8_FULL preset draws the outer border with `│` and the column separators with `┆`.
+ */
+export function transactionStatusIn(table: string, txId: string): 'pending' | 'committed' | 'discarded' | undefined {
+  const id = txId.toLowerCase();
+  for (const line of table.split('\n')) {
+    const cells = line.split(/[│┆]/).map(cell => cell.trim());
+    const at = cells.findIndex(cell => cell.toLowerCase() === id);
+    if (at < 0) continue;
+    const status = cells[at + 1] ?? '';
+    if (/^Committed\b/.test(status)) return 'committed';
+    if (/^Discarded\b/.test(status)) return 'discarded';
+    if (/^Pending\b/.test(status)) return 'pending';
+  }
+  return undefined;
+}
+
+/**
+ * Does `miden-client --version` report exactly the pinned version?
+ *
+ * A substring test is not enough, and the difference is not cosmetic: the node
+ * matches the accept header's PRE-RELEASE LABEL, so a `0.16.0-rc.5` client is
+ * rejected by a stable `0.16.0` node and vice versa. `"miden-client 0.16.0-rc.5"
+ * .includes("0.16.0")` is true, so the guard below used to wave through the one
+ * build it exists to catch - and the run then failed much later, inside a CLI
+ * call, as `cli::client_error … server rejected request` with no mention of a
+ * version. Seen for real against public testnet on 2026-09-18.
+ *
+ * So: pull the whole semver token, prerelease and all, and compare it outright.
+ */
+export function reportedVersionMatches(reported: string, pinned: string): boolean {
+  // `includePrerelease` is the whole point: without it coerce() drops the `-rc.5`
+  // and an rc build reads as the stable pin, which is the bug this guards.
+  return coerce(reported, { includePrerelease: true })?.version === pinned;
 }
 
 /**
@@ -85,7 +127,7 @@ export function resolveCliPath(): string {
   try {
     const reported = execSync('miden-client --version', { stdio: 'pipe' }).toString().trim();
     const pinned = readPinnedCliVersion();
-    if (!pinned || reported.includes(pinned)) {
+    if (!pinned || reportedVersionMatches(reported, pinned)) {
       return 'miden-client';
     }
     // Under a GIT pin the version field records what the rev builds, and a rev
@@ -278,6 +320,31 @@ export class MidenCli {
    */
   private funderIds: string[] = [];
   private nativeFaucetId?: string;
+
+  async ensureNativeFaucetId(): Promise<string | undefined> {
+    await this.init();
+    return this.nativeFaucetId;
+  }
+
+  /**
+   * 0.17 CLI builds ProtocolConfig from `fee_faucet_id` in miden-client.toml.
+   * Without it, `transfer` fails with `account data wasn't found` for a funder
+   * that import just wrote.
+   */
+  private writeFeeFaucetId(id: string): void {
+    const tomlPath = path.join(this.workDir, '.miden', 'miden-client.toml');
+    if (!fs.existsSync(tomlPath)) {
+      throw new Error(`miden-client.toml missing at ${tomlPath}; init before setting fee_faucet_id`);
+    }
+    let text = fs.readFileSync(tomlPath, 'utf8');
+    if (/^fee_faucet_id\s*=/m.test(text)) {
+      text = text.replace(/^fee_faucet_id\s*=.*/m, `fee_faucet_id = "${id}"`);
+    } else {
+      text = `fee_faucet_id = "${id}"\n${text}`;
+    }
+    fs.writeFileSync(tomlPath, text);
+  }
+
   /** Set once a deployment has failed for want of a fee, which is how the chain reveals it charges. */
   private chainChargesFees = false;
   private readonly fundedForFees = new Set<string>();
@@ -290,6 +357,10 @@ export class MidenCli {
   }
 
   private async importFunders(): Promise<string[]> {
+    if (!this.initialized) {
+      await this.init();
+      return this.funderIds;
+    }
     const dir = MidenCli.funderDir();
     const files = fs.existsSync(dir)
       ? fs
@@ -309,6 +380,9 @@ export class MidenCli {
       if (fs.existsSync(nativeFaucet)) {
         const imported = await this.run(`import ${nativeFaucet}`, { timeoutMs: 120_000 });
         this.nativeFaucetId = imported.stdout.match(/imported account\s+(0x[0-9a-f]+)/i)?.[1];
+        if (this.nativeFaucetId) {
+          this.writeFeeFaucetId(this.nativeFaucetId);
+        }
       }
       for (const f of files) {
         const imported = await this.run(`import ${path.join(dir, f)}`, { timeoutMs: 120_000 });
@@ -356,7 +430,7 @@ export class MidenCli {
     // Genesis funders on a local stack, the chain's public faucet on devnet; either way this
     // only SENDS the note. Consuming it below is what funds the vault -- and for this still-
     // undeployed faucet, that consumption is also its deploy.
-    const fundedBy = await this.sendNativeFundingNote(newId);
+    let fundedBy = await this.sendNativeFundingNote(newId);
 
     // The funding note only becomes consumable once it is committed in a block, and
     // `consume-notes` exits 0 when it finds nothing to consume -- so a single attempt can report
@@ -368,6 +442,15 @@ export class MidenCli {
     for (let attempt = 1; attempt <= 10 && !funded; attempt++) {
       await this.sync();
       consumed = await this.run(`consume-notes --account ${newId} --force`, { timeoutMs: 180_000 });
+      // The vault below is the store's optimistic view. On a 500 ms chain a slow proof can see the
+      // consume accepted and then expire in the mempool; the next sync rolls the vault back and the
+      // faucet's first mint cannot pay its fee. The CLI also leaves the discarded consume's input
+      // note Processing for good, so it cannot be consumed again: fund the faucet with a new note.
+      const consumeTx = consumed.parsed?.transactionId;
+      if (consumed.exitCode === 0 && consumeTx && (await this.awaitCommit(consumeTx)) === 'discarded') {
+        fundedBy = await this.sendNativeFundingNote(newId);
+        continue;
+      }
       funded = await this.holdsFeeAsset(newId);
       if (!funded) {
         await new Promise(r => setTimeout(r, 3_000));
@@ -462,7 +545,15 @@ export class MidenCli {
             const txId = sent.parsed?.transactionId;
             const noteId = sent.parsed?.noteId;
             if (!txId || !noteId) throw new Error('Could not parse native transfer receipt');
-            return { source: `genesis funder ${funder}`, faucetId: this.nativeFaucetId, txId, noteId };
+            // Same expiry race as `mint`; a discarded transfer is sent again from the same funder.
+            if ((await this.awaitCommit(txId)) === 'committed') {
+              return { source: `genesis funder ${funder}`, faucetId: this.nativeFaucetId, txId, noteId };
+            }
+            if (attempt === 4) {
+              failures.push(`${funder}: transfer ${txId} was accepted, then discarded by the node`);
+              break;
+            }
+            continue;
           }
           const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
           if (!stale || attempt === 4) {
@@ -633,6 +724,11 @@ export class MidenCli {
     const maxAttempts = 5;
     let lastErr = '';
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // The CLI executes at its store's sync height and loads the native fee faucet as a foreign account at
+      // that block. A miden-node 0.16 store cannot always rebuild that account's vault even twenty blocks (about
+      // a minute) behind the tip (`failed to reconstruct vault ... root not found`), and a retry at the same
+      // height fails the same way. Sync first, on every attempt.
+      await this.sync();
       const result = await this.run(mintArgs, { timeoutMs: this.env.txTimeoutMs });
       if (result.exitCode === 0) {
         const txId = result.parsed?.transactionId;
@@ -640,7 +736,13 @@ export class MidenCli {
         if (!txId || !noteId) {
           throw new Error(`Could not parse mint result from output:\n${result.stdout}`);
         }
-        return { txId, noteId };
+        if ((await this.awaitCommit(txId)) === 'committed') {
+          return { txId, noteId };
+        }
+        lastErr = `mint ${txId} was accepted, then discarded by the node`;
+        // eslint-disable-next-line no-console
+        console.log(`[miden-cli] mint attempt ${attempt}/${maxAttempts}: ${lastErr}; minting again`);
+        continue;
       }
       lastErr = result.stderr;
       const transient = isTransientCliError(lastErr);
@@ -653,6 +755,30 @@ export class MidenCli {
       await new Promise(r => setTimeout(r, backoffMs));
     }
     throw new Error(`Mint failed after retries: ${lastErr}`);
+  }
+
+  /**
+   * Waits until `txId` is committed, or reports that it was discarded.
+   *
+   * A zero exit from `mint` or `transfer` means the node ACCEPTED the transaction, not that it
+   * landed. Since 0.17 a standard transaction expires 20 blocks after its reference block and the
+   * node keeps a 2-block margin, so on a 500 ms chain a proof that used most of that window arrives
+   * with a second to spare. The mempool then drops it, with every transaction built on it, and the
+   * CLI marks it discarded on its next sync. Taking the accepted transaction as done lost the first
+   * of two consecutive mints.
+   */
+  private async awaitCommit(txId: string, timeoutMs = 120_000): Promise<'committed' | 'discarded'> {
+    const deadline = Date.now() + timeoutMs;
+    let last = 'not listed';
+    while (Date.now() < deadline) {
+      await this.sync();
+      const listed = await this.run('tx', { timeoutMs: 60_000 });
+      const status = transactionStatusIn(listed.stdout, txId);
+      if (status === 'committed' || status === 'discarded') return status;
+      last = status ?? 'not listed';
+      await new Promise(r => setTimeout(r, 1_000));
+    }
+    throw new Error(`Transaction ${txId} was neither committed nor discarded within ${timeoutMs}ms (last: ${last})`);
   }
 
   /**

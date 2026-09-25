@@ -39,23 +39,25 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-jest.mock('components/Input', () => ({
+jest.mock('components/ui/TextField', () => ({
   // Forward rest props so the keyboard attributes (inputmode, autocapitalize,
   // autocorrect, spellcheck) and the Enter-to-blur handler reach the DOM and
   // are assertable.
-  Input: ({ id, value, placeholder, onChange, ...rest }: any) => (
+  TextField: ({ id, value, placeholder, onChange, label: _label, ...rest }: any) => (
     <input data-testid="guardian-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
   )
 }));
 
 jest.mock('app/icons/v2', () => ({
-  IconName: { ChevronUp: 'ChevronUp', ChevronDown: 'ChevronDown' },
-  Icon: ({ name, size }: any) => <span data-testid="chevron-icon" data-name={name} data-size={size} />
+  IconName: { ChevronUp: 'ChevronUp', ChevronDown: 'ChevronDown', Checkmark: 'Checkmark' },
+  Icon: ({ name, size }: any) => (
+    <span data-testid={name === 'Checkmark' ? 'check-icon' : 'chevron-icon'} data-name={name} data-size={size} />
+  )
 }));
 
-jest.mock('lib/ui/badge', () => ({
-  Badge: ({ variant, className, children }: any) => (
-    <span data-testid="default-badge" data-variant={variant} className={className}>
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({ tone, className, children, 'data-testid': dataTestId }: any) => (
+    <span data-testid={dataTestId} data-tone={tone} className={className}>
       {children}
     </span>
   )
@@ -73,8 +75,8 @@ const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecov
 
 const continueButton = () => screen.getByTestId('continue-button') as HTMLButtonElement;
 const guardianInput = () => screen.getByTestId('guardian-input') as HTMLInputElement;
-const ozPreset = () => screen.getByRole('button', { name: /OpenZeppelin/ });
-const gatewayPreset = () => screen.getByRole('button', { name: /Gateway Operator/ });
+const ozPreset = () => screen.getByRole('radio', { name: /OpenZeppelin/ });
+const gatewayPreset = () => screen.getByRole('radio', { name: /Gateway Operator/ });
 const customToggle = () => screen.getByRole('button', { name: /useDifferentGuardian/ });
 const selectGuardian = () => fireEvent.click(screen.getByText('importViaGuardian'));
 const selectOnChain = () => fireEvent.click(screen.getByText('importPublicAccount'));
@@ -100,7 +102,19 @@ describe('ImportRecoveryMethodScreen', () => {
     // Only the Guardian option is flagged as default.
     const badge = screen.getByTestId('default-badge');
     expect(badge).toHaveTextContent('default');
-    expect(badge).toHaveAttribute('data-variant', 'default');
+    expect(badge).toHaveAttribute('data-tone', 'selected');
+  });
+
+  it('lays out on the step layout: the choice as radio cards, presets as radio cards, Continue pinned', () => {
+    renderScreen();
+    const choice = screen.getByRole('radiogroup', { name: 'importRecoveryMethodTitle' });
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(choice).toContainElement(screen.getByRole('radio', { name: 'importPublicAccount' }));
+    expect(screen.getByRole('radiogroup', { name: 'guardianEndpoint' })).toContainElement(ozPreset());
+    expect(screen.getByRole('heading', { level: 1, name: 'importRecoveryMethodTitle' })).toBeInTheDocument();
+    expect(continueButton().closest('[data-slot="footer"]')).not.toBeNull();
+    expect(customToggle()).toHaveClass('text-accent-tint-ink');
+    expect(customToggle()).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('defaults to Guardian: shows presets, the endpoint readout, a down chevron, and no custom input', () => {
@@ -109,12 +123,12 @@ describe('ImportRecoveryMethodScreen', () => {
     // All testnet Guardian providers are offered as presets.
     expect(ozPreset()).toBeInTheDocument();
     expect(gatewayPreset()).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /LambdaClass/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Koda/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /LambdaClass/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Koda/ })).toBeInTheDocument();
 
     // The seeded OpenZeppelin preset is active; the others are not.
-    expect(ozPreset()).toHaveClass('border-primary-500');
-    expect(gatewayPreset()).toHaveClass('border-grey-200');
+    expect(ozPreset()).toHaveAttribute('aria-checked', 'true');
+    expect(gatewayPreset()).toHaveAttribute('aria-checked', 'false');
 
     // Not customizing: the endpoint readout is shown, the input is not.
     expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
@@ -161,8 +175,8 @@ describe('ImportRecoveryMethodScreen', () => {
 
     const gatewayEndpoint = GUARDIAN_OPTIONS.find(o => o.id === 'gateway')!.endpoint.get(DEFAULT_NETWORK)!;
     expect(screen.getByText(gatewayEndpoint)).toBeInTheDocument();
-    expect(gatewayPreset()).toHaveClass('border-primary-500');
-    expect(ozPreset()).toHaveClass('border-grey-200');
+    expect(gatewayPreset()).toHaveAttribute('aria-checked', 'true');
+    expect(ozPreset()).toHaveAttribute('aria-checked', 'false');
     expect(screen.queryByText('guardianAccountNotFound')).not.toBeInTheDocument();
   });
 
@@ -177,7 +191,7 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(guardianInput()).toHaveAttribute('placeholder', DEFAULT_ENDPOINT);
     expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
     expect(screen.getByTestId('chevron-icon')).toHaveAttribute('data-name', 'ChevronUp');
-    expect(ozPreset()).toHaveClass('border-grey-200');
+    expect(ozPreset()).toHaveAttribute('aria-checked', 'false');
 
     // Close again: input hides, readout returns, chevron flips down.
     fireEvent.click(customToggle());
@@ -236,7 +250,7 @@ describe('ImportRecoveryMethodScreen', () => {
 
     // Guardian-only UI is gone.
     expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
 
     // On-chain never needs an endpoint, so Continue is enabled.
     expect(continueButton()).toBeEnabled();
@@ -304,7 +318,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(continueButton()).toBeDisabled();
 
     // No picker while we're still deciding what to preselect.
-    expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
     expect(screen.queryByTestId('guardian-input')).not.toBeInTheDocument();
   });
 
@@ -330,7 +344,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
       });
 
       fireEvent.click(customToggleAfterDetection());
-      expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
       expect(screen.getByTestId('guardian-input')).toBeInTheDocument();
     } finally {
       jest.useRealTimers();
@@ -355,7 +369,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
       expect(continueButton()).toBeEnabled();
 
       // A preset pick still works and wins over the in-flight probe.
-      fireEvent.click(screen.getByRole('button', { name: /OpenZeppelin/ }));
+      fireEvent.click(screen.getByRole('radio', { name: /OpenZeppelin/ }));
       fireEvent.click(continueButton());
       expect(onSubmit).toHaveBeenCalledWith({
         walletType: WalletType.Guardian,
@@ -375,7 +389,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     // User opens the disclosure and picks a different preset: the "found your
     // guardian" headline must go away — Continue now submits the manual pick.
     fireEvent.click(customToggleAfterDetection());
-    fireEvent.click(screen.getByRole('button', { name: /Gateway Operator/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Gateway Operator/ }));
 
     expect(screen.queryByTestId('guardian-detected')).not.toBeInTheDocument();
     fireEvent.click(continueButton());
@@ -429,11 +443,11 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
   it('keeps the preset grid behind a disclosure once a guardian is detected', () => {
     renderScreen({ probe: detected() });
 
-    expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
 
     fireEvent.click(customToggleAfterDetection());
 
-    expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(screen.getByTestId('guardian-input')).toBeInTheDocument();
   });
 
@@ -441,7 +455,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     if (!GATEWAY_OPTION) return; // Networks with a single operator have nothing to override with.
     const { rerender, onSubmit } = renderScreen({ probe: { status: 'error', message: 'boom' } });
 
-    fireEvent.click(screen.getByRole('button', { name: /Gateway Operator/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Gateway Operator/ }));
     expect(screen.getByText(GATEWAY_OPTION.endpoint)).toBeInTheDocument();
 
     // A late probe result must not silently move the user off their choice.
@@ -473,7 +487,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
     expect(screen.getByText('guardianNotDetected')).toBeInTheDocument();
     // Exactly today's screen underneath.
-    expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
     expect(continueButton()).toBeEnabled();
 
@@ -505,7 +519,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     renderScreen({ probe: { status: 'error', message: 'network down' } });
 
     expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(continueButton()).toBeEnabled();
   });
 
@@ -524,5 +538,31 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(continueButton()).toBeEnabled();
     fireEvent.click(continueButton());
     expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
+  });
+});
+
+describe('guardianOnly (hot-key import)', () => {
+  it('hides the public-account option and keeps Guardian selected', () => {
+    renderScreen({ guardianOnly: true });
+
+    expect(screen.getByText('importViaGuardian')).toBeInTheDocument();
+    expect(screen.queryByText('importPublicAccount')).not.toBeInTheDocument();
+  });
+
+  it('submits a Guardian payload with the picked endpoint', () => {
+    const { onSubmit } = renderScreen({ guardianOnly: true });
+
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ walletType: WalletType.Guardian, guardianEndpoint: expect.any(String) })
+    );
+  });
+
+  it('still renders both options without the flag', () => {
+    renderScreen();
+
+    expect(screen.getByText('importViaGuardian')).toBeInTheDocument();
+    expect(screen.getByText('importPublicAccount')).toBeInTheDocument();
   });
 });

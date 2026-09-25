@@ -1,14 +1,20 @@
 name: E2E Bridge
 
-# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge, all
-# specs) on every push to main. UI-only, real Miden testnet. Two routes:
-#   - Fast/Epoch (bridge-out-epoch): the wallet mints a real P2IDE note; the
-#     hosted solver settles the EVM leg; the test asserts real USDC lands at the
-#     Sepolia destination (read via a public RPC).
-#   - Slow/AggLayer (bridge-out-agglayer): the wallet's real work is the Miden
-#     leg — build + prove + submit the B2AGG note → the bridged-send row reaches
-#     Completed ("Bridged to EVM"). The EVM claim is external AggLayer L1 infra
-#     with no hermetic double, so it is deliberately not asserted.
+# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge) on
+# every push to main. UI-only, real Miden testnet. Two routes, and only one of
+# them runs here:
+#   - Slow/AggLayer (bridge-out-agglayer) is THIS job's signal: the wallet's real
+#     work is the Miden leg - build + prove + submit the B2AGG note → the
+#     bridged-send row reaches Completed ("Bridged to EVM"). The EVM claim is
+#     external AggLayer L1 infra with no hermetic double, so it is deliberately
+#     not asserted.
+#   - Fast/Epoch (bridge-out-epoch) asserts that real USDC lands at the Sepolia
+#     destination, but it SKIPS here: it is gated on E2E_REAL_EPOCH, which this
+#     workflow deliberately does not set. That spec spends a live solver fill,
+#     and a third party declining to quote must not be able to red main - it
+#     took the spec down for a month in 2026-08 (#627). Run it on demand with
+#     `yarn e2e:real --suite bridge-out-epoch`, which probes the solver for a
+#     quote before it builds anything.
 #
 # Testnet-only by nature — it depends on LIVE external services (Miden testnet,
 # the Epoch allocator/solver, a public Sepolia RPC), so it is a post-merge

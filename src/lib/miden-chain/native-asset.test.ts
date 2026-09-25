@@ -36,7 +36,13 @@ jest.mock('lib/miden-chain/constants', () => ({
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => (globalThis as any).__nativeAssetTest.rpcUrl,
-  getEffectiveNetworkName: () => (globalThis as any).__nativeAssetTest.networkName
+  getEffectiveNetworkName: () => (globalThis as any).__nativeAssetTest.networkName,
+  getEffectiveFeeFaucetId: () => {
+    const g = (globalThis as any).__nativeAssetTest;
+    const fromHeader = g.rpcHeader?.feeFaucetId?.();
+    if (fromHeader) return fromHeader._id ?? fromHeader;
+    return g.feeFaucetId ?? 'native-acc';
+  }
 }));
 
 jest.mock('lib/miden/front/storage', () => ({
@@ -45,7 +51,8 @@ jest.mock('lib/miden/front/storage', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: jest.fn((accountId: any) => `bech32-${accountId?._id ?? accountId}`)
+  getBech32AddressFromAccountId: jest.fn((accountId: any) => `bech32-${accountId?._id ?? accountId}`),
+  accountIdStringToSdk: jest.fn((id: string) => ({ _id: id }))
 }));
 
 jest.mock('lib/miden/metadata', () => ({
@@ -70,6 +77,7 @@ beforeEach(async () => {
   _g.__nativeAssetTest.rpcCalls = 0;
   _g.__nativeAssetTest.rpcHeader = null;
   _g.__nativeAssetTest.deferHeader = null;
+  _g.__nativeAssetTest.feeFaucetId = undefined;
   _g.__nativeAssetTest.rpcUrl = 'rpc-testnet';
   _g.__nativeAssetTest.networkName = 'testnet';
   _g.__nativeAssetTest.fetchTokenMetadata.mockReset();
@@ -202,6 +210,7 @@ describe('native-asset module', () => {
 
     // Network A discovery starts, but its block-header fetch is held open.
     _g.__nativeAssetTest.rpcUrl = 'rpc-A';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'faucet-A' }) };
     let resolveA: (h: any) => void = () => {};
     _g.__nativeAssetTest.deferHeader = new Promise(res => {
       resolveA = res;
@@ -336,6 +345,10 @@ describe('native-asset module', () => {
     // awaits, so recomputing the key there files node A's fee under node B's scope --
     // and B then rehydrates A's number as its own.
     _g.__nativeAssetTest.rpcUrl = 'rpc-A';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'faucet-A' }),
+      verificationBaseFee: () => 10000
+    };
     let resolveA: (h: any) => void = () => {};
     _g.__nativeAssetTest.deferHeader = new Promise(res => {
       resolveA = res;

@@ -1,3 +1,4 @@
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 
 /**
@@ -26,6 +27,11 @@ export enum WalletType {
   OnChain = 'on-chain'
 }
 
+export enum ImportType {
+  SeedPhrase = 'seed-phrase',
+  WalletFile = 'wallet-file'
+}
+
 export enum OnboardingStep {
   Welcome = 'welcome',
   NetworkNotice = 'network-notice',
@@ -36,10 +42,19 @@ export enum OnboardingStep {
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   ImportFromSeed = 'import-from-seed',
+  ImportFromKey = 'import-from-key',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
+  SelectImportType = 'select-import-type',
+  ImportFromFile = 'import-from-file',
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
+  /**
+   * The create flow's guardian step: three facts to acknowledge, then the
+   * fastest reachable operator, picked for the user. "Choose a different
+   * Guardian" pushes the full picker, `ChooseGuardian`.
+   */
+  MeetGuardian = 'meet-guardian',
   ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
@@ -89,6 +104,26 @@ export type ImportFromSeedAction = {
   id: 'import-from-seed';
 };
 
+export type ImportFromFileAction = {
+  id: 'import-from-file';
+};
+
+/** Switch the import flow from seed-phrase entry to hot-key paste. */
+export type ImportWithKeyAction = {
+  id: 'import-with-key';
+};
+
+/** Submit the pasted hot key (normalized hex) from the key-paste screen. */
+export type ImportHotKeySubmitAction = {
+  id: 'import-hot-key-submit';
+  payload: string;
+};
+
+export type ImportWalletFileSubmitAction = {
+  id: 'import-wallet-file-submit';
+  payload: DecryptedWalletFile;
+};
+
 export type BackupSeedPhraseAction = {
   id: 'backup-seed-phrase';
 };
@@ -117,9 +152,22 @@ export type SelectRecoveryMethodAction = {
   payload: WalletType;
 };
 
+/**
+ * What the user has done on the Meet your Guardian step: the facts ticked and the operator locked in.
+ * The flow owns it, not the step, so opening the picker and coming back leaves it as it was.
+ */
+export interface MeetGuardianProgress {
+  checked: Readonly<Record<string, boolean>>;
+  chosenId: string | null;
+  /** Picked in the full picker rather than locked in as the fastest, so the card does not call it that. */
+  pickedByUser: boolean;
+}
+
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { checked: {}, chosenId: null, pickedByUser: false };
+
+/** Open the full operator picker from the Meet your Guardian step. */
 export type ChooseGuardianAction = {
   id: 'choose-guardian';
-  payload: { guardianId: string; guardianEndpoint: string };
 };
 
 export type ImportSelectRecoveryMethodAction = {
@@ -178,6 +226,10 @@ export type OnboardingAction =
   | ImportSeedPhraseSubmitAction
   | BackAction
   | ImportFromSeedAction
+  | ImportFromFileAction
+  | ImportWalletFileSubmitAction
+  | ImportWithKeyAction
+  | ImportHotKeySubmitAction
   | RetryGuardianProbeAction
   | SwitchToPasswordAction;
 

@@ -1,0 +1,235 @@
+import React from 'react';
+
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { SendAmount, SendAmountProps } from './SendAmount';
+
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string>) => (params?.value ? `${key}:${params.value}` : key)
+  })
+}));
+jest.mock('lib/platform', () => ({
+  isMobile: () => true,
+  isExtension: () => false,
+  isAndroid: () => false,
+  isIOS: () => true
+}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ symbol }: { symbol: string }) => <span>{symbol}-logo</span>
+}));
+jest.mock('app/icons/logos/eth.svg', () => ({ ReactComponent: () => <svg /> }));
+jest.mock('app/icons/v2', () => ({
+  IconName: new Proxy({}, { get: (_t, key) => String(key) }),
+  Icon: () => <svg />
+}));
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary' },
+  Button: ({ title, variant: _variant, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
+}));
+jest.mock('components/AmountInput', () => ({
+  AmountInput: (props: any) => (
+    <div>
+      <input
+        data-testid={props['data-testid']}
+        data-invalid={String(!!props.invalid)}
+        value={props.value}
+        onChange={e => props.onValueChange(e.target.value)}
+      />
+      {props.error && <span data-testid="amount-error">{props.error}</span>}
+      {props.helper}
+    </div>
+  )
+}));
+jest.mock('./bridge-networks', () => ({
+  getBridgeNetwork: (id: string) => (id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 1 } : undefined)
+}));
+
+const TOKEN = { id: 't', name: 'MIDEN', decimals: 6, balance: 12.345678, fiatPrice: 2, scaleIsKnown: true };
+
+function renderAmount(overrides: Partial<SendAmountProps> = {}) {
+  const props: SendAmountProps = {
+    token: TOKEN,
+    amount: '',
+    isValidAmount: false,
+    recipientAddress: 'mtst1recipientaddress',
+    network: 'miden',
+    onAmountChange: jest.fn(),
+    onSelectToken: jest.fn(),
+    onReceive: jest.fn(),
+    onBack: jest.fn(),
+    onConfirm: jest.fn(),
+    ...overrides
+  };
+  render(<SendAmount {...props} />);
+  return props;
+}
+
+describe('SendAmount', () => {
+  it('shows the title, back button, and a disabled Confirm until the amount is valid', () => {
+    const props = renderAmount();
+
+    expect(screen.getByText('enterAmount')).toBeInTheDocument();
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('flow-back'));
+    expect(props.onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives Confirm the send flow colour', () => {
+    renderAmount();
+
+    expect(screen.getByTestId('send-amount-confirm')).toHaveAttribute('data-accent', 'send');
+  });
+
+  it('enables Confirm for a valid amount and shows its fiat value', () => {
+    const props = renderAmount({ amount: '1.5', isValidAmount: true });
+
+    expect(screen.getByText('approxFiatValue:$3.00')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-amount-confirm'));
+    expect(props.onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('fills Max with the spendable balance rounded down', () => {
+    const props = renderAmount();
+
+    expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 12.3456');
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
+  });
+
+  it('opens the token picker from the token row', () => {
+    const props = renderAmount({ token: undefined });
+
+    expect(screen.getByText('selectAToken')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-amount-max')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-token-selector'));
+    expect(props.onSelectToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the contact name or the shortened address, with its network', () => {
+    renderAmount({ recipientName: 'Alice', network: 'sepolia' });
+
+    expect(screen.getByTestId('send-amount-recipient')).toHaveTextContent('Alice');
+    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+  });
+
+  it('turns a fee shortfall into a notice with a Receive link, leaving the amount unmarked', () => {
+    const props = renderAmount({ error: 'insufficientFeeAsset' });
+
+    expect(screen.getByTestId('send-fee-notice')).toHaveTextContent('insufficientFeeAsset');
+    expect(screen.getByTestId('send-fee-notice')).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(screen.getByTestId('send-fee-notice')).not.toHaveClass('border');
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'false');
+    fireEvent.click(screen.getByTestId('send-fee-notice-receive'));
+    expect(props.onReceive).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws Max and the Receive link in the Send ink, never the bare brand colour', () => {
+    renderAmount({ error: 'insufficientFeeAsset' });
+
+    // The brand #607c92 is 3.85:1 on fill: text in the Send colour takes its 4.5:1 ink.
+    expect(screen.getByTestId('send-amount-max')).toHaveClass('text-accent-send-ink');
+    expect(screen.getByTestId('send-fee-notice-receive')).toHaveClass('text-accent-send-ink');
+    expect(screen.getByTestId('send-amount-max')).not.toHaveClass('text-accent-send');
+  });
+
+  it('does not mark an empty field as an invalid amount', () => {
+    renderAmount({ amount: '', error: 'invalidAmount' });
+    expect(screen.queryByTestId('amount-error')).not.toBeInTheDocument();
+  });
+
+  it('shows an over-balance error on the amount', () => {
+    renderAmount({ amount: '99', error: 'amountMustBeLessThanBalance' });
+
+    expect(screen.getByTestId('amount-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'true');
+  });
+
+  it('refuses a token whose decimals are unverified', () => {
+    renderAmount({ token: { ...TOKEN, scaleIsKnown: false }, amount: '1', isValidAmount: true });
+
+    expect(screen.getByTestId('send-amount-available')).toHaveTextContent('unknownTokenScale');
+    expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+  });
+
+  // The amount step is a PUSHED Navigator step, but it is pushed INSIDE TabLayout, so the docked
+  // bar is still drawn over it at `z-60`, down to the screen edge. Dropping the CTA to the bottom
+  // here put it UNDER the bar, and every click on it was intercepted by the bar's Activity button:
+  // the CTA stayed visible, enabled and stable while e2e clicked at it for 30s (guardian-switch
+  // and send-private both time out on `send-amount-confirm`). The cushion has to clear the bar,
+  // and only `body[data-hide-navbar]` — the fact that the bar is down — may drop it.
+  it('keeps Confirm clear of the docked tab bar', () => {
+    renderAmount();
+
+    const footer = screen.getByTestId('send-amount-confirm').parentElement;
+    expect(footer?.className).toContain('var(--keyboard-height,0px)');
+    expect(footer?.className).not.toContain('pb-4');
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+  });
+
+  describe('an Available figure that changes', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    const available = () => screen.getByTestId('send-amount-available').textContent ?? '';
+    const amountOf = (text: string) => Number(text.replace(/[^\d.]/g, ''));
+
+    /** The line right after the change, and every text it shows until the count is done. */
+    const change = async (from: typeof TOKEN, to: typeof TOKEN) => {
+      const props: SendAmountProps = {
+        amount: '',
+        isValidAmount: false,
+        recipientAddress: 'mtst1recipientaddress',
+        network: 'miden',
+        onAmountChange: jest.fn(),
+        onSelectToken: jest.fn(),
+        onReceive: jest.fn(),
+        onBack: jest.fn(),
+        onConfirm: jest.fn()
+      };
+      const { rerender } = render(<SendAmount {...props} token={from} />);
+      const line = screen.getByTestId('send-amount-available');
+      const frames: string[] = [];
+      const observer = new MutationObserver(() => frames.push(available()));
+      observer.observe(line, { characterData: true, childList: true, subtree: true });
+
+      rerender(<SendAmount {...props} token={to} />);
+      const first = available();
+      frames.push(first);
+      await act(() => new Promise(resolve => setTimeout(resolve, 800)));
+      observer.disconnect();
+      frames.push(available());
+      return { first, frames };
+    };
+
+    const TOKEN_A = { ...TOKEN, id: 'a', balance: 12000 };
+
+    it("lands on the new token's Available balance instead of counting from the old one", async () => {
+      const { first, frames } = await change(TOKEN_A, { ...TOKEN, id: 'b', name: 'ETH', balance: 0.25 });
+
+      expect(first).toBe('available 0.25');
+      expect(frames.filter(frame => amountOf(frame) > 0.25)).toEqual([]);
+    });
+
+    it('still counts the Available balance when the same token changes', async () => {
+      const { frames } = await change(TOKEN_A, { ...TOKEN_A, balance: 15000 });
+
+      expect(frames.some(frame => amountOf(frame) > 12000 && amountOf(frame) < 15000)).toBe(true);
+      expect(frames[frames.length - 1]).toBe('available 15000');
+    });
+  });
+});

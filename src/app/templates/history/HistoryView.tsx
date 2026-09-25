@@ -6,27 +6,28 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
+import { EmptyState } from 'components/ui/EmptyState';
+import { TextAction } from 'components/ui/TextAction';
+import { UnreadDot } from 'components/ui/UnreadDot';
 import { springs, useMotion } from 'lib/animation';
-import { rotationChip, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
+import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
+import { isGuardianOp } from './TransactionIcon';
 import {
-  BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
-  EARN_DEPOSIT_STATUS_LABEL_KEY,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnDepositSettlementOf,
-  earnWithdrawToneOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
   isFaucetRequest
@@ -44,6 +45,10 @@ type HistoryViewProps = {
   centerEmptyState?: boolean;
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+  /** A read behind the list failed: with no rows to show, say so instead of "no activity". */
+  loadError?: boolean;
+  /** Re-runs the failed reads; backs the load-error card's Retry. */
+  onRetry?: () => void;
   className?: string;
 };
 
@@ -77,7 +82,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const longDate = format(d, 'MMMM d, yyyy');
   const day = format(d, 'EEEE');
   return (
-    <div className="flex items-center justify-between font-heading font-extrabold text-heading-gray dark:text-pure-white text-base leading-[100%]">
+    <div className="flex items-center justify-between font-heading font-extrabold text-ink dark:text-pure-white text-base leading-[100%]">
       <span className="">{longDate}</span>
       <span className="text-accent-primary">{day}</span>
     </div>
@@ -112,7 +117,7 @@ function buildRowProps(
             direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
           }
         : undefined,
-      status: { label: t(BRIDGE_STATUS_LABEL_KEY[d.status]), tone: d.status }
+      status: d.status
     };
   }
 
@@ -135,7 +140,8 @@ function buildRowProps(
         failed || entry.amount === undefined
           ? undefined
           : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
-      status: { label: t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase]), tone: earnWithdrawToneOf(phase) }
+      // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
+      status: phase
     };
   }
 
@@ -145,7 +151,8 @@ function buildRowProps(
   const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
-  let iconBg = 'bg-gray-50';
+  // `page`, not a grey: the row sits on `fill`, where a grey circle all but disappears.
+  let iconBg = 'bg-page';
   let amountDirection: 'positive' | 'negative' | 'neutral' = 'neutral';
 
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
@@ -161,7 +168,7 @@ function buildRowProps(
   } else if (isFailed) {
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-[#CC5D5D]';
-  } else if (entry.txType === 'switch-guardian') {
+  } else if (isGuardianOp(entry.txType)) {
     iconNode = <SwapIcon className="w-5 h-5" />;
     iconBg = 'bg-[#777487]';
   } else if (icon === 'RECEIVE') {
@@ -183,7 +190,7 @@ function buildRowProps(
   } else if (entry.txType === 'earn-deposit') {
     // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
     // cross when the lending leg settled `failed` so the row icon agrees with the red
-    // "Failed" status chip rendered below (statusTone) for that same state.
+    // "Failed" status chip (`status`, from earnDepositSettlementOf below) for that same state.
     const earnFailed = earnDepositSettlementOf(entry) === 'failed';
     iconNode = earnFailed ? (
       <FailedCrossIcon className="w-3.5 h-3.5" />
@@ -193,7 +200,7 @@ function buildRowProps(
     iconBg = earnFailed ? 'bg-[#CC5D5D]' : 'bg-tx-earn';
     amountDirection = 'negative';
   } else {
-    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
+    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" className="text-ink" />;
   }
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
@@ -309,46 +316,38 @@ function buildRowProps(
     }
   }
 
-  let statusTone: ActivityStatusTone = 'confirmed';
-  let statusLabel = t('confirmed');
+  let status: Status = 'confirmed';
   if (isCancelled) {
-    statusTone = 'cancelled';
-    statusLabel = t('cancelled');
+    status = 'cancelled';
   } else if (isFailed) {
-    statusTone = 'failed';
-    statusLabel = t('failed');
+    status = 'failed';
   } else if (
     entry.type === HistoryEntryType.PendingTransaction ||
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
-    statusTone = 'pending';
-    statusLabel = t('pending');
-  } else if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
+    status = 'pending';
+  } else if (
+    entry.txType === 'switch-guardian' &&
+    entry.guardianSwitchVerdict &&
+    isUnconfirmedRotation(entry.guardianSwitchVerdict)
+  ) {
     // A submitted-unconfirmed rotation is Completed in the DB, which the
-    // generic fallthrough below renders as a green "Confirmed" - the one claim
-    // that row cannot make. The override table lives with the verdict module.
-    const chip = rotationChip(entry.guardianSwitchVerdict);
-    if (chip) {
-      statusTone = chip.tone;
-      statusLabel = t(chip.labelKey);
-    }
+    // default `status` above renders as a green "Confirmed" - the one claim
+    // that row cannot make.
+    status = 'guardianSwitchSubmitted';
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
-    // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
-    // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
+    // the badge tracks that leg, as the details page does. Deliberately checked
+    // AFTER cancelled/failed/pending so a Miden-side
     // failure always wins over the lending leg's state.
-    const settlement = earnDepositSettlementOf(entry);
-    statusTone = settlement;
-    statusLabel = t(EARN_DEPOSIT_STATUS_LABEL_KEY[settlement]);
+    status = earnDepositSettlementOf(entry);
   } else if (isSwap && entry.swapSettlement === 'pending') {
     // A completed swap row is the single trace of the whole order (its
     // settlement consumes are suppressed) — the chip reflects settlement.
-    statusTone = 'pending';
-    statusLabel = t('pending');
+    status = 'pending';
   } else if (isSwap && entry.swapSettlement === 'reclaimed') {
-    statusTone = 'cancelled';
-    statusLabel = t('reclaimed');
+    status = 'reclaimed';
   }
 
   return {
@@ -357,11 +356,52 @@ function buildRowProps(
     title,
     subtitle,
     amount,
-    status: { label: statusLabel, tone: statusTone }
+    status
   };
 }
 
-function shortAddr(addr: string): string {
+/** A failed history read with nothing on screen: says so, with Retry, in place of "no activity". */
+export const HistoryLoadErrorCard: React.FC<{ surface?: 'fill' | 'dashed'; onRetry?: () => void }> = ({
+  surface = 'fill',
+  onRetry
+}) => {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      role="alert"
+      icon={IconName.ArrowUpDown}
+      surface={surface}
+      title={t('tokenActivityLoadError')}
+      secondaryAction={
+        onRetry ? { label: t('retry'), onClick: onRetry, 'data-testid': 'history-load-retry' } : undefined
+      }
+      className="w-full"
+      data-testid="history-load-error"
+    />
+  );
+};
+
+/** A failed history read under rows already on screen: they are not the whole history. */
+export const HistoryLoadErrorNotice: React.FC<{ onRetry?: () => void }> = ({ onRetry }) => {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="alert"
+      data-testid="history-load-error-notice"
+      className="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-fill px-4 py-3"
+    >
+      <span className="text-body-sm text-ink">{t('tokenActivityLoadError')}</span>
+      {onRetry && (
+        <TextAction onClick={onRetry} data-testid="history-load-retry">
+          {t('retry')}
+        </TextAction>
+      )}
+    </div>
+  );
+};
+
+/** The wallet's one address ellipsis, shared with the Groups view so both read a row the same way. */
+export function shortAddr(addr: string): string {
   if (addr.length <= 12) return addr;
   const underscoreIdx = addr.indexOf('_');
   if (underscoreIdx === -1) return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -380,12 +420,15 @@ const HistoryView = memo<HistoryViewProps>(
     centerEmptyState,
     pendingItems,
     renderPendingItem,
+    loadError,
+    onRetry,
     className
   }) => {
     const { t } = useTranslation();
     // Same spring as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useMotion(springs.settle);
+    const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
       const pending: TimelineEntry[] = pendingItems.map(item => ({
@@ -404,35 +447,63 @@ const HistoryView = memo<HistoryViewProps>(
       );
     }, [entries, pendingItems]);
     const noEntries = timeline.length === 0;
-    const noOperationsClass = fullHistory
-      ? 'mt-8 items-center text-left text-black'
-      : 'm-4 items-start text-left text-black';
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (initialLoading) return <ActivitySpinner />;
-      if (centerEmptyState) {
+      // One read failing while the other still loads is already a failure worth a Retry.
+      if (initialLoading && !loadError)
         return (
-          <div className="flex flex-col items-center justify-center flex-1 pt-16">
-            <Icon name={IconName.ArrowUpDown} size="xl" fill="currentColor" className="mb-4 text-text-tertiary-token" />
-            <p className="font-heading text-sm text-center text-text-tertiary-token">{t('noOperationsFound')}</p>
+          <div className="flex h-8 justify-center pt-5">
+            <Spinner />
+          </div>
+        );
+      // A failed read with nothing to show must not read as "no activity": in every empty mode the
+      // card says the load failed and offers Retry instead.
+      const loadErrorCard = loadError ? (
+        <HistoryLoadErrorCard surface={tokenId ? 'dashed' : 'fill'} onRetry={onRetry} />
+      ) : null;
+      if (centerEmptyState) {
+        // Sits right under the filters, at the same top offset the first date
+        // group gets once the list has entries (`pt-4` on the first `dateGroups`
+        // row below) — not vertically centered in the remaining tab height.
+        return (
+          <div className="flex flex-col pt-4">
+            {loadErrorCard ?? (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            )}
           </div>
         );
       }
       return (
-        <div className={classNames('mb-12', 'flex flex-col justify-left', noOperationsClass)}>
-          <h3 className="text-sm text-left" style={{ maxWidth: '20rem' }}>
-            {t('noOperationsFound')}
-          </h3>
+        // Full history outside the Activity tab (the token page) sits under its own section
+        // header, which already spaces it; the summary view keeps its own margin. One token's history
+        // is a slot waiting to be filled, so it gets the dashed card and its own copy.
+        <div className={classNames('flex flex-col justify-left', !fullHistory && 'm-4')}>
+          {loadErrorCard ??
+            (tokenId ? (
+              <EmptyState
+                icon={IconName.ArrowUpDown}
+                surface="dashed"
+                title={t('tokenActivityEmptyTitle')}
+                description={t('tokenActivityEmptyBody')}
+                className="w-full"
+              />
+            ) : (
+              <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
+            ))}
         </div>
       );
     }
+
+    // Rows on screen with a failed read behind them are not the whole history: say so above them.
+    const loadErrorNotice = loadError ? <HistoryLoadErrorNotice onRetry={onRetry} /> : null;
 
     // Summary view (used outside the full Activity page) keeps the legacy
     // HistoryItem look — small list of recent entries, no grouping or chrome.
     if (!fullHistory) {
       return (
         <div className={classNames('w-full', 'flex flex-col', className)}>
+          {loadErrorNotice}
           {entries.map((entry, index) => (
             <HistoryItem
               entry={entry}
@@ -450,20 +521,24 @@ const HistoryView = memo<HistoryViewProps>(
     const list = (
       <div data-testid="history-view" className="flex flex-col">
         {/* Each row is a layout-animated Framer element (`ActivityRow`), and
-            `layout` on the date group moves the groups below into the space a
-            removed row leaves. Rows and groups slide; nothing fades, so a
-            filter change behaves like a native list update. */}
+            `layout="position"` on the date group moves the groups below into the
+            space a removed row leaves. Rows and groups slide; nothing fades, so a
+            filter change behaves like a native list update. Position-only, because
+            a full `layout` would also scale this group and Framer cannot correct a
+            radius that lives in a class rather than `style` - the row below passes
+            exactly such a radius. A layout animation cannot play on a fresh mount -
+            the node's first measurement IS the mount - so this does not replay when
+            a filter change rebuilds the list; only the rows that survive the change
+            move. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
           <motion.div
-            layout
+            layout="position"
             transition={layoutTransition}
             key={dateMs}
             className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
           >
             {dateMs === -1 ? (
-              <span className="font-heading font-extrabold text-heading-gray text-base">
-                {t('activityDateUnavailable')}
-              </span>
+              <span className="font-heading font-extrabold text-ink text-base">{t('activityDateUnavailable')}</span>
             ) : (
               <DateSeparator dateMs={dateMs} />
             )}
@@ -471,26 +546,67 @@ const HistoryView = memo<HistoryViewProps>(
               {dateEntries.map(entry => {
                 if (entry.pendingActivity && renderPendingItem) {
                   return (
-                    <div key={entry.key} data-pending-note-id={entry.pendingActivity.note.id}>
+                    // `layout="position"`, so a pending card travels the list the way the settled
+                    // rows beside it do. Every other child of this group is a Framer projection
+                    // node (a `Card asChild` renders onto `ActivityRow`, which is one) and the
+                    // pending card was the single exception: a plain div. It therefore JUMPED to
+                    // its new place while the `ActivityRow` inside it — a projection node of its
+                    // own — slid there, tearing the header row out of its own card for the length
+                    // of a filter change; and it was the one child the group's `layout` squashed
+                    // instead of scale-correcting while the group resized.
+                    // POSITION, never full `layout`: the card's height changes when its disclosure
+                    // opens, and full `layout` would animate that box — putting back, one level up,
+                    // the height tween `PendingActivityCard` just dropped. Position-only snaps the
+                    // size and animates the move alone.
+                    <motion.div
+                      layout="position"
+                      transition={layoutTransition}
+                      key={entry.key}
+                      data-pending-note-id={entry.pendingActivity.note.id}
+                    >
                       {renderPendingItem(entry.pendingActivity)}
-                    </div>
+                    </motion.div>
                   );
                 }
                 const props = buildRowProps(entry, t, tokenId);
+                const unread = isHistoryEntryUnread(readState, entry);
                 return (
-                  <ActivityRow
+                  <Card
                     key={entry.key}
-                    entryKey={entry.key}
-                    testId="activity-row"
-                    className="rounded-2xl border border-rule-default bg-white px-3"
-                    icon={props.icon}
-                    iconBg={props.iconBg}
-                    title={props.title}
-                    subtitle={props.subtitle}
-                    amount={props.amount}
-                    status={props.status}
-                    onClick={entry.txId ? () => navigate(`/history-details/${entry.txId}`) : undefined}
-                  />
+                    asChild
+                    surface="outline"
+                    padding="row"
+                    pressable={Boolean(entry.txId)}
+                    className="relative"
+                  >
+                    <ActivityRow
+                      entryKey={entry.key}
+                      testId="activity-row"
+                      icon={props.icon}
+                      iconBg={props.iconBg}
+                      title={props.title}
+                      subtitle={props.subtitle}
+                      amount={props.amount}
+                      status={props.status}
+                      // The row is read the moment its detail is opened — not when the tab is,
+                      // the way an inbox does not read its messages when you open it.
+                      leading={
+                        <UnreadDot
+                          unread={unread}
+                          label={t('activityUnread')}
+                          data-testid={unread ? 'activity-row-unread' : undefined}
+                        />
+                      }
+                      onClick={
+                        entry.txId
+                          ? () => {
+                              markActivityRead(historyEntryUnreadKey(entry), entry.timestamp);
+                              navigate(`/history-details/${entry.txId}`);
+                            }
+                          : undefined
+                      }
+                    />
+                  </Card>
                 );
               })}
             </div>
@@ -501,6 +617,7 @@ const HistoryView = memo<HistoryViewProps>(
 
     return (
       <div className={classNames('w-full pb-6 flex flex-col', className)}>
+        {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
             loadMore={loadMore}

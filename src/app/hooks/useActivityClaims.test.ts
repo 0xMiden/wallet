@@ -1,10 +1,10 @@
 import { act, renderHook } from '@testing-library/react';
 
-import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
-import { useActivityClaims } from './useActivityClaims';
+import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
 
-const note: NoteWithMetadata = {
+const note: ClaimableNoteWithMetadata = {
   id: 'note-one',
   faucetId: 'faucet',
   amount: '1000000',
@@ -25,6 +25,7 @@ const mockSubscriptions: Array<{
   unsubscribe: jest.Mock;
 }> = [];
 const mockFlags = { extension: false };
+const mockEndpoint = { rpc: 'rpc', network: 'testnet' };
 const mockClaim = {
   account: { publicKey: 'account' },
   safeClaimableNotes: [note],
@@ -37,10 +38,31 @@ const mockClaim = {
 };
 
 jest.mock('./useClaimNotes', () => ({ useClaimNotes: () => mockClaim }));
+// A pass-through reporter that records what each wrapped queue call settled with.
+const mockReported: Array<'ok' | 'failed'> = [];
+jest.mock('app/hooks/useReportNoteClaim', () => ({
+  useReportNoteClaim:
+    () =>
+    async <T>(attempt: () => Promise<T>): Promise<T> => {
+      try {
+        const result = await attempt();
+        mockReported.push('ok');
+        return result;
+      } catch (error) {
+        mockReported.push('failed');
+        throw error;
+      }
+    }
+}));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
-  initiateConsumeNotesTransaction: (...args: Parameters<typeof mockQueueMany>) => mockQueueMany(...args),
+  // The batch entry point: a test resolves it with a committed id, or with the full result when it
+  // needs a note covered by a row other than the batch.
+  queueConsumeNotes: (...args: Parameters<typeof mockQueueMany>) =>
+    Promise.resolve(mockQueueMany(...args)).then((queued: unknown) =>
+      typeof queued === 'string' ? { committedId: queued, coveringTxIdByNoteId: new Map<string, string>() } : queued
+    ),
   startBackgroundTransactionProcessing: (...args: Parameters<typeof mockStart>) => mockStart(...args),
   requestSWTransactionProcessing: () => mockRequest()
 }));
@@ -62,6 +84,10 @@ jest.mock('lib/miden/db/types', () => ({
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveRpcUrl: () => mockEndpoint.rpc,
+  getEffectiveNetworkName: () => mockEndpoint.network
+}));
 
 function latestSubscription() {
   const subscription = mockSubscriptions[mockSubscriptions.length - 1];
@@ -80,7 +106,12 @@ beforeEach(() => {
   mockQueueMany.mockReset();
   mockAnyOf.mockReset();
   mockSubscriptions.length = 0;
+  mockReported.length = 0;
   mockFlags.extension = false;
+  __resetActivityClaimsForTest();
+  mockEndpoint.rpc = 'rpc';
+  mockEndpoint.network = 'testnet';
+  mockClaim.account = { publicKey: 'account' };
   mockClaim.safeClaimableNotes = [note];
   mockClaim.isFetchingNotes = false;
   mockClaim.isDelegatedProvingEnabled = false;
@@ -247,15 +278,42 @@ it('marks every batch note as claiming at once, queues the native faucet group f
   });
 });
 
+it('settles a batch note deduplicated onto another row with that row, not the batch it never joined', async () => {
+  const covered = { ...note, id: 'note-covered' };
+  const joined = { ...note, id: 'note-joined' };
+  mockClaim.safeClaimableNotes = [covered, joined];
+  mockQueueMany.mockResolvedValueOnce({
+    committedId: 'tx-batch',
+    coveringTxIdByNoteId: new Map([
+      [covered.id, 'tx-live'],
+      [joined.id, 'tx-batch']
+    ])
+  });
+  const { result } = renderHook(() => useActivityClaims());
+  await act(async () => {
+    await result.current.acceptMany([covered, joined]);
+  });
+
+  settle([
+    { id: 'tx-batch', status: 2, completedAt: 70 },
+    { id: 'tx-live', status: 3, completedAt: 80 }
+  ]);
+  expect(result.current.items.find(item => item.note.id === covered.id)).toMatchObject({
+    txId: 'tx-live',
+    status: 'failed'
+  });
+  expect(result.current.items.find(item => item.note.id === joined.id)?.status).toBe('claimed');
+});
+
 it('projects every live note state and leaves an undated note undated', () => {
+  // A claim in flight is read from the note's own row (`isBeingClaimed`, written the moment the
+  // consume is enqueued), not from a set the retired batch claimer used to keep in memory.
   const live = { ...note, id: 'live', receivedAt: 123, isBeingClaimed: true };
-  const claimed = { ...note, id: 'claimed' };
   const checking = { ...note, id: 'checking' };
   const unavailable = { ...note, id: 'unavailable' };
   const failed = { ...note, id: 'failed' };
   const pending = { ...note, id: 'pending' };
-  mockClaim.safeClaimableNotes = [live, claimed, checking, unavailable, failed, pending];
-  mockClaim.claimingNoteIds.add(claimed.id);
+  mockClaim.safeClaimableNotes = [live, checking, unavailable, failed, pending];
   mockClaim.checkingNoteIds.add(checking.id);
   mockClaim.invalidNoteIds.add(unavailable.id);
   mockClaim.retriableNoteIds.add(failed.id);
@@ -263,7 +321,6 @@ it('projects every live note state and leaves an undated note undated', () => {
   const { result } = renderHook(() => useActivityClaims());
   expect(result.current.items.map(item => [item.note.id, item.status, item.note.receivedAt])).toEqual([
     ['live', 'claiming', 123],
-    ['claimed', 'claiming', undefined],
     ['checking', 'checking', undefined],
     ['unavailable', 'unavailable', undefined],
     ['failed', 'failed', undefined],
@@ -418,4 +475,157 @@ it('keeps a cached note listed as pending while the claim check runs, since it c
     ['cached', 'pending'],
     ['note-one', 'checking']
   ]);
+});
+
+describe('a claim shared across the Activity views', () => {
+  function deferQueue(mock: jest.Mock) {
+    let release: (txId: string) => void = () => {};
+    mock.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          release = resolve;
+        })
+    );
+    return (txId: string) => release(txId);
+  }
+
+  it('does not queue a note again after a view switch while its first claim is still being queued', async () => {
+    const release = deferQueue(mockQueue);
+    const first = renderHook(() => useActivityClaims());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = first.result.current.accept(note);
+    });
+    first.unmount();
+
+    const second = renderHook(() => useActivityClaims());
+    expect(second.result.current.items[0]?.status).toBe('claiming');
+    await act(async () => {
+      await second.result.current.accept(note);
+    });
+    await act(async () => {
+      release('tx-one');
+      await pending;
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(second.result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-one' });
+  });
+
+  it('does not queue a batch note again after a view switch', async () => {
+    const release = deferQueue(mockQueueMany);
+    const first = renderHook(() => useActivityClaims());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = first.result.current.acceptMany([note]);
+    });
+    first.unmount();
+
+    const second = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await second.result.current.acceptMany([note]);
+    });
+    await act(async () => {
+      release('tx-batch');
+      await pending;
+    });
+    expect(mockQueueMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not queue a note from a batch while another view is queueing it alone, or the reverse', async () => {
+    const release = deferQueue(mockQueue);
+    const list = renderHook(() => useActivityClaims());
+    const groups = renderHook(() => useActivityClaims());
+    // Both taps land before either view re-renders, so only the shared reservation can stop the second.
+    let single: Promise<void> = Promise.resolve();
+    let batch: Promise<void> = Promise.resolve();
+    act(() => {
+      single = list.result.current.accept(note);
+      batch = groups.result.current.acceptMany([note]);
+    });
+    await act(async () => {
+      release('tx-one');
+      await Promise.all([single, batch]);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockQueueMany).not.toHaveBeenCalled();
+
+    const other = { ...note, id: 'note-two' };
+    mockClaim.safeClaimableNotes = [note, other];
+    list.rerender();
+    groups.rerender();
+    const releaseBatch = deferQueue(mockQueueMany);
+    act(() => {
+      batch = groups.result.current.acceptMany([other]);
+      single = list.result.current.accept(other);
+    });
+    await act(async () => {
+      releaseBatch('tx-batch');
+      await Promise.all([single, batch]);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockQueueMany).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['account', () => (mockClaim.account = { publicKey: 'account-other' })],
+    ['RPC endpoint', () => (mockEndpoint.rpc = `${mockEndpoint.rpc}-other`)],
+    ['network', () => (mockEndpoint.network = 'devnet')]
+  ])('keeps the claims of another %s apart', async (_part, change) => {
+    const release = deferQueue(mockQueue);
+    const first = renderHook(() => useActivityClaims());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = first.result.current.accept(note);
+    });
+    first.unmount();
+
+    change();
+    const second = renderHook(() => useActivityClaims());
+    expect(second.result.current.items[0]?.status).toBe('pending');
+    await act(async () => {
+      await second.result.current.accept(note);
+    });
+    await act(async () => {
+      release('tx-first');
+      await pending;
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('note_handle reporting', () => {
+  it('reports an accepted note as one attempt around its queue call', async () => {
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+    expect(mockReported).toEqual(['ok']);
+  });
+
+  it('lets the reporter see a queue-time failure the hook then absorbs', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockQueue.mockRejectedValue(new Error('queue failed'));
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockReported).toEqual(['failed']);
+    expect(result.current.items[0]?.status).toBe('failed');
+    log.mockRestore();
+  });
+
+  it('reports each faucet group of Accept All as its own attempt', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const other = { ...note, id: 'note-two', faucetId: 'other-faucet' };
+    mockClaim.safeClaimableNotes = [note, other];
+    mockQueueMany.mockResolvedValueOnce('tx-batch').mockRejectedValueOnce(new Error('queue failed'));
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.acceptMany([note, other]);
+    });
+    expect(mockQueueMany).toHaveBeenCalledTimes(2);
+    expect(mockReported).toEqual(['ok', 'failed']);
+    log.mockRestore();
+  });
 });

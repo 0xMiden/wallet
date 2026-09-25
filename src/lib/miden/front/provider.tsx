@@ -9,6 +9,7 @@ import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
+  getEffectiveFeeFaucetId,
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl,
@@ -121,6 +122,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       rpcUrl: getEffectiveRpcUrl(),
       noteTransportUrl: getEffectiveNoteTransportUrl(),
       prover: getEffectiveProverUrl(),
+      feeFaucetId: getEffectiveFeeFaucetId(),
       autoSyncInterval: 0,
       // Mirror the backend MidenClientInterface decision: on mobile we hand
       // the SDK a CallbackProver routed through the native Rust prover via

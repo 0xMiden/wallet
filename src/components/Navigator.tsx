@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode, use
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
+import { durations, pageStepOffset, pageStepPresentOffset, resolvePageStepTransition } from 'lib/animation';
 import { setCardPart } from 'lib/e2e/screen-key';
 import { isMobile } from 'lib/platform';
 
@@ -35,12 +36,18 @@ export const useNavigator = () => {
   return context;
 };
 
-export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[]; initialRouteName?: string }> = ({
-  children,
-  routes,
-  initialRouteName
-}) => {
+export const NavigatorProvider: React.FC<{
+  children: ReactNode;
+  routes: Route[];
+  initialRouteName?: string;
+  /** Start with several routes stacked (first is the bottom), so back from the
+   *  top one reaches the earlier steps. Takes precedence over initialRouteName. */
+  initialRouteNames?: string[];
+}> = ({ children, routes, initialRouteName, initialRouteNames }) => {
   const [cardStack, setCardStack] = useState<Route[]>(() => {
+    if (initialRouteNames?.length) {
+      return initialRouteNames.flatMap(name => routes.filter(r => r.name === name).slice(0, 1));
+    }
     if (initialRouteName) {
       const initial = routes.find(r => r.name === initialRouteName);
       if (initial) return [initial];
@@ -132,6 +139,7 @@ export type NavigatorProps = {
   animationConfig?: {
     pushInitialPosition: AnimationConfig;
     focusPosition: AnimationConfig;
+    pushBackInitialPosition: AnimationConfig;
     pushExitPosition: AnimationConfig;
     pushHiddenPosition: AnimationConfig;
     pushModalBackgroundPosition: AnimationConfig;
@@ -152,12 +160,20 @@ type AnimationConfig = {
   };
 };
 
+// A step swap is the `page` model on a short nudge (`pageStepTransition`): the
+// incoming step comes in from the right.
 const PushInitialPosition: AnimationConfig = {
-  x: '8%',
+  x: pageStepOffset,
   opacity: 1,
   backgroundColor: 'var(--color-app-bg)',
   y: '0vw',
   scale: 1
+};
+
+// Back mirrors forward: the step being returned to slides in from the left.
+const PushBackInitialPosition: AnimationConfig = {
+  ...PushInitialPosition,
+  x: `-${pageStepOffset}`
 };
 
 const FocusPosition: AnimationConfig = {
@@ -194,7 +210,7 @@ const PushModalBackgroundPosition: AnimationConfig = {
 
 const PresentInitialPosition: AnimationConfig = {
   x: '0vw',
-  y: '25vw',
+  y: pageStepPresentOffset,
   opacity: 0,
   scale: 1,
   backgroundColor: 'var(--color-app-bg)'
@@ -202,7 +218,7 @@ const PresentInitialPosition: AnimationConfig = {
 
 const PresentExitPosition: AnimationConfig = {
   x: '0vw',
-  y: '25vw',
+  y: pageStepPresentOffset,
   opacity: 0,
   scale: 1,
   backgroundColor: 'var(--color-app-bg)'
@@ -211,6 +227,7 @@ const PresentExitPosition: AnimationConfig = {
 export const DefaultAnimationConfig = {
   pushInitialPosition: PushInitialPosition,
   focusPosition: FocusPosition,
+  pushBackInitialPosition: PushBackInitialPosition,
   pushExitPosition: PushExitPosition,
   pushHiddenPosition: PushHiddenPosition,
   pushModalBackgroundPosition: PushModalBackgroundPosition,
@@ -218,24 +235,29 @@ export const DefaultAnimationConfig = {
   presentExitPosition: PresentExitPosition
 };
 
-// prefers-reduced-motion: movement is dropped, opacity fades are kept.
+// prefers-reduced-motion: the swap is instant (`resolvePageStepTransition`),
+// and no step is placed off its resting position.
 export const ReducedMotionAnimationConfig = {
   ...DefaultAnimationConfig,
   pushInitialPosition: { ...PushInitialPosition, x: '0vw' },
+  pushBackInitialPosition: { ...PushBackInitialPosition, x: '0vw' },
   presentInitialPosition: { ...PresentInitialPosition, y: '0vw' },
   presentExitPosition: { ...PresentExitPosition, y: '0vw' }
 };
 
 export const Navigator: React.FC<NavigatorProps> = ({
   renderRoute,
-  animationDuration = 0.15,
+  animationDuration = durations.pageStep,
   animationConfig = DefaultAnimationConfig
 }) => {
   const { direction, activeRoute, activeIndex } = useNavigator();
   const reduceMotion = useReducedMotion();
 
   // Only animate on mobile (disable for Chrome extension)
-  const effectiveDuration = isMobile() ? animationDuration : 0;
+  const transition = {
+    ...resolvePageStepTransition(reduceMotion, isMobile(), animationDuration),
+    when: 'beforeChildren'
+  };
   const effectiveConfig = reduceMotion ? ReducedMotionAnimationConfig : animationConfig;
 
   const animationVariants = useMemo(() => {
@@ -248,7 +270,7 @@ export const Navigator: React.FC<NavigatorProps> = ({
 
           return config.direction === 'forward'
             ? effectiveConfig.pushInitialPosition
-            : effectiveConfig.pushHiddenPosition;
+            : effectiveConfig.pushBackInitialPosition;
         } else {
           return effectiveConfig.presentInitialPosition;
         }
@@ -281,11 +303,7 @@ export const Navigator: React.FC<NavigatorProps> = ({
           initial="initialPosition"
           animate="focusPosition"
           exit="exitPosition"
-          transition={{
-            duration: effectiveDuration,
-            when: 'beforeChildren',
-            ease: 'easeOut'
-          }}
+          transition={transition}
           layoutRoot
           variants={animationVariants}
         >

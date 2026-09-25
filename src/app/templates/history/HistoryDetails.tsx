@@ -1,31 +1,23 @@
 import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
-import clsx from 'clsx';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
+import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
-import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
-import { NavigationHeader } from 'components/NavigationHeader';
-import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
+import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
+import { PageHeader } from 'components/PageHeader';
+import { DetailRow } from 'components/ui/DetailCard';
+import { Spinner } from 'components/ui/Spinner';
+import { StatusBadge } from 'components/ui/StatusBadge';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import {
-  cancelTransactionById,
-  isCancellableTransaction,
-  isRequeueableTransaction,
-  isUnverifiableSendRetryError,
-  isUserCancelledTransaction,
-  requestSWTransactionProcessing,
-  requeueFailedTransaction,
-  retryEarnWithdrawReceive,
-  USER_CANCELLED_TRANSACTION_REASON
-} from 'lib/miden/activity';
+import { isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -40,7 +32,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
-import { rotationChip, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
+import { isUnconfirmedRotation, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -55,8 +47,9 @@ import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 import {
+  consumeAssetBreakdown,
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -65,26 +58,25 @@ import { useTransactionRow } from 'screens/generating-transaction/useTransaction
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
-import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
+import { DetailSection } from './DetailSection';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
-import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
+import TransactionIcon, { getTransactionIconBackgroundColor, isGuardianOp } from './TransactionIcon';
+import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
-  BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnWithdrawAmountFields,
-  earnWithdrawToneOf,
   formatBridgeOutputAmount,
   formatDate,
   isBridgeInEntry,
   swapSettlementOf
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
+import { useTransactionActions } from './useTransactionActions';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -143,81 +135,11 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
-      <span className="min-w-0 text-heading-gray">{inAmount}</span>
+      <span className="min-w-0 text-ink">{inAmount}</span>
       <span className="min-w-0 text-text-muted">{inSymbol}</span>
       <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
-      <span className="min-w-0 text-heading-gray">{displayedOutAmount}</span>
+      <span className="min-w-0 text-ink">{displayedOutAmount}</span>
       <span className="min-w-0 text-text-muted">{outSymbol}</span>
-    </div>
-  );
-};
-
-/** Pending/Confirmed/Failed for a bridge, derived from the route's own lifecycle. */
-const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
-  const { t } = useTranslation();
-  const status = bridgeStatusOf(entry);
-  const tone =
-    status === 'confirmed'
-      ? 'bg-status-positive/15 text-status-positive'
-      : status === 'failed'
-        ? 'bg-status-negative/15 text-status-negative'
-        : 'bg-status-pending/15 text-status-pending';
-  return (
-    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
-    </div>
-  );
-};
-
-/** Pending/Confirmed/Failed pill for a Smart Deposit's solver-fulfilled lending leg (`epochStatus`). */
-const EarnDepositStatusPill: FC<{ status: NonNullable<IEarnDepositExtraInputs['epochStatus']> }> = ({ status }) => {
-  const { t } = useTranslation();
-  const toneClass =
-    status === 'confirmed'
-      ? 'bg-status-positive/15 text-status-positive'
-      : status === 'failed'
-        ? 'bg-status-negative/15 text-status-negative'
-        : 'bg-status-pending/15 text-status-pending';
-  return (
-    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      <span className="text-xs font-medium">{t(status)}</span>
-    </div>
-  );
-};
-
-/**
- * Amber "Submitted" pill for a switch-guardian row whose commit was never
- * confirmed - the generic `StatusPill` reads such a row's Completed status as a
- * green "Confirmed", the exact claim the row cannot make. The override table
- * (`rotationChip`) lives with the verdict module; every other verdict defers to
- * the generic pill.
- */
-const GuardianSwitchStatusPill: FC<{ labelKey: string }> = ({ labelKey }) => {
-  const { t } = useTranslation();
-  return (
-    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', 'bg-status-pending/15 text-status-pending')}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      <span className="text-xs font-medium">{t(labelKey)}</span>
-    </div>
-  );
-};
-
-/** Redeeming/Delivering/Received/Failed pill for a Smart Withdraw, mirroring `BridgeStatusPill`. */
-const EarnWithdrawStatusPill: FC<{ phase: IEarnWithdrawExtraInputs['phase'] }> = ({ phase }) => {
-  const { t } = useTranslation();
-  const tone = earnWithdrawToneOf(phase);
-  const toneClass =
-    tone === 'confirmed'
-      ? 'bg-status-positive/15 text-status-positive'
-      : tone === 'failed'
-        ? 'bg-status-negative/15 text-status-negative'
-        : 'bg-status-pending/15 text-status-pending';
-  return (
-    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      <span className="text-xs font-medium">{t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase])}</span>
     </div>
   );
 };
@@ -273,14 +195,14 @@ const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
       {visibleNoteIds.map(noteId => (
-        <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+        <HashChip key={noteId} hash={noteId} trimHash />
       ))}
       {isCollapsed && (
         <button
           type="button"
           onClick={handleExpand}
           data-testid={`${testId}-show-all`}
-          className="text-sm font-medium text-heading-gray underline transition-opacity active:opacity-60"
+          className="text-sm font-medium text-ink underline transition-opacity active:opacity-60"
         >
           {t('showAllNotes', { count: overflowCount })}
         </button>
@@ -308,19 +230,16 @@ const AccountDisplay: FC<{
     return undefined;
   };
 
-  return (
-    <AddressChip
-      address={address}
-      fill="#9E9E9E"
-      className="ml-2"
-      displayName={getDisplayName(address)}
-      copyIcon={false}
-    />
-  );
+  return <AddressChip address={address} className="ml-2" displayName={getDisplayName(address)} />;
 });
 
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
+  // This page draws its own header instead of PageLayout's toolbar, so it opts out of the
+  // toolbar's fallback too. `/history-details/:transactionId` is a real route, so a reload or a
+  // deep link opens it cold, where a bare `goBack()` is inert and the header chevron is the only
+  // exit left on extension and desktop.
+  const handleBack = useBackWithFallback('/');
   const maxNetworkFee = useNetworkFeeEstimate();
   const allAccounts = useAllAccounts();
   const account = useAccount();
@@ -334,11 +253,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-  const [isRetrying, setIsRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
-  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
@@ -436,6 +350,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
         const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
+        const hotKeyExtra = tx.type === 'replace-hot-key' ? tx.extraInputs : undefined;
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
@@ -476,6 +391,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
           guardianSwitchVerdict: rotationVerdict(tx)?.kind,
+          newHotPublicKey: hotKeyExtra?.newHotPublicKey,
+          rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
@@ -547,45 +464,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
 
-  const handleCancel = useCallback(async () => {
-    setIsCancelling(true);
-    setCancelError(null);
-
-    try {
-      await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to cancel transaction:', error);
-      setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
-    } finally {
-      setIsCancelling(false);
-    }
-  }, [t, transactionId]);
-
-  const handleRetry = useCallback(
-    async (acknowledgeUnverifiedSend = false) => {
-      if (!entry) return;
-      setIsRetrying(true);
-      setRetryError(null);
-      setNeedsSendAcknowledgement(false);
-      try {
-        if (entry.txType === 'earn-withdraw') {
-          await retryEarnWithdrawReceive(transactionId);
-        } else {
-          await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
-          requestSWTransactionProcessing();
-          navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
-          return;
-        }
-      } catch (error) {
-        console.error('[HistoryDetails] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
-      } finally {
-        setIsRetrying(false);
-      }
-    },
-    [entry, t, transactionId]
-  );
+  // Cancel, Retry and the swap-order cancel, with their in-flight flags and error
+  // strings. Shared with `SwapDetail`, which renders the swap branch of this same
+  // page - see `useTransactionActions`.
+  const actions = useTransactionActions(transactionId, entry, transaction);
+  const { canCancel, canRetry, earnRetryKind } = actions;
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
@@ -624,10 +507,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
-  const guardianChip =
-    isGuardianSwitch && !entry?.isCancelled && entry?.guardianSwitchVerdict
-      ? rotationChip(entry.guardianSwitchVerdict)
-      : null;
+  const isUnconfirmedSwitch =
+    isGuardianSwitch &&
+    !entry?.isCancelled &&
+    entry?.guardianSwitchVerdict !== undefined &&
+    isUnconfirmedRotation(entry.guardianSwitchVerdict);
+  // A device-key rotation changes the account's signer, not its co-signer, so it
+  // draws the guardian once. Both are structural Guardian ops: neither moves
+  // value, so neither gets the wallet From/To rows.
+  const isHotKeyRotation = entry?.txType === 'replace-hot-key';
+  const guardianOp = entry ? isGuardianOp(entry.txType) : false;
+  // The guardian the rotation ran under, as its record stored it. A row recorded without one names
+  // no guardian: the account's current endpoint may belong to a later switch.
+  const rotationGuardianEndpoint = isHotKeyRotation ? entry?.rotationGuardianEndpoint : undefined;
   // Which way the money moved is a property of the transaction TYPE, not of its
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
@@ -647,7 +539,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
-    : isGuardianSwitch
+    : guardianOp
       ? undefined
       : isBridgeIn
         ? undefined
@@ -656,7 +548,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.secondaryAddress;
   const toAddress = isBridgeOut
     ? undefined
-    : isGuardianSwitch
+    : guardianOp
       ? undefined
       : isBridgeIn
         ? entry?.address
@@ -679,11 +571,29 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // whole transaction. A batch claim's hero lists every asset it swept up, and a
   // single-faucet estimate under it reads as the total while understating it -
   // no figure is better than a confidently wrong one.
+  //
+  // Still suppressed now that the breakdown below prices nothing by itself, and
+  // deliberately not replaced by a per-asset sum: `getTokenPrice` answers $1 for
+  // any symbol Binance does not list, and a batch claim's secondary faucets are
+  // exactly the ones the wallet has never resolved - so a "total" would quietly
+  // value every unknown asset at a dollar a unit. The assets an unknown-scale
+  // faucet contributed have no honest quantity to multiply either. Gating the
+  // figure on every asset being both resolved and listed would make it appear
+  // and vanish between renders as metadata lands, which is worse than absent.
+  // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token && !spansMultipleAssets
       ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
       : undefined;
+  // One entry per faucet the claim swept up, each with the asset and quantity
+  // that faucet contributed. Resolved through the SAME helper as the hero badge
+  // over it, so the two cannot disagree about what a faucet is called - and
+  // synchronously, so a faucet the store resolves later re-renders both.
+  const assetBreakdown =
+    spansMultipleAssets && transaction
+      ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
+      : [];
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
@@ -700,37 +610,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
-  // Cancel is offered on a narrower set than "pending": a structural op that has
-  // already been picked up cannot be stopped, retried, or completed afterwards,
-  // so the button only mislabels a rotation that is going to land anyway.
-  const canCancel = entry ? isCancellableTransaction({ status: entry.status, type: entry.txType }) : false;
-  const earnRetryKind = earnWithdrawalRetryKind(transaction);
-  const canRetry =
-    entry !== null &&
-    !entry.isCancelled &&
-    !transaction?.restoredFromBackup &&
-    (entry.txType === 'earn-withdraw'
-      ? earnRetryKind !== undefined
-      : isRequeueableTransaction({
-          status: entry.status,
-          type: entry.txType,
-          // Epoch (Fast) bridged sends are not replayable - their Epoch intent is
-          // already gone, so a requeue would mint a second orphan collateral note.
-          bridgeProvider: entry.bridgeProvider,
-          restoredFromBackup: transaction?.restoredFromBackup
-        }));
 
   return (
     <PageLayout hideToolbar>
-      {/* A swap receipt is reachable from the swap flow itself, so it keeps the
-          close-to-home affordance the previous ScreenHeader carried. */}
-      <NavigationHeader
-        title={t('transaction')}
-        onBack={goBack}
-        variant="prominent"
-        titleAlign="left"
-        onClose={entry?.txType === 'swap' ? () => navigate('/') : undefined}
-      />
+      <PageHeader className="px-4" title={t('transaction')} onBack={handleBack} />
       <div className="flex flex-1 flex-col min-h-0 px-4">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
@@ -741,7 +624,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             </p>
           </div>
         ) : entry === null ? (
-          <ActivitySpinner />
+          <div className="flex h-8 justify-center pt-5">
+            <Spinner />
+          </div>
         ) : entry.txType === 'swap' && requestedToken ? (
           <SwapDetail
             entry={entry}
@@ -758,20 +643,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
-            onDismiss={goBack}
+            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate(ACTIVITY_PENDING_PATH) : undefined}
+            offerCancelOrder={receipt.offerCancel}
+            reclaimPending={receipt.reclaimPending}
+            isCancellingOrder={actions.isCancellingOrder}
+            cancelOrderError={actions.cancelOrderError}
+            onCancelOrder={actions.onCancelOrder}
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
             {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
-                <GuardianTransitionHero
+                <GuardianChangeSummary
+                  kind="switch"
                   previousEndpoint={entry.previousGuardianEndpoint}
                   newEndpoint={entry.newGuardianEndpoint}
-                  previousLabel={t('from')}
-                  newLabel={t('to')}
                 />
+              ) : rotationGuardianEndpoint ? (
+                <GuardianChangeSummary kind="single" endpoint={rotationGuardianEndpoint} />
               ) : (
                 <>
                   <TransactionIcon entry={entry} size="lg" />
@@ -782,7 +672,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
                       {entry.amount !== undefined && (
-                        <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                        <span className="text-ink">{formatDisplayAmount(entry.amount)}</span>
                       )}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
                     </div>
@@ -792,15 +682,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
               <div className="mt-2">
                 {isBridge ? (
-                  <BridgeStatusPill entry={entry} />
+                  // Pending/Confirmed/Failed, derived from the route's own lifecycle.
+                  <StatusBadge size="md" live status={bridgeStatusOf(entry)} data-testid="history-status-pill" />
                 ) : isEarnWithdraw && earnWithdraw ? (
-                  <EarnWithdrawStatusPill phase={earnWithdraw.phase} />
+                  // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
+                  <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
                   // Miden note landed - the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
-                  <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
-                ) : guardianChip ? (
-                  <GuardianSwitchStatusPill labelKey={guardianChip.labelKey} />
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={earnDeposit.epochStatus ?? 'pending'}
+                    data-testid="history-status-pill"
+                  />
+                ) : isUnconfirmedSwitch ? (
+                  // Amber "Submitted" for a switch-guardian row whose commit was never confirmed:
+                  // the generic pill reads its Completed status as a green "Confirmed", the exact
+                  // claim the row cannot make.
+                  <StatusBadge size="md" live status="guardianSwitchSubmitted" data-testid="history-status-pill" />
                 ) : (
                   <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
                 )}
@@ -811,54 +711,39 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <div className="mt-4">
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
-                <DetailCard title={t(isGuardianSwitch ? 'details' : 'transferDetails')}>
-                  <DetailRow label={t('date')}>
-                    <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
-                  </DetailRow>
+                <DetailSection title={t(guardianOp ? 'details' : 'transferDetails')}>
+                  <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 
                   {isBridgeIn && entry.bridgeInSourceAddress && (
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={entry.bridgeInSourceAddress}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
                         href={SEPOLIA_ADDRESS_URL(entry.bridgeInSourceAddress)}
                       />
                     </DetailRow>
                   )}
 
-                  {entry.fee && (
-                    <DetailRow label={t('networkFee')}>
-                      <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
-                    </DetailRow>
-                  )}
+                  {entry.fee && <DetailRow label={t('networkFee')}>{entry.fee}</DetailRow>}
 
                   {entry.externalTxId && (
-                    <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">
+                    <DetailRow label={t('txIdLabel')} data-testid="history-detail-tx-id">
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={entry.externalTxId}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={entry.externalTxId} trimHash className="ml-2" />}
                         href={getExplorerTxUrl(entry.externalTxId)}
                       />
                     </DetailRow>
                   )}
 
-                  {isGuardianSwitch && !entry.externalTxId && entry.txId && (
-                    <DetailRow label={t('txIdLabel')} isLast>
-                      <HashChip hash={entry.txId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
+                  {guardianOp && !entry.externalTxId && entry.txId && (
+                    <DetailRow label={t('txIdLabel')}>
+                      <HashChip hash={entry.txId} trimHash className="ml-2" />
+                    </DetailRow>
+                  )}
+
+                  {/* A rotation's whole subject: the guardian above is unchanged, the key is what moved. */}
+                  {isHotKeyRotation && entry.newHotPublicKey && (
+                    <DetailRow label={t('newDeviceKey')} data-testid="history-detail-new-device-key">
+                      <HashChip hash={entry.newHotPublicKey} trimHash className="ml-2" />
                     </DetailRow>
                   )}
 
@@ -874,7 +759,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {toAddress && (
-                    <DetailRow label={t('to')} isLast testId="history-detail-to">
+                    <DetailRow label={t('to')} data-testid="history-detail-to">
                       <ExternalLinkValue
                         displayValue={
                           <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
@@ -883,85 +768,110 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       />
                     </DetailRow>
                   )}
-                </DetailCard>
+
+                  {/*
+                    The faucet that minted the asset this row moved - the token's
+                    on-chain identity, which the FAQ documents and nothing in the app
+                    showed. A faucet IS an account, so it gets the same treatment as
+                    From/To: a trimmed, copyable chip over the account explorer.
+
+                    Rows with no asset (a guardian switch, a key rotation, a dApp
+                    `execute`) carry no `faucetId` and render no row rather than an
+                    empty one. Swaps never reach here: they take the `SwapDetail`
+                    branch, which labels both of their faucets.
+
+                    `tx.faucetId` is only the FIRST faucet of the row, so a claim
+                    spanning several hands off to the per-asset card below rather
+                    than naming one of them here as though it were the whole
+                    transaction.
+                  */}
+                  {!spansMultipleAssets && entry.faucetId && (
+                    <DetailRow label={t('faucetId')} data-testid="history-detail-faucet-id">
+                      <ExternalLinkValue
+                        displayValue={<HashChip hash={entry.faucetId} trimHash className="ml-2" />}
+                        href={getExplorerAccountUrl(entry.faucetId)}
+                      />
+                    </DetailRow>
+                  )}
+                </DetailSection>
               </div>
             </div>
+
+            {/*
+              Per-asset faucets, for a claim that swept up several at once.
+
+              Accept All consumes every waiting transfer in ONE `consume`, and
+              those notes can come from different faucets. The row keeps a total
+              per faucet in `assetTotals`, but `tx.faucetId` is just the first of
+              them - so the single Faucet ID row above would name one faucet and
+              say nothing about the rest. Each asset gets its own row instead:
+              the quantity and symbol it contributed on the left, the faucet that
+              minted it on the right, with the same trimmed copyable chip over
+              the account explorer that From/To and the single-faucet row use.
+            */}
+            {assetBreakdown.length > 0 && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailSection title={t('faucetIds')}>
+                    {assetBreakdown.map(part => (
+                      <DetailRow key={part.faucetId} label={part.label} data-testid="history-detail-faucet-id">
+                        <ExternalLinkValue
+                          displayValue={<HashChip hash={part.faucetId} trimHash className="ml-2" />}
+                          href={getExplorerAccountUrl(part.faucetId)}
+                        />
+                      </DetailRow>
+                    ))}
+                  </DetailSection>
+                </div>
+              </div>
+            )}
 
             {/* Smart Withdraw details (market, position owner, intent, note) */}
             {isEarnWithdraw && earnWithdraw && (
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('earnWithdrawDetailsTitle')}>
+                  <DetailSection title={t('earnWithdrawDetailsTitle')}>
                     <DetailRow label={t('earnMarketLabel')}>
-                      <span className="text-sm text-heading-gray font-medium select-text">
+                      <span className="select-text">
                         {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
                       </span>
                     </DetailRow>
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={earnWithdraw.evmOwner}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={earnWithdraw.evmOwner} trimHash className="ml-2" />}
                         href={SEPOLIA_ADDRESS_URL(earnWithdraw.evmOwner)}
                       />
                     </DetailRow>
                     {earnWithdraw.withdrawIntentNonce && (
                       <DetailRow label={t('redeemIntentLabel')}>
-                        <HashChip
-                          hash={earnWithdraw.withdrawIntentNonce}
-                          trimHash
-                          fill="#9E9E9E"
-                          className="ml-2"
-                          copyIcon={false}
-                        />
+                        <HashChip hash={earnWithdraw.withdrawIntentNonce} trimHash className="ml-2" />
                       </DetailRow>
                     )}
                     {earnWithdraw.evmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
-                          displayValue={
-                            <HashChip
-                              hash={earnWithdraw.evmTxHash}
-                              trimHash
-                              fill="#9E9E9E"
-                              className="ml-2"
-                              copyIcon={false}
-                            />
-                          }
+                          displayValue={<HashChip hash={earnWithdraw.evmTxHash} trimHash className="ml-2" />}
                           href={SEPOLIA_TX_URL(earnWithdraw.evmTxHash)}
                         />
                       </DetailRow>
                     )}
-                    <DetailRow label={t('note')} isLast={earnWithdraw.phase !== 'failed'}>
-                      <span className="text-sm text-heading-gray font-medium select-text">
+                    <DetailRow label={t('note')}>
+                      <span className="select-text">
                         {earnWithdraw.midenNoteId ? (
-                          <HashChip
-                            hash={earnWithdraw.midenNoteId}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
+                          <HashChip hash={earnWithdraw.midenNoteId} trimHash className="ml-2" />
                         ) : (
                           t('pending')
                         )}
                       </span>
                     </DetailRow>
                     {earnWithdraw.phase === 'failed' && earnWithdraw.error && (
-                      <DetailRow label={t('error')} isLast>
-                        <span className="text-sm text-status-negative font-medium wrap-break-word select-text">
-                          {earnWithdraw.error}
-                        </span>
+                      <DetailRow label={t('error')}>
+                        <span className="text-status-negative wrap-break-word select-text">{earnWithdraw.error}</span>
                       </DetailRow>
                     )}
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -971,57 +881,32 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('earnDepositDetailsTitle')}>
+                  <DetailSection title={t('earnDepositDetailsTitle')}>
                     <DetailRow label={t('earnMarketLabel')}>
-                      <span className="text-sm text-heading-gray font-medium select-text">
+                      <span className="select-text">
                         {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
                       </span>
                     </DetailRow>
-                    <DetailRow
-                      label={t('positionOwnerLabel')}
-                      isLast={!earnDeposit.intentNonce && !earnDeposit.evmTxHash}
-                    >
+                    <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={earnDeposit.evmRecipient}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={earnDeposit.evmRecipient} trimHash className="ml-2" />}
                         href={SEPOLIA_ADDRESS_URL(earnDeposit.evmRecipient)}
                       />
                     </DetailRow>
                     {earnDeposit.intentNonce && (
-                      <DetailRow label={t('depositIntentLabel')} isLast={!earnDeposit.evmTxHash}>
-                        <HashChip
-                          hash={earnDeposit.intentNonce}
-                          trimHash
-                          fill="#9E9E9E"
-                          className="ml-2"
-                          copyIcon={false}
-                        />
+                      <DetailRow label={t('depositIntentLabel')}>
+                        <HashChip hash={earnDeposit.intentNonce} trimHash className="ml-2" />
                       </DetailRow>
                     )}
                     {earnDeposit.evmTxHash && (
-                      <DetailRow label={t('txIdLabel')} isLast>
+                      <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
-                          displayValue={
-                            <HashChip
-                              hash={earnDeposit.evmTxHash}
-                              trimHash
-                              fill="#9E9E9E"
-                              className="ml-2"
-                              copyIcon={false}
-                            />
-                          }
+                          displayValue={<HashChip hash={earnDeposit.evmTxHash} trimHash className="ml-2" />}
                           href={SEPOLIA_TX_URL(earnDeposit.evmTxHash)}
                         />
                       </DetailRow>
                     )}
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1043,25 +928,29 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard
+                  <DetailSection
                     title={
                       entry.noteDelivery === 'undelivered'
                         ? t('noteDeliveryUndeliveredTitle')
                         : t('noteDeliveryPendingTitle')
                     }
                   >
-                    <p
-                      data-testid="history-note-delivery-warning"
-                      className="px-4 py-3 text-sm font-medium text-status-negative wrap-break-word select-text"
-                    >
-                      {entry.noteDelivery === 'undelivered'
-                        ? t('noteDeliveryUndeliveredBody')
-                        : t('noteDeliveryPendingBody')}
-                    </p>
-                    <p className="px-4 pb-3 text-xs font-medium text-text-muted wrap-break-word select-text">
-                      {t('noteDeliveryRecoveryHint')}
-                    </p>
-                  </DetailCard>
+                    {/* One child, not two: `DetailCard` draws a hairline between every child it's
+                        given (`divide-y`), and the warning + the recovery hint are one body. */}
+                    <div className="px-4 py-3">
+                      <p
+                        data-testid="history-note-delivery-warning"
+                        className="text-sm font-medium text-status-negative wrap-break-word select-text"
+                      >
+                        {entry.noteDelivery === 'undelivered'
+                          ? t('noteDeliveryUndeliveredBody')
+                          : t('noteDeliveryPendingBody')}
+                      </p>
+                      <p className="text-xs font-medium text-text-muted wrap-break-word select-text">
+                        {t('noteDeliveryRecoveryHint')}
+                      </p>
+                    </div>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1083,14 +972,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('noteDeliveryConfirmedTitle')}>
+                  <DetailSection title={t('noteDeliveryConfirmedTitle')}>
                     <p
                       data-testid="history-note-delivery-confirmed"
                       className="px-4 py-3 text-sm font-medium text-status-positive wrap-break-word select-text"
                     >
                       {t('noteDeliveryConfirmedBody')}
                     </p>
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1125,44 +1014,26 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('bridgeDetails')}>
+                  <DetailSection title={t('bridgeDetails')}>
                     <DetailRow label={t('route')}>
-                      <span className="text-sm text-heading-gray font-medium">
-                        {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
-                      </span>
+                      {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
                     </DetailRow>
                     {entry.bridgeInEvmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
-                          displayValue={
-                            <HashChip
-                              hash={entry.bridgeInEvmTxHash}
-                              trimHash
-                              fill="#9E9E9E"
-                              className="ml-2"
-                              copyIcon={false}
-                            />
-                          }
+                          displayValue={<HashChip hash={entry.bridgeInEvmTxHash} trimHash className="ml-2" />}
                           href={SEPOLIA_TX_URL(entry.bridgeInEvmTxHash)}
                         />
                       </DetailRow>
                     )}
-                    <DetailRow label={t('noteId')} isLast>
-                      <span className="text-sm text-heading-gray font-medium">
-                        {entry.bridgeInMidenNoteId ? (
-                          <HashChip
-                            hash={entry.bridgeInMidenNoteId}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        ) : (
-                          t('pending')
-                        )}
-                      </span>
+                    <DetailRow label={t('noteId')}>
+                      {entry.bridgeInMidenNoteId ? (
+                        <HashChip hash={entry.bridgeInMidenNoteId} trimHash className="ml-2" />
+                      ) : (
+                        t('pending')
+                      )}
                     </DetailRow>
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1172,66 +1043,72 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('notesSection')}>
+                  <DetailSection title={t('notesSection')}>
                     {noteTypeLabel && (
-                      <DetailRow label={t('noteTypeLabel')} testId="history-note-type">
-                        <span className="text-sm text-heading-gray font-medium">{noteTypeLabel}</span>
+                      <DetailRow label={t('noteTypeLabel')} data-testid="history-note-type">
+                        {noteTypeLabel}
                       </DetailRow>
                     )}
 
                     {/* Claims list the input notes they consumed; every other type counts its outputs. */}
                     {consumedNoteIds.length > 0 ? (
-                      <DetailRow label={t('consumed')} isLast>
+                      <DetailRow label={t('consumed')}>
                         <NoteIdList noteIds={consumedNoteIds} testId="history-consumed-notes" />
                       </DetailRow>
                     ) : (
-                      <DetailRow label={t('created')} isLast>
-                        <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                      </DetailRow>
+                      <DetailRow label={t('created')}>{createdCount}</DetailRow>
                     )}
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
           </div>
         )}
 
+        {transaction?.awaitingRecoverySeed && transaction.status === ITransactionStatus.Queued && (
+          <div className="shrink-0 py-4">
+            <Button
+              title={t('recoverySeedRequiredTitle')}
+              onClick={() => navigate(`/generating-transaction/${encodeURIComponent(transaction.id)}`)}
+            />
+          </div>
+        )}
+
         {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
-            {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
+            {actions.cancelError && (
+              <p className="mb-2 text-center text-sm text-status-negative">{actions.cancelError}</p>
+            )}
             <Button
               data-testid="history-cancel-button"
-              variant={ButtonVariant.Primary}
+              variant={ButtonVariant.Destructive}
               title={t('cancel')}
-              isLoading={isCancelling}
-              disabled={isCancelling}
-              onClick={handleCancel}
-              className="max-w-none bg-status-negative hover:bg-status-negative focus:bg-status-negative"
+              isLoading={actions.isCancelling}
+              disabled={actions.isCancelling}
+              onClick={actions.onCancel}
+              className="max-w-none"
             />
           </div>
         )}
 
         {isEarnWithdraw && earnWithdraw?.phase === 'failed' && !canRetry && !transaction?.restoredFromBackup && (
-          <p
-            data-testid="withdrawal-recovery-unavailable"
-            className="shrink-0 pt-3 pb-4 text-center text-sm text-heading-gray"
-          >
+          <p data-testid="withdrawal-recovery-unavailable" className="shrink-0 pt-3 pb-4 text-center text-sm text-ink">
             {t('withdrawalRecoveryUnavailable')}
           </p>
         )}
 
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
-            {retryError && (
+            {actions.retryError && (
               <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
-                {retryError}
+                {actions.retryError}
               </p>
             )}
             {maxNetworkFee && !isEarnWithdraw && (
               // Requeues as a NEW transaction paying a NEW fee, on one tap with no
               // review step. The recorded `networkFee` row above is what the failed
               // attempt already paid, not a bound on what this retry will cost.
-              <div className="mb-2 text-center text-xs text-heading-gray">
+              <div className="mb-2 text-center text-xs text-ink">
                 {t('networkFeeMax')} · {maxNetworkFee}
               </div>
             )}
@@ -1239,21 +1116,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               data-testid="history-retry-button"
               variant={ButtonVariant.Primary}
               title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
-              isLoading={isRetrying}
-              disabled={isRetrying}
-              onClick={() => handleRetry(false)}
+              isLoading={actions.isRetrying}
+              disabled={actions.isRetrying}
+              onClick={() => actions.onRetry(false)}
               className="max-w-none"
             />
             {/* Only after the refusal above has been shown, so the warning is
                 always read first. */}
-            {needsSendAcknowledgement && (
+            {actions.needsSendAcknowledgement && (
               <Button
                 data-testid="history-retry-anyway-button"
                 variant={ButtonVariant.Secondary}
                 title={t('retryAnyway')}
-                isLoading={isRetrying}
-                disabled={isRetrying}
-                onClick={() => handleRetry(true)}
+                isLoading={actions.isRetrying}
+                disabled={actions.isRetrying}
+                onClick={() => actions.onRetry(true)}
                 className="mt-2 max-w-none"
               />
             )}

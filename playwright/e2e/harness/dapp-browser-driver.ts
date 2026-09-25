@@ -149,7 +149,7 @@ export class DappBrowserDriver {
   /** Go to the browser tab and wait for the launcher to be interactive. */
   async gotoBrowserTab(): Promise<void> {
     await this.target.navigateTo('/browser');
-    await this.target.waitFor('[data-testid="dapp-hero-search"], [data-testid="dapp-capsule"]', {
+    await this.target.waitFor('[data-testid="explore-search-toggle"], [data-testid="dapp-capsule"]', {
       timeoutMs: DEFAULT_TIMEOUT_MS
     });
   }
@@ -172,12 +172,20 @@ export class DappBrowserDriver {
   }
 
   /**
-   * Open a dApp by typing its URL into the launcher's search bar and pressing
+   * Open a dApp by typing its URL into Explore's header search and pressing
    * Enter — the real "custom URL" path a user takes for a dApp that isn't in
-   * the curated grid.
+   * the curated catalog. The field only exists once the header's search
+   * button has opened it, so tap that first when it is closed.
    */
   async openViaUrlBar(dappId: string): Promise<void> {
     const url = this.server.urlFor(dappId);
+    const searchOpen = await this.target.evalJs<boolean>(
+      `return !!document.querySelector('[data-testid="dapp-hero-search"]');`
+    );
+    if (!searchOpen) {
+      await this.target.waitFor('[data-testid="explore-search-toggle"]', { timeoutMs: DEFAULT_TIMEOUT_MS });
+      await this.target.click('[data-testid="explore-search-toggle"]');
+    }
     await this.target.waitFor('[data-testid="dapp-hero-search"]', { timeoutMs: DEFAULT_TIMEOUT_MS });
     // React controls the input, so setting `.value` directly is invisible to it;
     // go through the native setter + an input event, the same way the other
@@ -212,8 +220,8 @@ export class DappBrowserDriver {
   /**
    * How many cards the curated grid is rendering.
    *
-   * The curated grid (`AppsGrid`) and the recents row (`RecentsRow`) are
-   * DIFFERENT components — only the latter renders `DappTile`. Counting
+   * The curated list rows (`AppRow`, `dapp-grid-card`) and the recents row
+   * (`RecentsRow`) are DIFFERENT components — only the latter renders `DappTile`. Counting
    * `dapp-tile` here would report 0 on a fresh wallet (no recents yet) and
    * silently look like "the grid is broken".
    */

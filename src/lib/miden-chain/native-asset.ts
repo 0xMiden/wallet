@@ -1,8 +1,12 @@
-import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import {
+  getEffectiveFeeFaucetId,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
 import { withRpcTimeout } from './rpc-timeout';
@@ -171,12 +175,23 @@ async function discover(): Promise<string> {
   // under whatever scope is current by then.
   const feeKey = feeCacheKey();
   const probedScope = cacheScope();
+  const configured = getEffectiveFeeFaucetId();
+  if (!configured) {
+    throw new Error(
+      'no fee faucet is configured for this network: set feeFaucetId in Developer Settings, MIDEN_FEE_FAUCET_ID, or the E2E injector'
+    );
+  }
   const rpc = new RpcClient(getRpcEndpoint());
   const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(undefined), 'native-asset-discover');
-  const accountId = header.feeFaucetId();
-  const bech32 = getBech32AddressFromAccountId(accountId);
-  // Off the same header — the fee is a fee-parameters field alongside the faucet
-  // id, so asking for it separately would be a second round-trip for nothing.
+  let bech32: string;
+  try {
+    const accountId = configured.startsWith('0x') ? AccountId.fromHex(configured) : accountIdStringToSdk(configured);
+    bech32 = getBech32AddressFromAccountId(accountId);
+  } catch {
+    bech32 = getBech32AddressFromAccountId({ _id: configured } as never);
+  }
+  // The base fee is still a header field. The faucet id is configured separately
+  // in 0.17, so this fetch is only for verificationBaseFee.
   //
   // Read defensively: discovering the faucet id is this function's job, and the
   // fee is a passenger. An SDK build without the accessor must degrade to "fee
@@ -360,7 +375,7 @@ export async function getVerificationBaseFee(): Promise<number | null> {
  * Resolution order:
  *   1. in-memory cache (self-invalidated when the effective RPC changes)
  *   2. persisted cache (`native_asset_id:v3:<rpcUrl>` in platform key-value store)
- *   3. fresh RPC fetch via `BlockHeader.feeFaucetId()`
+ *   3. configured fee faucet (`getEffectiveFeeFaucetId`) plus a header fetch for the base fee
  *
  * Single-flight: concurrent callers share one RPC round-trip.
  */

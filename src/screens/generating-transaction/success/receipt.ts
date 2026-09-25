@@ -1,5 +1,5 @@
 import { IBridgeProvider } from 'lib/miden/db/types';
-import { truncateAddress, truncateHash } from 'utils/string';
+import { truncateHash } from 'utils/string';
 
 import { ReceiptRow } from './TransactionSuccessLayout';
 
@@ -13,9 +13,9 @@ interface BuildReceiptRowsArgs {
   destinationLabel?: string;
   /** Formatted "amount symbol" shown in the amount row. */
   amountText?: string;
-  /** Label for the amount row; defaults to "Total Paid" (consume receipts pass "Total Consumed"). */
+  /** Label for the amount row; defaults to "Total Paid" (consume receipts pass "Total Accepted"). */
   amountLabel?: string;
-  /** Ids of the notes a consume claimed; rendered as a "Notes Consumed" row. */
+  /** Ids of the notes a consume accepted; rendered as a "Transfer IDs" row. */
   noteIds?: string[];
   /** On-chain hash shown in the "Transaction ID" row. */
   txHash?: string | null;
@@ -33,7 +33,7 @@ interface BuildReceiptRowsArgs {
  * Builds the shared key/value receipt rows for the amount-led success views.
  * Rows are appended only when their data exists, so the same builder serves a
  * minimal plain send, a fully-populated bridged send, and a consume/claim.
- * Order matches the design: To/From → Route → Total → Notes Consumed → Transaction ID.
+ * Order matches the design: To/From → Route → Total → Transfer IDs → Transaction ID.
  */
 export const buildReceiptRows = (
   t: TFn,
@@ -55,7 +55,9 @@ export const buildReceiptRows = (
   if (destinationAddress) {
     rows.push({
       label: destinationLabel ?? t('to'),
-      value: truncateAddress(destinationAddress, true, 6, 4, 4)
+      // In full: the receipt is where the user confirms where the funds went.
+      value: destinationAddress,
+      stacked: true
     });
   }
 
@@ -86,7 +88,7 @@ export const buildReceiptRows = (
 
   if (noteIds && noteIds.length > 0) {
     rows.push({
-      label: t('notesConsumed', { defaultValue: 'Notes Consumed' }),
+      label: t('notesConsumed', { defaultValue: 'Transfer IDs' }),
       value: noteIds.map(id => truncateHash(id, 6, 4)).join(', ')
     });
   }

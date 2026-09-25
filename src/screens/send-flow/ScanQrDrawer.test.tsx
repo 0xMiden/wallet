@@ -103,6 +103,20 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 describe('ScanQrDrawer', () => {
+  it('returns a key pair unchanged and stops the camera in raw mode', async () => {
+    const { stream, tracks } = makeStream();
+    getUserMediaMock.mockResolvedValue(stream);
+    const payload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+    detectMock.mockResolvedValue([{ rawValue: payload }]);
+    const onDetected = jest.fn();
+    const onOpenChange = jest.fn();
+    await act(async () => {
+      render(<ScanQrDrawer open rawPayload onDetected={onDetected} onOpenChange={onOpenChange} onError={jest.fn()} />);
+    });
+    expect(onDetected).toHaveBeenCalledWith(payload);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    tracks.forEach(track => expect(track.stop).toHaveBeenCalled());
+  });
   it('requests the environment-facing camera and shows the video when open', async () => {
     const { stream } = makeStream();
     getUserMediaMock.mockResolvedValue(stream);
@@ -130,6 +144,23 @@ describe('ScanQrDrawer', () => {
 
     expect(screen.getByTestId('scan-qr-permission-denied')).toBeInTheDocument();
     expect(props.onError).toHaveBeenCalledWith('cameraPermissionDenied');
+  });
+
+  it('renders the permission-denied state as an EmptyState whose Close shuts the drawer', async () => {
+    getUserMediaMock.mockRejectedValue(domError('NotAllowedError'));
+    const props = noopProps();
+
+    render(<ScanQrDrawer open {...props} />);
+    await flushAsync();
+
+    const state = screen.getByTestId('scan-qr-permission-denied');
+    expect(state.firstElementChild).toHaveClass('rounded-2xl', 'bg-fill');
+    expect(screen.getByRole('heading', { name: 'cameraPermissionDenied' })).toBeInTheDocument();
+
+    act(() => {
+      screen.getByRole('button', { name: 'close' }).click();
+    });
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('shows the no-camera state on NotFoundError', async () => {

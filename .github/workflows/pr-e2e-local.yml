@@ -8,26 +8,13 @@ permissions:
   contents: read
 jobs:
   chrome-local:
-    # Run the core suite under BOTH block cadences: the miden-node default (3s
-    # block / 1s batch, realistic timing) and fast 500ms blocks. Fast blocks
-    # guarantee a block lands in the wallet's commit->relay window, making
-    # send-private a deterministic guard for the private-note block-hint overshoot
-    # (web-sdk#262 / wallet#502). The fast leg is scoped to that one timing-critical
-    # spec to stay quick and stable; the default leg keeps full-suite coverage.
-    # The default leg's name stays exactly "local-e2e (chrome)" so any required-check
-    # mapping is unaffected.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name_suffix: ""
-            block_interval: ""
-            specs: ""
-          - name_suffix: " [fast blocks]"
-            block_interval: "500ms"
-            specs: "playwright/e2e/tests/send-private.spec.ts playwright/e2e/tests/recall-reclaim.spec.ts"
-    name: local-e2e (chrome)${{ matrix.name_suffix }}
-    # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
+    # Required-check name: keep this exact string.
+    name: local-e2e (chrome)
+    # The full suite imports the published Linux napi module, which has no ARM64
+    # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
+    # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x
+    # runs of the same suite were 22-24m. Sharding does not help: workers=1
+    # against one chain, so a shard is another full node compile.
     runs-on: warp-ubuntu-latest-x64-8x
     # Cold-cache runs compile the local 0.16 node from source (~28m) + miden-client-cli
     # (~8m) + note-transport (~5m) before any spec runs; warm-cache runs are ~20m. The
@@ -46,10 +33,10 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
-      # Empty on the default leg -> docker-compose ${VAR:-<default>} falls back to
-      # the miden-node defaults; "500ms" on the fast leg.
-      MIDEN_NODE_BLOCK_INTERVAL: ${{ matrix.block_interval }}
-      MIDEN_NODE_BATCH_INTERVAL: ${{ matrix.block_interval }}
+      # No block-interval override, so the node runs start-test-node.sh's 3s default. Since 0.17 a
+      # transaction expires 20 blocks after its reference block, and at the 500ms this job used
+      # that is 10s, less than a CLI or in-browser proof plus sync lag: the node accepted mints
+      # and consumes, then dropped them from the mempool, and the accounts rolled back.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -61,8 +48,8 @@ jobs:
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -72,25 +59,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          if [ "${{ runner.arch }}" = X64 ]; then
+            namespace=miden-e2e-cargo-v2
+          else
+            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
+          fi
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
@@ -161,9 +141,7 @@ jobs:
         # E2E): a small margin for a rare balance->send-UI sync hiccup on a loaded
         # runner. Deliberately NOT 2 -- kept at 1 so a genuine regression still fails
         # the (to-be-required) gate rather than passing on a lucky third attempt.
-        # matrix.specs is empty for the default-timing leg (full core suite) and
-        # scoped to send-private for the fast-blocks leg.
-        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1 ${{ matrix.specs }}
+        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1
       - name: Report flaky (retried-then-passed) specs
         # A spec that failed once and passed on the retry above is reported as a
         # plain green run, so the flake it represents is invisible. Print one

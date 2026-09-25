@@ -1,14 +1,14 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
+import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSpeculateInvalidate,
-  requestSWTransactionProcessing
-} from 'lib/miden/activity';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
+import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { goBack, navigate } from 'lib/woozie';
@@ -17,6 +17,7 @@ import { isValidMidenAddress } from 'utils/miden';
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
+import { enterSendFlow, settleSendFlow } from './send-telemetry';
 
 // ---------------------------------------------------------------------------
 // Mutable per-test state read by the hook mocks. All prefixed with `mock` so
@@ -35,8 +36,20 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
 };
 
 const mockWalletStoreState = {
-  setLastCompletedTxHash: jest.fn()
+  tokenPrices: { MDN: { price: 2 } } as Record<string, { price: number }>,
+  setLastCompletedTxHash: jest.fn(),
+  assessSpendingLimit: jest.fn(),
+  readSpendingLimit: jest.fn()
 };
+
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+const telemetryHandles: TelemetryHandle[] = [];
+const beginFlowMock = jest.fn((_flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  telemetryHandles.push(handle);
+  return handle;
+});
+const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -44,6 +57,15 @@ const mockWalletStoreState = {
 
 // RpcClient lives on the lazy SDK subpath (mapped to wasmMock, which has no
 // RpcClient). Provide a controllable class + expose its header fn.
+// The network banner now tops this screen, so the wallet names the chain on every surface that
+// commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
+// stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const getBlockHeaderByNumber = jest.fn();
   class RpcClient {
@@ -66,45 +88,80 @@ jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: mockFullPage })
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onBack, backLabel }: any) => (
-    <div data-testid="screen-header">
-      <span>{title}</span>
-      <button data-testid="back-btn" aria-label={backLabel} onClick={onBack}>
+jest.mock('./SendStepLayout', () => ({
+  SendStepLayout: ({ title, onBack, children, footer }: any) => (
+    <div data-testid="review-layout">
+      <h1>{title}</h1>
+      <button data-testid="back-btn" aria-label="back" onClick={onBack}>
         back
       </button>
+      <div data-testid="hero">{children}</div>
+      <div data-testid="footer">{footer}</div>
     </div>
   )
 }));
+jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: ({ kind }: any) => <span data-testid="network-logo" data-kind={kind} />
+}));
 
-jest.mock('components/review', () => ({
-  ReviewAmount: ({ symbol, amount, label }: any) => (
-    <div data-testid="review-amount">
-      {label}|{amount}|{symbol}
-    </div>
-  ),
-  ReviewLayout: ({ hero, children, primary, error }: any) => (
-    <div data-testid="review-layout">
-      <div data-testid="hero">{hero}</div>
-      <div data-testid="rows">{children}</div>
-      <button data-testid={primary['data-testid']} onClick={primary.onPress} disabled={primary.disabled}>
-        {primary.label}
-      </button>
-      {error !== undefined && <div data-testid="review-error">{error}</div>}
-    </div>
-  ),
-  ReviewRow: ({ label, value, children, onEdit, editLabel, note }: any) => (
+// Set by a test that needs the mock challenge to hand back an authorization for a DIFFERENT
+// account than the one the challenge itself was opened for - a stale/forged credential, which the
+// real `SpendingLimitChallenge` never produces (its authorization always carries the challenge's
+// own `source.accountId`) but which `runSameChainSend`/`runBridgeSend` must independently refuse.
+let mockAuthorizationAccountOverride: string | undefined;
+
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => {
+    const source = props.assessment ?? props.unpriced;
+    return (
+      <div data-testid="spending-limit-challenge">
+        <span>{source.revision}</span>
+        <span data-testid="challenge-kind">{props.assessment !== undefined ? 'assessment' : 'unpriced'}</span>
+        <button
+          type="button"
+          onClick={() =>
+            props.onResult({
+              kind: props.assessment !== undefined ? 'usd' : 'unpriced',
+              id: 'authorization-1',
+              accountId: mockAuthorizationAccountOverride ?? source.accountId,
+              revision: source.revision,
+              issuedAt: 120,
+              expiresAt: 240
+            })
+          }
+        >
+          authorize-limit
+        </button>
+        <button type="button" onClick={() => props.onResult(undefined)}>
+          cancel-limit
+        </button>
+      </div>
+    );
+  }
+}));
+
+jest.mock('components/ui/DetailCard', () => ({
+  DetailCard: ({ children }: any) => <div data-testid="rows">{children}</div>,
+  DetailRow: ({ label, children, action, sub }: any) => (
     <div data-testid="review-row">
       <span data-testid="row-label">{label}</span>
-      {value !== undefined && <span data-testid="row-value">{value}</span>}
       {children !== undefined && <span data-testid="row-children">{children}</span>}
-      {onEdit && (
-        <button data-testid="row-edit" onClick={onEdit}>
-          {editLabel}
+      {action && (
+        <button data-testid="row-edit" onClick={action.onClick}>
+          {action.label}
         </button>
       )}
-      {note !== undefined && <span data-testid="row-note">{note}</span>}
+      {sub !== undefined && <span data-testid="row-note">{sub}</span>}
     </div>
+  )
+}));
+jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span data-testid="token-logo" /> }));
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
+    <button type="button" data-accent={accent} {...rest}>
+      {title}
+    </button>
   )
 }));
 
@@ -125,12 +182,12 @@ jest.mock('lib/epoch', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn()
 }));
 
 jest.mock('lib/miden/activity', () => ({
   initiateSendTransaction: jest.fn(),
-  requestSpeculateInvalidate: jest.fn(),
   requestSWTransactionProcessing: jest.fn()
 }));
 
@@ -153,7 +210,6 @@ jest.mock('lib/miden/types', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: () => ({ toString: () => 'sdk-faucet' }),
   sameWalletAccountId: (a: string, b: string) => a === b
 }));
 
@@ -207,6 +263,13 @@ jest.mock('./send-draft', () => ({
   clearSendDraft: jest.fn()
 }));
 
+// The real `./send-telemetry` is kept: this page settling the flow the send form
+// began is the whole point of that module, so it must not be stubbed out.
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => beginFlowMock(flow),
+  classifyError: (error: unknown) => classifyErrorMock(error)
+}));
+
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: () => mockEpochQuote
 }));
@@ -215,9 +278,10 @@ jest.mock('./useEpochQuote', () => ({
 // Typed handles to the mocks
 // ---------------------------------------------------------------------------
 const confirmMock = confirmSensitiveAction as jest.Mock;
+const initiateB2AggBridgeMock = initiateB2AggBridge as jest.Mock;
+const bridgeEpochSendMock = bridgeEpochSend as jest.Mock;
 const stringToBigIntMock = stringToBigInt as jest.Mock;
 const initiateMock = initiateSendTransaction as jest.Mock;
-const requestSpeculateInvalidateMock = requestSpeculateInvalidate as jest.Mock;
 const requestSWMock = requestSWTransactionProcessing as jest.Mock;
 const isExtensionMock = isExtension as jest.Mock;
 const isDelegateProofEnabledMock = isDelegateProofEnabled as jest.Mock;
@@ -269,20 +333,41 @@ const setValidRoute = () => {
   mockBalanceData = [VALID_TOKEN];
 };
 
+const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
+  accountId: 'pubkey-1',
+  usdAmount: 12345n,
+  revision: 'revision-1',
+  assessedAt: 100,
+  breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 },
+  ...overrides
+});
+
 const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockAuthorizationAccountOverride = undefined;
 
   // Base implementations (resetAllMocks wipes impls).
   confirmMock.mockResolvedValue(true);
   stringToBigIntMock.mockReturnValue(12345n);
   initiateMock.mockResolvedValue('tx-abc');
+  initiateB2AggBridgeMock.mockResolvedValue('tx-bridge');
+  bridgeEpochSendMock.mockResolvedValue({ txId: 'tx-epoch' });
   dateTimeToRecallBlocksMock.mockReturnValue(999);
   isExtensionMock.mockReturnValue(false);
   isDelegateProofEnabledMock.mockReturnValue(false);
   isValidMidenAddressMock.mockReturnValue(true);
   mockWalletStoreState.setLastCompletedTxHash.mockReset();
+  mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
+  mockWalletStoreState.readSpendingLimit.mockReset();
+  mockWalletStoreState.readSpendingLimit.mockResolvedValue({
+    accountId: 'pubkey-1',
+    limit: 100_000_000n,
+    revision: 'revision-1',
+    createdAt: 1,
+    updatedAt: 2
+  });
 
   // Base route state.
   mockSearch = '';
@@ -294,7 +379,6 @@ beforeEach(() => {
   mockEpochQuote = { amount: undefined, loading: false, error: null };
 
   delete process.env.MIDEN_E2E_TEST;
-  delete process.env.MIDEN_USE_SPECULATIVE_PROVING;
 });
 
 afterEach(() => {
@@ -359,20 +443,60 @@ describe('ReviewTransaction — redirect guards', () => {
 // Rendering
 // ---------------------------------------------------------------------------
 describe('ReviewTransaction — rendering', () => {
+  it('draws no fiat line for a token the price feed does not list, not the store $1 default', async () => {
+    setValidRoute();
+    mockBalanceData = [{ tokenId: 'tok1', metadata: { symbol: 'UNLISTED', decimals: 8 }, balance: 100, fiatPrice: 1 }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    const hero = within(screen.getByTestId('review-amount'));
+    expect(hero.getByText('5 UNLISTED')).toBeInTheDocument();
+    expect(hero.queryByText('approxFiatValue')).not.toBeInTheDocument();
+  });
+
+  it('values a swap token at the asset it stands for', async () => {
+    mockSearch = `amount=5&to=0xrecipient&tokenId=${TOKEN_IETH.faucetId}`;
+    mockBalanceData = [
+      { tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
+    ];
+    mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
+    try {
+      render(<ReviewTransaction />);
+      await flush();
+
+      const hero = within(screen.getByTestId('review-amount'));
+      expect(hero.getByText('5 IETH')).toBeInTheDocument();
+      expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
+    } finally {
+      mockWalletStoreState.tokenPrices = { MDN: { price: 2 } };
+    }
+  });
+
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
     setValidRoute();
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('screen-header')).toBeInTheDocument();
-    expect(screen.getByTestId('review-amount').textContent).toBe('youAreSending|5|MDN');
+    expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
+    expect(screen.getByTestId('back-btn')).toBeInTheDocument();
+    // The network is a plain value with its mark, not a chip; the fee has no inline note.
+    expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
+    expect(screen.queryByText('networkFeeEstimateNote')).not.toBeInTheDocument();
+    // Both the amount and its fiat subtitle live inside the review-amount hero —
+    // scoping to it is what proves they render together, not just somewhere on the page.
+    const hero = within(screen.getByTestId('review-amount'));
+    expect(hero.getByText('5 MDN')).toBeInTheDocument();
+    // The fiat subtitle renders under the hero value once the token's price is known.
+    expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
     // Seeding effect ran -> recallDate seeded -> capitalized relative
     // label + reclaim note both present.
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
-    expect(screen.getByTestId('row-note').textContent).toBe('recallReturnsNote');
+    // The reclaim reassurance is one caption under the card, not a note in the expiration row.
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote');
+    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
     expect(dateTimeToRecallBlocksMock).toHaveBeenCalledWith(expect.any(Date));
@@ -384,7 +508,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('review-amount').textContent).toBe('youAreSending|5|');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5 ');
 
     // onSubmit early-returns because there is no token: nothing fires.
     await act(async () => {
@@ -468,7 +592,7 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
-    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
   });
 });
 
@@ -512,6 +636,14 @@ describe('ReviewTransaction — onSubmit', () => {
       expect(screen.getByTestId('send-review-submit')).toBeDisabled();
     });
 
+    it('gives the CTA the send flow colour', async () => {
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('send-review-submit')).toHaveAttribute('data-accent', 'send');
+    });
+
     it('leaves an ordinary token CTA alone', async () => {
       mockBalanceData = [VALID_TOKEN];
       render(<ReviewTransaction />);
@@ -527,10 +659,13 @@ describe('ReviewTransaction — onSubmit', () => {
     render(<ReviewTransaction />);
     await flush();
     // Wait until the recall blocks have been seeded.
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
 
     await clickSubmit();
 
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
+      { faucetId: 'tok1', amount: 12345n }
+    ]);
     expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
@@ -539,18 +674,181 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
   });
 
-  it('bridges over the Slow route with the faucet of the token being sent', async () => {
-    mockDetectedChain = 'ethereum';
-    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
-    mockBalanceData = [VALID_TOKEN];
-    const { initiateB2AggBridge } = jest.requireMock('lib/agglayer/b2agg');
-    initiateB2AggBridge.mockResolvedValue('tx-agg');
+  it('uses strict authentication instead of the ordinary confirmation for a spending-limit breach', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
     render(<ReviewTransaction />);
     await flush();
 
     await clickSubmit();
 
-    expect(initiateB2AggBridge).toHaveBeenCalledWith(
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('assessment');
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateMock).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateMock).toHaveBeenCalledWith(
+      'pubkey-1',
+      '0xrecipient',
+      'tok1',
+      'private',
+      12345n,
+      999,
+      false,
+      expect.objectContaining({
+        id: 'authorization-1',
+        accountId: 'pubkey-1',
+        revision: 'revision-1'
+      })
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('discards an authorization for a different account instead of sending against it', async () => {
+    // `SpendingLimitChallenge` always mints an authorization bound to the account its own
+    // assessment named; this plants a forged/stale one directly to prove `runSameChainSend`
+    // refuses it on its own, the same way the dApp custom-transaction gate refuses forged fields.
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    mockAuthorizationAccountOverride = 'pubkey-someone-else';
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
+
+  it('opens the unvalued challenge when the pre-check cannot price the transaction', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      symbol: 'MDN'
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(mockWalletStoreState.readSpendingLimit).toHaveBeenCalledWith('pubkey-1');
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the generic error when the pre-check itself cannot open the unpriced challenge', async () => {
+    // Distinct from the "no configured limit" fallback above: here `readSpendingLimit` fails
+    // outright (a storage fault), reached from `onSubmit`'s OWN catch rather than
+    // `runSameChainSend`'s - the pre-check throws before either send path is ever entered.
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      symbol: 'MDN'
+    });
+    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
+  });
+
+  it('opens the unvalued challenge when the actual send cannot be priced', async () => {
+    setValidRoute();
+    initiateMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+  });
+
+  it('opens the unvalued challenge from a rejection that actually crossed the intercom port', async () => {
+    // Unlike the raw-object rejections above (the in-process shape mobile/desktop reject with),
+    // this is what the extension's popup <-> SW port actually delivers: the real `serializeInternalError`
+    // followed by the real `deserializeInternalError`, round-tripping a price-unavailable refusal through
+    // the intercom wire format rather than assuming it survives untouched.
+    setValidRoute();
+    initiateMock.mockRejectedValue(
+      deserializeInternalError(
+        serializeInternalError({
+          message: 'No current price is available for MDN',
+          code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+          symbol: 'MDN'
+        })
+      )
+    );
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+  });
+
+  it('re-enables the submit button when the drawer authorize path cannot open the unpriced challenge', async () => {
+    // `handleSpendingLimitResult` fires `runSameChainSend(authorization)` without awaiting it and
+    // with no catch of its own - unlike `onSubmit`, which has a surrounding catch that would mask
+    // this. This is the one call path where a throw inside `openUnpricedChallenge` used to leave
+    // the button disabled forever with no visible error.
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    initiateMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
+  });
+
+  it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockRejectedValue({
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      symbol: 'MDN'
+    });
+    mockWalletStoreState.readSpendingLimit.mockResolvedValue(undefined);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
+  });
+
+  it('bridges over the Slow route with the faucet of the token being sent', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockResolvedValue('tx-agg');
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 12345n,
         faucetId: 'tok1',
@@ -560,13 +858,239 @@ describe('ReviewTransaction — onSubmit', () => {
     );
   });
 
+  it('uses strict authentication before building an Agglayer bridge request', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        faucetId: 'tok1',
+        senderPublicKey: 'pubkey-1',
+        spendingLimitAuthorization: expect.objectContaining({ id: 'authorization-1', revision: 'revision-1' })
+      })
+    );
+  });
+
+  it('discards a bridge authorization for a different account instead of bridging against it', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    mockAuthorizationAccountOverride = 'pubkey-someone-else';
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
+
+  it('re-enables the bridge submit button when the drawer authorize path cannot open the unpriced challenge', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    initiateB2AggBridgeMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+    mockWalletStoreState.readSpendingLimit.mockRejectedValue(new Error('storage offline'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();
+    expect(screen.getByTestId('review-error')).toBeInTheDocument();
+  });
+
+  it('stringifies a non-Error bridge rejection instead of showing an empty message', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockRejectedValue('bridge relay unreachable');
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('bridge relay unreachable');
+  });
+
+  it('shows a real Error bridge rejection by its own message', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockRejectedValue(new Error('bridge relay timed out'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent('bridge relay timed out');
+  });
+
+  it('opens the unvalued challenge when the actual bridge send cannot be priced', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockRejectedValue({ code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE', symbol: 'MDN' });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(screen.getByTestId('challenge-kind')).toHaveTextContent('unpriced');
+  });
+
+  it('keeps the ordinary confirmation and sends no authorization for a below-limit bridge', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
+      { faucetId: 'tok1', amount: 12345n }
+    ]);
+    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        senderPublicKey: 'pubkey-1',
+        spendingLimitAuthorization: undefined
+      })
+    );
+  });
+
+  it('reopens an Epoch bridge challenge when external preparation outlives authorization', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    const firstAssessment = breachAssessment({
+      breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }
+    });
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
+    bridgeEpochSendMock.mockRejectedValue({
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: { ...firstAssessment, revision: 'revision-2', assessedAt: 240 }
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(bridgeEpochSendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spendingLimitAuthorization: expect.objectContaining({ id: 'authorization-1', revision: 'revision-1' })
+      })
+    );
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
+  });
+
+  it('cancels a spending-limit challenge without queueing or losing the review draft', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
+      breachAssessment({ breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null } })
+    );
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+    await flush();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(initiateMock).not.toHaveBeenCalled();
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
+  });
+
+  it('cancels a bridge challenge before any external bridge work', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
+      breachAssessment({ breach: { spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null } })
+    );
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+    await flush();
+
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
+  });
+
+  it('reopens the challenge with the final atomic assessment when authorization expires or loses a race', async () => {
+    setValidRoute();
+    const firstAssessment = breachAssessment();
+    const finalAssessment = {
+      ...firstAssessment,
+      revision: 'revision-2',
+      assessedAt: 121,
+      breach: { ...firstAssessment.breach, spent: 95n, proposedTotal: 12440n, overBy: 12340n }
+    };
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
+    initiateMock.mockRejectedValue({
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: finalAssessment
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
   it('nudges the service worker and uses the full-page route on extension', async () => {
     setValidRoute();
     mockFullPage = true;
     isExtensionMock.mockReturnValue(true);
     render(<ReviewTransaction />);
     await flush();
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
 
     await clickSubmit();
 
@@ -660,6 +1184,21 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(confirmMock).toHaveBeenCalledTimes(1);
     expect(initiateMock).toHaveBeenCalledTimes(1);
   });
+
+  it('closes an open spending-limit challenge when the active account changes underneath it', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    const view = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+    mockPublicKey = 'pubkey-2';
+    await act(async () => view.rerender(<ReviewTransaction />));
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -697,42 +1236,249 @@ describe('ReviewTransaction — E2E share-privately hook', () => {
     unmount();
     expect((globalThis as any).__TEST_SET_SHARE_PRIVATELY__).toBeUndefined();
   });
+
+  // This screen commits value, so it names the network. The registry test proves the element is
+  // in the file; this proves it actually renders - which is the distinction a source match could
+  // not make, and how a banner once shipped behind an early return.
+  it('names the network it will commit on', () => {
+    // Without params the screen redirects and renders nothing, so the params are the test.
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    render(<ReviewTransaction />);
+
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Speculative-proving invalidation cleanup
+// `send` telemetry flow. This page owns the terminal call for a flow the send
+// form (a separate React tree) began.
 // ---------------------------------------------------------------------------
-describe('ReviewTransaction — speculative proving cleanup', () => {
-  it('invalidates cached speculation on unmount when enabled on extension', async () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(true);
-    setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
-    await flush();
+describe('ReviewTransaction — send telemetry', () => {
+  /** Throwing accessor so a missing handle names how many flows were begun. */
+  const handleAt = (index: number): TelemetryHandle => {
+    const handle = telemetryHandles[index];
+    if (!handle) throw new Error(`no flow was begun at index ${index} (begun: ${telemetryHandles.length})`);
+    return handle;
+  };
 
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
-    unmount();
-    expect(requestSpeculateInvalidateMock).toHaveBeenCalledTimes(1);
+  /** Everything this suite handed to telemetry, for the privacy assertions. */
+  const telemetryPayload = () =>
+    JSON.stringify({
+      begun: beginFlowMock.mock.calls,
+      settled: telemetryHandles.map(handle => [
+        handle.complete.mock.calls,
+        handle.cancel.mock.calls,
+        handle.fail.mock.calls,
+        handle.step.mock.calls
+      ])
+    });
+
+  const clickSubmit = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+  };
+
+  beforeEach(() => {
+    // The outer beforeEach resets every mock, implementations included.
+    beginFlowMock.mockImplementation((_flow: string) => {
+      const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+      telemetryHandles.push(handle);
+      return handle;
+    });
+    classifyErrorMock.mockImplementation((_error: unknown) => 'rpc');
+    // The handle is module-scoped by design; drop any a previous test left open.
+    settleSendFlow(flow => flow.cancel());
+    beginFlowMock.mockClear();
+    classifyErrorMock.mockClear();
+    telemetryHandles.length = 0;
   });
 
-  it('does not invalidate on unmount when not on an extension', async () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(false);
+  it('completes the flow the send form began, without beginning a second one', async () => {
+    enterSendFlow();
     setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
+    render(<ReviewTransaction />);
     await flush();
 
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
+    await clickSubmit();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
   });
 
-  it('does not invalidate on unmount when the flag is off', async () => {
-    isExtensionMock.mockReturnValue(true);
+  it('begins a flow for a submit reached without one (deep link into review)', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a broad error kind when transaction creation fails', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setValidRoute();
+    initiateMock.mockRejectedValue(new Error('rpc error: node unreachable at mtst1recipient'));
+    enterSendFlow();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+    // The caught error is classified, never forwarded.
+    expect(classifyErrorMock).toHaveBeenCalledWith(expect.any(Error));
+    expect(telemetryPayload()).not.toContain('node unreachable');
+    consoleSpy.mockRestore();
+  });
+
+  it('gives a retry after a failed submit its own flow', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setValidRoute();
+    initiateMock.mockRejectedValueOnce(new Error('rpc down')).mockResolvedValue('tx-retry');
+    enterSendFlow();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await clickSubmit();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(2);
+    expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
+    expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  it('cancels an open flow when the user leaves review without submitting', async () => {
+    enterSendFlow();
     setValidRoute();
     const { unmount } = render(<ReviewTransaction />);
     await flush();
 
     unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a settled flow alone on unmount, so a completed send is never re-reported', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+    await clickSubmit();
+
+    unmount();
+
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+
+  it('does not begin a flow for a review page that only ever redirects', async () => {
+    mockSearch = '';
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('redirect')).toBeInTheDocument();
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('never passes the recipient address or the amount to telemetry', async () => {
+    mockSearch = 'amount=4200&to=mtst1recipientaddress&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 10_000 }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
+    expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
+    expect(telemetryPayload()).not.toContain('4200');
+    expect(telemetryPayload()).not.toContain('tok1');
+  });
+
+  it('never passes the recipient address or the amount to telemetry when the submit fails', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockSearch = 'amount=4200&to=mtst1recipientaddress&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 10_000 }];
+    initiateMock.mockRejectedValue(new Error('rpc down'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(handleAt(0).fail).toHaveBeenCalledTimes(1);
+    expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
+    expect(telemetryPayload()).not.toContain('4200');
+    expect(telemetryPayload()).not.toContain('tok1');
+    consoleSpy.mockRestore();
+  });
+
+  it('leaves the flow open across a spending-limit challenge and completes it once authorized', async () => {
+    enterSendFlow();
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+    expect(handleAt(0).fail).not.toHaveBeenCalled();
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).step).toHaveBeenCalledWith('submitting');
+    expect(telemetryPayload()).not.toContain('0xrecipient');
+    expect(telemetryPayload()).not.toContain('tok1');
+  });
+
+  it('does not settle when the send itself raises a spending-limit challenge', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const assessment = breachAssessment();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(assessment);
+    initiateMock.mockRejectedValue({
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: { ...assessment, revision: 'revision-2', assessedAt: 121 }
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+    expect(handleAt(0).fail).not.toHaveBeenCalled();
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    expect(handleAt(0).step).toHaveBeenCalledWith('submitting');
+  });
+
+  it('does not settle when the user cancels confirmation', async () => {
+    enterSendFlow();
+    setValidRoute();
+    confirmMock.mockResolvedValue(false);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+    expect(handleAt(0).fail).not.toHaveBeenCalled();
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
   });
 });

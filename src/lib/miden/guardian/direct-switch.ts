@@ -381,11 +381,11 @@ export const createDirectSwitchGuardianRequest = async (
     const { commitment: hotCommitment } = await getSignerDetailsFromAccount(account, false);
     const { commitment: coldCommitment } = await getSignerDetailsFromAccount(account, true);
     const webClient = midenClient.client;
-    // Without `feeFaucetId` the builder commits no fee conversion info and
-    // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING on any chain whose
-    // verification base fee is non-zero. This path arrived with the offline-rotation
-    // work after the fee paths were swept, so it was never given the option.
+    // `accountId` is what the builder commits the multisig auth args for; left
+    // unset, `boundBlockNum` binds the sync height, which is the block the
+    // summary's anchor below names.
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
+      accountId: accountIdHex,
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
@@ -399,6 +399,8 @@ export const createDirectSwitchGuardianRequest = async (
       return {
         hotCommitment,
         coldCommitment,
+        accountIdHex,
+        boundBlockNum: anchor.blockNum(),
         saltHex: salt.toHex(),
         txCommitmentHex: summary.toCommitment().toHex(),
         chainAnchorB64: chainAnchorToBase64(anchor)
@@ -483,9 +485,12 @@ export const createDirectSwitchGuardianRequest = async (
     const coldEntry = ecdsaSignatureAdviceEntry(built.coldCommitment, built.txCommitmentHex, coldSignature);
     signatureAdviceMap.insert(hotEntry.key, new FeltArray(hotEntry.values));
     signatureAdviceMap.insert(coldEntry.key, new FeltArray(coldEntry.values));
-    // Same fee-conversion-info requirement as the build above; the rebuild must
-    // reproduce the SAME auth args or the summary will not match what was signed.
+    // The rebuild must reproduce the SAME auth args or the summary will not match
+    // what was signed, and they bind a block: a sync while the vault signed moves
+    // the default, so the build's bound block is pinned explicitly.
     const { request: rebuilt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
+      accountId: built.accountIdHex,
+      boundBlockNum: built.boundBlockNum,
       salt: Word.fromHex(ensureHexPrefix(built.saltHex)),
       signatureAdviceMap,
       signatureScheme: 'ecdsa',

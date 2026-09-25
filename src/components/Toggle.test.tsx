@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { colorTransitionClass, reducedMotionTransition, springs } from 'lib/animation';
 import { hapticMedium } from 'lib/mobile/haptics';
 
 import { Toggle } from './Toggle';
@@ -18,15 +19,12 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: jest.fn()
 }));
 
-// Pin the brand hex so the `value=false` animate branch is assertable.
-jest.mock('utils/brand-colors', () => ({
-  PRIMARY_HEX: '#E77537'
-}));
-
 // framer-motion's <motion.div> is replaced by a plain div that surfaces the
 // animate / layout / transition props as data-attributes for assertion.
+let mockReduceMotion = false;
 jest.mock('framer-motion', () => ({
   __esModule: true,
+  useReducedMotion: () => mockReduceMotion,
   motion: {
     div: ({ animate, layout, transition, className, ...rest }: any) => (
       <div
@@ -48,6 +46,7 @@ describe('Toggle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsExtension = false;
+    mockReduceMotion = false;
   });
 
   describe('rendering', () => {
@@ -103,15 +102,14 @@ describe('Toggle', () => {
       expect(el).not.toHaveClass('justify-end', 'bg-primary-500', 'border-primary-500');
     });
 
-    it('uses the "off" thumb class and animates toward the brand hex', () => {
+    it('uses the "off" thumb class, cross-faded by CSS rather than by framer', () => {
       render(<Toggle data-testid="toggle" value={false} />);
 
       const thumb = getThumb();
-      expect(thumb).toHaveClass('bg-primary-500');
+      expect(thumb).toHaveClass('bg-primary-500', colorTransitionClass);
       expect(thumb).not.toHaveClass('bg-white');
-      expect(JSON.parse(thumb.getAttribute('data-animate') as string)).toEqual({
-        backgroundColor: '#E77537'
-      });
+      // The thumb takes a theme token, which has no hex to animate toward.
+      expect(JSON.parse(thumb.getAttribute('data-animate') as string)).toBeNull();
     });
   });
 
@@ -124,15 +122,38 @@ describe('Toggle', () => {
       expect(el).not.toHaveClass('justify-start', 'bg-white', 'border-border-light');
     });
 
-    it('uses the "on" thumb class and animates toward white', () => {
+    it('uses the "on" thumb class', () => {
       render(<Toggle data-testid="toggle" value />);
 
       const thumb = getThumb();
-      expect(thumb).toHaveClass('bg-white');
-      expect(thumb).not.toHaveClass('bg-primary-500');
-      expect(JSON.parse(thumb.getAttribute('data-animate') as string)).toEqual({
-        backgroundColor: '#ffffff'
-      });
+      expect(thumb).toHaveClass('bg-current', 'text-accent-brand-on', colorTransitionClass);
+      expect(thumb).not.toHaveClass('bg-white', 'bg-primary-500');
+      expect(JSON.parse(thumb.getAttribute('data-animate') as string)).toBeNull();
+    });
+  });
+
+  describe('flow accent', () => {
+    it('paints the track and the off thumb in the flow colour', () => {
+      const { rerender } = render(<Toggle data-testid="toggle" accent="swap" value />);
+
+      expect(getToggle()).toHaveClass('bg-accent-swap', 'border-accent-swap');
+      expect(getToggle()).not.toHaveClass('bg-primary-500');
+
+      rerender(<Toggle data-testid="toggle" accent="swap" value={false} />);
+      expect(getThumb()).toHaveClass('bg-accent-swap');
+    });
+
+    it('draws the on thumb in the flow on-colour, which reads on the dark pastel fill', () => {
+      render(<Toggle data-testid="toggle" accent="swap" value />);
+
+      expect(getThumb()).toHaveClass('bg-current', 'text-accent-swap-on');
+      expect(getThumb()).not.toHaveClass('bg-white');
+    });
+
+    it('keeps the brand orange when no accent is given', () => {
+      render(<Toggle data-testid="toggle" value />);
+
+      expect(getToggle()).toHaveClass('bg-primary-500', 'border-primary-500');
     });
   });
 
@@ -192,18 +213,21 @@ describe('Toggle', () => {
   });
 
   describe('motion config across platforms', () => {
-    it('enables layout animation and a spring transition on non-extension platforms', () => {
+    it('slides the thumb on the press spring on non-extension platforms', () => {
       mockIsExtension = false;
       render(<Toggle data-testid="toggle" />);
 
       const thumb = getThumb();
       expect(thumb).toHaveAttribute('data-layout', 'true');
-      expect(JSON.parse(thumb.getAttribute('data-transition') as string)).toEqual({
-        type: 'spring',
-        stiffness: 700,
-        damping: 30,
-        backgroundColor: { duration: 0.2 }
-      });
+      expect(JSON.parse(thumb.getAttribute('data-transition') as string)).toEqual(springs.snappy);
+    });
+
+    it('moves the thumb instantly when the user asks for reduced motion', () => {
+      mockIsExtension = false;
+      mockReduceMotion = true;
+      render(<Toggle data-testid="toggle" />);
+
+      expect(JSON.parse(getThumb().getAttribute('data-transition') as string)).toEqual(reducedMotionTransition);
     });
 
     it('disables layout animation and uses a zero-duration transition on the extension', () => {

@@ -10,17 +10,17 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  # Runs on EVERY PR (no path filter, by choice) so a change that breaks swaps
-  # WITHOUT touching swap paths -- an @miden-sdk bump, a shared-file edit, a node
-  # image tag change -- is still caught. It runs in parallel with the other CI
-  # workflows on its own runner, so it doesn't lengthen the critical path; the
-  # cost is ~20-30m of runner time (mostly cold Rust compiles) per PR. Also
-  # runnable on demand via workflow_dispatch. swap-e2e-gate is the stable
-  # required-check name.
+  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # The workflow still triggers on PRs so swap-e2e-gate (the required check) can
+  # report green when the suite is skipped. A swap regression is caught on the
+  # merge commit, not on every PR.
   swap-e2e:
     name: swap-e2e (chrome)
-    # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
-    runs-on: warp-ubuntu-latest-x64-8x
+    if: github.event_name != 'pull_request'
+    # 2 vCPUs: the referenced pr-e2e-earn.yml figures are per-consume LATENCY, not a
+    # suite wall clock, so they do not establish a core count. Kept at 2x because this
+    # suite measured green here; the cold-build ceiling below is NOT derived from it.
+    runs-on: warp-ubuntu-latest-arm64-2x
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m).
     # The suite is real-network and intermittently flaky under CI load, so it runs
     # with `--retries=1`; the partial-fill spec alone sits through a real ~2-min
@@ -49,8 +49,8 @@ jobs:
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -60,25 +60,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          if [ "${{ runner.arch }}" = X64 ]; then
+            namespace=miden-e2e-cargo-v2
+          else
+            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
+          fi
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
@@ -185,16 +178,22 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes iff swap-e2e succeeded, fails if it
-  # failed/cancelled. Mark THIS "required" in branch protection (not swap-e2e
-  # directly) so the required check name stays stable if the job is renamed.
+  # Stable required-check name. On PRs the heavy job is skipped and this still
+  # reports success so branch protection is not blocked. On main it requires
+  # swap-e2e to have succeeded.
   swap-e2e-gate:
     name: swap-e2e-gate
     needs: [swap-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
-          if [ "${{ needs.swap-e2e.result }}" != "success" ]; then
-            echo "swap-e2e ${{ needs.swap-e2e.result }}"; exit 1; fi
-          echo "swap-e2e ok"
+          RESULT="${{ needs.swap-e2e.result }}"
+          EVENT="${{ github.event_name }}"
+          if [ "$EVENT" = pull_request ]; then
+            [ "$RESULT" = skipped ] || { echo "swap-e2e $RESULT on PR, expected skipped"; exit 1; }
+            echo "swap-e2e skipped on PR"
+          else
+            [ "$RESULT" = success ] || { echo "swap-e2e $RESULT"; exit 1; }
+            echo "swap-e2e ok"
+          fi

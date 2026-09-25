@@ -2,12 +2,20 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { SeedPhraseStatus } from 'lib/shared/types';
+
 import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 // ---------------------------------------------------------------------------
 const mockRevealMnemonic = jest.fn();
+const mockRemoveSeedPhrase = jest.fn();
+const mockSeedState: { seedPhraseStatus?: SeedPhraseStatus } = {};
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: typeof mockSeedState) => SeedPhraseStatus | undefined) => selector(mockSeedState)
+}));
+jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest.fn() }));
 const mockHasHardwareProtector = jest.fn();
 const mockCompleteWalletPrompt = jest.fn();
 const mockNavigate = jest.fn();
@@ -32,76 +40,30 @@ jest.mock('lib/mobile/screenshot-guard', () => ({
   useScreenshotGuard: () => true
 }));
 
-// Alert surfaces the hardware-unlock `authError`; render its description so we
-// can assert the error text made it to the screen.
-jest.mock('app/atoms/Alert', () => ({
-  __esModule: true,
-  default: ({ description }: { description?: string }) => <div role="alert">{description}</div>
-}));
-
-// A functional input mock so react-hook-form can register the password field
-// and drive `watch('password')`. Forwards ref/name/type/onChange plus the
-// error caption so the submit-error path is observable.
-jest.mock('app/atoms/FormField', () =>
-  React.forwardRef(
-    (
-      {
-        name,
-        type,
-        id,
-        placeholder,
-        onChange,
-        onBlur,
-        errorCaption
-      }: {
-        name?: string;
-        type?: string;
-        id?: string;
-        placeholder?: string;
-        onChange?: React.ChangeEventHandler<HTMLInputElement>;
-        onBlur?: React.FocusEventHandler<HTMLInputElement>;
-        errorCaption?: string;
-      },
-      ref: React.Ref<HTMLInputElement>
-    ) => (
-      <div>
-        <input
-          ref={ref}
-          name={name}
-          type={type}
-          id={id}
-          placeholder={placeholder}
-          onChange={onChange}
-          onBlur={onBlur}
-        />
-        {errorCaption ? <span data-testid="error-caption">{errorCaption}</span> : null}
-      </div>
-    )
-  )
-);
-
 jest.mock('components/Button', () => ({
   Button: ({
     onClick,
     title,
     disabled,
-    isLoading
+    isLoading,
+    variant
   }: {
     onClick?: () => void;
     title: string;
     disabled?: boolean;
     isLoading?: boolean;
+    variant?: string;
   }) => (
-    <button onClick={onClick} disabled={disabled} data-loading={String(!!isLoading)}>
+    <button onClick={onClick} disabled={disabled} data-loading={String(!!isLoading)} data-variant={variant}>
       {title}
     </button>
   ),
-  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
+  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary', Destructive: 'Destructive' }
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
-    <div>
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack, className }: { title: string; onBack?: () => void; className?: string }) => (
+    <div data-testid="nav-header" className={className}>
       <span data-testid="nav-title">{title}</span>
       {onBack ? (
         <button data-testid="nav-back" onClick={onBack}>
@@ -149,7 +111,7 @@ jest.mock('lib/miden/back/vault', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
-  useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic })
+  useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic, removeSeedPhrase: mockRemoveSeedPhrase })
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -233,11 +195,45 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.getByText('enterPassword')).toBeTruthy();
   });
 
+  it('renders each step through SubPageLayout, its actions in the footer', async () => {
+    await renderFlow();
+
+    const warning = screen.getByTestId('verify-seed-warning');
+    expect(warning.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'gap-5');
+    const footer = warning.querySelector('[data-slot="footer"]')!;
+    expect(footer).toContainElement(screen.getByText('close'));
+    expect(footer).toContainElement(screen.getByText('continue'));
+    // The privacy note is the shared Hero, not a hand-styled heading.
+    expect(screen.getByRole('heading', { level: 2, name: 'viewThisInPrivatePlace' })).toHaveClass('text-hero-name');
+    expect(screen.getByText('anyoneWithRecoveryPhrase')).toHaveClass('text-muted');
+
+    clickText('continue');
+    const auth = screen.getByTestId('verify-seed-auth');
+    expect(auth.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+    expect(screen.getByLabelText('password')).toHaveAttribute('id', 'verify-seed-phrase-password');
+
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('w1');
+    const review = screen.getByTestId('verify-seed-review');
+    // The words sit on the shared fill; the copy action is a Pill.
+    expect(screen.getByTestId('seed-word-0').closest('.bg-fill')).not.toBeNull();
+    expect(screen.getByTestId('verify-seed-copy')).toHaveClass('rounded-full');
+    expect(review.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+  });
+
   it('exits from the warning header back button', async () => {
     await renderFlow();
     fireEvent.click(screen.getByTestId('nav-back'));
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives the warning header its own horizontal padding', async () => {
+    // PageHeader has no horizontal padding of its own — the page supplies it,
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
+    await renderFlow();
+    expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
   });
 
   it('exits from the warning close button', async () => {
@@ -306,7 +302,9 @@ describe('VerifySeedPhraseFlow', () => {
     fireEvent.click(screen.getByText('continue'));
 
     // The catch waits 300ms before setError; waitFor polls until it lands.
-    await waitFor(() => expect(screen.getByTestId('error-caption')).toHaveTextContent('bad password'));
+    await waitFor(() => expect(screen.getByTestId('verify-seed-password-error')).toHaveTextContent('bad password'));
+    // The shared TextField marks the field itself invalid, not just the caption.
+    expect(input).toHaveAttribute('aria-invalid', 'true');
     // Still on the auth step; no review words rendered.
     expect(screen.queryByText('w1')).toBeNull();
   });
@@ -471,5 +469,57 @@ describe('VerifySeedPhraseFlow', () => {
     fireEvent.click(screen.getByTestId('passcode-change'));
     await flush();
     expect(screen.getByTestId('passcode-error')).toHaveTextContent('');
+  });
+});
+
+describe('seed removal', () => {
+  it('requires backup verification and final confirmation', async () => {
+    mockSeedState.seedPhraseStatus = 'stored';
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+    mockRemoveSeedPhrase.mockResolvedValue(undefined);
+    render(<VerifySeedPhraseFlow remove />);
+    await waitFor(() => expect(screen.getByText('continue')).not.toBeDisabled());
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('removeSeedPhraseWriteDown');
+    expect(screen.queryByText('copyToClipboard')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('continue'));
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await screen.findByText('removeSeedPhraseConfirmation');
+    expect(mockRemoveSeedPhrase).not.toHaveBeenCalled();
+    // The confirm step is the shared layout with Cancel and a destructive Remove side by side
+    // in its footer.
+    const confirmFooter = screen.getByTestId('remove-seed-confirm').querySelector('[data-slot="footer"]')!;
+    expect(confirmFooter).toContainElement(screen.getByText('removeSeedPhraseConfirm'));
+    expect(confirmFooter).toContainElement(screen.getByText('cancel'));
+    expect(screen.getByText('removeSeedPhraseConfirm')).toHaveAttribute('data-variant', 'Destructive');
+    fireEvent.click(screen.getByText('removeSeedPhraseConfirm'));
+    await waitFor(() => expect(mockRemoveSeedPhrase).toHaveBeenCalledWith(undefined));
+    mockSeedState.seedPhraseStatus = undefined;
+  });
+
+  // The sibling of RevealSeedPhrase's notice, carrying the identical mapping and
+  // previously untested here. Spelled out as a literal table rather than read
+  // from the production map, which would make the assertion tautological.
+  it.each<[Exclude<SeedPhraseStatus, 'stored'>, string]>([
+    ['removing', 'seedRemovalIncomplete'],
+    ['removed', 'seedPhraseRemoved'],
+    ['unavailable', 'seedPhraseUnavailable']
+  ])('names the seed state %s rather than assuming a removal', async (status, expected) => {
+    mockSeedState.seedPhraseStatus = status;
+    // Mocks are not auto-cleared in this suite and the sibling test above calls
+    // it, so this has to be about THIS render.
+    mockRemoveSeedPhrase.mockClear();
+    try {
+      render(<VerifySeedPhraseFlow remove />);
+
+      expect(screen.getByRole('status').textContent).toBe(expected);
+      // The flow itself must not start: there is nothing here to verify.
+      expect(mockRemoveSeedPhrase).not.toHaveBeenCalled();
+    } finally {
+      mockSeedState.seedPhraseStatus = undefined;
+    }
   });
 });
