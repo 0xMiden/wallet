@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, orange selected pills, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.
 - [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
 
 ## 1.16.2 (2026-09-24)

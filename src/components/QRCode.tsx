@@ -36,25 +36,21 @@ export interface QRCodeProps {
   recolourAttempt?: number;
 }
 
-/**
- * The QR's colour treatments: one per account-card colour, each blending that colour into another
- * of the five, so a treatment still reads as "the green one" while the modules carry a gradient.
- */
+/** The QR's colour treatments: one per account-card colour, painted solid in that colour. */
 export const QR_PALETTES = ['green', 'orange', 'slate', 'blue', 'purple'] as const;
 
 export type QRPalette = (typeof QR_PALETTES)[number];
 
 /**
- * Each treatment as the two custom properties it blends and the gradient's rotation in radians.
- * Every colour is a `--qr-*` token — the card palette pinned to its light values, because the
- * modules are always drawn on a white tile (see src/main.css).
+ * Each treatment's colour as a `--qr-*` token — the card palette pinned to its light values, because
+ * the modules are always drawn on a white tile (see src/main.css).
  */
-const PALETTE_STOPS: Record<QRPalette, { from: string; to: string; rotation: number }> = {
-  green: { from: '--qr-green', to: '--qr-blue', rotation: Math.PI / 4 },
-  orange: { from: '--qr-orange', to: '--qr-purple', rotation: Math.PI / 2 },
-  slate: { from: '--qr-slate', to: '--qr-green', rotation: (3 * Math.PI) / 4 },
-  blue: { from: '--qr-blue', to: '--qr-purple', rotation: Math.PI },
-  purple: { from: '--qr-purple', to: '--qr-orange', rotation: (5 * Math.PI) / 4 }
+const PALETTE_TOKENS: Record<QRPalette, string> = {
+  green: '--qr-green',
+  orange: '--qr-orange',
+  slate: '--qr-slate',
+  blue: '--qr-blue',
+  purple: '--qr-purple'
 };
 
 export interface QRCodeHandle {
@@ -80,29 +76,11 @@ const readToken = (name: string): string => {
   return value || ACCENT_FALLBACK;
 };
 
-type DotsOptions = NonNullable<Options['dotsOptions']>;
-
 /**
- * The module colouring for a treatment: a linear gradient between its two stops. Both stops are card
- * colours, so a treatment never lightens the modules past what the palette already ships - the QR
- * stays scannable.
+ * The module colouring for a treatment: its card colour, solid. The card colours are dark enough on
+ * the white tile that the QR stays scannable.
  */
-const paletteOptions = (palette: QRPalette): { color: string; gradient: DotsOptions['gradient'] } => {
-  const stops = PALETTE_STOPS[palette];
-  const from = readToken(stops.from);
-  const to = readToken(stops.to);
-  return {
-    color: from,
-    gradient: {
-      type: 'linear',
-      rotation: stops.rotation,
-      colorStops: [
-        { offset: 0, color: from },
-        { offset: 1, color: to }
-      ]
-    }
-  };
-};
+const paletteOptions = (palette: QRPalette): { color: string } => ({ color: readToken(PALETTE_TOKENS[palette]) });
 
 /**
  * Paint the caption under the raw QR PNG. Returns null when the realm has no

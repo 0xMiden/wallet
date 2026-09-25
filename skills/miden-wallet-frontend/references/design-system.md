@@ -34,7 +34,7 @@ was deleted (or, where marked, what still has callers to migrate).
    edges) in both themes. A new color pair is checked before it ships.
 7. The five card colours are brand colours; never shift them for contrast, and never tint them with
    a scrim. Solve readability with type size and weight or a darker well (see Card colours). Brand
-   fidelity wins over rule 6 for the card surface itself; the balance card's 13px label and footer
+   fidelity wins over rule 6 for the card surface itself; the balance card's 15px label and 13px footer
    are the one accepted exception to rule 6 (see Card colours).
 
 ## Foundations
@@ -122,7 +122,7 @@ footer set off by a `surface-balance-rule` hairline, and each text sits as follo
 | --- | --- | --- | --- | --- |
 | Amount | 40-56px extrabold | 3:1 | the bare colour | 3.00:1 |
 | Currency | 22px bold | 3:1 | the bare colour | 3.00:1 |
-| Label ("Total balance") | 13px bold | 4.5:1 | the bare colour | 3.00:1 (below 4.5:1, accepted) |
+| Label ("Total balance") | 15px bold (Nunito, `text-value`) | 4.5:1 | the bare colour | 3.00:1 (below 4.5:1, accepted) |
 | Account name and address | 13px bold | 4.5:1 | the bare colour, under the hairline | 3.00:1 (below 4.5:1, accepted) |
 | Change pill | 14px | 4.5:1 | `surface-balance-pill` (black 24%) | 4.87:1 |
 
@@ -206,9 +206,9 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 | --- | --- | --- | --- | --- |
 | `text-display` | Nunito | 48 / 52 | 800 | The balance on the balance card (scaled down inline to fit, `leading-none`), and the one figure a page is about where no card holds it: Earn's total rewards, a vault's APY, a deposit or withdraw review's amount |
 | `text-entry-unit` | Nunito | 22 / 28 | 700 | The unit beside an entry or the balance ("USD") |
-| `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | Page titles: `TabHeader`, `PageHeader` and `FlowLayout` step titles; an onboarding step's title |
+| `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | Page titles: `TabHeader`, `PageHeader` and `FlowLayout` step titles; an onboarding step's title; passcode titles |
 | `text-hero-value` | Nunito | 32 / 36 | 900 | `Hero` value: amounts on review and receipt |
-| `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name, outcome and passcode titles |
+| `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name and outcome titles |
 | `text-title-page` | Nunito | 20 / 26 | 800 | `SectionHeader` `xl` |
 | `text-title-section` | Nunito | 18 / 24 | 800 | `DrawerTitle` (every sheet, `AlertSheet` included), `SectionHeader` `lg`, `EmptyState` title, Explore app names |
 | `text-cta` | Nunito | 19 / 24 | 800 | `Button` `lg` |
@@ -224,6 +224,7 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 | `text-body-sm` | Inter | 14 / 20 | 400 | Secondary copy: `DetailRow` labels, the `Hero` line, `EmptyState` body, a footnote under a control, a list row's trailing setting |
 | `text-label` | Inter | 13 / 17 | 700 | Section labels (`SectionHeader`), field labels, `Notice` titles, balance card labels |
 | `text-caption` | Inter | 13 / 17 | 400 | Row subtitles, `Notice` body, field hints and errors, a `DetailRow` sub-line |
+| `text-caption-heading` | Nunito | 13 / 17 | 600 | A fact's body under its title where the list is read as a checklist: `CheckboxRow` descriptions, the testnet notice's facts |
 
 Weight and line-height are read through Tailwind's `--tw-font-weight` and `--tw-leading`, so a
 modifier (`font-semibold`, `leading-none`) applies whatever order the stylesheet emits it in; use
@@ -316,7 +317,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Text field | `TextField` | `text-label` `muted` label above; `text-body` text; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; a `text-caption` `muted` hint or, on error, a `negative` ring and a `text-caption` `negative-ink` message with `role="alert"`. `secret` is for key material: a frosted cover (`bg-page/60`, the eye-off glyph and "tap to reveal") sits over the value whenever the field is not focused, and a revealed field blurs itself after `SECRET_REVEAL_MS` (30 s) or the moment the window goes away — the one `FormField` behaviour that was holding the import and reveal screens on the atom. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
 | Toggle | `Toggle` on Radix Switch (*planned*) | 51 × 31, `accent` when on. Until then `components/Toggle` (on the `press` preset) is the one to use. | `ToggleSwitch`, `SettingToggle` |
-| Checkbox | `CheckboxRow`, `CheckboxConsent`, `CheckboxIndicator` (`components/ui/Checkbox`) | `CheckboxIndicator`: the one selection mark, 22px round, a `page` disc with a hairline edge (the same mark `ChoiceCardGroup` draws); checked, an `accent` fill springs in (`snappy`) and the check draws in (`pathLength`, tab-bar spring), reversed on uncheck, instant under reduced motion. `CheckboxRow`: a `ListGroup` row that is itself the `role="checkbox"` button (box leading, `text-row-title` title, `text-caption` `muted` description, inset hairline); tap, Space or Enter toggles it with `hapticSelection` and the press dip. `CheckboxConsent`: the "I understand" tick a page asks for before it reveals or exports key material — the mark and the sentence (`text-body` `ink`) on the page rather than in a group, inset 4px so it lines up with a section's label, the whole line the `role="checkbox"` button, and no haptic of its own (the pages that use it disagree on whether it buzzes, so the caller decides). A native `button` today; Radix Checkbox can replace the internals later. | `components/Checkbox` (deleted), three hand-built consent rows (one of them a raw `<input type="checkbox">`); still to migrate: atoms `Checkbox`, `FormCheckbox` |
+| Checkbox | `CheckboxRow`, `CheckboxConsent`, `CheckboxIndicator` (`components/ui/Checkbox`) | `CheckboxIndicator`: the one selection mark, 22px round, a `page` disc with a 1.5px `muted` edge (the same mark `ChoiceCardGroup` draws); checked, an `accent` fill springs in (`snappy`) and the check draws in (`pathLength`, tab-bar spring), reversed on uncheck, instant under reduced motion. `CheckboxRow`: a `ListGroup` row that is itself the `role="checkbox"` button (box leading, `text-row-title` title, `text-caption-heading` `muted` description, inset hairline); tap, Space or Enter toggles it with `hapticSelection` and the press dip. `CheckboxConsent`: the "I understand" tick a page asks for before it reveals or exports key material — the mark and the sentence (`text-body` `ink`) on the page rather than in a group, inset 4px so it lines up with a section's label, the whole line the `role="checkbox"` button, and no haptic of its own (the pages that use it disagree on whether it buzzes, so the caller decides). A native `button` today; Radix Checkbox can replace the internals later. | `components/Checkbox` (deleted), three hand-built consent rows (one of them a raw `<input type="checkbox">`); still to migrate: atoms `Checkbox`, `FormCheckbox` |
 | List group | `ListGroup` | One of the three list surfaces (see Surfaces), set by `surface`: `plain` for a page that is a list, `fill` (default, 16px radius) for a group embedded in a page or a sheet, `outline` for a card that has to separate itself. Hairlines between rows, inset past the leading visual on `fill` and `outline`, full width on `plain`. | ad-hoc stacks, full-page lists drawn as one card |
 | List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, `text-row-title` over a `text-caption` `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
 | Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink`. `lg` + `icon` on the page margin is the standard header of a `plain` group, on Settings root, its sub-pages, the Address Book and Explore alike; `SubPageSection` takes the glyph as `icon` and applies the rest. `tone="muted"` quiets an `lg` or `xl` title to the label colour. A caller removes the 4px inset with `className="px-0"` to sit flush with a `plain` group. | ~40 hand-styled headings, uppercase labels |

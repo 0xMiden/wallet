@@ -202,7 +202,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(pill.querySelector('[data-name^="Arrow"]')).toBeNull();
   });
 
-  it('keeps the plain brand card color with a card-ink hairline footer, no scrim or darker strip', () => {
+  it('keeps the plain brand card color with the footer on a darker well of it, no scrim or retired tone', () => {
     const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
 
     const card = container.firstElementChild;
@@ -210,15 +210,36 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(container.querySelector('[class*="scrim"]')).toBeNull();
     expect(container.querySelector('[class*="-deep"]')).toBeNull();
     expect(container.querySelector('.border-dashed')).toBeNull();
-    expect(screen.getByTestId('balance-card-footer')).toHaveClass('border-t', 'border-surface-balance-rule');
+    const footer = screen.getByTestId('balance-card-footer');
+    expect(footer).toHaveClass('bg-surface-balance-footer');
+    expect(footer).not.toHaveClass('border-t');
   });
 
-  it('draws the label as a 13px bold sentence-case label in the full-strength card ink', () => {
+  it('dips the card while its options button is held, and not for a press on the copy control', () => {
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" onMore={jest.fn()} />);
+    const card = container.firstElementChild;
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+
+    expect(card).not.toHaveAttribute('data-pressed');
+    fireEvent.pointerDown(options);
+    expect(card).toHaveAttribute('data-pressed', 'true');
+    fireEvent.pointerUp(options);
+    expect(card).not.toHaveAttribute('data-pressed');
+
+    fireEvent.pointerDown(options);
+    fireEvent.pointerLeave(options);
+    expect(card).not.toHaveAttribute('data-pressed');
+
+    fireEvent.pointerDown(screen.getByTestId('balance-card-copy-address'));
+    expect(card).not.toHaveAttribute('data-pressed');
+  });
+
+  it('draws the label in Nunito (15px bold) in the full-strength card ink', () => {
     render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
 
     const label = screen.getByTestId('balance-card-label');
     expect(label).toHaveTextContent('balanceCardTotalBalance');
-    expect(label).toHaveClass('text-label');
+    expect(label).toHaveClass('text-value');
     expect(label.className).not.toMatch(/muted|opacity/);
   });
 

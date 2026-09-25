@@ -144,10 +144,10 @@ describe('SegmentedControl — the raised bubble', () => {
     // The bottom nav's bubble in everything but its fill — the shadow, the pressed shadow and the
     // `-inset-px` that reaches past the item's padding box to cover the outline it carries when
     // it is not selected - filled with the accent tint.
-    expect(bubble).toHaveClass('-inset-px', 'rounded-full', 'bg-accent-tint', 'shadow-raised');
+    expect(bubble).toHaveClass('-inset-px', 'rounded-full', 'bg-accent-primary', 'shadow-raised');
     expect(bubble).not.toHaveClass('bg-raised');
     expect(bubble).toHaveClass('group-active:shadow-raised-pressed');
-    expect(selected).toHaveClass('group', 'rounded-full', 'text-accent-tint-ink');
+    expect(selected).toHaveClass('group', 'rounded-full', 'text-accent-brand-on');
     expect(selected).not.toHaveClass('overflow-hidden');
 
     expect(bubbleIn(getRadio('All'))).toBeNull();
@@ -426,7 +426,7 @@ describe('SegmentedControl selection', () => {
     { id: 'sent', label: 'Sent' }
   ];
 
-  it('outlines every item and puts the selected one under the accent-tint bubble', () => {
+  it('outlines every item and puts the selected one under the brand accent bubble', () => {
     render(<SegmentedControl items={pillItems} value="all" onChange={() => undefined} />);
     const all = screen.getByRole('radio', { name: 'All' });
     const sent = screen.getByRole('radio', { name: 'Sent' });
@@ -438,12 +438,11 @@ describe('SegmentedControl selection', () => {
     // Selected: the same border, transparent, so the width never shifts, and the bubble over it.
     expect(all).toHaveClass('border', 'border-transparent');
     expect(all).not.toHaveClass('border-hairline');
-    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-tint', 'shadow-raised');
+    expect(all.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary', 'shadow-raised');
 
-    // The tint carries an `accent-tint-ink` label (the tested 4.5:1 pairing; white on the accent is
-    // 3:1, short of text contrast at 14px), crossfading in on the bubble's own clock.
-    expect(all).toHaveClass('text-accent-tint-ink');
-    expect(all).not.toHaveClass('text-pure-white');
+    // The accent carries the primary button's on-accent label, crossfading in on the bubble's clock.
+    expect(all).toHaveClass('text-accent-brand-on');
+    expect(all).not.toHaveClass('text-accent-tint-ink');
     expect(all.className).toContain('transition-colors');
     expect(all.className).toContain('motion-reduce:transition-none');
 

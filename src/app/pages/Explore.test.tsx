@@ -353,13 +353,12 @@ describe('Explore', () => {
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
     });
 
-    // The same rule as the "$-" total above, one row down: a change figure the app does not have is
-    // not displayed. Home passed a hardcoded +0.00 / 0.00% before, so the card showed a fabricated
-    // zero-change pill on every visit.
-    it('passes no change figure until a real price-change source exists', async () => {
+    // The change pill is a design placeholder: Home passes a fixed zero change until a real
+    // price-change source exists, so the card keeps its pill slot.
+    it('passes the placeholder zero change figure to the balance card', async () => {
       await renderExplore();
 
-      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'passed');
     });
 
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {

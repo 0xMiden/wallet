@@ -40,12 +40,12 @@ describe('PasscodeScreen', () => {
 
     const layout = screen.getByTestId('passcode-screen-layout');
     expect(layout).toHaveClass('min-h-full', 'flex', 'flex-col');
-    // Prompt and keypad sit together as one group: the leftover height splits 3:2 above and below.
+    // Prompt and keypad sit together as one group: the leftover height splits 1:2 above and below.
     const dock = screen.getByTestId('passcode-keypad-dock');
     expect(dock.previousElementSibling).toBe(screen.getByTestId('passcode-header'));
     expect(layout.lastElementChild).toBe(screen.getByTestId('passcode-bottom-space'));
     expect(dock).toHaveClass('shrink-0', 'pt-12');
-    expect(screen.getByTestId('passcode-top-space')).toHaveClass('flex-[3]');
+    expect(screen.getByTestId('passcode-top-space')).toHaveClass('flex-[1]');
     expect(screen.getByTestId('passcode-bottom-space')).toHaveClass('flex-[2]');
     expect(dock).toContainElement(screen.getByTestId('numpad'));
     // Without an action the layout keeps 20px of bottom padding under the flex space.

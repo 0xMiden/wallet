@@ -37,8 +37,8 @@ export interface PasscodeScreenProps {
 
 /**
  * A full-screen passcode page, laid out for the thumb: the title, message and dots, then the keypad,
- * sit as one group a little below centre - the leftover height splits 3:2 above the prompt and
- * below the keypad, so the keys stay in thumb reach without a tall gap under the dots. An optional
+ * sit as one group a little above centre - the leftover height splits 1:2 above the prompt and
+ * below the keypad, so the prompt starts high enough to read first and the keys stay in reach. An optional
  * text action (unlock's "Forgot passcode?") sits 16px under the last key row, far enough that a
  * thumb aimed at 0 does not land on an action that leaves the screen. Unlock and onboarding's
  * set-up/confirm steps both draw it, so both share one keypad and one layout.
@@ -71,12 +71,11 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
         className={cn('min-h-full flex flex-col items-center px-4', action ? 'pb-2' : 'pb-5')}
         data-testid="passcode-screen-layout"
       >
-        {/* The leftover height splits 3:2 above the prompt and below the keypad, so prompt and keypad
-          sit as one group a little below centre: the keys stay in thumb reach without a tall gap
-          under the dots. */}
-        <div className="flex-[3] min-h-6" data-testid="passcode-top-space" />
+        {/* The leftover height splits 1:2 above the prompt and below the keypad, so prompt and keypad
+          sit as one group above centre. */}
+        <div className="flex-[1] min-h-6" data-testid="passcode-top-space" />
         <div className="flex flex-col items-center w-full shrink-0" data-testid="passcode-header">
-          <h1 className="font-heading text-2xl leading-7 font-black text-ink text-center">{title}</h1>
+          <h1 className="font-heading text-title-tab text-ink text-center">{title}</h1>
           {/* The live region announces `announcement` when there is one and `message` otherwise. A
             caller whose message ticks (the lockout countdown) passes a static announcement, and the
             ticking text renders beside the region, hidden from assistive tech, so it is seen but

@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "Wymaga uwagi",
   "guardianCheckingLabel": "Sprawdzanie",
   "whatIsAGuardian": "Czym jest „Guardian”?",
+  "meetGuardianYourGuardian": "Twój Guardian",
   "guardianInfoDescription": "Guardian to niezależna usługa, która <b>współpodpisuje każdą transakcję</b> z Twojego portfela, zapewniając dodatkową ochronę bez rezygnacji z samodzielnego przechowywania środków.",
   "guardianInfoWhatItDoesTitle": "Jak to działa",
   "guardianInfoWhatItDoesDescription": "Współpodpisuje każdą transakcję — ani Twoje urządzenie, ani Guardian nie mogą samodzielnie przenosić środków. Pomaga odzyskać konto w przypadku utraty urządzenia.",

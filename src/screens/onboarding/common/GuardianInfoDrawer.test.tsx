@@ -141,17 +141,18 @@ describe('GuardianInfoDrawer', () => {
     expect(screen.getByText('!')).toBeInTheDocument();
   });
 
-  it('states the facts in the shared sheet header plus one fill group with inset hairlines', () => {
+  it('states the facts in the shared sheet header as plain rows, hairlines starting after the badge', () => {
     const { container } = renderDrawer();
 
     // The title now sits in the app's one sheet header, not in a centred hero line of its own.
     expect(screen.getByTestId('drawer-header')).toContainElement(screen.getByTestId('drawer-title'));
-    // No rules across the sheet: the group draws the separation, each row inset past the margin.
+    // No rules across the sheet and no group fill: the rows sit on the sheet, as the testnet notice's do.
     expect(container.querySelectorAll('.border-b')).toHaveLength(0);
-    const group = screen.getByText('guardianInfoWhatItDoesTitle').closest('[class*="bg-fill"]');
-    expect(group).not.toBeNull();
-    expect(group!.className).toContain('rounded-2xl');
-    expect(container.querySelectorAll('.before\\:bg-hairline')).toHaveLength(3);
+    expect(screen.getByText('guardianInfoWhatItDoesTitle').closest('[class*="bg-fill"]')).toBeNull();
+    const rules = container.querySelectorAll('.before\\:bg-hairline');
+    expect(rules).toHaveLength(3);
+    rules.forEach(row => expect(row.className).toContain('before:left-11'));
+    expect(screen.getByText('guardianInfoWhatItDoesDescription')).toHaveClass('text-caption-heading', 'text-muted');
   });
 
   it('carries no literal colours: every badge is on a token tint', () => {

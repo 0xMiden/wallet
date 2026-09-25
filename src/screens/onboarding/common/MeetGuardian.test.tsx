@@ -28,6 +28,10 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
 
+jest.mock('./GuardianInfoDrawer', () => ({
+  GuardianInfoDrawer: ({ open }: { open: boolean }) => <div data-testid="info-drawer" data-open={String(open)} />
+}));
+
 const OZ = {
   id: 'open-zeppelin',
   name: 'OpenZeppelin',
@@ -79,14 +83,16 @@ beforeEach(() => {
 });
 
 describe('MeetGuardianScreen', () => {
-  it('opens on the title, the explainer and three unchecked facts in one group, with Continue closed', () => {
+  it('opens on the title, the explainer and three unchecked facts as plain rows, with Continue closed', () => {
     renderScreen();
 
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('setUpYourAccount');
-    expect(heading).toHaveClass('text-hero-value');
-    expect(heading.parentElement).toHaveClass('items-center', 'text-center');
-    expect(heading.closest('[data-slot="body"]')).toHaveClass('px-6', 'overflow-y-auto');
+    // The same left-aligned step heading as the testnet notice before it.
+    expect(heading).toHaveClass('text-title-tab');
+    expect(heading.parentElement).toHaveClass('items-start');
+    expect(heading.closest('[data-slot="body"]')).toHaveClass('overflow-y-auto');
+    expect(heading.closest('[data-slot="body"]')).not.toHaveClass('px-6');
     expect(screen.getByText('setUpYourAccountDescription')).toHaveClass('text-muted');
     const boxes = screen.getAllByRole('checkbox');
     expect(boxes).toHaveLength(3);
@@ -94,9 +100,37 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByRole('checkbox', { name: 'meetGuardianSeedPhraseTitle' })).toHaveAccessibleDescription(
       'meetGuardianSeedPhraseBody'
     );
-    expect(boxes[0]!.parentElement).toHaveClass('rounded-2xl', 'bg-fill');
+    // Plain rows on the page, no group fill.
+    expect(boxes[0]!.parentElement).not.toHaveClass('bg-fill');
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
     expect(screen.queryByTestId('meet-guardian-card')).toBeNull();
+  });
+
+  it('leads with the Guardian section above the facts, before anything is ticked', () => {
+    const view = renderScreen();
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    // Shown from the start, not unfolded by the last tick.
+    const section = screen.getByTestId('meet-guardian-section');
+    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
+    expect(section).toHaveTextContent('meetGuardianYourGuardian');
+    const firstFact = screen.getByTestId(CHECKS[0]!);
+    expect(section.compareDocumentPosition(firstFact) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Continue still waits for the three ticks.
+    expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
+    tickAll();
+    expect(screen.getByTestId('meet-guardian-continue')).toBeEnabled();
+  });
+
+  it('opens the "What is a Guardian?" sheet from the section header', () => {
+    renderScreen();
+
+    expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
+    fireEvent.click(screen.getByTestId('meet-guardian-info'));
+    expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'true');
   });
 
   it('shows the checking card once all facts are ticked and no operator has answered yet', () => {
@@ -134,7 +168,8 @@ describe('MeetGuardianScreen', () => {
     // Every guarantee is drawn with the same check, none with a cross.
     const card = screen.getByTestId('meet-guardian-card');
     expect(card.querySelectorAll('li')).toHaveLength(3);
-    expect(card.querySelectorAll('li .text-positive-ink')).toHaveLength(3);
+    expect(card.querySelectorAll('li .bg-positive-tint')).toHaveLength(3);
+    expect(screen.getByTestId('meet-guardian-fastest')).toHaveTextContent('meetGuardianFastestOf:2');
 
     const button = screen.getByTestId('meet-guardian-continue');
     expect(button).toBeEnabled();

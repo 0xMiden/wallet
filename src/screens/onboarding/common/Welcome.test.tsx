@@ -97,7 +97,7 @@ describe('WelcomeScreen', () => {
 
   it('renders the bread logo and the hero on the shared layout, the actions pinned in its footer', () => {
     const { container } = renderComponent();
-    expect(container.querySelector('svg')).toHaveClass('w-[120px]');
+    expect(container.querySelector('svg')).toHaveClass('w-[140px]');
     expect(screen.getByRole('heading', { level: 1 })).toHaveClass('font-heading', 'text-ink');
     expect(screen.getByText('breadWalletDescription')).toHaveClass('text-muted');
     const footer = screen.getByTestId('btn-getStarted').parentElement;

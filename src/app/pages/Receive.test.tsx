@@ -340,14 +340,13 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('leads with the page title, where send puts "Send to" and swap "You Pay"', async () => {
+  it('keeps the page heading for assistive tech only, so the code leads the page', async () => {
     const container = await renderReceive();
 
     const title = container.querySelector('[data-testid="receive-title"]')!;
     expect(title.tagName).toBe('H1');
     expect(title.textContent).toBe('receiveAt');
-    // The same type style as the two tabs beside it, so the line does not move as you swipe.
-    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    expect(title).toHaveClass('sr-only');
     // First in the column, above the code.
     const block = container.querySelector('[data-testid="receive-qr-block"]')!;
     expect(block.parentElement!.contains(title)).toBe(true);
@@ -371,8 +370,8 @@ describe('Receive - Address', () => {
     expect(card.className).not.toContain('bg-page');
     expect(card.className).not.toContain('rounded-2xl');
     const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
-    // 208px, not the leftover height: the rest of the page gets the room back.
-    expect(slot).toHaveClass('relative', 'w-full', 'max-w-52');
+    // 272px, not the leftover height: the rest of the page gets the room back.
+    expect(slot).toHaveClass('relative', 'w-full', 'max-w-68');
     expect(slot).not.toHaveClass('flex-1');
     const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
     expect(frame).toHaveClass('aspect-square', 'w-full');
@@ -478,7 +477,7 @@ describe('Receive - Address', () => {
       const button = logo(container);
       expect(button.tagName).toBe('BUTTON');
       expect(button).toHaveAttribute('aria-label', 'receiveQrColorAction');
-      // 28% of the 208px code is 58px, past the 44px minimum.
+      // 28% of the 272px code is 76px, past the 44px minimum.
       expect(button).toHaveClass('h-[28%]', 'w-[28%]', 'absolute', 'left-1/2', 'top-1/2');
     });
 

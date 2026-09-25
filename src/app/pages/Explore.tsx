@@ -362,6 +362,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // skeleton and not a "$0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
+            delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}
           />
         )}
