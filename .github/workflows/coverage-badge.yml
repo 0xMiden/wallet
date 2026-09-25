@@ -26,19 +26,28 @@ concurrency:
   group: badges
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  actions: read
-  pull-requests: read
+permissions: {}
 
 # Every value that comes from the API or the artifact reaches a script through
-# `env:`, never `${{ }}` inside `run:`.
+# `env:`, never `${{ }}` inside `run:`. The artifact comes from the merged PR's
+# own run, so the job that unpacks it holds no token that can push; the publish
+# job gets write access and only the checked numbers.
 jobs:
-  coverage-badge:
-    name: Publish coverage badge
+  badge-data:
+    name: Read the coverage badge data
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      ready: ${{ steps.data.outcome == 'success' }}
+      pct: ${{ steps.data.outputs.pct }}
+      count: ${{ steps.data.outputs.count }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Find the pull request's coverage run
         id: source
         env:
@@ -76,11 +85,20 @@ jobs:
         if: steps.download.outputs.ok == 'true'
         id: data
         run: node scripts/badge-data.mjs read "$RUNNER_TEMP/badge/badge-data.json" >> "$GITHUB_OUTPUT"
+
+  coverage-badge:
+    name: Publish coverage badge
+    needs: badge-data
+    if: needs.badge-data.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
       - name: Compose shields.io endpoint JSON
-        if: steps.download.outputs.ok == 'true'
         env:
-          PCT: ${{ steps.data.outputs.pct }}
-          COUNT: ${{ steps.data.outputs.count }}
+          PCT: ${{ needs.badge-data.outputs.pct }}
+          COUNT: ${{ needs.badge-data.outputs.count }}
         run: |
           set -euo pipefail
           int=$(printf '%.0f' "$PCT")
@@ -93,13 +111,12 @@ jobs:
           printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"blue"}\n' "$COUNT" > /tmp/tests.json
           echo "Total tests: ${COUNT}"
       - name: Publish to `badges` branch
-        if: steps.download.outputs.ok == 'true'
         env:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
-          PCT: ${{ steps.data.outputs.pct }}
-          COUNT: ${{ steps.data.outputs.count }}
+          PCT: ${{ needs.badge-data.outputs.pct }}
+          COUNT: ${{ needs.badge-data.outputs.count }}
         run: |
           set -euo pipefail
           export BADGE_SOURCE_FILE="$RUNNER_TEMP/badges-source.json"

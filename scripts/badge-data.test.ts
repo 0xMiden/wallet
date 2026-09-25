@@ -290,8 +290,8 @@ describe('badge workflows', () => {
     expect(upload).not.toMatch(/retention-days/);
   });
 
-  it('coverage-badge.yml turns a failed download into a warning and gates every later step on it', () => {
-    const steps = stepBlocks(workflowText('coverage-badge.yml'));
+  it('coverage-badge.yml turns a failed download into a warning and gates validation on it', () => {
+    const steps = stepBlocks(jobText('coverage-badge.yml', 'badge-data'));
     const index = steps.findIndex(b => /name: Download badge data$/m.test(b));
     expect(index).toBeGreaterThan(-1);
     const lines = runScripts(steps[index]!)[0]!
@@ -305,8 +305,42 @@ describe('badge workflows', () => {
     expect(lines[invoke + 1]).toMatch(/^if \[ "\$rc" -ne 0 \]; then echo "::warning::[^"]+"; exit 0; fi$/);
     expect(lines[invoke + 2]).toBe('echo "ok=true" >> "$GITHUB_OUTPUT"');
     const later = steps.slice(index + 1);
-    expect(later).toHaveLength(3);
-    for (const step of later) expect(step).toMatch(/^\s*if: steps\.download\.outputs\.ok == 'true'$/m);
+    expect(later).toHaveLength(1);
+    expect(later[0]).toMatch(/name: Validate badge data$/m);
+    expect(later[0]).toMatch(/^\s*if: steps\.download\.outputs\.ok == 'true'$/m);
+    expect(jobText('coverage-badge.yml', 'badge-data')).toMatch(
+      /^ {6}ready: \$\{\{ steps\.data\.outcome == 'success' \}\}$/m
+    );
+  });
+
+  // The artifact comes from the merged PR's own run, so the job that unpacks it holds no token that can push.
+  it('coverage-badge.yml reads the artifact without write access and publishes without reading it', () => {
+    const text = workflowText('coverage-badge.yml');
+    const jobs = [...text.matchAll(/^ {2}([\w-]+):$/gm)].map(m => m[1]!);
+    const reader = jobs.filter(j =>
+      runScripts(jobText('coverage-badge.yml', j)).some(r => r.includes('gh run download'))
+    );
+    const writers = jobs.filter(j => /^ {6}contents: write$/m.test(jobText('coverage-badge.yml', j)));
+
+    expect(text).toMatch(/^permissions: \{\}$/m);
+    expect(reader).toEqual(['badge-data']);
+    expect(jobText('coverage-badge.yml', 'badge-data')).not.toMatch(/: write$/m);
+    expect(stepBlocks(jobText('coverage-badge.yml', 'badge-data'))[0]).toMatch(
+      /uses: actions\/checkout@v4\n\s*with:\n\s*persist-credentials: false$/
+    );
+    expect(writers).toEqual(['coverage-badge']);
+    const publish = jobText('coverage-badge.yml', 'coverage-badge');
+    for (const body of runScripts(publish)) expect(body).not.toMatch(/gh run download|badge-data\.mjs read/);
+    expect(publish).toMatch(/^ {4}needs: badge-data$/m);
+    expect(publish.match(/^\s*if: .*$/gm)).toEqual(["    if: needs.badge-data.outputs.ready == 'true'"]);
+    expect(publish).not.toContain('steps.');
+    expect(stepBlocks(publish)[0]).toMatch(/^\s*- uses: actions\/checkout@v4$/m);
+    expect(stepBlocks(publish)[0]).not.toContain('persist-credentials');
+    for (const name of ['PCT', 'COUNT']) {
+      const values = publish.match(new RegExp(`^\\s*${name}: .*$`, 'gm'));
+      expect(values).toHaveLength(2);
+      for (const v of values!) expect(v.trim()).toBe(`${name}: \${{ needs.badge-data.outputs.${name.toLowerCase()} }}`);
+    }
   });
 
   it('both workflows name the badge artifact as badge-source-run.mjs looks it up', () => {
