@@ -57,7 +57,16 @@ jest.mock('app/hooks/useReportNoteClaim', () => ({
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
-  initiateConsumeNotesTransaction: (...args: Parameters<typeof mockQueueMany>) => mockQueueMany(...args),
+  // One mock behind both batch entry points: a test resolves it with a committed id, or with the full
+  // result when it needs a note covered by a row other than the batch.
+  initiateConsumeNotesTransaction: (...args: Parameters<typeof mockQueueMany>) =>
+    Promise.resolve(mockQueueMany(...args)).then((queued: unknown) =>
+      typeof queued === 'string' ? queued : (queued as { committedId: string }).committedId
+    ),
+  queueConsumeNotes: (...args: Parameters<typeof mockQueueMany>) =>
+    Promise.resolve(mockQueueMany(...args)).then((queued: unknown) =>
+      typeof queued === 'string' ? { committedId: queued, coveringTxIdByNoteId: new Map<string, string>() } : queued
+    ),
   startBackgroundTransactionProcessing: (...args: Parameters<typeof mockStart>) => mockStart(...args),
   requestSWTransactionProcessing: () => mockRequest()
 }));
@@ -271,6 +280,33 @@ it('marks every batch note as claiming at once, queues the native faucet group f
     status: 'failed',
     claimedAt: 60
   });
+});
+
+it('settles a batch note deduplicated onto another row with that row, not the batch it never joined', async () => {
+  const covered = { ...note, id: 'note-covered' };
+  const joined = { ...note, id: 'note-joined' };
+  mockClaim.safeClaimableNotes = [covered, joined];
+  mockQueueMany.mockResolvedValueOnce({
+    committedId: 'tx-batch',
+    coveringTxIdByNoteId: new Map([
+      [covered.id, 'tx-live'],
+      [joined.id, 'tx-batch']
+    ])
+  });
+  const { result } = renderHook(() => useActivityClaims());
+  await act(async () => {
+    await result.current.acceptMany([covered, joined]);
+  });
+
+  settle([
+    { id: 'tx-batch', status: 2, completedAt: 70 },
+    { id: 'tx-live', status: 3, completedAt: 80 }
+  ]);
+  expect(result.current.items.find(item => item.note.id === covered.id)).toMatchObject({
+    txId: 'tx-live',
+    status: 'failed'
+  });
+  expect(result.current.items.find(item => item.note.id === joined.id)?.status).toBe('claimed');
 });
 
 it('projects every live note state and leaves an undated note undated', () => {

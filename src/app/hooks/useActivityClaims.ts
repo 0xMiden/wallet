@@ -6,8 +6,8 @@ import { useReportNoteClaim } from 'app/hooks/useReportNoteClaim';
 import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
-  initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
+  queueConsumeNotes,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
@@ -188,13 +188,17 @@ export function useActivityClaims() {
     let queued = false;
     for (const groupNotes of groupNotesForClaim(accepted, nativeFaucetId)) {
       try {
-        const txId = await reportClaim(() =>
-          initiateConsumeNotesTransaction(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
+        const { committedId, coveringTxIdByNoteId } = await reportClaim(() =>
+          queueConsumeNotes(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
         );
         queued = true;
+        // Per note: a note already covered by a live or completed row never joins the batch, so it
+        // settles with that row.
         setAttempts(previous => {
           const next = new Map(previous);
-          for (const note of groupNotes) next.set(note.id, { note, status: 'claiming', txId });
+          for (const note of groupNotes) {
+            next.set(note.id, { note, status: 'claiming', txId: coveringTxIdByNoteId.get(note.id) ?? committedId });
+          }
           return next;
         });
       } catch (error) {
