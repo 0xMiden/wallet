@@ -85,14 +85,18 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       // The preload runs alongside the WASM init, and `ready` waits for it for at most the budget, so the keys are
       // cached before anything reads them (a warm-WASM page with the wallet already unlocked included). A key still
       // uncached after the budget suspends as it did before the preload existed.
+      const keys = preloadedStorageKeys();
+      const pending = new Set(keys);
       const preloaded = Promise.race([
-        preloadStorage(preloadedStorageKeys()).catch(err =>
+        preloadStorage(keys, { onSettled: key => pending.delete(key) }).catch(err =>
           console.warn('[MidenProvider] storage preload failed:', err)
         ),
         new Promise<void>(resolve => {
           // Cleared when the race settles and on unmount, so it only ever fires for a mounted, still-waiting provider.
           budgetTimer = setTimeout(() => {
-            console.warn(`[MidenProvider] storage preload still pending after ${STORAGE_PRELOAD_BUDGET_MS} ms`);
+            console.warn(
+              `[MidenProvider] storage preload still pending after ${STORAGE_PRELOAD_BUDGET_MS} ms: ${[...pending].join(', ')}`
+            );
             resolve();
           }, STORAGE_PRELOAD_BUDGET_MS);
         })

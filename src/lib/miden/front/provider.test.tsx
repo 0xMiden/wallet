@@ -42,13 +42,15 @@ jest.mock('lib/fiat-currency', () => ({
   FiatCurrencyProvider: ({ children }: any) => <>{children}</>
 }));
 
-const mockPreloadStorage = jest.fn((_keys: string[]) => Promise.resolve());
+type PreloadOptions = { onSettled?: (key: string) => void };
+const mockPreloadStorage = jest.fn((_keys: string[], _options?: PreloadOptions) => Promise.resolve());
 jest.mock('./storage', () => ({
-  preloadStorage: (keys: string[]) => mockPreloadStorage(keys)
+  preloadStorage: (keys: string[], options?: PreloadOptions) => mockPreloadStorage(keys, options)
 }));
 
 jest.mock('lib/prices', () => ({
-  PriceProvider: () => <div data-testid="price-provider" />
+  PriceProvider: () => <div data-testid="price-provider" />,
+  preloadTokenPrices: jest.fn()
 }));
 
 jest.mock('components/NoteToastProvider', () => ({
@@ -139,12 +141,10 @@ describe('MidenProvider', () => {
       </MidenProvider>
     );
     expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
-    expect(mockPreloadStorage).toHaveBeenCalledWith([
-      'tokens_base_metadata',
-      'fiat_currency',
-      'last_shown_changelog_version',
-      'network_id'
-    ]);
+    expect(mockPreloadStorage).toHaveBeenCalledWith(
+      ['tokens_base_metadata', 'fiat_currency', 'last_shown_changelog_version', 'network_id'],
+      expect.objectContaining({ onSettled: expect.any(Function) })
+    );
   });
 
   it('renders nothing until the storage preload settles', async () => {
@@ -202,6 +202,24 @@ describe('MidenProvider', () => {
       jest.useRealTimers();
     });
 
+    it('names the keys still pending when the budget runs out', async () => {
+      // Every key but the network id settles; the budget warning names only that one.
+      // Replace the never-settling preload queued above, keeping the default for later tests.
+      mockPreloadStorage.mockReset();
+      mockPreloadStorage.mockImplementation(() => Promise.resolve());
+      mockPreloadStorage.mockImplementationOnce((keys, options) => {
+        keys.filter(key => key !== 'network_id').forEach(key => options?.onSettled?.(key));
+        return new Promise<void>(() => {});
+      });
+      render(
+        <MidenProvider>
+          <div>x</div>
+        </MidenProvider>
+      );
+      await act(() => jest.advanceTimersByTimeAsync(STORAGE_PRELOAD_BUDGET_MS));
+      expect(budgetWarnings()).toEqual([[expect.stringMatching(/still pending .*: network_id$/)]]);
+    });
+
     it('renders after the preload budget, and says so', async () => {
       const { queryByText, getByText } = render(
         <MidenProvider>
@@ -227,16 +245,21 @@ describe('MidenProvider', () => {
     });
   });
 
-  it('still renders when the storage preload fails', async () => {
+  it('still renders when the storage preload fails, and logs the failure', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mockPreloadStorage.mockImplementationOnce(() => Promise.reject(new Error('storage unavailable')));
-    const { findByText } = render(
-      <MidenProvider>
-        <div>x</div>
-      </MidenProvider>
-    );
-    expect(await findByText('x')).toBeDefined();
-    warn.mockRestore();
+    try {
+      const failure = new Error('storage unavailable');
+      mockPreloadStorage.mockImplementationOnce(() => Promise.reject(failure));
+      const { findByText } = render(
+        <MidenProvider>
+          <div>x</div>
+        </MidenProvider>
+      );
+      expect(await findByText('x')).toBeDefined();
+      expect(warn).toHaveBeenCalledWith('[MidenProvider] storage preload failed:', failure);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('mounts PriceProvider while the wallet is still locked, so its fetch starts before unlock', async () => {

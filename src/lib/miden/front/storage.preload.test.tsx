@@ -78,12 +78,24 @@ describe('preloadStorage', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
       return { 'good-key': 'good-value' };
     });
-    await preloadStorage(['bad-key', 'good-key']).catch(() => {});
+    await expect(preloadStorage(['bad-key', 'good-key'])).rejects.toThrow(
+      /1 of 2 keys: bad-key \(Error: storage bridge failed\)/
+    );
 
     renderReader('good-key');
 
     expect(screen.queryByTestId('suspended')).toBeNull();
     expect(screen.getByTestId('value').textContent).toBe('good-value');
+  });
+
+  it('reports each key once it has settled, read or failed', async () => {
+    mockGet.mockImplementationOnce(async () => ({ 'settled-ok': 'v' }));
+    mockGet.mockImplementationOnce(async () => {
+      throw new Error('no');
+    });
+    const onSettled = jest.fn();
+    await preloadStorage(['settled-ok', 'settled-bad'], { onSettled }).catch(() => {});
+    expect(onSettled.mock.calls.map(([key]) => key).sort()).toEqual(['settled-bad', 'settled-ok']);
   });
 
   it('a key that was not preloaded still suspends on its first render', async () => {
