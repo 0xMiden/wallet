@@ -39,10 +39,18 @@ export function markOnboardingFinishing(): OnboardingFinishMark {
     current = null;
     notify();
   };
+  // Lifecycle telemetry leaves the hold out, so this warning is the only trace a stalled holder leaves.
+  const expire = () => {
+    if (current !== entry) return;
+    console.warn(
+      `[onboarding-finish] released by the ${ONBOARDING_FINISH_BUDGET_MS} ms safety budget; the holder never navigated on`
+    );
+    release();
+  };
   entry.mark = {
     arm: () => {
       if (timer !== undefined) return;
-      timer = setTimeout(release, ONBOARDING_FINISH_BUDGET_MS);
+      timer = setTimeout(expire, ONBOARDING_FINISH_BUDGET_MS);
     },
     release
   };

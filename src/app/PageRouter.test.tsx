@@ -735,6 +735,7 @@ describe('app/PageRouter - a just-created wallet finishing onboarding', () => {
 
   it('arms a held mark once the wallet is Ready on screen, so a stalled holder cannot hold the loading view forever', () => {
     jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const mark = markOnboardingFinishing();
     try {
       renderAt('/', ready);
@@ -743,8 +744,12 @@ describe('app/PageRouter - a just-created wallet finishing onboarding', () => {
         jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS);
       });
       expect(screen.getByTestId('explore')).toBeInTheDocument();
+      // The only trace a stalled holder leaves: lifecycle telemetry leaves the hold out.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain(`${ONBOARDING_FINISH_BUDGET_MS} ms safety budget`);
     } finally {
       act(() => mark.release());
+      warn.mockRestore();
       jest.useRealTimers();
     }
   });

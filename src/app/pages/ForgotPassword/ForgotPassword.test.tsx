@@ -366,10 +366,15 @@ describe('ForgotPassword', () => {
   });
 
   it('holds the finishing mark while it registers and releases it after navigating on', async () => {
+    const warn = jest.spyOn(console, 'warn');
     mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
     let heldDuringRegister: boolean | undefined;
+    let heldAtNavigate: boolean | undefined;
     mockRegisterWallet.mockImplementationOnce(async () => {
       heldDuringRegister = isOnboardingFinishing();
+    });
+    mockNavigate.mockImplementation((path: string) => {
+      if (path === '/finish-side-panel') heldAtNavigate = isOnboardingFinishing();
     });
     renderPage();
     await dispatch({ id: 'create-wallet' });
@@ -377,8 +382,10 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(heldDuringRegister).toBe(true);
-    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(heldAtNavigate).toBe(true);
     expect(isOnboardingFinishing()).toBe(false);
+    expect(warn.mock.calls.filter(([message]) => String(message).startsWith('[onboarding-finish]'))).toHaveLength(0);
+    warn.mockRestore();
   });
 
   it('releases the finishing mark when registration fails', async () => {

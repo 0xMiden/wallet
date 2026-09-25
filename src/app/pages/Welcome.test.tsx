@@ -24,6 +24,8 @@ jest.mock('app/onboarding-finish', () => {
   };
 });
 const { isOnboardingFinishing } = jest.requireActual('app/onboarding-finish');
+const finishWarns = (warn: jest.SpyInstance) =>
+  warn.mock.calls.filter(([message]) => String(message).startsWith('[onboarding-finish]'));
 
 // ---------------------------------------------------------------------------
 // Welcome.tsx is the onboarding state machine: it owns every piece of in-memory
@@ -1044,6 +1046,7 @@ describe('Welcome - the finishing mark around a tapped confirmation', () => {
   }
 
   it('holds the mark through registration and the Ready wait, arms it before the wait, and releases it after navigating', async () => {
+    const warn = jest.spyOn(console, 'warn');
     let heldDuringRegister: boolean | undefined;
     let heldDuringReadyWait: boolean | undefined;
     mockRegisterWallet.mockImplementationOnce(async () => {
@@ -1067,6 +1070,8 @@ describe('Welcome - the finishing mark around a tapped confirmation', () => {
       mockNavigate.mock.invocationCallOrder[mockNavigate.mock.invocationCallOrder.length - 1]!
     );
     expect(isOnboardingFinishing()).toBe(false);
+    expect(finishWarns(warn)).toHaveLength(0);
+    warn.mockRestore();
   });
 
   it('releases the mark when registration fails', async () => {
@@ -2819,6 +2824,7 @@ describe('Welcome — back navigation', () => {
 
 describe('Welcome — side-panel handoff', () => {
   it('holds the finishing mark while it registers and releases it after the handoff navigation', async () => {
+    const warn = jest.spyOn(console, 'warn');
     mockCanHandoff = true;
     let heldDuringRegister: boolean | undefined;
     mockRegisterWallet.mockImplementationOnce(async () => {
@@ -2840,6 +2846,8 @@ describe('Welcome — side-panel handoff', () => {
       mockNavigate.mock.invocationCallOrder[mockNavigate.mock.invocationCallOrder.length - 1]!
     );
     expect(isOnboardingFinishing()).toBe(false);
+    expect(finishWarns(warn)).toHaveLength(0);
+    warn.mockRestore();
   });
 
   it('releases the finishing mark when the auto-create fails', async () => {
