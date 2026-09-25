@@ -49,11 +49,32 @@ const faucetInitToml = (symbol: string, decimals: number, maxSupply: number | bi
  *    delegated prover endpoint flakes intermittently on the macOS CI runners
  *    (a sibling mint in the same test connects fine), so a connection-level
  *    prover error is transient, not a proving-logic failure.
+ *  - `transaction expired at block height N`: the proof outlived the transaction's
+ *    20-block window (see `awaitCommit`); a rebuild at a fresh sync height fits.
  */
 export function isTransientCliError(stderr: string): boolean {
-  return /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce|failed\s+to\s+connect\s+to(\s+the)?(\s+remote)?\s+prover|transport\s+error|no\s+native\s+certs/i.test(
+  return /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce|failed\s+to\s+connect\s+to(\s+the)?(\s+remote)?\s+prover|transport\s+error|no\s+native\s+certs|transaction\s+expired\s+at\s+block/i.test(
     stderr
   );
+}
+
+/**
+ * The status `miden-client tx` lists for `txId`, or undefined when the table has no row for it.
+ * Rows read `│ <id> ┆ Pending ┆ …`, `│ <id> ┆ Committed (Block: N) ┆ …` or `│ <id> ┆ Discarded (Cause) ┆ …`:
+ * comfy-table's UTF8_FULL preset draws the outer border with `│` and the column separators with `┆`.
+ */
+export function transactionStatusIn(table: string, txId: string): 'pending' | 'committed' | 'discarded' | undefined {
+  const id = txId.toLowerCase();
+  for (const line of table.split('\n')) {
+    const cells = line.split(/[│┆]/).map(cell => cell.trim());
+    const at = cells.findIndex(cell => cell.toLowerCase() === id);
+    if (at < 0) continue;
+    const status = cells[at + 1] ?? '';
+    if (/^Committed\b/.test(status)) return 'committed';
+    if (/^Discarded\b/.test(status)) return 'discarded';
+    if (/^Pending\b/.test(status)) return 'pending';
+  }
+  return undefined;
 }
 
 /**
@@ -515,7 +536,15 @@ export class MidenCli {
             const txId = sent.parsed?.transactionId;
             const noteId = sent.parsed?.noteId;
             if (!txId || !noteId) throw new Error('Could not parse native transfer receipt');
-            return { source: `genesis funder ${funder}`, faucetId: this.nativeFaucetId, txId, noteId };
+            // Same expiry race as `mint`; a discarded transfer is sent again from the same funder.
+            if ((await this.awaitCommit(txId)) === 'committed') {
+              return { source: `genesis funder ${funder}`, faucetId: this.nativeFaucetId, txId, noteId };
+            }
+            if (attempt === 4) {
+              failures.push(`${funder}: transfer ${txId} was accepted, then discarded by the node`);
+              break;
+            }
+            continue;
           }
           const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
           if (!stale || attempt === 4) {
@@ -698,7 +727,13 @@ export class MidenCli {
         if (!txId || !noteId) {
           throw new Error(`Could not parse mint result from output:\n${result.stdout}`);
         }
-        return { txId, noteId };
+        if ((await this.awaitCommit(txId)) === 'committed') {
+          return { txId, noteId };
+        }
+        lastErr = `mint ${txId} was accepted, then discarded by the node`;
+        // eslint-disable-next-line no-console
+        console.log(`[miden-cli] mint attempt ${attempt}/${maxAttempts}: ${lastErr}; minting again`);
+        continue;
       }
       lastErr = result.stderr;
       const transient = isTransientCliError(lastErr);
@@ -711,6 +746,30 @@ export class MidenCli {
       await new Promise(r => setTimeout(r, backoffMs));
     }
     throw new Error(`Mint failed after retries: ${lastErr}`);
+  }
+
+  /**
+   * Waits until `txId` is committed, or reports that it was discarded.
+   *
+   * A zero exit from `mint` or `transfer` means the node ACCEPTED the transaction, not that it
+   * landed. Since 0.17 a standard transaction expires 20 blocks after its reference block and the
+   * node keeps a 2-block margin, so on a 500 ms chain a proof that used most of that window arrives
+   * with a second to spare. The mempool then drops it, with every transaction built on it, and the
+   * CLI marks it discarded on its next sync. Taking the accepted transaction as done lost the first
+   * of two consecutive mints.
+   */
+  private async awaitCommit(txId: string, timeoutMs = 120_000): Promise<'committed' | 'discarded'> {
+    const deadline = Date.now() + timeoutMs;
+    let last = 'not listed';
+    while (Date.now() < deadline) {
+      await this.sync();
+      const listed = await this.run('tx', { timeoutMs: 60_000 });
+      const status = transactionStatusIn(listed.stdout, txId);
+      if (status === 'committed' || status === 'discarded') return status;
+      last = status ?? 'not listed';
+      await new Promise(r => setTimeout(r, 1_000));
+    }
+    throw new Error(`Transaction ${txId} was neither committed nor discarded within ${timeoutMs}ms (last: ${last})`);
   }
 
   /**

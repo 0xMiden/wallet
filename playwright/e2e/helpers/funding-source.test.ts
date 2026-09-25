@@ -35,8 +35,13 @@ function fakeRunner(workDir: string, parseTransfer = true): { runner: CLIRunner;
         fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(path.join(dir, 'miden-client.toml'), 'rpc = {}\n');
       }
-      // `importFunders` parses the account id out of an import's stdout.
-      const stdout = /\bimport\b/.test(command) ? 'Successfully imported account 0x3d6f968b3cd35c91' : '';
+      // `importFunders` parses the account id out of an import's stdout, and a transfer is only
+      // returned once `tx` lists it as committed.
+      const stdout = /\bimport\b/.test(command)
+        ? 'Successfully imported account 0x3d6f968b3cd35c91'
+        : / tx$/.test(command)
+          ? '│ native-transfer-tx ┆ Committed (Block: 3) ┆ 0x3d6f968b3cd35c91 ┆ - ┆ 0 ┆ 1 │'
+          : '';
       return {
         command,
         args: [],
