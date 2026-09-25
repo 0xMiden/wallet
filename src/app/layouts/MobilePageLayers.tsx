@@ -2,7 +2,12 @@ import React, { createContext, FC, useContext, useEffect, useLayoutEffect, useMe
 
 import { AnimatePresence, motion, TargetAndTransition, usePresence, useReducedMotion } from 'framer-motion';
 
-import { PageActiveContext, PageMountedByReturnContext, PageOnScreenContext } from 'app/layouts/page-active';
+import {
+  PageActiveContext,
+  PageMountedByReturnContext,
+  PageOnScreenContext,
+  PageRevealedByLayerContext
+} from 'app/layouts/page-active';
 import { pageSlideDim, pageSlideParallax, reducedMotionTransition, usePreset } from 'lib/animation';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -76,8 +81,8 @@ const PageLayer: FC<PageLayerProps> = ({
   } = useContext(LayerStackContext);
   const ref = useRef<HTMLDivElement>(null);
   const page = usePreset('page');
-  // A layer that started to slide out keeps sliding out. It is off screen,
-  // and a later push must not pull it back under the new page.
+  // A layer that started to slide out keeps sliding out, or goes at once when motion is off. It is off
+  // screen, and a later push must not pull it back under the new page.
   const uncovering = useRef(false);
   if (present) uncovering.current = false;
   // Set while a slide page covers this layer; cleared once its way back has finished. A slide page
@@ -88,13 +93,16 @@ const PageLayer: FC<PageLayerProps> = ({
   // until then, even if a later navigation would make it `cover`: its page content unmounts and it
   // leaves `mounted`. A push can still bring it back while it is held, so it comes back reset.
   const [gone, setGone] = useState(false);
-  // Whether a return mounted this layer's content, taken each time the content mounts: at the layer's own
-  // mount and when a held layer comes back, never on a later return to a layer that stayed.
+  // Whether a return mounted this layer's content, and whether that mount is a reveal, taken each time the
+  // content mounts: at the layer's own mount and when a held layer comes back, never on a later return to a
+  // layer that stayed.
   const [mountedByReturn, setMountedByReturn] = useState(returnMount);
+  const [revealedByLayer, setRevealedByLayer] = useState(returnMount && revealed && animated);
   if (present && gone) {
     covered.current = false;
     setGone(false);
     setMountedByReturn(returnMount);
+    setRevealedByLayer(returnMount && revealed && animated);
   }
   // An earlier layer of the page on screen renders nothing, so the page is never in the DOM twice.
   const superseded = !present && pageKey === currentPageKey;
@@ -106,8 +114,8 @@ const PageLayer: FC<PageLayerProps> = ({
     case present && revealed && animated:
       layerMotion = 'reveal';
       break;
-    case !present && slide && stackAnimated && (uncovering.current || layerKey === poppedKey):
-      layerMotion = 'uncover';
+    case !present && slide && (uncovering.current || layerKey === poppedKey):
+      layerMotion = stackAnimated ? 'uncover' : 'still';
       break;
     case !present && retain && layerKey !== poppedKey:
       layerMotion = 'cover';
@@ -195,7 +203,9 @@ const PageLayer: FC<PageLayerProps> = ({
         <PageActiveContext.Provider value={present}>
           <PageOnScreenContext.Provider value={onScreen}>
             <PageMountedByReturnContext.Provider value={mountedByReturn}>
-              {children}
+              <PageRevealedByLayerContext.Provider value={revealedByLayer}>
+                {children}
+              </PageRevealedByLayerContext.Provider>
             </PageMountedByReturnContext.Provider>
           </PageOnScreenContext.Provider>
         </PageActiveContext.Provider>
@@ -223,7 +233,8 @@ interface PageEntry {
   // A return left a slide page for this page, and this page's layer is not a kept, covered one, so it
   // comes back from under the page that left.
   revealed: boolean;
-  // A return mounted this page's layer fresh, so its content plays no entrance of its own.
+  // A return mounted this page's layer fresh, so its content never slides in like a push; it fades in
+  // unless its layer reveals it.
   returnMount: boolean;
   // The layer a return left for this one.
   poppedKey: string | null;

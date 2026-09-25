@@ -17,7 +17,7 @@ import { useAppEnv } from 'app/env';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { PageActiveContext, usePageActive, usePageMountedByReturn, usePageOnScreen } from 'app/layouts/page-active';
+import { PageActiveContext, usePageActive, usePageOnScreen, usePageRevealedByLayer } from 'app/layouts/page-active';
 import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
@@ -199,8 +199,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // panes with no animation, like a native tab bar.
   const reduce = useReducedMotion();
   const fade = usePreset('fade');
-  const mountedByReturn = usePageMountedByReturn();
-  const appear = !reduce && !isReturningFromWebview() && !mountedByReturn;
+  const revealedByLayer = usePageRevealedByLayer();
+  const appear = !reduce && !isReturningFromWebview() && !revealedByLayer;
   const initial = appear ? (fade.initial ?? false) : false;
 
   const tabs = [

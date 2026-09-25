@@ -13,6 +13,12 @@ import { usePageActive, usePageOnScreen } from './page-active';
 
 const mockMotion: { reduce: boolean; layers: Record<string, any> } = { reduce: false, layers: {} };
 
+// A short page slide, so settle() waits a fraction of a second rather than the real 0.34 s tween.
+jest.mock('lib/animation/page-appearance', () => ({
+  ...jest.requireActual('lib/animation/page-appearance'),
+  pageSlideEntrance: { type: 'tween', duration: 0.05 }
+}));
+
 // The real framer-motion. motion.div also records the props each page layer last rendered with.
 jest.mock('framer-motion', () => {
   const actual = jest.requireActual<typeof import('framer-motion')>('framer-motion');
@@ -67,10 +73,10 @@ function view(pathname: string, slide = false, key = pathname, trigger = History
   );
 }
 
-// Long enough for every page transition to finish.
+// Long enough for every (pinned) page transition to finish.
 const settle = () =>
   act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 600));
+    await new Promise(resolve => setTimeout(resolve, 150));
   });
 
 afterEach(() => {
@@ -272,7 +278,7 @@ it('covers the page beneath when a push returns to a slide page that was popped 
   // The page opens fresh, and it is the only present layer.
   expect(screen.getByRole('button')).toHaveTextContent('/rotate-guardian count 0');
   expect(container.querySelector('[data-page-layer="/rotate-guardian"]')).toHaveStyle({ transform: 'none' });
-}, 15_000);
+});
 
 it('drops a popped copy still sliding out at once when its page is pushed again, leaving one copy', async () => {
   // A reload lands on the sub-page itself, with nothing beneath it.
@@ -431,7 +437,7 @@ it('covers the page beneath when a push reopens a page a return skipped over', a
   await settle();
   expect(a).toHaveStyle({ transform: 'translateX(-24%)' });
   expect(screen.getByRole('button')).toHaveTextContent('/b count 0');
-}, 15_000);
+});
 
 it('still reveals the retained pages a return skipped over when the router pops back to them', async () => {
   const { container, rerender } = render(view('/settings', false, 'tabs'));
@@ -459,7 +465,7 @@ it('still reveals the retained pages a return skipped over when the router pops 
   rerender(view('/settings', false, 'tabs', HistoryAction.Pop));
   await settle();
   expect(container.querySelector('[data-page-layer="/settings"]')).toBe(root);
-}, 15_000);
+});
 
 it('still reveals a page a Replace left under the stack when the router pops back to it', async () => {
   const { rerender } = render(view('/settings', false, 'tabs'));
@@ -478,7 +484,7 @@ it('still reveals a page a Replace left under the stack when the router pops bac
   rerender(view('/r', true, '/r', HistoryAction.Pop));
   await settle();
   expect(screen.getByRole('button')).toHaveTextContent('/r count 1');
-}, 15_000);
+});
 
 it('reports a page on screen when a push brings back a layer that went while covered', async () => {
   const { container, rerender } = render(view('/settings', false, 'tabs'));
@@ -505,7 +511,7 @@ it('reports a page on screen when it comes back after being covered again while 
   rerender(view('/a', true));
   await settle();
   expect(container.querySelector('[data-page-layer="/a"] button')).toHaveAttribute('data-fully-on-screen', 'true');
-}, 15_000);
+});
 
 // The page content's own element: the first child of its layer.
 const contentOf = (container: HTMLElement, pathname: string) =>
@@ -523,13 +529,16 @@ it('reveals a slide page a Pop returns to whose layer was released, once the pop
   await settle();
 
   rerender(view('/s1', true, '/s1', HistoryAction.Pop));
+  // The layer reveals it, so its content plays no entrance of its own.
+  expect(contentOf(container, '/s1')).not.toHaveStyle({ opacity: '0' });
+  expect(contentOf(container, '/s1')).not.toHaveStyle({ transform: 'translateX(100%)' });
   const s1 = () => container.querySelector('[data-page-layer="/s1"] button');
   expect(container.querySelector('[data-page-layer="/s1"]')).toHaveStyle({ transform: 'translateX(-24%)' });
   expect(container.querySelector('[data-page-layer="/s2"]')).toBeInTheDocument();
   expect(s1()).toHaveAttribute('data-fully-on-screen', 'false');
   await waitFor(() => expect(container.querySelector('[data-page-layer="/s2"]')).not.toBeInTheDocument());
   await waitFor(() => expect(s1()).toHaveAttribute('data-fully-on-screen', 'true'));
-}, 15_000);
+});
 
 it('plays no push slide-in for a page a Pop brings back while its layer is still held', async () => {
   const { container, rerender } = render(view('/settings', false, 'tabs'));
@@ -554,7 +563,7 @@ it('plays the push slide-in for a page first mounted by a return and later pushe
   rerender(view('/settings', false, 'tabs'));
   rerender(view('/a', true));
   expect(contentOf(container, '/a')).toHaveStyle({ transform: 'translateX(100%)' });
-}, 15_000);
+});
 
 it('keeps the stack beneath when the router pops to a page outside it', async () => {
   const { container, rerender } = render(view('/settings', false, 'tabs'));
@@ -577,4 +586,46 @@ it('keeps the stack beneath when the router pops to a page outside it', async ()
   expect(container.querySelector('[data-page-layer="/b"]')).toHaveStyle({ zIndex: '3' });
   await settle();
   expect(container.querySelector('[data-page-layer="/settings"]')).toBe(root);
-}, 15_000);
+});
+
+it('fades a slide page in when a Back from a plain page mounts it again', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/s', true));
+  await settle();
+  rerender(view('/p'));
+  await settle();
+  rerender(view('/s', true, '/s', HistoryAction.Pop));
+  expect(contentOf(container, '/s')).toHaveStyle({ opacity: '0' });
+  expect(contentOf(container, '/s')).not.toHaveStyle({ transform: 'translateX(100%)' });
+});
+
+it('plays no entrance of its own for a held page that comes back in a reveal', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  rerender(view('/settings', false, 'tabs'));
+  rerender(view('/c', true));
+  rerender(view('/a', true, '/a', HistoryAction.Pop));
+  expect(contentOf(container, '/a')).not.toHaveStyle({ opacity: '0' });
+  expect(contentOf(container, '/a')).not.toHaveStyle({ transform: 'translateX(100%)' });
+});
+
+it('never parks a page still sliding out under a new page inside the webview-return window', async () => {
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/a', true));
+  await settle();
+  rerender(view('/b', true));
+  await settle();
+  rerender(view('/a', true, '/a', HistoryAction.Pop));
+  rerender(view('/c', true));
+  setReturningFromWebview(true);
+  rerender(view('/c', true));
+  await act(async () => undefined);
+  expect(container.querySelector('[data-page-layer="/b"]')).not.toBeInTheDocument();
+  setReturningFromWebview(false);
+  rerender(view('/c', true));
+  const zIndexes = [...container.querySelectorAll<HTMLElement>('[data-page-layer]')].map(layer => layer.style.zIndex);
+  expect(zIndexes).not.toContain('3');
+});

@@ -25,12 +25,21 @@ export function usePageOnScreen(): boolean {
 }
 
 /**
- * True when a return (a router Pop, or a close to a page beneath) mounted the page's layer fresh. The page then plays
- * no mount entrance of its own: its layer already brings it back from under the page that left, and a slide-in from the
- * right would read as a push.
+ * True when a return (a router Pop, or a close to a page beneath) mounted the page's layer fresh. The page then never
+ * slides in from the right, which would read as a push; it fades in instead, unless its layer reveals it.
  */
 export const PageMountedByReturnContext = createContext(false);
 
 export function usePageMountedByReturn(): boolean {
   return useContext(PageMountedByReturnContext);
+}
+
+/**
+ * True when that return mount is a reveal: the page's layer brings it back from under the page that left, so the page
+ * plays no mount entrance of its own at all.
+ */
+export const PageRevealedByLayerContext = createContext(false);
+
+export function usePageRevealedByLayer(): boolean {
+  return useContext(PageRevealedByLayerContext);
 }
