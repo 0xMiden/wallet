@@ -57,12 +57,8 @@ jest.mock('app/hooks/useReportNoteClaim', () => ({
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
-  // One mock behind both batch entry points: a test resolves it with a committed id, or with the full
-  // result when it needs a note covered by a row other than the batch.
-  initiateConsumeNotesTransaction: (...args: Parameters<typeof mockQueueMany>) =>
-    Promise.resolve(mockQueueMany(...args)).then((queued: unknown) =>
-      typeof queued === 'string' ? queued : (queued as { committedId: string }).committedId
-    ),
+  // The batch entry point: a test resolves it with a committed id, or with the full result when it
+  // needs a note covered by a row other than the batch.
   queueConsumeNotes: (...args: Parameters<typeof mockQueueMany>) =>
     Promise.resolve(mockQueueMany(...args)).then((queued: unknown) =>
       typeof queued === 'string' ? { committedId: queued, coveringTxIdByNoteId: new Map<string, string>() } : queued
