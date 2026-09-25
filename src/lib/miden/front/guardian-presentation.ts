@@ -31,8 +31,6 @@ export type GuardianLastSync =
 
 export type GuardianPresentation = {
   pill: GuardianPill;
-  /** Red-family styling; true exactly for offline | unrepairable | drifted. */
-  fault: boolean;
   lastSync: GuardianLastSync;
 };
 
@@ -73,8 +71,6 @@ export function deriveGuardianPresentation(input: GuardianPresentationInput): Gu
               ? 'online'
               : 'checking';
 
-  const fault = pill === 'offline' || pill === 'unrepairable' || pill === 'drifted';
-
   // While the guard blocks, the stamp describes an endpoint the account no longer
   // points at or is leaving (F-143), so it is withheld rather than rendered
   // against the wrong subject.
@@ -87,5 +83,5 @@ export function deriveGuardianPresentation(input: GuardianPresentationInput): Gu
           ? { kind: 'never' }
           : { kind: 'unknown' };
 
-  return { pill, fault, lastSync };
+  return { pill, lastSync };
 }

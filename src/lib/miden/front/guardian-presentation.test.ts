@@ -34,7 +34,6 @@ describe('deriveGuardianPresentation - pill precedence', () => {
       input({ guardianSyncStatus: 'in-sync', outage: true, unrepairable: true, lastSyncAt: 1, lastSyncFresh: true })
     );
     expect(p.pill).toBe('not-connected');
-    expect(p.fault).toBe(false);
   });
 
   it('drift outranks outage: the accusation names the operator, the outage names the wire', () => {
@@ -69,7 +68,6 @@ describe('deriveGuardianPresentation - pill precedence', () => {
     for (const flags of [{ outage: true }, { unrepairable: true }]) {
       const p = deriveGuardianPresentation(input({ hotPublicKey: HOT, guardianSyncStatus: 'resolving', ...flags }));
       expect(p.pill).toBe('checking');
-      expect(p.fault).toBe(false);
     }
   });
 
@@ -102,7 +100,6 @@ describe('deriveGuardianPresentation - pill precedence', () => {
     );
     expect(p).toEqual({
       pill: 'online',
-      fault: false,
       lastSync: { kind: 'timestamp', at: 1 }
     });
   });
@@ -175,12 +172,6 @@ describe('deriveGuardianPresentation - invariants over the full input product', 
   it('never reads online while sends are blocked - the F-207 invariant, all 128 rows', () => {
     expect(
       product.filter(row => isGuardianSyncBlocked(row.account) && deriveGuardianPresentation(row).pill === 'online')
-    ).toEqual([]);
-  });
-
-  it('fault is exactly the red-family pills', () => {
-    expect(
-      violations(p => p.fault !== (p.pill === 'offline' || p.pill === 'unrepairable' || p.pill === 'drifted'))
     ).toEqual([]);
   });
 

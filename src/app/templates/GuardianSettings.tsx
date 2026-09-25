@@ -31,12 +31,12 @@ function formatLastSync(timestamp: number, locale: string): string {
 const GuardianSettings: FC = () => {
   const { t, i18n } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
-  // The ONE derivation of the guardian's status - pill, fault treatment and the
-  // "Last sync" reading come from `deriveGuardianPresentation` (see that module
-  // for the precedence rules and their history: drift outranks liveness,
-  // `resolving` reads Checking not Online, a stamp has a freshness lifetime).
-  // This screen only maps the result onto copy and styling; it derives nothing,
-  // so it cannot disagree with the send guard or any other surface.
+  // The ONE derivation of the guardian's status - the pill and the "Last sync"
+  // reading come from `deriveGuardianPresentation` (see that module for the
+  // precedence rules and their history: drift outranks liveness, `resolving`
+  // reads Checking not Online, a stamp has a freshness lifetime). This screen
+  // only maps the result onto copy and badge tone, so it cannot disagree with
+  // the send guard or any other surface.
   const { pill: guardianStatus, lastSync: lastSyncState } = useGuardianPresentation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
