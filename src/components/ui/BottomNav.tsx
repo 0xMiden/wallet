@@ -50,7 +50,7 @@ export interface BottomNavProps {
 // plus 8px instead, so on Android the tabs end 8px above the system navigation bar (1 + 8 + 56 + 8,
 // plus the inset). Anything drawn over it (the corner ribbon) adapts to this, never the other way
 // around.
-const bar = cva('relative flex items-center bg-page', {
+const bar = cva('relative flex max-w-full items-center bg-page', {
   variants: {
     docked: {
       true: 'w-full px-4 pt-2 border-t border-hairline',
@@ -69,7 +69,7 @@ const bar = cva('relative flex items-center bg-page', {
 });
 
 // Docked, the tabs share the full width; floating, they sit side by side.
-const tabRow = cva('flex items-center gap-2', {
+const tabRow = cva('flex min-w-0 flex-1 items-center gap-2', {
   variants: {
     docked: {
       true: 'flex-1 justify-around',
@@ -99,7 +99,7 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
   const label = item.unread ? `${item.label}, ${item.unread.label}` : item.label;
 
   return (
-    <HighlightItem value={item.id} asChild as="span" className="flex items-center justify-center">
+    <HighlightItem value={item.id} asChild as="span" className="flex min-w-0 flex-1 items-center justify-center">
       <motion.button
         type="button"
         aria-current={active ? 'page' : undefined}
@@ -108,7 +108,7 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
         {...motionTokens.press}
         transition={motionTokens.highlight}
         className={cn(
-          'group flex h-14 w-20 items-center justify-center rounded-full p-1 transition-colors',
+          'group flex h-14 w-20 min-w-11 max-w-full items-center justify-center rounded-full p-1 transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/30',
           active ? 'text-accent-primary' : 'text-muted'
         )}

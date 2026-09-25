@@ -48,6 +48,7 @@ export interface AmountInputProps {
   value?: string;
   onValueChange?: (value: string | undefined, name?: string, values?: CurrencyInputOnChangeValues) => void;
   placeholder?: string;
+  prefix?: string;
   /** Small heading above the amount (e.g. "Select Amount"), optionally a node with a network pill. */
   label?: React.ReactNode;
   /** Already-translated error text. Renders a red row with an info icon below the amount. */
@@ -66,6 +67,11 @@ export interface AmountInputProps {
   /** Whether to render the accent divider. Defaults to true. */
   showDivider?: boolean;
   autoFocus?: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  decimalsLimit?: number;
+  maxLength?: number;
+  size?: 'default' | 'compact' | 'hero';
+  'aria-label'?: string;
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
   loading?: boolean;
@@ -83,6 +89,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   value,
   onValueChange,
   placeholder = '0.00',
+  prefix,
   label,
   error,
   invalid = false,
@@ -91,12 +98,18 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   accent = 'brand',
   showDivider = true,
   autoFocus,
+  inputMode,
+  decimalsLimit = 6,
+  maxLength = 16,
+  size = 'default',
+  'aria-label': ariaLabel,
   disabled,
   loading,
   className,
   'data-testid': dataTestId
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const displayLength = (value?.length ?? 0) + (prefix?.length ?? 0);
 
   return (
     <div className={classNames('flex flex-col', className)}>
@@ -114,17 +127,26 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           <CurrencyInput
             ref={inputRef}
             className={classNames(
-              'w-full bg-transparent p-0 outline-none font-heading font-bold leading-none text-left text-[4rem]',
-              amountTextSize(value),
+              'w-full bg-transparent p-0 outline-none text-left',
+              size === 'hero' && displayLength < 7
+                ? 'text-entry-amount'
+                : size !== 'default'
+                  ? displayLength >= 10
+                    ? 'text-hero-value'
+                    : 'text-display'
+                  : classNames('font-heading font-bold leading-none text-[4rem]', amountTextSize(value)),
               invalid || error
                 ? 'text-red-500 placeholder-red-500'
                 : value
                   ? 'text-ink'
-                  : 'text-grey-300 placeholder-grey-300'
+                  : size !== 'default'
+                    ? 'text-muted placeholder-muted'
+                    : 'text-grey-300 placeholder-grey-300'
             )}
             value={value}
             onValueChange={onValueChange}
             placeholder={placeholder}
+            prefix={prefix}
             transformRawValue={normalizeDecimalInput}
             disableGroupSeparators
             // `disableGroupSeparators` only stops grouping in the *display*; the
@@ -136,9 +158,11 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             // pin it to a space, which never collides with our "." decimal (#433).
             groupSeparator=" "
             decimalSeparator="."
-            decimalsLimit={6}
+            decimalsLimit={decimalsLimit}
             allowNegativeValue={false}
-            maxLength={16}
+            maxLength={maxLength}
+            inputMode={inputMode}
+            aria-label={ariaLabel}
             enterKeyHint="done"
             autoFocus={autoFocus}
             disabled={disabled}

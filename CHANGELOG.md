@@ -2,6 +2,10 @@
 
 ## 1.16.3 (TBD)
 
+### Features
+
+- [FEATURE][all] Add a Cash tab after Settings with USDCx Buy/Sell amount entry, a centered decimal numpad, and a provider-selection preview. Checkout is not connected yet.
+
 ### Changes
 
 - [CHANGE][all] USDCx testnet bridging uses Arc Testnet USDC, deposits to Miden domain 10007 using the connected Miden account with no stand-in recipient override, and withdraws to Arc domain 26, with chain-aware wallet calls and explorer links.

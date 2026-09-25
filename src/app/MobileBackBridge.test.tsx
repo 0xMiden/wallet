@@ -64,6 +64,13 @@ const renderAt = (pathname: string, historyPosition = 0) => {
 };
 
 describe('MobileBackBridge', () => {
+  it('returns from Cash to Home even when tab history exists', () => {
+    const { handler } = renderAt('/cash', 3);
+    expect(handler()).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
+    expect(goBackMock).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     navigateMock.mockClear();
     goBackMock.mockClear();

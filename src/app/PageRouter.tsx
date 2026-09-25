@@ -41,6 +41,7 @@ import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
+import Cash from './pages/Cash';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
 import ResetRequired from './pages/ResetRequired';
@@ -186,6 +187,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ programId }) => (
       <TabLayout>
         <AllHistory programId={programId} />
+      </TabLayout>
+    ))
+  ],
+  [
+    '/cash',
+    onlyReady(() => (
+      <TabLayout>
+        <Cash />
       </TabLayout>
     ))
   ],

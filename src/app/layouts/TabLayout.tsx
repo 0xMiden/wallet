@@ -51,7 +51,8 @@ const TAB_ROUTES: Record<string, string> = {
   home: '/',
   explore: '/browser',
   activity: '/history',
-  settings: '/settings'
+  settings: '/settings',
+  cash: '/cash'
 };
 
 const ACTION_ROUTES: Record<string, string> = {
@@ -106,6 +107,7 @@ function activeTabFromPath(pathname: string): string {
   // Matching the segment here would only ever cover paths that cannot reach
   // this function.
   if (pathname === '/settings') return 'settings';
+  if (pathname === '/cash') return 'cash';
   return 'home';
 }
 
@@ -240,6 +242,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'settings',
       label: t('settings'),
       icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
+    },
+    {
+      id: 'cash',
+      label: t('cash'),
+      icon: <Icon name={IconName.Cash} className="w-6 h-6" />
     }
   ];
 

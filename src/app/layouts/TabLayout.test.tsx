@@ -331,7 +331,21 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
 });
 
 describe('TabLayout — tabs list composition', () => {
-  it('includes the Explore tab off-extension (4 tabs)', () => {
+  it('opens Cash and highlights it without showing the home action bar', () => {
+    const { rerender } = renderLayout();
+    fireEvent.click(screen.getByTestId('nav-cash'));
+    expect(mockNavigate).toHaveBeenCalledWith('/cash');
+    mockLocation.pathname = '/cash';
+    rerender(
+      <TabLayout>
+        <div data-testid="cash-entry" />
+      </TabLayout>
+    );
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'cash');
+    expect(screen.getByTestId('cash-entry')).toBeVisible();
+  });
+
+  it('includes the Explore tab off-extension (5 tabs)', () => {
     mockPlatform.isExtension = false;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
@@ -340,7 +354,7 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
   });
 
-  it('drops the Explore tab on the extension (3 tabs)', () => {
+  it('drops the Explore tab on the extension (4 tabs)', () => {
     mockPlatform.isExtension = true;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
@@ -349,13 +363,13 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
   });
 
-  it('orders Settings last, after Activity', () => {
+  it('orders Cash last, after Settings', () => {
     mockPlatform.isExtension = false;
     renderLayout();
     const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
       el.getAttribute('data-testid')
     );
-    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-settings', 'nav-unknown']);
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-settings', 'nav-cash', 'nav-unknown']);
   });
 
   it('localizes every tab label', () => {
@@ -367,6 +381,7 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-explore')).toHaveTextContent('explore');
     expect(screen.getByTestId('nav-activity')).toHaveTextContent('activity');
     expect(screen.getByTestId('nav-settings')).toHaveTextContent('settings');
+    expect(screen.getByTestId('nav-cash')).toHaveTextContent('cash');
   });
 
   it('localizes every action segment label, overview as home', () => {
@@ -929,7 +944,8 @@ describe('TabLayout — mount fade and tab panes', () => {
     ['/browser', 'explore'],
     ['/history', 'activity'],
     ['/history/program-1', 'activity'],
-    ['/settings', 'settings']
+    ['/settings', 'settings'],
+    ['/cash', 'cash']
   ])('renders %s in a visible, interactive %s pane', (pathname, tab) => {
     mockLocation.pathname = pathname;
     renderLayout(<div data-testid="routed-content" />);
