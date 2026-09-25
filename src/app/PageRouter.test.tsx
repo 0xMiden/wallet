@@ -9,7 +9,8 @@
  * identifiable stub, keeping this a pure routing unit test.
  *
  * Top-level view selection now flows through `resolveRootView(ctx)` (locked →
- * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, else → `app`). The
+ * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, ready but finishing
+ * onboarding → `loading`, else → `app`). The
  * catch-all `*` route (registered BEFORE `/` and every ready-only route) is the
  * one that renders Unlock / RootSuspenseFallback / Welcome and only SKIPs — so a
  * specific route runs — when `resolveRootView` returns `app`. `root-view` is a
@@ -100,7 +101,7 @@ jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
   useAppLifecycleTelemetry: (ctx: unknown) => mockUseAppLifecycleTelemetry(ctx)
 }));
 
-// The loading spinner shown during MV3 cold-start (before hydration).
+// The loading spinner shown during MV3 cold-start (before hydration), or while the finishing mark holds a new wallet.
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
   default: () => <div data-testid="root-suspense-fallback" />

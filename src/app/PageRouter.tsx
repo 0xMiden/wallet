@@ -74,13 +74,13 @@ function decodeParam(value: string | null | undefined): string | undefined {
 }
 
 const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
-  // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
-  // catch-all so it renders regardless of Ready: creating the wallet flips the
-  // app to the wallet home, and this screen must survive that to let the user
-  // open the panel. Still defers to Unlock when locked (e.g. the wallet
+  // Onboarding → side panel handoff (Chrome). Placed before the `*`
+  // catch-all so it renders regardless of Ready: creating the wallet turns it
+  // Ready (the root holds the loading view until the holder navigates here, then
+  // Home), and this screen must survive that to let the user open the panel. Still defers to Unlock when locked (e.g. the wallet
   // auto-locks while a tab is parked here) by SKIPping to the `*` catch-all.
   ['/finish-side-panel', (_p, ctx) => (ctx.locked ? Woozie.Router.SKIP : <OpenSidePanel />)],
-  // Telemetry consent prompt. Before the `!ready` catch-all for the same reason
+  // Telemetry consent prompt. Before the `*` catch-all for the same reason
   // as the handoff screen above — it is reached the moment the wallet is created,
   // either side of the Ready flip, so an `onlyReady` guard would make it
   // unreachable and the catch-all would replace it mid-read. Locked SKIPs to
@@ -123,7 +123,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Developer endpoint override screen. Reachable during onboarding (before the wallet is
   // ready) via the 7-tap logo unlock on the Welcome screen, so this must be placed ahead of the
-  // `!ready` catch-all below — an onlyReady-wrapped route would never resolve while ctx.ready is
+  // `*` catch-all below - an onlyReady-wrapped route would never resolve while ctx.ready is
   // false. Deliberately NOT wrapped in onlyReady (see that helper below). Still defers to Unlock
   // when locked: an existing, locked wallet always takes priority over this hidden debug screen.
   [
@@ -144,8 +144,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         case 'unlock':
           return <Unlock />;
 
-        // Backend not yet heard from (MV3 SW cold-start): show the loading
-        // spinner, NOT onboarding — status is still the initial Idle here.
+        // Backend not yet heard from (MV3 SW cold-start, status still the initial
+        // Idle), or a just-created wallet held by the onboarding finishing mark
+        // (app/onboarding-finish): show the loading spinner, NOT onboarding or Home.
         case 'loading':
           return <RootSuspenseFallback />;
 

@@ -20,7 +20,7 @@ export interface OnboardingFinishMark {
 
 // The mark lives outside every component: ConditionalProviders remounts the app subtree when the wallet turns Ready,
 // which is exactly the moment the mark has to survive.
-let current: { mark: OnboardingFinishMark } | null = null;
+let current: OnboardingFinishMark | null = null;
 const listeners = new Set<() => void>();
 
 const notify = () => listeners.forEach(listener => listener());
@@ -32,36 +32,35 @@ const notify = () => listeners.forEach(listener => listener());
  */
 export function markOnboardingFinishing(): OnboardingFinishMark {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const entry = {} as { mark: OnboardingFinishMark };
   const release = () => {
     clearTimeout(timer);
-    if (current !== entry) return;
+    if (current !== mark) return;
     current = null;
     notify();
   };
   // Lifecycle telemetry leaves the hold out, so this warning is the only trace a stalled holder leaves.
   const expire = () => {
-    if (current !== entry) return;
+    if (current !== mark) return;
     console.warn(
       `[onboarding-finish] released by the ${ONBOARDING_FINISH_BUDGET_MS} ms safety budget; the holder never navigated on`
     );
     release();
   };
-  entry.mark = {
+  const mark: OnboardingFinishMark = {
     arm: () => {
       if (timer !== undefined) return;
       timer = setTimeout(expire, ONBOARDING_FINISH_BUDGET_MS);
     },
     release
   };
-  current = entry;
+  current = mark;
   notify();
-  return entry.mark;
+  return mark;
 }
 
 /** Arms whichever mark is held, if any. PageRouter calls it once the hold is on screen. */
 export function armHeldOnboardingMark(): void {
-  current?.mark.arm();
+  current?.arm();
 }
 
 export const isOnboardingFinishing = () => current !== null;

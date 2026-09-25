@@ -1,6 +1,6 @@
 import { resolveRootView } from './root-view';
 
-describe('resolveRootView — MV3 cold-start gating', () => {
+describe('resolveRootView - cold-start gating and the onboarding finish hold', () => {
   it('shows loading (NOT onboarding) before the backend has responded', () => {
     // Popup just opened, MV3 service worker is cold-starting, no GetStateResponse
     // yet → status is the initial Idle and hydrated is false. This is the bug
