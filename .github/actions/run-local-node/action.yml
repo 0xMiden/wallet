@@ -545,8 +545,7 @@ runs:
       env:
         MIDEN_PROVER_TIMEOUT: 10m
         MIDEN_PROVER_CAPACITY: '4'
-        # Read by miden-client's test-node-genesis when it renders genesis.toml.
-        # Unset (or 0) means `verification_base_fee = 0` and a fee-free chain.
+        # The chain's verification base fee; start-test-node.sh passes it to genesis.
         # The name start-test-node.sh actually reads; MIDEN_TEST_NODE_VERIFICATION_BASE_FEE
         # is read by nothing, so the requested fee never reached genesis.
         MIDEN_VERIFICATION_BASE_FEE: ${{ inputs.verification-base-fee }}
@@ -653,8 +652,23 @@ runs:
       run: |
         set -euo pipefail
         g="${{ runner.temp }}/miden-client/target/test-node/data/genesis-config/genesis.toml"
-        actual=$(grep -E '^verification_base_fee' "$g" | tr -dc '0-9')
         want='${{ inputs.verification-base-fee }}'
+        if [ -f "$g" ]; then
+          actual=$(grep -E '^verification_base_fee' "$g" | tr -dc '0-9')
+        else
+          # Since rust-sdk v0.17.0-rc.3 no genesis file records the fee: the script hands its
+          # MIDEN_VERIFICATION_BASE_FEE (set on the start step) to `miden-validator genesis` as a
+          # flag. Guard both ends of that hand-off, since a renamed variable is how the requested
+          # fee silently never reached genesis before.
+          f="${{ runner.temp }}/miden-client/scripts/start-test-node.sh"
+          for line in 'VERIFICATION_BASE_FEE="${MIDEN_VERIFICATION_BASE_FEE:-' '--verification-base-fee "$VERIFICATION_BASE_FEE"'; do
+            grep -qF -- "$line" "$f" || {
+              echo "::error::start-test-node.sh no longer contains '$line'; the requested fee may not reach genesis."
+              exit 1
+            }
+          done
+          actual=$want
+        fi
         echo "genesis verification_base_fee=$actual (requested $want)"
         if [ "$actual" != "$want" ]; then
           echo "::error::genesis has verification_base_fee=$actual but $want was requested; the chain is not charging what the suite assumes"
