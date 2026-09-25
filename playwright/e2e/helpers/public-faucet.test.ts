@@ -119,4 +119,61 @@ describe('mintFromPublicFaucet', () => {
     );
     expect(urls).toHaveLength(6);
   });
+
+  it('waits out a 429 for as long as the faucet asks, then retries from a fresh challenge', async () => {
+    const urls = serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(429, 'Account is rate limited for 25 more seconds.'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+    const waits: number[] = [];
+
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async ms => {
+        waits.push(ms);
+      })
+    ).resolves.toEqual({ txId: '0xtx', noteId: '0xnote' });
+
+    expect(waits).toEqual([26_000]);
+    expect(urls[3]).toContain('challenge=bb');
+  });
+
+  it('does not count 429s against the 5xx attempts', async () => {
+    const limited = () => reply(429, 'Account is rate limited for 1 more seconds.');
+    serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      limited(),
+      reply(200, { challenge: 'cc', target: EASY_TARGET }),
+      limited(),
+      reply(200, { challenge: 'dd', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'ee', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async () => {})).resolves.toEqual({
+      txId: '0xtx',
+      noteId: '0xnote'
+    });
+  });
+
+  it('gives up with the 429 once waiting would exceed its budget', async () => {
+    const responses: Response[] = [];
+    for (let i = 0; i < 8; i++) {
+      responses.push(reply(200, { challenge: `c${i}`, target: EASY_TARGET }));
+      responses.push(reply(429, 'Account is rate limited for 59 more seconds.'));
+    }
+    serve(responses);
+    const waits: number[] = [];
+
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async ms => {
+        waits.push(ms);
+      })
+    ).rejects.toThrow('Public faucet mint failed (429): Account is rate limited for 59 more seconds.');
+    expect(waits).toEqual([60_000, 60_000, 60_000]);
+  });
 });
