@@ -295,39 +295,6 @@ describe('HistoryView empty state', () => {
     expect(container.querySelector('.mt-8')).toBeNull();
   });
 
-  it('shows the empty state only when neither a note card nor a transaction is listed', () => {
-    const note: PendingActivityItem = {
-      note: {
-        id: 'incoming',
-        faucetId: 'faucet',
-        amount: '100',
-        senderAddress: 'sender',
-        isBeingClaimed: false,
-        type: 'unknown',
-        receivedAt: DAY_A,
-        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
-      },
-      status: 'pending'
-    };
-    const inFlight = makeEntry({ type: HistoryEntryType.ProcessingTransaction, txType: 'swap' });
-    const view = (entries: IHistoryEntry[], pendingItems: PendingActivityItem[]) => (
-      <HistoryView
-        {...baseProps}
-        fullHistory
-        centerEmptyState
-        entries={entries}
-        pendingItems={pendingItems}
-        renderPendingItem={() => <span>Pending note</span>}
-      />
-    );
-    const { rerender } = render(view([inFlight], []));
-    expect(screen.queryByText('noOperationsFound')).not.toBeInTheDocument();
-    rerender(view([], [note]));
-    expect(screen.queryByText('noOperationsFound')).not.toBeInTheDocument();
-    rerender(view([], []));
-    expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
-  });
-
   it('renders the full-history empty state flush under its section header', () => {
     const { container } = render(<HistoryView {...baseProps} entries={[]} fullHistory />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();

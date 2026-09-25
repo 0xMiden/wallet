@@ -28,6 +28,7 @@ import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
 
+import { isPendingActivityEntry } from './activityGroups';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -205,10 +206,16 @@ const History = memo<HistoryProps>(
         isPaused: () => !readingPending
       }
     );
+    // Under Pending the settled-history read is paused, and one that never ran reports loading until it resumes,
+    // so only the in-flight read decides. Otherwise one list: loading until both reads have answered once. The
+    // spinner and the initial-load report read this one value.
+    const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
+    // The list is the reads that run together, so either failing is a failed load, and Retry re-runs both.
+    const loadError = filter === 'pending' ? Boolean(pendingError) : Boolean(latestError || pendingError);
     useEffect(() => {
-      if (transactionsLoading) return;
+      if (initialLoading) return;
       onInitialLoad?.();
-    }, [transactionsLoading, onInitialLoad]);
+    }, [initialLoading, onInitialLoad]);
 
     // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
     // screen, or (for the settled history) a filter moved off Pending.
@@ -324,7 +331,7 @@ const History = memo<HistoryProps>(
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
         // Only rows still in flight; the settled rows the paused read already holds stay out.
-        if (filter === 'pending') return isInFlight(e.status);
+        if (filter === 'pending') return isPendingActivityEntry(e);
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
         }
@@ -347,11 +354,6 @@ const History = memo<HistoryProps>(
       entries = entries.slice(0, maxIndex);
     }
 
-    // Under Pending the settled-history read is paused, and one that never ran reports loading until it resumes,
-    // so only the in-flight read decides. Otherwise one list: loading until both reads have answered once.
-    const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
-    // The list is the reads that run together, so either failing is a failed load, and Retry re-runs both.
-    const loadError = filter === 'pending' ? Boolean(pendingError) : Boolean(latestError || pendingError);
     const onRetry = () => {
       void mutateLatest();
       void mutateTx();
@@ -395,11 +397,6 @@ const History = memo<HistoryProps>(
 );
 
 export default History;
-
-/** Queued or generating: the rows the Pending filter keeps. */
-function isInFlight(status: IHistoryEntry['status']): boolean {
-  return status === ITransactionStatus.Queued || status === ITransactionStatus.GeneratingTransaction;
-}
 
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {

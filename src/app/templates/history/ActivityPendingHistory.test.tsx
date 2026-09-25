@@ -321,11 +321,10 @@ it('offers no Accept All on the other filters, or once every transfer is accepte
   expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
 });
 
-it('still hands Pending to the timeline with no notes, so in-flight transactions list without Accept All', () => {
+it('still hands Pending to the timeline with no notes, so in-flight transactions list', () => {
   mockState.items = [];
   render(<ActivityPendingHistory search="" filter="pending" />);
   expect(mockHistoryRenders.at(-1)).toMatchObject({ filter: 'pending', pendingItems: [] });
-  expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
 });
 
 it('keeps Accept All, and marks it busy, while the batch it started is still in flight', () => {

@@ -351,6 +351,26 @@ describe('History initial-load signal', () => {
 
     await waitFor(() => expect(onInitialLoad.mock.calls.length).toBeGreaterThan(0));
   });
+
+  it('reports the load under Pending once the in-flight read answers, though the settled read never runs', async () => {
+    mockGetCompletedTransactions.mockImplementation(() => new Promise(() => {}));
+    const onInitialLoad = jest.fn();
+
+    await renderHistory({ filter: 'pending', pendingItems: [], onInitialLoad });
+
+    await waitFor(() => expect(onInitialLoad.mock.calls.length).toBeGreaterThan(0));
+  });
+
+  it('does not report the load while the in-flight read has not answered', async () => {
+    mockGetUncompletedTransactions.mockImplementation(() => new Promise(() => {}));
+    const onInitialLoad = jest.fn();
+
+    await renderHistory({ onInitialLoad });
+    await waitFor(() => expect(mockGetCompletedTransactions).toHaveBeenCalled());
+    await act(async () => undefined);
+
+    expect(onInitialLoad).not.toHaveBeenCalled();
+  });
 });
 
 describe('History', () => {
@@ -519,7 +539,7 @@ describe('History', () => {
       expect(mockSwrMutates['latest-pending-transactions']).toHaveBeenCalled();
     });
 
-    it('forwards no load error under the Pending filter, where both reads are paused', async () => {
+    it('ignores a settled-read failure under the Pending filter, where only the in-flight read runs', async () => {
       mockGetCompletedTransactions.mockRejectedValue(new Error('db down'));
       await renderHistory({ filter: 'pending' });
 
@@ -1459,22 +1479,17 @@ it('lists in-flight transactions under Pending beside the note cards, and no set
   expect(mockHistoryViewProps.pendingItems).toEqual([note]);
 });
 
-it('drops settled rows the paused history read still holds once the Pending filter is chosen', async () => {
-  const { rerender } = await renderHistory({ filter: 'all', pendingItems: [] });
-  await waitFor(() => expect(entryKeys()).toContain('completed-S'));
-
-  await act(async () => {
-    rerender(<History address="0xme" filter="pending" pendingItems={[]} />);
-  });
-  expect(entryKeys()).toEqual(['pending-PQ', 'pending-PP', 'pending-undefined']);
+it('keeps Pending loading while the in-flight read has not answered', async () => {
+  mockGetUncompletedTransactions.mockImplementation(() => new Promise(() => {}));
+  await renderHistory({ filter: 'pending', pendingItems: [] });
+  await act(async () => undefined);
+  expect(mockHistoryViewProps.initialLoading).toBe(true);
 });
 
-it('hands Pending an empty, settled list when there is neither a note nor an in-flight transaction', async () => {
-  mockGetUncompletedTransactions.mockResolvedValue([]);
+it('shows a load error under Pending when the in-flight read fails', async () => {
+  mockGetUncompletedTransactions.mockRejectedValue(new Error('db down'));
   await renderHistory({ filter: 'pending', pendingItems: [] });
-  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
-  expect(entryKeys()).toEqual([]);
-  expect(mockHistoryViewProps.pendingItems).toEqual([]);
+  await waitFor(() => expect(mockHistoryViewProps.loadError).toBe(true));
 });
 
 it('hides the consume row of every represented claim while drawing only the cards it is told to', async () => {
