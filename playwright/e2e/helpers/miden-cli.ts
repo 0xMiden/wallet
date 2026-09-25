@@ -430,7 +430,7 @@ export class MidenCli {
     // Genesis funders on a local stack, the chain's public faucet on devnet; either way this
     // only SENDS the note. Consuming it below is what funds the vault -- and for this still-
     // undeployed faucet, that consumption is also its deploy.
-    const fundedBy = await this.sendNativeFundingNote(newId);
+    let fundedBy = await this.sendNativeFundingNote(newId);
 
     // The funding note only becomes consumable once it is committed in a block, and
     // `consume-notes` exits 0 when it finds nothing to consume -- so a single attempt can report
@@ -442,6 +442,15 @@ export class MidenCli {
     for (let attempt = 1; attempt <= 10 && !funded; attempt++) {
       await this.sync();
       consumed = await this.run(`consume-notes --account ${newId} --force`, { timeoutMs: 180_000 });
+      // The vault below is the store's optimistic view. On a 500 ms chain a slow proof can see the
+      // consume accepted and then expire in the mempool; the next sync rolls the vault back and the
+      // faucet's first mint cannot pay its fee. The CLI also leaves the discarded consume's input
+      // note Processing for good, so it cannot be consumed again: fund the faucet with a new note.
+      const consumeTx = consumed.parsed?.transactionId;
+      if (consumed.exitCode === 0 && consumeTx && (await this.awaitCommit(consumeTx)) === 'discarded') {
+        fundedBy = await this.sendNativeFundingNote(newId);
+        continue;
+      }
       funded = await this.holdsFeeAsset(newId);
       if (!funded) {
         await new Promise(r => setTimeout(r, 3_000));
