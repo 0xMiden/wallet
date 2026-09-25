@@ -4,6 +4,7 @@ import {
   Address,
   Felt,
   FungibleAsset,
+  MidenClient,
   Note,
   NoteArray,
   NoteAssets,
@@ -238,6 +239,27 @@ export function randomFeeSalt(): Word {
 }
 
 /**
+ * Starts a request that `account` will execute, carrying the fee auth args it needs.
+ *
+ * Since protocol 0.17 a multisig, which every guardian account is, resolves THREE words of auth
+ * args (`[bound_block, approval_expiration, 0, 0] || SALT || CONVERSION_INFO`) at any base fee.
+ * A bare `withFeeConversionSalt` commits two, so the auth procedure ran the advice stack dry
+ * (`advice stack read failed`) at the proposal's first execution. The SDK's fee-aware builder
+ * commits the full preimage for a multisig, bound to the store's sync height, and returns an
+ * untouched builder for any other account, which miden-client then settles by itself. The salt
+ * is serialized with the request, so persisted bytes reproduce the co-signed summary.
+ *
+ * `feeSalt` is consumed (moved into WASM). Call inside the WASM client lock.
+ */
+export function feeAwareRequestBuilder(
+  client: MidenClient,
+  account: string,
+  feeSalt: Word
+): Promise<TransactionRequestBuilder> {
+  return client.feeAwareTransactionRequestBuilder(account, { feeConversionSalt: feeSalt });
+}
+
+/**
  * The single request builder for every P2ID/P2IDE wallet send: resolves the
  * outgoing asset from the sender's vault (callback flag included, see
  * `resolveHeldFungibleAsset`) and wraps it in a P2ID note — P2IDE when a
@@ -270,7 +292,7 @@ export function buildSendTransactionRequest(
   amount: bigint,
   noteType: NoteType,
   reclaimAfter?: number,
-  feeSalt?: Word
+  baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
   const asset = resolveHeldFungibleAsset(senderAccount, faucetRef, amount);
   const assets = new NoteAssets([asset]);
@@ -278,25 +300,10 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-  // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and rate from the AUTH ARGS
-  // and aborts without them. Declaring the salt is all this has to do: miden-client
-  // derives the native 1/1 conversion info from the execution reference header -- for a
-  // proposal, its chain anchor -- and commits `hash(CONVERSION_INFO || SALT)` into the
-  // auth arg itself. The salt survives serialization, so a request handed to GUARDIAN and
-  // rebuilt by a co-signer commits the same word.
-  //
-  // This built the commitment by hand until guardian 0.17.0-rc.3. A guarded multisig
-  // assembled from locally compiled MASM carried procedure roots miden-client could not
-  // match, and it will not commit for an account it cannot classify; setting the auth arg
-  // directly bypassed classification. Guardian now builds those accounts from the upstream
-  // component, so the client classifies them and owns this. Accounts deployed BEFORE that
-  // change still cannot be classified, and a declared salt against one is a hard
-  // `FeeConversionInfoUnsupported` -- hence the drain-and-upgrade note on that release.
-  if (feeSalt !== undefined) {
-    builder = builder.withFeeConversionSalt(feeSalt);
-  }
-  return builder.build();
+  // `baseBuilder` is where a request that has to declare its fee auth starts: a guarded
+  // (multisig) sender's comes from `feeAwareRequestBuilder`. Without one, miden-client
+  // commits the native conversion info itself, which is all an ordinary account needs.
+  return (baseBuilder ?? new TransactionRequestBuilder()).withOwnOutputNotes(new NoteArray([note])).build();
 }
 
 /**
@@ -340,7 +347,7 @@ export function buildPswapCreateRequest(
   reference: TransactionRequest,
   offeredFaucetRef: string,
   offeredAmount: bigint,
-  feeSalt?: Word
+  baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
   const referenceNote = reference.expectedOutputOwnNotes()[0];
   if (!referenceNote) {
@@ -355,12 +362,7 @@ export function buildPswapCreateRequest(
     referenceNote.recipient(),
     referenceNote.attachments()
   );
-  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-  // The salt this request declares; miden-client commits the conversion info from it.
-  // Attached here rather than to the finished request: the SDK exposes no auth-arg
-  // setter on `TransactionRequest`, only on the builder.
-  if (feeSalt !== undefined) {
-    builder = builder.withFeeConversionSalt(feeSalt);
-  }
-  return builder.build();
+  // Fee auth rides on the builder the request starts from (see `buildSendTransactionRequest`):
+  // the SDK exposes no auth-arg setter on a finished `TransactionRequest`.
+  return (baseBuilder ?? new TransactionRequestBuilder()).withOwnOutputNotes(new NoteArray([note])).build();
 }

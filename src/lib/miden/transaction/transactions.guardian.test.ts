@@ -233,6 +233,14 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
   // nothing downstream inspects it.
   randomFeeSalt: () => 'SALT',
+  // Mirrors the real helper, so each test sees exactly which account and salt reach the SDK.
+  feeAwareRequestBuilder: (
+    client: {
+      feeAwareTransactionRequestBuilder: (account: string, options: { feeConversionSalt: unknown }) => unknown;
+    },
+    account: string,
+    feeSalt: unknown
+  ) => client.feeAwareTransactionRequestBuilder(account, { feeConversionSalt: feeSalt }),
   buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as [])),
   buildPswapCreateRequest: (...args: unknown[]) => mockBuildPswapCreateRequest(...(args as []))
 }));
@@ -312,10 +320,19 @@ const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest
   return { executeRequest, prove, submitProven, apply };
 };
 
+// What the SDK's `feeAwareTransactionRequestBuilder` resolves. Since protocol 0.17 a guarded
+// (multisig) account resolves three words of fee auth args, and `withFeeConversionSalt` committed
+// two (`advice stack read failed` at the proposal), so every guardian request has to be built
+// from THIS builder rather than a fresh one.
+const FEE_AWARE_BUILDER = { kind: 'fee-aware-builder' };
+
 const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
   const transactions = makeTransactionsApi(result, apply);
   return {
     transactions,
+    feeAwareTransactionRequestBuilder: jest.fn(
+      async (_account: string, _options: { feeConversionSalt: unknown }) => FEE_AWARE_BUILDER
+    ),
     _withInnerWebClient: jest.fn(async (fn: (inner: object) => Promise<unknown>) =>
       fn({
         executeTransaction: transactions.executeRequest,
@@ -1527,8 +1544,12 @@ describe('generateTransaction — Guardian routing', () => {
         1000n,
         expectedSdkNoteType,
         125,
-        'SALT'
+        FEE_AWARE_BUILDER
       );
+      // Asked for by the EXECUTING (guarded) account, with the salt this build drew.
+      expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+        feeConversionSalt: 'SALT'
+      });
       expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
       expect(multisigService.createSendProposal).not.toHaveBeenCalled();
       expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', requestBytes);
@@ -1595,8 +1616,11 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       125,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
   });
 
   /**
@@ -1653,16 +1677,18 @@ describe('generateTransaction — Guardian routing', () => {
 
     // The creator's vault, by canonical id, handed to the rewrite verbatim.
     expect(getAccount).toHaveBeenCalledWith('sdk-guardian-acc');
-    // The fee salt is threaded into the BUILD; there is no setter for it on a finished
-    // request, so a swap not built with one can never acquire it, and miden-client
-    // commits no conversion info for a request that declares none.
+    // The fee auth rides on the builder the request STARTS from; there is no setter for it on a
+    // finished request, so a swap not built from the fee-aware builder can never acquire it.
     expect(mockBuildPswapCreateRequest).toHaveBeenCalledWith(
       creatorAccount,
       reference,
       'offered-faucet',
       1000n,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
     // One builder call: each draws a fresh serial number, which IS the order id,
     // so building one request to inspect and another to propose would register a
     // different order than the one the wallet tracks.
@@ -1802,8 +1828,11 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       230,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
@@ -1868,8 +1897,11 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       125,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('earn-proposal', requestBytes);
@@ -1946,8 +1978,11 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       225,
-      'SALT'
+      FEE_AWARE_BUILDER
     );
+    expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
+      feeConversionSalt: 'SALT'
+    });
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
   });
 

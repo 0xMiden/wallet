@@ -95,6 +95,7 @@ import {
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
+  feeAwareRequestBuilder,
   randomFeeSalt,
   sameWalletAccountId,
   walletAccountIdToSdk
@@ -1642,6 +1643,12 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
+    const baseBuilder = await feeAwareRequestBuilder(
+      (await getMidenClient()).client,
+      walletAccountIdToSdk(transaction.accountId).toString(),
+      feeSalt
+    );
+    assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the fee-aware builder');
     const request = buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),
@@ -1653,7 +1660,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       amount,
       noteType,
       syncHeight + recallBlocks,
-      feeSalt
+      baseBuilder
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
     // `RuntimeError: unreachable`, and the labelled steps INSIDE the builder already
@@ -2529,6 +2536,12 @@ const generateGuardianTransaction = async (
           // client's borrow, not the reader's - so the request build needs its
           // own re-check after the await above.
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
+          const baseBuilder = await feeAwareRequestBuilder(
+            (await getMidenClient()).client,
+            accountIdStringToSdk(swapTx.accountId).toString(),
+            swapFeeSalt
+          );
+          assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
           // Built once and rewritten once, in the same scope: each builder call
           // draws a fresh serial number, which IS the order id. See
           // `buildPswapCreateRequest`.
@@ -2537,7 +2550,7 @@ const generateGuardianTransaction = async (
             tr,
             swapTx.faucetId,
             BigInt(swapTx.amount),
-            swapFeeSalt
+            baseBuilder
           ).serialize();
         });
         transaction.requestBytes = requestBytes;

@@ -980,7 +980,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
       const [
         { NoteType },
-        { accountRefToSdk, buildSendTransactionRequest, randomFeeSalt, walletAccountIdToSdk },
+        { accountRefToSdk, buildSendTransactionRequest, feeAwareRequestBuilder, randomFeeSalt, walletAccountIdToSdk },
         { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
         { u8ToB64 }
       ] = await Promise.all([
@@ -999,6 +999,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
           const account = await client.getAccount(walletAccountIdToSdk(accountId).toString());
           // The Account is borrowed from the client's RefCell and the build reads its vault.
           assertWasmHoldCurrent(hold, 'e2e-custom-request after the account read');
+          const baseBuilder = await feeAwareRequestBuilder(
+            client.client,
+            walletAccountIdToSdk(accountId).toString(),
+            randomFeeSalt()
+          );
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the fee-aware builder');
           return buildSendTransactionRequest(
             account ?? undefined,
             walletAccountIdToSdk(accountId),
@@ -1007,9 +1013,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
             BigInt(input.amountBaseUnits),
             NoteType.Public,
             undefined,
-            // Declared, like every wallet-built request: since protocol 0.16 `fee::pay_fee` reads
-            // the conversion salt from the auth args and aborts without one.
-            randomFeeSalt()
+            baseBuilder
           ).serialize();
         },
         { label: 'e2e-custom-request' }

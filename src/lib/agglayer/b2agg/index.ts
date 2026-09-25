@@ -5,8 +5,7 @@ import {
   Note,
   NoteArray,
   NoteAssets,
-  TransactionRequest,
-  TransactionRequestBuilder
+  TransactionRequest
 } from '@miden-sdk/miden-sdk/lazy';
 
 import {
@@ -16,8 +15,13 @@ import {
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
-import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  accountRefToSdk,
+  feeAwareRequestBuilder,
+  getBech32AddressFromAccountId,
+  randomFeeSalt
+} from 'lib/miden/sdk/helpers';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { isExtension } from 'lib/platform';
 
@@ -113,10 +117,14 @@ export async function initiateB2AggBridge(args: {
     // would hand the abandoned request to the processor as a fresh write.
     assertWasmHoldCurrent(hold, 'before the bridge request build');
     // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
-    // only on the builder.
-    let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-    builder = builder.withFeeConversionSalt(feeSalt);
-    const request = builder.build();
+    // only on the builder. See `feeAwareRequestBuilder` for why it starts there.
+    const builder = await feeAwareRequestBuilder(
+      (await getMidenClient()).client,
+      accountRefToSdk(senderPublicKey).toString(),
+      feeSalt
+    );
+    assertWasmHoldCurrent(hold, 'after the fee-aware bridge builder');
+    const request = builder.withOwnOutputNotes(new NoteArray([note])).build();
     const serialisedReq = request.serialize();
     console.log('Got the serialised transaction request', serialisedReq);
     try {

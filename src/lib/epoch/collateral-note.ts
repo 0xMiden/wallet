@@ -4,13 +4,17 @@ import {
   NoteArray,
   NoteAssets,
   NoteAttachment,
-  NoteType,
-  TransactionRequestBuilder
+  NoteType
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { accountIdStringToSdk, randomFeeSalt, resolveHeldFungibleAsset } from 'lib/miden/sdk/helpers';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  accountIdStringToSdk,
+  feeAwareRequestBuilder,
+  randomFeeSalt,
+  resolveHeldFungibleAsset
+} from 'lib/miden/sdk/helpers';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
 import { getCurrentMidenBlock } from './chain';
 
@@ -116,9 +120,13 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       attachment
     );
     // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
-    // only on the builder.
-    let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-    builder = builder.withFeeConversionSalt(feeSalt);
-    return builder.build().serialize();
+    // only on the builder. See `feeAwareRequestBuilder` for why it starts there.
+    const builder = await feeAwareRequestBuilder(
+      (await getMidenClient()).client,
+      toAccountId(args.senderAccountId).toString(),
+      feeSalt
+    );
+    assertWasmHoldCurrent(hold, 'after the fee-aware collateral builder');
+    return builder.withOwnOutputNotes(new NoteArray([note])).build().serialize();
   });
 }

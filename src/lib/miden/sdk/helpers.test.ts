@@ -1,4 +1,4 @@
-import { AccountId, Address, FungibleAsset, Note } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, Address, FungibleAsset, Note, TransactionRequestBuilder } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   accountIdStringToSdk,
@@ -6,6 +6,7 @@ import {
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalFaucetBech32Id,
+  feeAwareRequestBuilder,
   getBech32AddressFromAccountId,
   sameWalletAccountId,
   walletAccountIdToSdk
@@ -54,9 +55,29 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
       this.ownOutputNotes = notes;
       return this;
     };
+    // Present so a regression back to the two-word salt commit is observable, not a TypeError.
+    this.withFeeConversionSalt = jest.fn(() => this);
     this.build = () => ({ kind: 'request', ownOutputNotes: this.ownOutputNotes });
   })
 }));
+
+/**
+ * A builder as `feeAwareTransactionRequestBuilder` resolves it. Since protocol 0.17 it carries the
+ * three words of fee auth args a multisig resolves, which `withFeeConversionSalt` (two words) could
+ * not, so a request handed one must be built from it and never from a fresh builder.
+ */
+const feeAwareBaseBuilder = () => {
+  const builder = {
+    withOwnOutputNotes: jest.fn(),
+    withFeeConversionSalt: jest.fn(),
+    build: jest.fn(() => ({ kind: 'fee-aware-request' }))
+  };
+  builder.withOwnOutputNotes.mockReturnValue(builder);
+  return builder;
+};
+
+/** The builder instances `new TransactionRequestBuilder()` produced in this test. */
+const freshBuilders = () => jest.mocked(TransactionRequestBuilder).mock.instances;
 
 /** A vault entry: one fungible asset slot as `account.vault().fungibleAssets()` returns it. */
 const vaultAsset = (faucetHex: string, amount: bigint, flag: string) => ({
@@ -193,6 +214,25 @@ describe('miden sdk helpers', () => {
     });
   });
 
+  describe('feeAwareRequestBuilder', () => {
+    it('asks the SDK for the executing account with the salt as its fee conversion salt', async () => {
+      const builder = feeAwareBaseBuilder();
+      const salt = { kind: 'salt' };
+      const feeAwareTransactionRequestBuilder = jest.fn(async () => builder);
+
+      const result = await feeAwareRequestBuilder(
+        { feeAwareTransactionRequestBuilder } as any,
+        'accountId-guarded',
+        salt as any
+      );
+
+      expect(feeAwareTransactionRequestBuilder).toHaveBeenCalledTimes(1);
+      expect(feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('accountId-guarded', { feeConversionSalt: salt });
+      expect(result).toBe(builder);
+      expect(builder.withFeeConversionSalt).not.toHaveBeenCalled();
+    });
+  });
+
   describe('buildSendTransactionRequest', () => {
     const sender = { id: 'sender' } as any;
     const recipient = { id: 'recipient' } as any;
@@ -216,6 +256,49 @@ describe('miden sdk helpers', () => {
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
       expect(FungibleAsset).not.toHaveBeenCalled();
       expect(request).toEqual({ kind: 'request', ownOutputNotes: expect.anything() });
+    });
+
+    it('starts from a fresh builder when no base builder is given, declaring no fee salt', () => {
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any
+      );
+
+      expect(freshBuilders()).toHaveLength(1);
+      expect(freshBuilders()[0]!.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: { notes: [(Note.createP2IDNote as jest.Mock).mock.results[0]!.value] }
+      });
+    });
+
+    // A guarded (multisig) sender's fee auth args live on the builder `feeAwareRequestBuilder`
+    // returned; building from a fresh one would drop them and fail the proposal.
+    it('adds the note to the base builder it is given and builds from THAT builder', () => {
+      const base = feeAwareBaseBuilder();
+
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Public' as any,
+        125,
+        base as any
+      );
+
+      expect(request).toEqual({ kind: 'fee-aware-request' });
+      expect(base.withOwnOutputNotes).toHaveBeenCalledWith({
+        notes: [(Note.createP2IDENote as jest.Mock).mock.results[0]!.value]
+      });
+      expect(base.build).toHaveBeenCalledTimes(1);
+      expect(base.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(freshBuilders()).toHaveLength(0);
     });
 
     // The flag is part of the vault key, so one faucet can occupy two slots.
@@ -497,6 +580,42 @@ describe('miden sdk helpers', () => {
       } finally {
         warn.mockRestore();
       }
+    });
+
+    it('starts from a fresh builder when no base builder is given, declaring no fee salt', () => {
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n
+      );
+
+      expect(freshBuilders()).toHaveLength(1);
+      expect(freshBuilders()[0]!.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: { notes: [(Note.withAttachments as jest.Mock).mock.results[0]!.value] }
+      });
+    });
+
+    it('adds the rebuilt note to the base builder it is given and builds from THAT builder', () => {
+      const base = feeAwareBaseBuilder();
+
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n,
+        base as any
+      );
+
+      expect(request).toEqual({ kind: 'fee-aware-request' });
+      expect(base.withOwnOutputNotes).toHaveBeenCalledWith({
+        notes: [(Note.withAttachments as jest.Mock).mock.results[0]!.value]
+      });
+      expect(base.build).toHaveBeenCalledTimes(1);
+      expect(base.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(freshBuilders()).toHaveLength(0);
     });
 
     it('rejects an amount outside the representable range', () => {
