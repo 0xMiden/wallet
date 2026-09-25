@@ -19,16 +19,15 @@ import {
   deserializeError,
   deserializeInternalError,
   IntercomError,
-  serializeError,
   serializeErrorForPage,
   serializeInternalError
 } from './helpers';
 
 describe('intercom helpers', () => {
-  it('serializes plain errors and arrays', () => {
-    expect(serializeError(new Error('boom'))).toBe('boom');
-    expect(serializeError({})).toBe(DEFAULT_ERROR_MESSAGE);
-    expect(serializeError({ message: 'bad', errors: ['x'] })).toEqual(['bad', ['x']]);
+  it('serializes plain errors and arrays for the page', () => {
+    expect(serializeErrorForPage(new Error('boom'))).toBe('boom');
+    expect(serializeErrorForPage({})).toBe(DEFAULT_ERROR_MESSAGE);
+    expect(serializeErrorForPage({ message: 'bad', errors: ['x'] })).toEqual(['bad', ['x']]);
   });
 
   it('deserializes into IntercomError', () => {
@@ -56,29 +55,43 @@ describe('intercom helpers', () => {
     expect(fromArray.code).toBeUndefined();
   });
 
-  it('round-trips a breach assessment across the port, keeping code and the assessment readable', () => {
-    const assessment: SpendingLimitAssessment = {
+  // The object a 1.16.2 server sent for a breach, frozen as a literal: that release's encoder
+  // ships in its own bundle, so this tree only has to read it.
+  it('reads the 1.16.2 breach object, keeping code and the assessment readable', () => {
+    const restored = deserializeError({
+      message: 'Over the daily limit',
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      spendingLimit: {
+        assessment: {
+          accountId: 'account-a',
+          usdAmount: '20',
+          revision: 'revision-1',
+          assessedAt: 100,
+          breach: { spent: '90', proposedTotal: '110', limit: '100', overBy: '10', resetAt: 200 }
+        }
+      }
+    });
+
+    expect(restored).toBeInstanceOf(IntercomError);
+    expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
+    expect(spendingLimitAssessmentFromError(restored)).toEqual({
       accountId: 'account-a',
       usdAmount: 20n,
       revision: 'revision-1',
       assessedAt: 100,
       breach: { spent: 90n, proposedTotal: 110n, limit: 100n, overBy: 10n, resetAt: 200 }
-    };
-    const error = new SpendingLimitAuthorizationRequiredError(assessment);
-
-    const restored = deserializeError(serializeError(error));
-
-    expect(restored).toBeInstanceOf(IntercomError);
-    expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
-    expect(spendingLimitAssessmentFromError(restored)).toEqual(assessment);
+    });
   });
 
-  it('round-trips a price-unavailable refusal across the port, keeping code and the symbol readable', () => {
-    const error = new SpendingLimitPriceUnavailableError('USDC');
-
-    const restored = deserializeError(serializeError(error));
+  it('reads the 1.16.2 price-unavailable object, keeping code and the symbol readable', () => {
+    const restored = deserializeError({
+      message: 'No current price is available for USDC',
+      code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+      spendingLimit: { symbol: 'USDC' }
+    });
 
     expect(restored.code).toBe('SPENDING_LIMIT_PRICE_UNAVAILABLE');
+    expect(restored.symbol).toBe('USDC');
     expect(isSpendingLimitPriceUnavailable(restored)).toBe(true);
   });
 
@@ -172,7 +185,7 @@ describe('intercom helpers', () => {
       expect(isSpendingLimitPriceUnavailable(revived)).toBe(true);
     });
 
-    it('puts the same literal code and payload in slot 5 and in the 1.16.2 object shape', () => {
+    it('puts the literal code and payload in slot 5', () => {
       const assessment: SpendingLimitAssessment = {
         accountId: 'account-a',
         usdAmount: 20n,
@@ -199,17 +212,32 @@ describe('intercom helpers', () => {
         [new SpendingLimitPriceUnavailableError('USDC'), unpriced]
       ] as const) {
         expect(serializeInternalError(error)[4]).toEqual(payload);
-        expect(serializeError(error)).toMatchObject(payload);
       }
     });
 
-    // A 1.16.2 service worker under an open port still speaks `serializeError`, whose
-    // spending-limit refusals are an object.
+    // A 1.16.2 service worker under an open port still sends its spending-limit refusals as an object.
     it('reads the object shape a 1.16.2 server sends for a spending-limit refusal', () => {
-      const revived = deserializeInternalError(serializeError(new SpendingLimitPriceUnavailableError('USDC')));
+      const revived = deserializeInternalError({
+        message: 'No current price is available for USDC',
+        code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
+        spendingLimit: { symbol: 'USDC' }
+      });
 
       expect(revived.code).toBe('SPENDING_LIMIT_PRICE_UNAVAILABLE');
+      expect(revived.symbol).toBe('USDC');
       expect(isSpendingLimitPriceUnavailable(revived)).toBe(true);
+    });
+
+    // The other skew: a 1.16.2 page under a 1.17 service worker reads the envelope as
+    // `[message, errors]`. It keeps the message and loses the refusal's code - pinned so a
+    // change to the slot order or to that degradation is a decision, not an accident.
+    it('degrades a spending-limit refusal to its message for a 1.16.2 client', () => {
+      const original = new SpendingLimitPriceUnavailableError('USDC');
+      const legacy = deserializeError(serializeInternalError(original));
+
+      expect(legacy.message).toBe(original.message);
+      expect(legacy.code).toBeUndefined();
+      expect(isSpendingLimitPriceUnavailable(legacy)).toBe(false);
     });
 
     // An ordinary error must not come back looking evicted - the classifiers are
@@ -226,8 +254,8 @@ describe('intercom helpers', () => {
   it('strips spending-limit and code fields at the page boundary', () => {
     // The page-facing serializer must never leak code, assessment, or symbol to an untrusted
     // dApp, even when the error carries them. Build an error the realistic way: through
-    // serializeError + deserializeError, so it carries the restored fields exactly as the
-    // content script would receive it.
+    // serializeInternalError + deserializeInternalError, so it carries the restored fields exactly
+    // as a rejection that crossed the wallet-internal port does.
     const assessment: SpendingLimitAssessment = {
       accountId: 'account-a',
       usdAmount: 50n,
@@ -236,7 +264,7 @@ describe('intercom helpers', () => {
       breach: { spent: 45n, proposedTotal: 55n, limit: 50n, overBy: 5n, resetAt: 200 }
     };
     const spendingLimitError = new SpendingLimitAuthorizationRequiredError(assessment);
-    const restored = deserializeError(serializeError(spendingLimitError));
+    const restored = deserializeInternalError(serializeInternalError(spendingLimitError));
 
     // Confirm the restored error has code (the main field the page-facing serializer should strip).
     expect(restored.code).toBe('SPENDING_LIMIT_AUTHORIZATION_REQUIRED');
@@ -261,17 +289,20 @@ describe('intercom helpers', () => {
     expect((pageSerialized as any).code).toBeUndefined();
   });
 
-  it('carries the errors array alongside code in the internal object wire shape', () => {
-    // Every existing object-shape case here has a `code`/spending-limit payload but no `errors`
-    // array, so the `errors` key of the returned object has never actually been populated - only
-    // ever omitted. An error that legitimately carries both must keep both, not drop one for the
-    // other.
-    const error = { message: 'Operation failed', code: 'SOME_CODE', errors: ['detail-1', 'detail-2'] };
-
-    expect(serializeError(error)).toEqual({
+  it('keeps the errors array alongside code, in the 1.16.2 object and in the internal envelope', () => {
+    // An error that legitimately carries both must keep both, not drop one for the other.
+    const legacy = deserializeError({
       message: 'Operation failed',
-      errors: ['detail-1', 'detail-2'],
-      code: 'SOME_CODE'
+      code: 'SOME_CODE',
+      errors: ['detail-1', 'detail-2']
+    });
+    expect(legacy).toMatchObject({ code: 'SOME_CODE', errors: ['detail-1', 'detail-2'] });
+
+    const error = { message: 'Operation failed', code: 'SOME_CODE', errors: ['detail-1', 'detail-2'] };
+    expect(deserializeInternalError(serializeInternalError(error))).toMatchObject({
+      message: 'Operation failed',
+      code: 'SOME_CODE',
+      errors: ['detail-1', 'detail-2']
     });
   });
 });

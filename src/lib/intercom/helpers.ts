@@ -14,14 +14,8 @@ export const DEFAULT_ERROR_MESSAGE = 'Unexpected error occured';
 /** The two spending-limit refusals that need more than `code` to act on, JSON-safe for the wire. */
 type SpendingLimitWirePayload = { assessment: SerializedSpendingLimitAssessment } | { symbol: string };
 
-interface SerializedIntercomErrorPayload {
-  message: string;
-  errors?: any[];
-  code?: string;
-  spendingLimit?: SpendingLimitWirePayload;
-}
-
-export type SerializedError = string | [string, any[]] | SerializedIntercomErrorPayload;
+/** What `serializeErrorForPage` posts to a dApp: the message, and the `errors` array when there is one. */
+export type SerializedError = string | [string, any[]];
 
 /**
  * Turn every `bigint` in an assessment into its canonical decimal string, dependency-free (no
@@ -55,46 +49,10 @@ function serializeSpendingLimitPayload(err: any): SpendingLimitWirePayload | und
 }
 
 /**
- * The domain fields a rejection carries across the wallet-internal port: `code`, and the
- * spending-limit payload whose assessment/symbol is how the frontend tells a breach from an
- * unpriceable asset (see `isSpendingLimitPriceUnavailable` and `spendingLimitAssessmentFromError`
- * in `lib/miden/spending-limits/types.ts`). Undefined when there is neither.
- *
- * Only these two are carried. This must not grow into copying arbitrary error properties: that
- * would ship whatever an unrelated error happens to hold.
- */
-function serializeDomainFields(err: any): { code?: string; spendingLimit?: SpendingLimitWirePayload } | undefined {
-  const code = typeof err?.code === 'string' ? err.code : undefined;
-  const spendingLimit = serializeSpendingLimitPayload(err);
-  if (code === undefined && spendingLimit === undefined) return undefined;
-  return { ...(code !== undefined && { code }), ...(spendingLimit !== undefined && { spendingLimit }) };
-}
-
-/**
- * The 1.16.2 wire shape of the wallet-internal port: a bare string, `[message, errors]`, or an
- * object carrying the domain fields. No production path emits it any more - `IntercomServer`
- * sends `serializeInternalError` - but a 1.16.2 service worker under an open port still does, so
- * `deserializeError` and `deserializeInternalError` keep reading it, and tests build it.
- *
- * DO NOT use it at the untrusted-page boundary (contentScript.ts sending to a dApp); that is
- * `serializeErrorForPage`.
- */
-export function serializeError(err: any): SerializedError {
-  const message = err?.message || DEFAULT_ERROR_MESSAGE;
-  const errors = Array.isArray(err?.errors) && err.errors.length > 0 ? err.errors : undefined;
-  const domain = serializeDomainFields(err);
-  if (domain === undefined) return errors !== undefined ? [message, errors] : message;
-  return { message, ...(errors !== undefined && { errors }), ...domain };
-}
-
-/**
- * Serialize an error for posting to an untrusted page (a dApp), intentionally narrower than
- * serializeError. This function ONLY includes the message and errors array - never code,
- * assessment, symbol, or any other fields, even if the error carries them.
- *
- * This is the guard at the page boundary: before this change, a page could only receive
- * a message. If serializeError is used here instead, spending-limit assessments and asset
- * symbols would leak to an untrusted site. This narrower function restores that guarantee.
+ * Serialize an error for posting to an untrusted page (a dApp). This function ONLY includes the
+ * message and errors array - never code, assessment, symbol, or any other fields, even if the
+ * error carries them. It is the guard at the page boundary: spending-limit assessments and asset
+ * symbols must never reach an untrusted site.
  *
  * For the wallet-internal intercom (IntercomServer -> IntercomClient), use serializeInternalError.
  */
@@ -113,6 +71,12 @@ function restoreDomainFields(error: IntercomError, code: unknown, spendingLimit:
   }
 }
 
+/**
+ * The reader for the wire shapes a released build's `IntercomServer` sends: a bare string,
+ * `[message, errors]`, and the `{ message, errors?, code?, spendingLimit? }` object 1.16.2 sends
+ * for a spending-limit refusal. This tree no longer writes any of them - `deserializeInternalError`
+ * falls back here for a server older than this one.
+ */
 export function deserializeError(data: any): IntercomError {
   if (Array.isArray(data)) return new IntercomError(data[0], data[1]);
   if (typeof data === 'object' && data !== null && typeof data.message === 'string') {
@@ -127,7 +91,7 @@ export function deserializeError(data: any): IntercomError {
  * The serializer for the WALLET-INTERNAL port (`IntercomServer` -> `IntercomClient`),
  * which may change shape freely.
  *
- * The 1.16.2 shape (`serializeError`) drops `name` and `reason`, so every rejection arrives at the
+ * The released shapes `deserializeError` reads carry no `name` or `reason`, so every rejection arrives at the
  * frontend as an `IntercomError` and every classifier that tests the CLASS of a
  * backend failure is dead code on the extension. That is not a cosmetic loss:
  * `isWasmClientPoisonedError` is how a caller learns the WASM client was evicted
@@ -152,20 +116,28 @@ export function deserializeError(data: any): IntercomError {
  *
  * An ARRAY rather than an object, and that is the compatibility direction that
  * actually occurs: a service worker updated under an open port is a NEW server
- * talking to an OLD client, and the old `deserializeError` hands an object straight
- * to `Error` - "[object Object]", with the reason lost. It destructures an array
- * correctly, so an old client degrades to exactly the message and errors it
- * understood before.
+ * talking to an OLD client. A 1.16.1 client's decoder hands an object straight to
+ * `Error` - "[object Object]", with the reason lost - but destructures an array, so
+ * it keeps the message and errors. A 1.16.2 client also reads the array as
+ * `[message, errors]`: it keeps the message but loses `code` and the spending-limit
+ * payload its own object shape carried, so until the page reloads a refusal shows
+ * as its message instead of the authorization prompt or the explanation.
  *
- * The fifth slot carries the domain fields (`serializeDomainFields`) - `code` and the
- * spending-limit assessment or symbol payload - because this is the port
- * those refusals cross. Without it the frontend cannot tell a breach from an
- * unpriceable asset and offers neither the authorization prompt nor the explanation.
+ * The fifth slot carries `code` and the spending-limit assessment or symbol payload,
+ * because this is the port those refusals cross. Only these two are carried: this
+ * must not grow into copying arbitrary error properties, which would ship whatever an
+ * unrelated error happens to hold.
  */
 const INTERNAL_ERROR_ENVELOPE_MIN_LENGTH = 4;
 
 export function serializeInternalError(err: any) {
-  return [err?.message || DEFAULT_ERROR_MESSAGE, err?.errors, err?.name, err?.reason, serializeDomainFields(err)];
+  const code = typeof err?.code === 'string' ? err.code : undefined;
+  const spendingLimit = serializeSpendingLimitPayload(err);
+  const domain =
+    code === undefined && spendingLimit === undefined
+      ? undefined
+      : { ...(code !== undefined && { code }), ...(spendingLimit !== undefined && { spendingLimit }) };
+  return [err?.message || DEFAULT_ERROR_MESSAGE, err?.errors, err?.name, err?.reason, domain];
 }
 
 const rebuildInternalError = (
@@ -199,10 +171,7 @@ export function deserializeInternalError(data: any): IntercomError {
     const [message, errors, name, reason, domain] = data;
     return rebuildInternalError(message, errors, name, reason, domain);
   }
-  // Everything else goes to `deserializeError`, which handles exactly the shapes a
-  // released build can send over this port, all from `serializeError`: a bare string,
-  // a `[message, errors]` array, and the `{ message, code, spendingLimit }` object
-  // 1.16.2 emits for a spending-limit refusal.
+  // Everything else is a shape a released build's server sends: `deserializeError`.
   return deserializeError(data);
 }
 

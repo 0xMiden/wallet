@@ -15,7 +15,7 @@
  * its module scope against freshly-configured mocks (the `jest.resetModules()` +
  * `require()` pattern used by `src/i18n.test.ts`). The enum modules are mocked
  * to the exact string values from source so the unit stays isolated from their
- * deep dependency graphs, while the real (dependency-free) `serializeError`
+ * deep dependency graphs, while the real (dependency-free) `serializeErrorForPage`
  * from `lib/intercom/helpers` is used so the error envelope assertion is real.
  */
 

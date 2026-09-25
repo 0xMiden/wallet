@@ -2,7 +2,7 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
-import { deserializeError } from 'lib/intercom/helpers';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 import ForgotPassword from './ForgotPassword';
@@ -396,12 +396,14 @@ describe('ForgotPassword', () => {
   it('surfaces the reason for the shape the EXTENSION actually rejects with (#630)', async () => {
     // Every other case here rejects with `new Error(...)`, which is not what
     // production produces: on the extension `registerWallet` crosses the intercom
-    // port and a rejected request rejects with `deserializeError(...)`. That used
-    // to be an object that only `implements Error`, so the `e instanceof Error`
-    // narrowing below fell through to `String(e)` and the user — whose wallet had
-    // just been wiped — was shown the literal "[object Object]". Build the error
-    // through the real deserializer so this stays pinned to the production shape.
-    mockRegisterWallet.mockRejectedValue(deserializeError('Failed to create wallet'));
+    // port and a rejected request rejects with `deserializeInternalError(...)` of what
+    // `serializeInternalError` sent. That used to be an object that only `implements Error`,
+    // so the `e instanceof Error` narrowing below fell through to `String(e)` and the user -
+    // whose wallet had just been wiped - was shown the literal "[object Object]". Build the
+    // error through the real port pair so this stays pinned to the production shape.
+    mockRegisterWallet.mockRejectedValue(
+      deserializeInternalError(serializeInternalError(new Error('Failed to create wallet')))
+    );
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
