@@ -7,6 +7,7 @@ import { useAppEnv } from 'app/env';
 import ContentContainer from 'app/layouts/ContentContainer';
 import { Button, ButtonVariant } from 'components/Button';
 import { useStorage } from 'lib/miden/front';
+import { MidenSharedStorageKey } from 'lib/miden/types';
 
 import { changelogData, ChangelogItem } from './ChangelogOverlay.data';
 import s from './ChangelogOverlay.module.css';
@@ -18,7 +19,7 @@ export const ChangelogOverlay: FC = () => {
   const { t } = useTranslation();
   const { compact } = useAppEnv();
   const [lastShownVersion, setLastShownVersion] = useStorage<string | undefined | null>(
-    `last_shown_changelog_version`,
+    MidenSharedStorageKey.LastShownChangelogVersion,
     '1.14.8'
   );
 

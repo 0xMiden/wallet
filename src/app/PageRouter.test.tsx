@@ -9,7 +9,8 @@
  * identifiable stub, keeping this a pure routing unit test.
  *
  * Top-level view selection now flows through `resolveRootView(ctx)` (locked →
- * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, else → `app`). The
+ * `unlock`, un-hydrated → `loading`, un-ready → `welcome`, ready but finishing
+ * onboarding → `loading`, else → `app`). The
  * catch-all `*` route (registered BEFORE `/` and every ready-only route) is the
  * one that renders Unlock / RootSuspenseFallback / Welcome and only SKIPs — so a
  * specific route runs — when `resolveRootView` returns `app`. `root-view` is a
@@ -26,10 +27,11 @@
 
 import React from 'react';
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
+import { ONBOARDING_FINISH_BUDGET_MS, markOnboardingFinishing } from './onboarding-finish';
 import PageRouter from './PageRouter';
 import { resolveRootView } from './root-view';
 
@@ -99,7 +101,7 @@ jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
   useAppLifecycleTelemetry: (ctx: unknown) => mockUseAppLifecycleTelemetry(ctx)
 }));
 
-// The loading spinner shown during MV3 cold-start (before hydration).
+// The loading spinner shown during MV3 cold-start (before hydration), or while the finishing mark holds a new wallet.
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
   default: () => <div data-testid="root-suspense-fallback" />
@@ -716,6 +718,51 @@ describe('app/PageRouter — scroll & history side effects', () => {
     renderAt('/', ready, Woozie.HistoryAction.Push);
     expect(scrollToMock).toHaveBeenCalledWith(0, 0);
     expect(resetHistoryPositionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('app/PageRouter - a just-created wallet finishing onboarding', () => {
+  it('shows the loading view at the root and on unknown paths while the mark is held, then Home once released', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+  });
+
+  it('arms a held mark once the wallet is Ready on screen, so a stalled holder cannot hold the loading view forever', () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      act(() => {
+        jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS);
+      });
+      expect(screen.getByTestId('explore')).toBeInTheDocument();
+      // The only trace a stalled holder leaves: lifecycle telemetry leaves the hold out.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain(`${ONBOARDING_FINISH_BUDGET_MS} ms safety budget`);
+    } finally {
+      act(() => mark.release());
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the finishing mark out of the lifecycle telemetry ctx', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(mockUseAppLifecycleTelemetry).toHaveBeenLastCalledWith({ ready: true, locked: false, hydrated: true });
+    } finally {
+      act(() => mark.release());
+    }
   });
 });
 
