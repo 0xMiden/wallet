@@ -25,8 +25,15 @@ jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolved
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
 jest.mock('lib/settings/helpers', () => ({ mirrorBackgroundSettings: jest.fn() }));
 jest.mock('./useSyncTrigger', () => ({ useSyncTrigger: jest.fn() }));
-jest.mock('./assets', () => ({ TokensMetadataProvider: ({ children }: any) => <>{children}</> }));
-jest.mock('lib/fiat-currency', () => ({ FiatCurrencyProvider: ({ children }: any) => <>{children}</> }));
+jest.mock('./assets', () => ({
+  ALL_TOKENS_BASE_METADATA_STORAGE_KEY: 'tokens_base_metadata',
+  TokensMetadataProvider: ({ children }: any) => <>{children}</>
+}));
+jest.mock('./storage', () => ({ preloadStorage: () => Promise.resolve() }));
+jest.mock('lib/fiat-currency', () => ({
+  FIAT_CURRENCY_STORAGE_KEY: 'fiat_currency',
+  FiatCurrencyProvider: ({ children }: any) => <>{children}</>
+}));
 jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
@@ -36,10 +43,17 @@ import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 
 import { MidenProvider } from './provider';
 
+let warn: jest.SpyInstance;
+
 beforeEach(() => {
   jest.clearAllMocks();
+  warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   loadEndpointOverrides.mockResolvedValue(undefined);
   ensureSdkWasmReady.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  warn.mockRestore();
 });
 
 it('loads endpoint overrides before rendering children', async () => {
@@ -56,6 +70,8 @@ it('loads endpoint overrides before rendering children', async () => {
   expect(loadEndpointOverrides.mock.invocationCallOrder[0]!).toBeLessThan(
     ensureSdkWasmReady.mock.invocationCallOrder[0]!
   );
+  // Nothing here should reach a failure path the preload, or anything else, logs.
+  expect(warn).not.toHaveBeenCalled();
 });
 
 it('primes native-asset discovery only AFTER endpoint overrides resolve (not against the build default)', async () => {
@@ -78,4 +94,6 @@ it('primes native-asset discovery only AFTER endpoint overrides resolve (not aga
   // Once overrides resolve, priming runs against the now-current endpoint.
   resolveLoad();
   await waitFor(() => expect(primeNativeAssetId).toHaveBeenCalledTimes(1));
+  // Nothing here should reach a failure path the preload, or anything else, logs.
+  expect(warn).not.toHaveBeenCalled();
 });
