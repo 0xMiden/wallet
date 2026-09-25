@@ -640,14 +640,12 @@ export class MultisigService {
         webClient,
         targetThreshold,
         targetSignerCommitments,
-        // `feeFaucetId` is what makes this request payable on a fee-charging chain: the
-        // builder commits fee conversion info into the auth args, and without it
-        // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. `Multisig.updateSigners`
-        // supplies it from its own cached lookup, but this call site drives the low-level
-        // builder directly (it needs the request AND salt back to build the proposal by
-        // hand), so it has to supply it too. Passed as an AccountId: the helper parses a
-        // bare string as hex, and the wallet's native asset id is bech32.
+        // This site drives the low-level builder directly (it needs the request AND
+        // salt back to build the proposal by hand), so it names the account the
+        // multisig auth args are committed for. The bound block defaults to the sync
+        // height, the block the summary anchor below names and a rebuild pins.
         {
+          accountId: this.accountId,
           signatureScheme: 'ecdsa',
           midenRpcEndpoint: getEffectiveRpcUrl()
         }

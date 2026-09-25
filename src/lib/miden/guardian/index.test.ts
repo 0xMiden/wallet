@@ -1161,10 +1161,10 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotcommit', '0xcoldcommitnoprefix'],
-        // `feeFaucetId` pinned, not ignored: without it the builder commits no fee
-        // conversion info and the rotation aborts in `fee::pay_fee` on any chain whose
-        // verification_base_fee is non-zero.
+        // `accountId` pinned: the builder commits the multisig auth args for it and
+        // refuses a request that carries none.
         {
+          accountId: 'acc-id',
           signatureScheme: 'ecdsa',
           midenRpcEndpoint: expect.any(String)
         }
@@ -1430,10 +1430,10 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotnoprefix', '0xcoldnoprefix'],
-        // `feeFaucetId` pinned, not ignored: without it the builder commits no fee
-        // conversion info and the rotation aborts in `fee::pay_fee` on any chain whose
-        // verification_base_fee is non-zero.
+        // `accountId` pinned: the builder commits the multisig auth args for it and
+        // refuses a request that carries none.
         {
+          accountId: 'acc-id',
           signatureScheme: 'ecdsa',
           midenRpcEndpoint: expect.any(String)
         }
