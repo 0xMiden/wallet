@@ -66,7 +66,10 @@ const PageLayout: FC<PageLayoutProps> = ({
         </ContentPaper>
       </div>
 
-      <ChangelogOverlay />
+      {/* Outside the page's own Suspense: a cold storage key here must not suspend the whole screen. */}
+      <Suspense fallback={null}>
+        <ChangelogOverlay />
+      </Suspense>
     </>
   );
 };

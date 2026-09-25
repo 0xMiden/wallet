@@ -78,9 +78,14 @@ jest.mock('app/a11y/DocBg', () => ({
   default: () => null
 }));
 
-// ChangelogOverlay pulls in a CSS module + storage; not under test.
+// ChangelogOverlay pulls in a CSS module + storage; not under test. It can be made to suspend, as its cold storage
+// read does.
+let mockOverlaySuspends = false;
 jest.mock('./PageLayout/ChangelogOverlay/ChangelogOverlay', () => ({
-  ChangelogOverlay: () => <div data-testid="changelog-overlay" />
+  ChangelogOverlay: () => {
+    if (mockOverlaySuspends) throw new Promise<void>(() => {});
+    return <div data-testid="changelog-overlay" />;
+  }
 }));
 
 jest.mock('components/ui/Spinner', () => ({
@@ -139,6 +144,7 @@ describe('PageLayout', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsMobile = false;
+    mockOverlaySuspends = false;
     mockIsDesktop = false;
     mockLocation = { historyPosition: 0, pathname: '/' };
     capturedBackHandler = null;
@@ -217,6 +223,19 @@ describe('PageLayout', () => {
     );
     expect(screen.getByTestId('child')).toBeInTheDocument();
     expect(screen.getByTestId('changelog-overlay')).toBeInTheDocument();
+  });
+
+  it('keeps the page on screen while the changelog overlay suspends', () => {
+    mockOverlaySuspends = true;
+    render(
+      <React.Suspense fallback={<div data-testid="root-fallback" />}>
+        <PageLayout hideToolbar>
+          <span data-testid="child">hi</span>
+        </PageLayout>
+      </React.Suspense>
+    );
+    expect(screen.queryByTestId('root-fallback')).toBeNull();
+    expect(screen.getByTestId('child')).toBeInTheDocument();
   });
 
   // -- Suspense fallback (SpinnerSection) ---------------------------------
