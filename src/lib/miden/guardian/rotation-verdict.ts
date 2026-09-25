@@ -78,11 +78,10 @@ export function rotationRowTitleKey(kind: RotationVerdictKind): string | undefin
 }
 
 /**
- * Status-chip rendering for a rotation row. `null` defers to the generic
- * status chip - only the claims the generic chip would get WRONG are overridden
- * (a submitted-unconfirmed row is Completed in the DB, which the generic chip
- * renders as a green "Confirmed").
+ * Whether a rotation row needs the Submitted status instead of the generic one:
+ * a submitted-unconfirmed row is Completed in the DB, which the generic status
+ * renders as a green "Confirmed". Every other verdict defers to the generic status.
  */
-export function rotationChip(kind: RotationVerdictKind): { tone: 'pending'; labelKey: string } | null {
-  return kind === 'submitted-unconfirmed' ? { tone: 'pending', labelKey: 'guardianSwitchSubmittedChip' } : null;
+export function isUnconfirmedRotation(kind: RotationVerdictKind): boolean {
+  return kind === 'submitted-unconfirmed';
 }

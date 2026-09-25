@@ -15,7 +15,7 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { springs, useMotion } from 'lib/animation';
-import { rotationChip, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -329,11 +329,11 @@ function buildRowProps(
   } else if (
     entry.txType === 'switch-guardian' &&
     entry.guardianSwitchVerdict &&
-    rotationChip(entry.guardianSwitchVerdict)
+    isUnconfirmedRotation(entry.guardianSwitchVerdict)
   ) {
     // A submitted-unconfirmed rotation is Completed in the DB, which the
     // generic fallthrough below renders as a green "Confirmed" - the one claim
-    // that row cannot make. The override table lives with the verdict module.
+    // that row cannot make.
     status = 'guardianSwitchSubmitted';
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the

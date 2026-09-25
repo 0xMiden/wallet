@@ -32,7 +32,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
-import { rotationChip, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
+import { isUnconfirmedRotation, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -507,10 +507,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
-  const guardianChip =
-    isGuardianSwitch && !entry?.isCancelled && entry?.guardianSwitchVerdict
-      ? rotationChip(entry.guardianSwitchVerdict)
-      : null;
+  const isUnconfirmedSwitch =
+    isGuardianSwitch &&
+    !entry?.isCancelled &&
+    entry?.guardianSwitchVerdict !== undefined &&
+    isUnconfirmedRotation(entry.guardianSwitchVerdict);
   // A device-key rotation changes the account's signer, not its co-signer, so it
   // draws the guardian once. Both are structural Guardian ops: neither moves
   // value, so neither gets the wallet From/To rows.
@@ -695,7 +696,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     status={earnDeposit.epochStatus ?? 'pending'}
                     data-testid="history-status-pill"
                   />
-                ) : guardianChip ? (
+                ) : isUnconfirmedSwitch ? (
                   // Amber "Submitted" for a switch-guardian row whose commit was never confirmed:
                   // the generic pill reads its Completed status as a green "Confirmed", the exact
                   // claim the row cannot make.

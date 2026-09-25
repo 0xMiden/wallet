@@ -8,7 +8,7 @@
  */
 import { ITransactionStatus } from 'lib/miden/db/types';
 
-import { rotationChip, rotationRowTitleKey, rotationVerdict } from './rotation-verdict';
+import { isUnconfirmedRotation, rotationRowTitleKey, rotationVerdict } from './rotation-verdict';
 
 const row = (
   status: ITransactionStatus,
@@ -99,7 +99,7 @@ describe('rotationVerdict', () => {
   });
 });
 
-describe('rotationRowTitleKey / rotationChip', () => {
+describe('rotationRowTitleKey / isUnconfirmedRotation', () => {
   it('titles completed rotations by verdict, not by snapshot', () => {
     expect(rotationRowTitleKey('confirmed')).toBe('guardianSwitchedRowTitle');
     expect(rotationRowTitleKey('completed-degraded')).toBe('guardianSwitchedRowTitle');
@@ -109,12 +109,10 @@ describe('rotationRowTitleKey / rotationChip', () => {
   });
 
   it('overrides the status chip ONLY where the generic chip would lie', () => {
-    expect(rotationChip('submitted-unconfirmed')).toEqual({
-      tone: 'pending',
-      labelKey: 'guardianSwitchSubmittedChip'
-    });
-    expect(rotationChip('confirmed')).toBeNull();
-    expect(rotationChip('completed-degraded')).toBeNull();
-    expect(rotationChip('failed')).toBeNull();
+    expect(isUnconfirmedRotation('submitted-unconfirmed')).toBe(true);
+    expect(isUnconfirmedRotation('confirmed')).toBe(false);
+    expect(isUnconfirmedRotation('completed-degraded')).toBe(false);
+    expect(isUnconfirmedRotation('in-flight')).toBe(false);
+    expect(isUnconfirmedRotation('failed')).toBe(false);
   });
 });
