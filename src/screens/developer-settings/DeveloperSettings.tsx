@@ -3,6 +3,9 @@ import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+// The svg module directly, not the `app/icons/v2` barrel: the barrel's module graph runs before
+// this suite's `lib/miden-chain` mock factories and leaves them reading an unevaluated constant.
+import { ReactComponent as OptionsIcon } from 'app/icons/v2/settings-2.svg';
 import { Button, ButtonVariant } from 'components/Button';
 import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
@@ -335,21 +338,23 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         />
       </SubPageSection>
 
-      <ListGroup>
-        <ListRow
-          title={t('devAllowNoGuardian')}
-          disabled={readOnly}
-          data-testid="dev-allow-no-guardian"
-          onClick={() =>
-            setForm(prev => ({
-              ...prev,
-              allowNoGuardian: !prev.allowNoGuardian,
-              presetName: CUSTOM_PRESET
-            }))
-          }
-          trailing={<CheckboxIndicator checked={form.allowNoGuardian} />}
-        />
-      </ListGroup>
+      <SubPageSection title={t('options')} icon={<OptionsIcon />}>
+        <ListGroup surface="plain">
+          <ListRow
+            title={t('devAllowNoGuardian')}
+            disabled={readOnly}
+            data-testid="dev-allow-no-guardian"
+            onClick={() =>
+              setForm(prev => ({
+                ...prev,
+                allowNoGuardian: !prev.allowNoGuardian,
+                presetName: CUSTOM_PRESET
+              }))
+            }
+            trailing={<CheckboxIndicator checked={form.allowNoGuardian} />}
+          />
+        </ListGroup>
+      </SubPageSection>
     </SubPageLayout>
   );
 };

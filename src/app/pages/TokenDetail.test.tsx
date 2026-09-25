@@ -135,6 +135,8 @@ jest.mock('app/templates/history/History', () => ({
 jest.mock('recharts', () => ({
   LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
   Line: () => <div data-testid="line" />,
+  AreaChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
+  Area: () => <div data-testid="line" />,
   YAxis: (props: { domain?: [number, number] }) => (
     <div data-testid="yaxis" data-domain={JSON.stringify(props.domain)} />
   ),
@@ -196,6 +198,9 @@ jest.mock('framer-motion', () => {
       ) => ReactActual.createElement(tag, { ...rest, ref, 'data-layout-id': layoutId }, children)
     );
   return {
+    // The real module underneath, so the value helpers `AnimatedNumber` uses (`useMotionValue`,
+    // `animate`) are the real ones; only the element factories below are stubbed.
+    ...jest.requireActual('framer-motion'),
     __esModule: true,
     motion: new Proxy({}, { get: (_target, tag: string) => (cache[tag] ??= build(tag)) }),
     AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
@@ -283,7 +288,7 @@ describe('TokenDetail', () => {
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('ETH');
     // PageHeader has no horizontal padding of its own — the page supplies it,
-    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    // or the back button's hit area is clipped by an overflow-hidden ancestor.
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
     // Standard 2dp balance formatting and fiatValue = 12.5 * 2000.
     expect(screen.getByText('12.50')).toBeInTheDocument();
@@ -299,8 +304,9 @@ describe('TokenDetail', () => {
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.
-    expect(within(hero).getByText('12.50')).toHaveClass('text-hero-value', 'text-ink');
-    expect(within(hero).getByText('$25000.00')).toHaveClass('text-muted');
+    // Both figures are `AnimatedNumber`s now, so the type is on the slot Hero renders around them.
+    expect(within(hero).getByText('12.50').closest('div')).toHaveClass('text-hero-value', 'text-ink');
+    expect(within(hero).getByText('$25000.00').closest('p')).toHaveClass('text-muted');
   });
 
   it('expands precision for a small non-zero hero balance and fiat value', () => {
@@ -342,16 +348,18 @@ describe('TokenDetail', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/receive');
   });
 
-  it('draws Send and Receive as the pill Button pair, primary then secondary, side by side', () => {
+  it('draws Send and Receive as a pill pair, each in the colour of the flow it opens', () => {
     renderPage();
 
     const send = screen.getByTestId('token-detail-send');
     const receive = screen.getByTestId('token-detail-receive');
     expect(send).toBe(screen.getByRole('button', { name: 'send' }));
     expect(receive).toBe(screen.getByRole('button', { name: 'receive' }));
-    // The 52px pill: accent fill for the primary, `fill` for the secondary.
-    expect(send).toHaveClass('rounded-full', 'h-13', 'bg-accent-primary', 'flex-1');
-    expect(receive).toHaveClass('rounded-full', 'h-13', 'bg-fill', 'text-ink', 'flex-1');
+    // The 48px pill, each filled with its own flow's action colour — the tab bar's pairing.
+    expect(send).toHaveClass('rounded-full', 'h-12', 'bg-accent-send', 'flex-1');
+    expect(receive).toHaveClass('rounded-full', 'h-12', 'bg-accent-receive', 'flex-1');
+    expect(send.className).not.toContain('bg-accent-primary');
+    expect(receive.className).not.toContain('bg-fill');
     // 10px apart, each taking half the row.
     expect(send.parentElement).toBe(receive.parentElement);
     expect(send.parentElement).toHaveClass('flex', 'gap-2.5');
@@ -376,7 +384,7 @@ describe('TokenDetail', () => {
       ['token-detail-activity', 'recentActivity']
     ] as const) {
       const heading = within(screen.getByTestId(section)).getByRole('heading', { level: 2, name: key });
-      expect(heading).toHaveClass('text-muted', 'text-label');
+      expect(heading).toHaveClass('text-muted', 'text-title-section');
       expect(heading).not.toHaveClass('uppercase');
       expect(heading).not.toHaveClass('text-center');
       // The English copy itself is sentence case: only the first word is capitalised.
@@ -411,6 +419,45 @@ describe('TokenDetail', () => {
       expect(screen.getByTestId('nav-title')).toHaveTextContent('USDC');
       // balance ?? 0 -> "0.00".
       expect(screen.getByText('0.00')).toBeInTheDocument();
+    });
+  });
+
+  // jsdom has no `matchMedia`, so AnimatedNumber only travels once a test installs one.
+  describe('a balance still loading', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
+      });
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows the placeholder while balances load, then lands on the first balance and its fiat value', () => {
+      configure({ metadata: { [TOKEN_ID]: { symbol: 'ETH', name: 'Ether', decimals: 18 } } });
+      mockUseAllBalances.mockReturnValue({ data: undefined });
+      const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
+
+      const hero = screen.getByTestId('token-detail-hero');
+      // The hero's placeholder, an em dash.
+      expect(hero).toHaveTextContent('\u2014');
+      expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
+
+      // The subtitle (fiat) line waits with the same dash, never a fabricated $0.00.
+      const subtitle = hero.querySelector('p');
+      expect(subtitle).toHaveTextContent('\u2014');
+      expect(subtitle).not.toHaveTextContent('$0.00');
+
+      mockUseAllBalances.mockReturnValue({
+        data: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }]
+      });
+      rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+      expect(within(hero).getByText('12.50')).toBeInTheDocument();
+      expect(within(hero).getByText('$25000.00')).toBeInTheDocument();
     });
   });
 
@@ -499,7 +546,7 @@ describe('TokenDetail', () => {
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent(`tokenDetailChange24h_${label}`);
-      expect(pill).toHaveClass('rounded-full', 'h-6', inkClass);
+      expect(pill).toHaveClass('rounded-full', 'h-8', inkClass);
     });
 
     it('shows a skeleton in the chart slot until the first kline load resolves', () => {
@@ -592,7 +639,7 @@ describe('TokenDetail', () => {
       }
     });
 
-    it('renders the timeframes as the shared segmented control, the selected one on the raised bubble', () => {
+    it('renders the timeframes as the shared segmented control, the selected one on the accent-tint bubble', () => {
       renderPage();
 
       const option = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
@@ -600,12 +647,12 @@ describe('TokenDetail', () => {
 
       // Equal-width segments across the chart, 32px tall.
       expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-      expect(option('1D')).toHaveClass('flex-1', 'h-8');
+      expect(option('1D')).toHaveClass('flex-1', 'h-10');
 
       expect(option('1D')).toHaveAttribute('role', 'radio');
       expect(option('1D')).toHaveAttribute('aria-checked', 'true');
       expect(option('1W')).toHaveAttribute('aria-checked', 'false');
-      expect(bubbleIn('1D')).toHaveClass('bg-raised', 'shadow-raised');
+      expect(bubbleIn('1D')).toHaveClass('bg-accent-tint', 'shadow-raised');
       expect(bubbleIn('1W')).toBeNull();
 
       fireEvent.click(option('1W'));
@@ -629,28 +676,29 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
-    it('renders a short, middle-truncated contract id (not the raw id) in the regular value style', () => {
+    it('renders the faucet id under the name the transaction page uses, trimmed and copyable', () => {
       renderPage({ network: { name: 'Devnet' } });
 
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
       // The shared DetailCard: `fill`, 16px radius, hairlines between rows.
       expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
-      expect(within(contract).getByText('contract')).toBeInTheDocument();
+      // One name for one thing: "Faucet ID", as the transaction detail page says it.
+      expect(within(contract).getByText('faucetId')).toBeInTheDocument();
 
-      const copy = within(contract).getByTestId('token-detail-copy-contract');
-      // Regular weight (`HashChip`'s own `font-normal` overrides `DetailRow`'s bold value style),
-      // truncated in the middle, not the full 49-char id dumped in bold.
-      expect(copy).toHaveClass('font-normal');
+      // A bare copy control in the row's value style, named by its action (its visible label is a
+      // value), showing the id cut to its first 8 and last 4 characters.
+      const copy = within(contract).getByRole('button', { name: 'copyToClipboard' });
+      expect(copy).toHaveAttribute('data-testid', 'token-detail-copy-contract');
+      expect(copy).toHaveClass('text-ink');
+      expect(copy).toHaveTextContent(`${TOKEN_ID.slice(0, 8)}…${TOKEN_ID.slice(-4)}`);
       expect(copy).not.toHaveTextContent(TOKEN_ID);
-      expect(copy).toHaveTextContent(TOKEN_ID.slice(0, 7));
-      expect(copy).toHaveTextContent(TOKEN_ID.slice(-4));
 
       expect(within(info).getByText('fungible')).toBeInTheDocument();
       expect(within(info).getByText('Devnet')).toBeInTheDocument();
     });
 
-    it('copies the full contract id, not the truncated display value', async () => {
+    it('copies the full faucet id, not the truncated display value', async () => {
       mockClipboardWrite.mockResolvedValue(undefined);
       renderPage();
 
@@ -662,6 +710,8 @@ describe('TokenDetail', () => {
 
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TOKEN_ID });
       expect(mockHapticLight).toHaveBeenCalled();
+      // Its name follows the action through: after the copy it announces that it copied.
+      expect(copy).toHaveAccessibleName('copied');
     });
 
     it('opens the MidenScan explorer for this faucet in the in-app browser', () => {
@@ -672,6 +722,11 @@ describe('TokenDetail', () => {
 
       const explorerRow = screen.getByTestId('token-detail-explorer');
       expect(explorerRow).toHaveTextContent('viewOnMidenscan');
+      // The arrow svg ships with fill="none", so it draws only with a fill of its own, like the glyph it
+      // replaced; it is decoration beside the label.
+      const arrow = explorerRow.querySelector('svg');
+      expect(arrow).toHaveAttribute('fill', 'currentColor');
+      expect(arrow).toHaveAttribute('aria-hidden', 'true');
 
       fireEvent.click(explorerRow);
 

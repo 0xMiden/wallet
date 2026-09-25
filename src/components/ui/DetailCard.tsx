@@ -9,6 +9,12 @@ export interface DetailRowProps {
   children: React.ReactNode;
   /** Secondary line under the value, e.g. a fee note. */
   sub?: React.ReactNode;
+  /**
+   * Rendered right after the label — an `InfoHint`, for a row whose explanation is a sentence.
+   * A sentence belongs here rather than in `sub`: three wrapped lines under a value push the
+   * rows apart and make the card read as prose.
+   */
+  info?: React.ReactNode;
   /** Inline text action after the value, e.g. "Edit" or "Copy". Always `accent-tint-ink` — the only accent that clears 4.5:1 on `fill` (Rule 6). */
   action?: { label: string; onClick: () => void };
   /** Stack the value under the label, for values too long to sit beside it (e.g. a full address). */
@@ -22,6 +28,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   label,
   children,
   sub,
+  info,
   action,
   stacked = false,
   className,
@@ -31,7 +38,10 @@ export const DetailRow: React.FC<DetailRowProps> = ({
     data-testid={dataTestId}
     className={cn('flex gap-x-4 gap-y-1 px-4 py-3', stacked ? 'flex-col' : 'items-start', className)}
   >
-    <span className={cn('shrink-0 text-body-sm text-muted', !stacked && 'min-w-20')}>{label}</span>
+    <span className={cn('flex shrink-0 items-center gap-0.5 text-body-sm text-muted', !stacked && 'min-w-20')}>
+      {label}
+      {info}
+    </span>
     <div className={cn('flex min-w-0 flex-1 flex-col gap-1', stacked ? 'items-start' : 'items-end text-right')}>
       <div className={cn('flex max-w-full items-center gap-2 text-value text-ink', stacked && 'break-all')}>
         {children}

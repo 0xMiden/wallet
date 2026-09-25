@@ -82,12 +82,17 @@ describe('SegmentedActionBar — exports & structure', () => {
     expect(SegmentedActionBarDefault).toBe(SegmentedActionBar);
   });
 
+  it("carries a caller's band on the bar itself, over its own rule", () => {
+    renderBar({ className: 'bg-action-bar' });
+    expect(screen.getByRole('tablist')).toHaveClass('bg-action-bar', 'border-b', 'border-hairline');
+  });
+
   it('renders a tablist with one tab per item, each carrying its icon and aria-label', () => {
     renderBar();
 
     const tablist = screen.getByRole('tablist');
-    // No band of its own: it sits on the page, snug under the status bar (4px above the 48px
-    // segments, 8px below), with a hairline rule on its bottom edge like the bottom nav's top rule.
+    // No band of its own (a caller passes one in `className`): snug under the status bar (4px above
+    // the 48px segments, 8px below), with a hairline rule on its bottom edge like the bottom nav's top rule.
     expect(tablist).toHaveClass('px-3', 'gap-1', 'pt-1', 'pb-2', 'border-b', 'border-hairline');
     expect(tablist.className).not.toMatch(/(^|\s)bg-/);
     expect(tablist.className).not.toMatch(/(^|\s)(h-\d+|pt-[2-9]|py-)/);
@@ -153,6 +158,13 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
 
     expect(pillIn(getTab('Send'))).not.toBeNull();
     expect(pillIn(getTab('Receive'))).toBeNull();
+  });
+
+  it('sets the active tab label in bold and gives an inactive tab no label', () => {
+    renderBar({ activeId: 'send' });
+
+    expect(screen.getByText('Send')).toHaveClass('font-bold');
+    expect(getTab('Receive')).not.toHaveTextContent('Receive');
   });
 
   it('draws the active pill as a raised, fully round bubble that sinks while pressed', () => {

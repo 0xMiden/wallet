@@ -46,7 +46,7 @@ jest.mock('components/Button', () => ({
       </button>
     );
   },
-  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive', Ghost: 'ghost' }
 }));
 
 const mockInitiate = jest.fn();
@@ -152,8 +152,8 @@ describe('GuardianReplaceHotKey — rendering', () => {
     // The section label is the shared SectionHeader (an h2), not hand-styled text.
     expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass('text-muted', 'text-label');
     expect(screen.getByText('replaceHotKeyDescription').parentElement).toHaveClass('text-body', 'text-muted');
-    // One maintenance action on a page of links: secondary, 36px, not the page's primary CTA.
-    expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'secondary');
+    // One maintenance action on a page of links: border-only, 36px, not the page's primary CTA.
+    expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'ghost');
     expect(screen.getByTestId('submit')).toHaveAttribute('data-size', 'sm');
     expect(section).toContainElement(screen.getByTestId('submit'));
   });
@@ -167,7 +167,7 @@ describe('GuardianReplaceHotKey — rendering', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('boom');
-    expect(alert).toHaveClass('text-negative-ink');
+    expect(alert).toHaveClass('text-caption', 'text-negative-ink');
   });
 
   it('disables the button when there is no current account', () => {

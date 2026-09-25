@@ -407,6 +407,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               <Button
                 type="button"
                 variant={ButtonVariant.Primary}
+                accent={accent}
                 isLoading={isRetrying}
                 disabled={isRetrying}
                 onClick={onRetry}
@@ -418,6 +419,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <Button
               type="button"
               variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+              accent={accent}
               onClick={onDoneClick}
               className="w-full max-w-none"
             >

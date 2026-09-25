@@ -8,10 +8,11 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ReactComponent as ScanFrameIcon } from 'app/icons/scan-frame.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { FlowLayout } from 'components/flow/FlowLayout';
 import { Button, ButtonVariant } from 'components/ui/Button';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { usePreset } from 'lib/animation';
 import { useContacts } from 'lib/miden/front';
@@ -165,8 +166,9 @@ export const NewContactPage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="contact-new">
-      <FlowLayout
+    <>
+      <SubPageLayout
+        data-testid="contact-new"
         title={t('newContact')}
         // `back` is claim-gated once per location, and `save()` calls it again when the write
         // lands. A tap while the save is in flight consumes the claim AND navigates, which resets
@@ -174,6 +176,10 @@ export const NewContactPage: React.FC = () => {
         // screen. The save navigates on completion regardless, so ignore the tap while it runs.
         onBack={() => {
           if (!saving) back();
+        }}
+        onSubmit={event => {
+          event.preventDefault();
+          void save();
         }}
         footer={
           <Button
@@ -183,112 +189,94 @@ export const NewContactPage: React.FC = () => {
             disabled={!canSave}
             isLoading={saving}
             data-testid="address-book-add-contact"
-            className="w-full max-w-none"
+            className="flex-1 max-w-none"
           />
         }
       >
-        <form
-          className="flex flex-col gap-5 pt-6 pb-4"
-          onSubmit={event => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          {/* The name is already in the flow title above (or the name field below), so the
+        {/* The name is already in the flow title above (or the name field below), so the
               hero here is the avatar alone — same shape as the existing contact's own page. */}
-          <Hero
-            visual={
-              <ContactAvatar
-                address={resolvedAddress || '0'}
-                name={trimmedName}
-                network={isValid && isEvm ? 'ethereum' : undefined}
-                size="xl"
+        <Hero
+          visual={
+            <ContactAvatar
+              address={resolvedAddress || '0'}
+              name={trimmedName}
+              network={isValid && isEvm ? 'ethereum' : undefined}
+              size="xl"
+            />
+          }
+        />
+
+        <TextField
+          multiline
+          label={t('contactAddressOrMidenName')}
+          value={address}
+          onChange={event => {
+            setAddress(event.target.value);
+            setScanError(undefined);
+            setPasteError(undefined);
+            setSaveError(undefined);
+          }}
+          onBlur={() => setAddressTouched(true)}
+          placeholder={t('contactAddressOrMidenNamePlaceholder')}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          className="break-all"
+          data-testid="address-book-address-input"
+          error={addressError}
+          errorTestId="contact-address-error"
+          trailing={
+            !trimmedAddress && (isMobile() || isScanAvailable()) ? (
+              <>
+                {isMobile() && (
+                  <Pill
+                    tone="page"
+                    icon={<Icon name={IconName.FileCopy} size="xs" />}
+                    onClick={() => void onPaste()}
+                    data-testid="contact-paste"
+                  >
+                    {t('paste')}
+                  </Pill>
+                )}
+                {isScanAvailable() && (
+                  <Pill tone="page" icon={<ScanFrameIcon />} onClick={() => void onScan()} data-testid="contact-scan">
+                    {t('scan')}
+                  </Pill>
+                )}
+              </>
+            ) : undefined
+          }
+        />
+
+        {resolving && (
+          <p role="status" className="text-body-sm text-muted">
+            {t('midenNameResolving')}
+          </p>
+        )}
+        {isMidenName && isValid && (
+          <p className="break-all text-body-sm text-muted" data-testid="contact-resolved-address">
+            {t('contactResolvedAddress', { address: resolvedAddress })}
+          </p>
+        )}
+
+        <AnimatePresence initial={false}>
+          {isValid && (
+            // The shared `reveal` preset, which is reduced-motion aware on its own.
+            <motion.div key="network" {...reveal} className="overflow-hidden">
+              <NetworkField
+                chain={isEvm ? 'ethereum' : 'miden'}
+                network={network}
+                onSelect={setNetwork}
+                testIdPrefix="new-contact"
               />
-            }
-          />
-
-          <TextField
-            multiline
-            label={t('contactAddressOrMidenName')}
-            value={address}
-            onChange={event => {
-              setAddress(event.target.value);
-              setScanError(undefined);
-              setPasteError(undefined);
-              setSaveError(undefined);
-            }}
-            onBlur={() => setAddressTouched(true)}
-            placeholder={t('contactAddressOrMidenNamePlaceholder')}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            className="break-all"
-            data-testid="address-book-address-input"
-            error={addressError}
-            errorTestId="contact-address-error"
-            trailing={
-              !trimmedAddress && (isMobile() || isScanAvailable()) ? (
-                <>
-                  {isMobile() && (
-                    <Pill
-                      tone="plain"
-                      className="bg-page text-ink"
-                      icon={<Icon name={IconName.FileCopy} size="xs" />}
-                      onClick={() => void onPaste()}
-                      data-testid="contact-paste"
-                    >
-                      {t('paste')}
-                    </Pill>
-                  )}
-                  {isScanAvailable() && (
-                    <Pill
-                      tone="plain"
-                      className="bg-page text-ink"
-                      icon={<ScanFrameIcon />}
-                      onClick={() => void onScan()}
-                      data-testid="contact-scan"
-                    >
-                      {t('scan')}
-                    </Pill>
-                  )}
-                </>
-              ) : undefined
-            }
-          />
-
-          {resolving && (
-            <p role="status" className="text-body-sm text-muted">
-              {t('midenNameResolving')}
-            </p>
+            </motion.div>
           )}
-          {isMidenName && isValid && (
-            <p className="break-all text-body-sm text-muted" data-testid="contact-resolved-address">
-              {t('contactResolvedAddress', { address: resolvedAddress })}
-            </p>
-          )}
+        </AnimatePresence>
 
-          <AnimatePresence initial={false}>
-            {isValid && (
-              <motion.div key="network" {...reveal} className="overflow-hidden">
-                <NetworkField
-                  chain={isEvm ? 'ethereum' : 'miden'}
-                  network={network}
-                  onSelect={setNetwork}
-                  testIdPrefix="new-contact"
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <ContactNameInput value={displayName} onChange={setName} />
 
-          <ContactNameInput value={displayName} onChange={setName} />
-
-          {saveError && (
-            <p role="alert" className="-mt-2 text-sm text-negative-ink">
-              {saveError}
-            </p>
-          )}
-        </form>
-      </FlowLayout>
+        <ErrorLine className="-mt-2">{saveError}</ErrorLine>
+      </SubPageLayout>
 
       <ScanQrDrawer
         open={showScanDrawer}
@@ -299,6 +287,6 @@ export const NewContactPage: React.FC = () => {
         }}
         onError={setScanError}
       />
-    </div>
+    </>
   );
 };

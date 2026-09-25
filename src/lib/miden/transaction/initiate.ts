@@ -1,9 +1,5 @@
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
-import {
-  getOrCreateMultisigService,
-  isGuardianAccount,
-  type GuardianAccountProvider
-} from 'lib/miden/front/guardian-manager';
+import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import {
@@ -15,6 +11,7 @@ import {
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
+import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
@@ -718,6 +715,25 @@ export const initiateBridgedReceiveTransaction = async (args: {
 const sameGuardianEndpointTarget = (a: string, b: string): boolean => sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b);
 
 /**
+ * The stored Guardian account a structural change targets, or `refusal` thrown. The row is queued under
+ * its `publicKey`, not the caller's spelling: completion otherwise learns the stored id only from a
+ * post-commit account read, and when that read fails it acts on the queued spelling, which the vault
+ * matches exactly and so misses.
+ */
+const resolveGuardianWalletAccount = async (
+  accountId: string,
+  guardianProvider: GuardianAccountProvider,
+  refusal: string
+): Promise<WalletAccount> => {
+  const accounts = await guardianProvider.getAccounts();
+  const account = accounts.find(candidate => sameWalletAccountId(candidate.publicKey, accountId));
+  if (!account || account.type !== WalletType.Guardian) {
+    throw new Error(refusal);
+  }
+  return account;
+};
+
+/**
  * Queue a switch-guardian transaction for a Guardian account. The per-account
  * `guardianEndpoint` is NOT updated here — it's persisted only after the
  * on-chain proposal lands, in `completeSwitchGuardianTransaction`.
@@ -743,11 +759,12 @@ export const initiateSwitchGuardianTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  const accounts = await guardianProvider.getAccounts();
-  const account = accounts.find(candidate => sameWalletAccountId(candidate.publicKey, accountId));
-  if (!account || account.type !== WalletType.Guardian) {
-    throw new Error('Switch guardian is only supported for Guardian accounts');
-  }
+  const account = await resolveGuardianWalletAccount(
+    accountId,
+    guardianProvider,
+    'Switch guardian is only supported for Guardian accounts'
+  );
+  const storedAccountId = account.publicKey;
   const previousGuardianEndpoint = await resolveGuardianEndpoint(account);
 
   // Check-and-add inside one rw transaction, like the consume dedup above, so
@@ -767,7 +784,7 @@ export const initiateSwitchGuardianTransaction = async (
           (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction)
       )
       .toArray();
-    const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, accountId));
+    const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, storedAccountId));
     if (inFlight) {
       // Returning the live id is right only for a genuine duplicate — the same
       // rotation, asked for twice. When the in-flight row targets a DIFFERENT
@@ -789,7 +806,7 @@ export const initiateSwitchGuardianTransaction = async (
     }
 
     const dbTransaction = new SwitchGuardianTransaction(
-      accountId,
+      storedAccountId,
       newGuardianEndpoint,
       delegateTransaction,
       previousGuardianEndpoint
@@ -811,10 +828,22 @@ export const initiateReplaceHotKeyTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  if (!(await isGuardianAccount(accountId, guardianProvider))) {
-    throw new Error('Replace hot key is only supported for Guardian accounts');
+  const account = await resolveGuardianWalletAccount(
+    accountId,
+    guardianProvider,
+    'Replace hot key is only supported for Guardian accounts'
+  );
+  const dbTransaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
+  // Record the guardian now: the account's endpoint moves with any later switch, and the history row
+  // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
+  // resolves (the account's own, else the legacy key, else the network default), as the switch
+  // records its previous one.
+  try {
+    const guardianEndpoint = await resolveGuardianEndpoint(account);
+    if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  } catch {
+    // Display only: a failed endpoint read leaves the row unstamped rather than refusing the rotation.
   }
-  const dbTransaction = new ReplaceHotKeyTransaction(accountId, delegateTransaction);
   return queueRecoveryChange(dbTransaction);
 };
 
@@ -893,10 +922,17 @@ export const initiateUpdateProcedureThresholdTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  if (!(await isGuardianAccount(accountId, guardianProvider))) {
-    throw new Error('update-procedure-threshold is only supported for Guardian accounts');
-  }
-  const dbTransaction = new UpdateProcedureThresholdTransaction(accountId, procedure, threshold, delegateTransaction);
+  const account = await resolveGuardianWalletAccount(
+    accountId,
+    guardianProvider,
+    'update-procedure-threshold is only supported for Guardian accounts'
+  );
+  const dbTransaction = new UpdateProcedureThresholdTransaction(
+    account.publicKey,
+    procedure,
+    threshold,
+    delegateTransaction
+  );
   return queueRecoveryChange(dbTransaction);
 };
 

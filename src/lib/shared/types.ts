@@ -43,8 +43,6 @@ export enum WalletMessageType {
   ExportAccountFileResponse = 'EXPORT_ACCOUNT_FILE_RESPONSE',
   RevealHotKeyRequest = 'REVEAL_HOT_KEY_REQUEST',
   RevealHotKeyResponse = 'REVEAL_HOT_KEY_RESPONSE',
-  RevealGuardianKeysRequest = 'REVEAL_GUARDIAN_KEYS_REQUEST',
-  RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
   ExportWalletBackupMaterialRequest = 'EXPORT_WALLET_BACKUP_MATERIAL_REQUEST',
@@ -410,6 +408,20 @@ export interface ReadyWalletState extends WalletState {
 export type AuthScheme = 'falcon' | 'ecdsa';
 
 /**
+ * Key-derivation scheme an account's seed was derived under. Mirrors
+ * `KeyDerivation` in `@miden/hd-key`.
+ *
+ * - `legacy`: label `bls12_377 seed`, path `m/44'/0'/<walletType>'/<hdIndex>'`.
+ * - `v1`: label `miden seed`, path `m/44'/5063758'/<walletType>'/<authScheme>'/<hdIndex>'`.
+ *
+ * Optional on stored `WalletAccount` records. Records written before this
+ * field existed have it absent on read; consumers MUST treat missing as
+ * `legacy`. Fixed at account creation and never mutated, because the
+ * derivation decides which on-chain key the seed phrase recovers.
+ */
+export type KeyDerivation = 'legacy' | 'v1';
+
+/**
  * Local reconciliation state of a Guardian account's endpoint vs its on-chain
  * guardian key. 'in-sync': stored endpoint matches on-chain. 'resolving':
  * an out-of-band switch was detected and auto-resolution is in progress.
@@ -477,6 +489,12 @@ export interface WalletAccount {
    * the missing-on-read → `"falcon"` legacy interpretation.
    */
   authScheme?: AuthScheme;
+  /**
+   * Key-derivation scheme this account's seed was derived under. See
+   * {@link KeyDerivation} for the missing-on-read → `legacy` interpretation.
+   * Absent on imported accounts (`hdIndex: -1`), which have no derivation.
+   */
+  keyDerivation?: KeyDerivation;
   /**
    * Wallet-derived EVM address (BIP-44 m/44'/60'/0'/0/{hdIndex}), used as the
    * Epoch lending position owner. Stamped at account creation and backfilled
@@ -650,19 +668,6 @@ export interface RevealHotKeyRequest extends WalletMessageBase {
 export interface RevealHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.RevealHotKeyResponse;
   keyPairPayload: string;
-}
-
-export interface RevealGuardianKeysRequest extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysRequest;
-  accountPublicKey: string;
-  password?: string;
-}
-
-export interface RevealGuardianKeysResponse extends WalletMessageBase {
-  type: WalletMessageType.RevealGuardianKeysResponse;
-  coldPrivateKey: string;
-  coldPublicKey: string;
-  hotPublicKey?: string;
 }
 
 export interface RemoveSeedPhraseRequest extends WalletMessageBase {
@@ -1234,7 +1239,6 @@ export type WalletRequest =
   | RevealPrivateKeyRequest
   | ExportAccountFileRequest
   | RevealHotKeyRequest
-  | RevealGuardianKeysRequest
   | RemoveSeedPhraseRequest
   | ProvideRecoverySeedRequest
   | PrepareRecoveryRequest
@@ -1308,7 +1312,6 @@ export type WalletResponse =
   | RevealPrivateKeyResponse
   | ExportAccountFileResponse
   | RevealHotKeyResponse
-  | RevealGuardianKeysResponse
   | RemoveSeedPhraseResponse
   | ProvideRecoverySeedResponse
   | PrepareRecoveryResponse

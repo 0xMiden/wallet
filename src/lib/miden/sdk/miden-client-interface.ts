@@ -53,6 +53,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
 import {
   accountRefToSdk,
   buildPswapCreateRequest,
@@ -785,7 +786,7 @@ export class MidenClientInterface {
     }
 
     if (recovered.length === 0) {
-      throw new Error('No Guardian accounts found at this guardian endpoint for this seed');
+      throw new NoGuardianAccountsFoundError();
     }
 
     return recovered;

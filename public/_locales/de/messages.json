@@ -119,18 +119,9 @@
     "message": "Wird geladen",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "Wird an den Absender zurückgesendet, wenn nicht von $date$ beansprucht.",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "Geht an den Absender zurück, wenn sie nicht bis $date$ akzeptiert wird",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -440,6 +431,10 @@
     "message": "Ihre Positionen konnten nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Dieser Tresor konnte nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -460,6 +455,14 @@
   "earnSeeAll": {
     "message": "Alle anzeigen",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Keine offenen Positionen",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Zahlen Sie in einen der unten aufgeführten Tresore ein, um Prämien zu verdienen.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Ausgewählte Tresore",
@@ -636,24 +639,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "Diese Transaktion findet auf der Blockchain statt, aber der private „note“ konnte nicht an den Transportdienst „note“ übergeben werden. Solange dies nicht geschieht, kann der Empfänger die Transaktion weder einsehen noch ausgeben.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "Diese Transaktion ist on-chain, aber die private Überweisung konnte nicht an den Zustelldienst übergeben werden. Bis dahin kann der Empfänger sie weder sehen noch ausgeben.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "Diese Transaktion findet auf der Blockchain statt, aber die Wallet konnte nicht bestätigen, dass die privaten Schlüssel note den Transportdienst note erreicht haben.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "Diese Transaktion ist on-chain, aber die Wallet konnte nicht bestätigen, dass die private Überweisung den Zustelldienst erreicht hat.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Halten Sie diese Wallet geöffnet und verbunden – die Zustellung wird nach dem Senden eine Zeit lang automatisch erneut versucht, und diese Warnung verschwindet, sobald die Übertragung erfolgreich war. Sollte der Empfänger nach einer Stunde immer noch nichts erhalten haben, senden Sie nicht erneut; notieren Sie sich die unten angegebene Transaktions-ID und wenden Sie sich an den Support, da der „note“ (Vertrauens-ID) daraus noch wiederhergestellt werden kann.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Lassen Sie diese Wallet geöffnet und verbunden — die Zustellung wird nach dem Senden eine Zeit lang automatisch wiederholt, und diese Warnung verschwindet, wenn sie gelingt. Hat der Empfänger nach einer Stunde immer noch nichts, senden Sie nicht erneut; speichern Sie die Transaktions-ID unten und wenden Sie sich an den Support, denn die Überweisung lässt sich daraus noch wiederherstellen.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Lieferung bestätigt",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "Der Empfänger hat diese private „note“ erhalten und ausgegeben, sodass deren Zustellung in der Blockchain bestätigt ist.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "Der Empfänger hat diese private Überweisung akzeptiert und ausgegeben, damit ist die Zustellung on-chain bestätigt.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -721,8 +724,8 @@
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "Mein „Seed phrase“ lautet: „$num$“ (Worte)",
-    "englishSource": "My Seed phrase is $num$ words",
+    "message": "Meine Wiederherstellungsphrase lautet „$num$“ Wörter",
+    "englishSource": "My recovery phrase is $num$ words",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -913,8 +916,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "note einfordern",
-    "englishSource": "Claiming note"
+    "message": "Überweisung wird akzeptiert",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "Transaktion ausführen",
@@ -1005,12 +1008,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "note bereitstellen",
-    "englishSource": "Delivering note"
+    "message": "Überweisung wird zugestellt",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "Sicheres Versenden der Datei „note“ an den Empfänger.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "Die Überweisung wird sicher an den Empfänger gesendet.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "Status",
@@ -1053,8 +1056,8 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "Scannen Sie den QR-Code Ihres privaten Schlüssels oder geben Sie Ihre Miden-Hot- und EVM-Schlüssel ein. Ihr Hot-Schlüssel findet Ihr Konto unter Guardian. Der angegebene EVM-Schlüssel stellt die zugehörige EVM-Adresse wieder her; die Wallet kann nicht überprüfen, ob diese Schlüssel zusammengehören.",
-    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "message": "Scannen Sie den QR-Code Ihres privaten Schlüssels oder geben Sie Ihren Miden-Alltagsschlüssel sowie Ihren EVM-Privatschlüssel ein. Ihr Alltagsschlüssel findet Ihr Konto unter Guardian. Der bereitgestellte EVM-Schlüssel stellt dessen EVM-Adresse wieder her; die Wallet kann nicht überprüfen, ob diese Schlüssel zusammengehören.",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Alltagsschlüssel (hex)",
@@ -1065,8 +1068,8 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Miden-Hot-Private-Key",
-    "englishSource": "Miden hot private key"
+    "message": "Alltäglicher privater Schlüssel",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM-Privatschlüssel",
@@ -1117,7 +1120,7 @@
     "englishSource": "Could not import an account with this key."
   },
   "importHotKeyWrongScheme": {
-    "message": "Dieser Schlüssel verwendet ein nicht unterstütztes Schema. Fügen Sie den regulären Schlüssel eines Guardian-Kontos ein.",
+    "message": "Dieser Schlüssel verwendet ein nicht unterstütztes Schema. Fügen Sie den Alltagsschlüssel eines Guardian-Kontos ein.",
     "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
   },
   "importHotKeyNoAccount": {
@@ -1352,8 +1355,8 @@
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "Seed Phrase",
-    "englishSource": "Seed Phrase"
+    "message": "Wiederherstellungsphrase",
+    "englishSource": "Recovery Phrase"
   },
   "keepSeedPhraseSecret": {
     "message": "Behalte es für dich.",
@@ -1573,6 +1576,10 @@
     "message": "Senden an",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Miden- oder Ethereum-Adresse eingeben",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Betrag auswählen",
     "englishSource": "Select Amount"
@@ -1580,6 +1587,10 @@
   "enterAmount": {
     "message": "Betrag eingeben",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "Wird berechnet",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "Wählen Sie ein Token aus",
@@ -1682,8 +1693,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Automatischer Verbrauch",
-    "englishSource": "Auto consume"
+    "message": "Automatisch akzeptieren",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "Wähle zwei verschiedene Spielsteine aus, die du tauschen möchtest.",
@@ -1719,8 +1730,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "Sollten diese bis dahin nicht beansprucht worden sein, können Sie die „$amount$“ zurück in Ihre Wallet beanspruchen. Es gehen keine Gelder verloren.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "Wird sie bis dahin nicht akzeptiert, kommen die $amount$ als ausstehende Überweisung zurück, die Sie akzeptieren. Es gehen keine Mittel verloren.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1794,8 +1805,8 @@
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Seed Phrase überprüfen",
-    "englishSource": "Verify seed phrase"
+    "message": "Wiederherstellungsphrase überprüfen",
+    "englishSource": "Verify recovery phrase"
   },
   "faucetPromptTitle": {
     "message": "Geld auf Ihre Geldbörse laden",
@@ -1835,20 +1846,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "Privates „notes“ wird gescannt: Die Übertragung von „note“ wird entleert…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "Suche nach privaten Überweisungen…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "Privates „notes“ wird gescannt: „notes“ aus ausstehenden Vorschlägen werden importiert…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "Suche nach privaten Überweisungen: ausstehende Vorschläge werden importiert…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "Synchronisierung der öffentlichen „notes“…",
-    "englishSource": "Syncing public notes…"
+    "message": "Öffentliche Überweisungen werden synchronisiert…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "Synchronisierung der öffentlichen „notes“: Block-$current$ von $latest$",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "Öffentliche Überweisungen werden synchronisiert: Block $current$ von $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1859,14 +1870,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "Sie haben ausstehende „Notes“",
-    "englishSource": "You have Pending Notes"
+    "message": "Sie haben Überweisungen zum Annehmen",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "Sie haben ausstehende „notes“ im Wert von $amount$.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$ wartend",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -1892,12 +1903,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "Der Geräteschlüssel muss gewendet werden",
-    "englishSource": "Device key needs rotation"
+    "message": "Der Alltagsschlüssel muss rotiert werden",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "Dieses Gerät kann Ihre (Hot-)Taste nicht mehr verwenden. Drehen Sie sie, um die Signaturfunktion wiederherzustellen – Ihr Guthaben bleibt davon unberührt.",
-    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+    "message": "Dieses Gerät kann Ihren Alltagsschlüssel nicht mehr verwenden. Wechseln Sie ihn, um die Signaturfunktion wiederherzustellen – Ihr Guthaben bleibt davon unberührt.",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "Schlüssel drehen",
@@ -2033,8 +2044,8 @@
     "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
   },
   "importWithSeedPhrase": {
-    "message": "Mit Seed Phrase importieren",
-    "englishSource": "Import with seed phrase"
+    "message": "Importieren mit Wiederherstellungsphrase",
+    "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Verwenden Sie eine vorhandene Seed Phrase mit 12 Wörtern. Sie können auch Wallets von anderen Wallet-Anbietern importieren.",
@@ -2152,6 +2163,99 @@
     "message": "Wählen Sie eine der folgenden Optionen aus",
     "englishSource": "Select an option below"
   },
+  "setUpYourAccount": {
+    "message": "Richten Sie Ihr Konto ein",
+    "englishSource": "Set up your account"
+  },
+  "setUpYourAccountDescription": {
+    "message": "Ihr Konto bei Miden ist privat. Sehen Sie sich jeden Punkt einmal an, um zu verstehen, wie es geschützt ist.",
+    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
+  },
+  "meetGuardianLocalStateTitle": {
+    "message": "Ihr Konto befindet sich auf diesem Gerät",
+    "englishSource": "Your account lives on this device"
+  },
+  "meetGuardianLocalStateBody": {
+    "message": "Der private Kontostatus verbleibt auf Ihrem Gerät. Das Netzwerk sieht immer nur eine kryptografische Verpflichtung.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
+  },
+  "meetGuardianSeedPhraseTitle": {
+    "message": "Eine Wiederherstellungsphrase reicht nicht aus",
+    "englishSource": "A recovery phrase isn't enough"
+  },
+  "meetGuardianSeedPhraseBody": {
+    "message": "Ihre Wiederherstellungsphrase stellt Ihre Schlüssel wieder her, nicht den Zustand Ihres Kontos. Wenn Sie das Gerät verlieren, ist dieser Zustand verloren.",
+    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
+  },
+  "meetGuardianProtectsTitle": {
+    "message": "Ein „Guardian“ kann Sie schützen",
+    "englishSource": "A Guardian can protect you"
+  },
+  "meetGuardianProtectsBody": {
+    "message": "Ein „Guardian“ speichert den Status Ihres Kontos und hilft Ihnen, diesen wiederherzustellen. Stellen Sie sich das wie einen Server vor, der ein Backup für Sie erstellt, aber niemals Zugriff auf Ihr Guthaben hat.",
+    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
+  },
+  "meetGuardianFastestOf": {
+    "message": "Der derzeit schnellste Betreiber unter $operators$",
+    "englishSource": "Fastest operator right now, out of $operators$",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianOnlyOperator": {
+    "message": "Der Betreiber dieses Netzwerks",
+    "englishSource": "The operator on this network"
+  },
+  "meetGuardianCannotMoveFunds": {
+    "message": "Die „Guardian“ kann Ihr Guthaben nicht eigenständig bewegen",
+    "englishSource": "The Guardian can't move your funds on its own"
+  },
+  "meetGuardianBacksUpState": {
+    "message": "Die „Guardian“ sichert den Status Ihres Kontos",
+    "englishSource": "The Guardian backs up your account state"
+  },
+  "meetGuardianCanSwitch": {
+    "message": "Mit Ihrer Wiederherstellungsphrase können Sie den Guardian jederzeit wechseln",
+    "englishSource": "You can switch Guardians with your recovery phrase"
+  },
+  "meetGuardianChecking": {
+    "message": "Mal sehen, welcher Betreiber am schnellsten antwortet…",
+    "englishSource": "Checking which operator answers fastest…"
+  },
+  "meetGuardianNoneReachable": {
+    "message": "In diesem Netzwerk ist kein „Guardian“-Operator erreichbar.",
+    "englishSource": "No Guardian operator is reachable on this network."
+  },
+  "meetGuardianFullyPrivateInstead": {
+    "message": "Ich würde lieber ein vollständig privates Konto einrichten",
+    "englishSource": "I'd rather make a fully private account instead"
+  },
+  "chooseDifferentGuardian": {
+    "message": "Wählen Sie eine andere „Guardian“",
+    "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioGeneric": {
+    "message": "Ein unabhängiger Betreiber von Guardian auf Miden.",
+    "englishSource": "An independent Guardian operator on Miden."
+  },
+  "guardianBioOpenZeppelin": {
+    "message": "OpenZeppelin ist ein blockchain-Sicherheitsunternehmen hinter weit verbreiteten Smart-Contract-Bibliotheken für Ethereum.",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
+  },
+  "guardianBioGateway": {
+    "message": "Gateway.fm baut und betreibt eine „blockchain“-Infrastruktur für Netzwerke und Rollups.",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
+  },
+  "guardianBioLambdaClass": {
+    "message": "LambdaClass ist ein Ingenieurbüro, das fortschrittliche Kryptografie- und „blockchain“-Infrastruktur entwickelt.",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
+  },
+  "guardianBioKoda": {
+    "message": "Korea Digital Asset (KODA) ist ein regulierter Verwahrer digitaler Vermögenswerte in Südkorea.",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
+  },
   "learnMoreAboutGuardian": {
     "message": "Erfahren Sie mehr über das „Guardian“",
     "englishSource": "Learn more about the Guardian"
@@ -2161,8 +2265,8 @@
     "englishSource": "No guardian"
   },
   "noGuardianOptionSubtitle": {
-    "message": "Erweitert – nur mit Ihrem seed phrase wiederherstellen. Kein Vormund, Mitunterzeichner.",
-    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+    "message": "Fortgeschritten – Wiederherstellung ausschließlich mit Ihrer Wiederherstellungsphrase. Kein Mitunterzeichner unter guardian.",
+    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "Betreiber:",
@@ -2285,12 +2389,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "Geben Sie die 12-Wort-Seed phrase Ihrer Wallet ein.",
-    "englishSource": "Enter your wallet's 12-word seed phrase."
+    "message": "Geben Sie die 12-Wort-Wiederherstellungsphrase Ihrer Wallet ein.",
+    "englishSource": "Enter your wallet's 12-word recovery phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Es werden ausschließlich Miden-Seed-Phrasen unterstützt.",
-    "englishSource": "Only Miden seed phrases are supported."
+    "message": "Es werden ausschließlich Miden-Wiederherstellungsphrasen unterstützt.",
+    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Deine Wallet ist bereit!",
@@ -2377,8 +2481,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "Ihr „seed phrase“ ist Ihr Wiederherstellungsschlüssel – er dient zur Rotation der Geräteschlüssel und nicht für alltägliche Transaktionen.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+    "message": "Deine Wiederherstellungsphrase stellt deine Schlüssel wieder her. Sie dient dazu, deinen Alltagsschlüssel zu rotieren, nicht für alltägliche Transaktionen.",
+    "englishSource": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "Auswählen",
@@ -2437,8 +2541,8 @@
     "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
-    "message": "Das Miden-Testnetz ist auf bech32-Konto-IDs umgestellt worden, um Ihre Benutzererfahrung zu verbessern. Um Ihre Wallet weiterhin nutzen zu können, stellen Sie sie bitte aus einer Sicherungsdatei oder unter seed phrase wieder her oder erstellen Sie eine neue.",
-    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
+    "message": "Miden Testnet wurde auf bech32-Konto-IDs umgestellt, um Ihre Benutzererfahrung zu verbessern. Um Ihre Wallet weiterhin nutzen zu können, stellen Sie sie bitte aus einer Sicherungsdatei oder einer Wiederherstellungsphrase wieder her oder erstellen Sie eine neue.",
+    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
     "message": "Wir entschuldigen uns für die Unannehmlichkeiten.",
@@ -2457,16 +2561,16 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Melden Sie sich nicht ab, es sei denn, Sie kennen Ihre 12-Wort-Seed phrase-Phrase oder verfügen über eine verschlüsselte Sicherungsdatei.",
-    "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
+    "message": "Melden Sie sich nicht ab, es sei denn, Sie kennen Ihre 12-Wort-Wiederherstellungsphrase oder verfügen über eine verschlüsselte Sicherungsdatei.",
+    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
     "message": "Biometrische Entsperrung erforderlich",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "Diese Wallet nutzt ausschließlich biometrische Authentifizierung. Verwenden Sie Face ID, Touch ID oder den Passcode Ihres Geräts, um die Wallet zu entsperren. Um auf einem anderen Gerät auf Ihre Wallet zuzugreifen, verwenden Sie Ihren 12-Wort-Seed phrase.",
-    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
+    "message": "Diese Wallet verwendet ausschließlich biometrische Authentifizierung. Verwende Face ID, Touch ID oder den Passcode deines Geräts zum Entsperren. Um auf einem anderen Gerät auf deine Wallet zuzugreifen, verwende deine 12-Wort-Wiederherstellungsphrase.",
+    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
     "message": "Wallet zurücksetzen",
@@ -2633,8 +2737,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "Wallet-Schlüssel (aktiv)",
-    "englishSource": "Wallet key (hot)"
+    "message": "Alltagsschlüssel",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "Wiederherstellungsphrase (Cold)",
@@ -2649,36 +2753,40 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "Gerätetaste drehen",
-    "englishSource": "Rotate device key"
+    "message": "Täglichen Schlüssel rotieren",
+    "englishSource": "Rotate everyday key"
+  },
+  "newDeviceKey": {
+    "message": "Neuer Alltagsschlüssel",
+    "englishSource": "New everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "Erstellen Sie einen neuen (Hot-)Key für Ihr Gerät und ersetzen Sie den aktuellen in der Blockchain. Dies ist nützlich, wenn Sie den Verdacht haben, dass Ihr Gerät kompromittiert wurde.",
-    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "message": "Generieren Sie einen neuen Alltagsschlüssel und ersetzen Sie den aktuellen in der Blockchain. Dies ist nützlich, wenn Sie vermuten, dass Ihr Gerät kompromittiert wurde.",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Cold Key) signiert. Ihr „seed phrase“ wird nicht benötigt, und Ihr Guthaben sowie Ihr Konto bleiben unverändert. Möchten Sie fortfahren?",
-    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+    "message": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Cold-Schlüssel) signiert. Ihre Wiederherstellungsphrase wird nicht benötigt, und Ihr Guthaben sowie Ihr Konto bleiben unverändert. Weiter?",
+    "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
     "message": "Drehung bestätigen",
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "Das Gerät drehen",
-    "englishSource": "Rotating your device key"
+    "message": "Rotation Ihres Alltagsschlüssels",
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "Die Tastenbelegung Ihres Geräts wird gerade geändert. Dies ist erforderlich, wenn Sie ein wiederhergestelltes Konto einrichten, damit es synchronisiert werden und Transaktionen durchführen kann.",
-    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "message": "Dein Alltagsschlüssel wird gerade rotiert. Dies ist erforderlich, wenn du ein wiederhergestelltes Konto einrichtest, damit es synchronisiert werden und Transaktionen durchführen kann.",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "Die Rotation des Geräteschlüssels ist fehlgeschlagen",
-    "englishSource": "Device key rotation failed"
+    "message": "Die tägliche Schlüsselrotation ist fehlgeschlagen",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Beim Drehen Ihres Geräteschlüssels ist ein Fehler aufgetreten.",
-    "englishSource": "Something went wrong while rotating your device key."
+    "message": "Beim Rotieren Ihres Alltagsschlüssels ist ein Fehler aufgetreten.",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "Erneut versuchen",
@@ -2717,40 +2825,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "Geräteschlüssel anzeigen",
-    "englishSource": "Reveal device key"
+    "message": "Alltagsschlüssel offenlegen",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Die (Hot-)Taste Ihres Geräts lässt sich unter „Einstellungen“ → „Gerätetaste drehen“ drehen, sodass das Offenlegen dieser Taste weniger riskant ist als bei Ihrem „seed phrase“ – allerdings kann jeder, der sie in der Hand hält, Transaktionen signieren, bis Sie die Taste drehen.",
-    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
-  },
-  "hotPrivateKey": {
-    "message": "Privater Schlüssel des Geräts",
-    "englishSource": "Device Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "Öffentlicher Schlüssel des Geräts",
-    "englishSource": "Device Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "Wiederherstellung (Cold) des privaten Schlüssels",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "Wiederherstellungsschlüssel (Cold) – Öffentlicher Schlüssel",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Ihr Guardian-Konto ist durch drei Schlüssel geschützt: einen Geräteschlüssel (Hot-Schlüssel) für routinemäßige Signaturen, einen Wiederherstellungsschlüssel (Cold-Schlüssel), der aus Ihrem „seed phrase“ für die Kontoverwaltung abgeleitet wird, sowie einen externen Mitunterzeichner unter guardian. Nachfolgend finden Sie Ihren privaten Cold-Schlüssel sowie beide öffentlichen Schlüssel. Um den privaten Geräteschlüssel anzuzeigen, wählen Sie „Einstellungen“ → „Geräteschlüssel anzeigen“.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+    "message": "Dein Alltagsschlüssel kann unter „Einstellungen“ → „Alltagsschlüssel rotieren“ rotiert werden, sodass seine Offenlegung weniger riskant ist als die deiner Wiederherstellungsphrase – aber jeder, der ihn besitzt, kann Transaktionen signieren, bis du ihn rotiert hast.",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Bevor Sie Ihre privaten Schlüssel preisgeben",
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Jeder, der über diese Schlüssel verfügt, kann Ihre Miden- und EVM-Vermögenswerte kontrollieren. Das Rotieren Ihres Miden-Geräteschlüssels ändert nichts an einem durchgesickerten EVM-Schlüssel und schützt diesen auch nicht.",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
+    "message": "Jeder, der über diese Schlüssel verfügt, kann Ihre Miden- und EVM-Vermögenswerte kontrollieren. Das Rotieren Ihres täglichen Miden-Schlüssels ändert nichts an einem durchgesickerten EVM-Schlüssel und schützt diesen auch nicht.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt.",
@@ -3199,18 +3287,6 @@
     "message": "Ihr MIDEN ist für die Netzwerkgebühr reserviert. Erhalten Sie mehr MIDEN, um Guthaben zu versenden.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Für jeden Anspruch fällt eine eigene Gebühr an. Werden sie gemeinsam geltend gemacht, fällt nur eine Gebühr an.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Die Gebühr wird einmal pro beanspruchter Anlage erhoben.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Sie benötigen MIDEN, um die Netzwerkgebühr zu bezahlen. Erhalten Sie etwas MIDEN, um fortzufahren.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3220,12 +3296,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "MIDEN-Überweisungen automatisch akzeptieren",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Führt die automatische Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Es erfolgt keine häufigere Einlösung und es fallen keine höheren Gebühren an als beim manuellen Antippen von „Einlösen“.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "Nimmt eingehende MIDEN-Überweisungen automatisch in Ihr Guthaben auf — genau wie ein Tippen auf „Akzeptieren“. Es wird nicht häufiger akzeptiert und es fallen keine höheren Gebühren an, als wenn Sie selbst auf „Akzeptieren“ tippen.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Erstellen Ihrer Wallet-Datei…",
@@ -3437,8 +3513,8 @@
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "Importieren Sie das öffentliche Konto, das aus Ihrem „seed phrase“ abgeleitet wurde.",
-    "englishSource": "Import the public account derived from your seed phrase."
+    "message": "Importieren Sie das öffentliche Konto, das aus Ihrer Wiederherstellungsphrase abgeleitet wurde.",
+    "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
     "message": "Guardian URL",
@@ -3501,6 +3577,10 @@
   "home": {
     "message": "Startseite",
     "englishSource": "Home"
+  },
+  "earn": {
+    "message": "Verdienen",
+    "englishSource": "Earn"
   },
   "noteId": {
     "message": "Note ID",
@@ -3670,137 +3750,17 @@
     "message": "Zahlung senden",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Alle einfordern",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Alles einfordern? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Gesamtzahl der noch offenen Fälle",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes noch ausstehend",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "Vermögenswerte",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ Eingehend",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden nutzt ein einzigartiges System namens „notes“. Hier fordern Sie eingehende Gelder manuell an. Auf diese Weise können Sie Ihre Wallet vor böswilligen Akteuren schützen.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes ausstehend über alle Vermögenswerte von „$assets$“ hinweg",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ Eingehende Überweisungen",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ ungeklärt",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "Anspruch fehlgeschlagen – tippen Sie auf „Erneut versuchen“, um es erneut zu versuchen",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "Konnte nicht akzeptiert werden — tippen Sie auf „Erneut versuchen“",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "Diese „note“ ist nicht mehr erhältlich.",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Ausstehende „notes“",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "Was sind ausstehende „notes“?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "Nutzen Sie Ihre „notes“",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Fügen Sie diese ausstehenden Beträge Ihrem Guthaben hinzu, um mit dem Ausgeben zu beginnen.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Wenn dir jemand Geld sendet, geht es als privat ein",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— Versiegelte Pakete, die nur Sie öffnen können.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Verbrauch",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "Ein „note“ entsperrt das Guthaben und macht es zu Ihrem verfügbaren Guthaben. Solange Sie dies nicht tun, gehören die Mittel Ihnen, können aber noch nicht ausgegeben werden.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "Sie haben",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "Warten. Nutzen Sie sie jederzeit – es besteht keine Eile, und es sind zu keinem Zeitpunkt Gelder einem Risiko ausgesetzt.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "Diese Überweisung ist nicht mehr verfügbar",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "Token erhalten",
@@ -3821,6 +3781,18 @@
   "faucetId": {
     "message": "Faucet ID",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "Angebotene Faucet ID",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "Angeforderte Faucet ID",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Neue „Faucet“-ID festlegen",
@@ -3883,12 +3855,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "Eingehende „notes“ erfordern einen erneuten Versuch",
-    "englishSource": "Incoming notes need a retry"
+    "message": "Eingehende Überweisungen müssen erneut versucht werden",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "Ein eingehender „note“ erfordert einen erneuten Versuch",
-    "englishSource": "An incoming note needs a retry"
+    "message": "Eine eingehende Überweisung muss erneut versucht werden",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ konnten nicht automatisch importiert werden.",
@@ -3900,8 +3872,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note konnte nicht automatisch importiert werden.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "1 Überweisung konnte nicht automatisch importiert werden.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Morgen",
@@ -4265,13 +4237,9 @@
     "message": "Haptisches Feedback",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "Derzeit haben Sie keine „notes“, die Sie einfordern können.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "Sie haben eine E-Mail von note erhalten.",
-    "englishSource": "You have received a note"
+    "message": "Sie haben eine eingehende Überweisung",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "Die Transaktion ist fehlgeschlagen",
@@ -4282,16 +4250,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "Tippen Sie hier, um den Anspruch geltend zu machen",
-    "englishSource": "Tap here to claim it"
+    "message": "Tippen Sie hier, um sie zu akzeptieren",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Klicken Sie hier, um sie anzuzeigen und einzulösen",
-    "englishSource": "Click to view and claim it"
+    "message": "Klicken Sie, um sie zu prüfen und zu akzeptieren",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes einfordern",
-    "englishSource": "$count$ notes to claim",
+    "message": "$count$ Überweisungen zum Akzeptieren",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4307,8 +4275,8 @@
     "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
-    "message": "Mit dem „seed phrase“ können Sie Ihr öffentliches Konto jederzeit wiederherstellen. Wählen Sie unten aus, wie Sie Ihre Wallet schnell entsperren möchten.",
-    "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+    "message": "Mit der Wiederherstellungsphrase können Sie Ihr öffentliches Konto jederzeit wiederherstellen. Wählen Sie unten aus, wie Sie Ihre Wallet schnell entsperren möchten.",
+    "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
     "message": "Faucet Anfrage",
@@ -4378,10 +4346,6 @@
     "message": "Adresse eingeben",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "Fehler beim Einlösen von note",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "Testnetz",
     "englishSource": "Testnet"
@@ -4413,6 +4377,18 @@
   "recentActivity": {
     "message": "Letzte Aktivitäten",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Noch keine Aktivität",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Transaktionen mit diesem Token werden hier angezeigt.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Diese Aktivität konnte nicht geladen werden.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Typ",
@@ -4487,12 +4463,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "In diesen Swap gebündelte Notes",
-    "englishSource": "Notes bundled into this swap"
+    "message": "In diesen Swap gebündelte Ausführungen",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Ausführungs-Note $number$",
-    "englishSource": "Fill note $number$",
+    "message": "Ausführung $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4500,8 +4476,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Eingelöst · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "Akzeptiert · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4529,24 +4505,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Es wurden noch keine Notes gebündelt.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "Noch keine Ausführungen gebündelt.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Zu Pending Notes",
-    "englishSource": "Go to Pending Notes"
+    "message": "Zu den ausstehenden Überweisungen",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Swap abbrechen",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Diesen Swap abbrechen?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "Der noch angebotene Betrag kommt auf Ihr Konto zurück. Bereits ausgeführte Teile bleiben Ihnen erhalten.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Der noch angebotene Betrag wird auf Ihr Konto zurückgebucht. Das kann einen Moment dauern.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "Nicht verfügbar",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "TX-ID des Einlösens",
-    "englishSource": "Consume TX ID"
+    "message": "Akzeptieren-TX-ID",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "TX-ID des Einlösens $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "Akzeptieren-TX-ID $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4926,12 +4918,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "Gesamtverbrauch",
-    "englishSource": "Total Consumed"
+    "message": "Insgesamt akzeptiert",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes Verbraucht",
-    "englishSource": "Notes Consumed"
+    "message": "Überweisungs-IDs",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "Verbraucht",
@@ -5034,72 +5026,72 @@
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
-    "message": "Entfernen Sie „seed phrase“",
-    "englishSource": "Remove seed phrase"
+    "message": "Wiederherstellungsphrase entfernen",
+    "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "Notieren Sie sich Ihre „seed phrase“, bevor Sie sie entfernen. Tägliche Transaktionen funktionieren weiterhin. Bei Änderungen an „Guardian“ und beim täglichen Schlüsselwechsel müssen Sie die „seed phrase“ eingeben.",
-    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+    "message": "Notieren Sie sich Ihre Wiederherstellungsphrase, bevor Sie sie entfernen. Tägliche Transaktionen funktionieren weiterhin. Bei Änderungen an „Guardian“ und beim täglichen Austausch des Schlüssels müssen Sie die Wiederherstellungsphrase eingeben.",
+    "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
     "message": "Schreiben Sie alle Wörter in dieser Reihenfolge auf ein Blatt Papier. Bewahren Sie das Blatt an einem sicheren Ort außerhalb dieses Geräts auf.",
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "Dadurch werden die Wiederherstellungsschlüssel „seed phrase“ und „Guardian“ aus dieser Wallet auf diesem Gerät entfernt. Bewahren Sie Ihr Papier-Backup auf. Zuvor erstellte Backups werden nicht gelöscht.",
-    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+    "message": "Dadurch werden die Wiederherstellungsphrase und die Wiederherstellungsschlüssel „Guardian“ aus dieser Wallet auf diesem Gerät entfernt. Bewahren Sie Ihr Papier-Backup auf. Zuvor erstellte Backups werden nicht gelöscht.",
+    "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
     "message": "Von diesem Gerät entfernen",
     "englishSource": "Remove from this device"
   },
   "seedPhraseRemoved": {
-    "message": "Seed phrase Von diesem Gerät entfernt",
-    "englishSource": "Seed phrase removed from this device"
+    "message": "Wiederherstellungsphrase von diesem Gerät entfernt",
+    "englishSource": "Recovery phrase removed from this device"
   },
   "seedPhraseUnavailable": {
-    "message": "In dieser Wallet ist kein „seed phrase“ gespeichert.",
-    "englishSource": "There is no seed phrase stored in this wallet."
+    "message": "In dieser Wallet ist keine Wiederherstellungsphrase gespeichert.",
+    "englishSource": "There is no recovery phrase stored in this wallet."
   },
   "seedRemovalIncomplete": {
     "message": "Die Entfernung ist noch nicht abgeschlossen. Entsperren Sie die Wallet erneut, um die Entfernung des Wiederherstellungsmaterials abzuschließen.",
     "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
   "seedRemovalFailed": {
-    "message": "Das Entfernen des „seed phrase“ konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
-    "englishSource": "Could not finish removing the seed phrase. Try again."
+    "message": "Das Entfernen der Wiederherstellungsphrase konnte nicht abgeschlossen werden. Versuchen Sie es erneut.",
+    "englishSource": "Could not finish removing the recovery phrase. Try again."
   },
   "seedRemovalBusy": {
-    "message": "Warten Sie, bis die laufenden Transaktionen abgeschlossen sind, bevor Sie den „seed phrase“ entfernen.",
-    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+    "message": "Warten Sie, bis die laufenden Transaktionen abgeschlossen sind, bevor Sie die Wiederherstellungsphrase entfernen.",
+    "englishSource": "Wait for the current transactions to finish before removing the recovery phrase."
   },
   "seedRemovalKeysNotReady": {
-    "message": "Schließen Sie die Kontowiederherstellung und die Aktivierung der Alltagsschlüssel ab, bevor Sie die „seed phrase“ entfernen.",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "message": "Schließen Sie die Kontowiederherstellung und die Aktivierung des täglichen Schlüssels ab, bevor Sie die Wiederherstellungsphrase entfernen.",
+    "englishSource": "Finish account recovery and everyday key activation before removing the recovery phrase."
   },
   "seedRequiredForAccountCreation": {
-    "message": "Für die Kontoeröffnung ist ein gespeicherter „seed phrase“ erforderlich. Eine temporäre Seed-Eingabe für diesen Vorgang ist noch nicht verfügbar.",
-    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+    "message": "Für die Kontoerstellung ist eine gespeicherte Wiederherstellungsphrase erforderlich. Die Eingabe nur für diesen Vorgang ist noch nicht möglich.",
+    "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "Für diesen Vorgang benötigen Sie Ihre seed phrase zur Wiederherstellung.",
-    "englishSource": "This action requires your recovery seed phrase."
+    "message": "Für diesen Vorgang benötigen Sie Ihre Wiederherstellungsphrase.",
+    "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "Geben Sie Ihre „seed phrase“ ein",
-    "englishSource": "Enter your seed phrase"
+    "message": "Geben Sie Ihre Wiederherstellungsphrase ein",
+    "englishSource": "Enter your recovery phrase"
   },
   "recoverySeedTemporaryDescription": {
     "message": "Verwenden Sie Ihr Papier-Backup. Die Phrase wird ausschließlich für diesen Vorgang verwendet und nicht auf diesem Gerät gespeichert.",
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Geben Sie eine gültige seed phrase ein.",
-    "englishSource": "Enter a valid seed phrase."
+    "message": "Geben Sie eine gültige Wiederherstellungsphrase ein.",
+    "englishSource": "Enter a valid recovery phrase."
   },
   "wrongRecoverySeed": {
-    "message": "Diese „seed phrase“ stimmt nicht mit diesem Konto überein.",
-    "englishSource": "This seed phrase does not match this account."
+    "message": "Diese Wiederherstellungsphrase passt nicht zu diesem Konto.",
+    "englishSource": "This recovery phrase does not match this account."
   },
   "recoveryActionUnavailable": {
     "message": "Diese Wiederherstellungsmaßnahme ist nicht mehr verfügbar.",
@@ -5139,8 +5131,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "Beansprucht am",
-    "englishSource": "Claimed on"
+    "message": "Akzeptiert am",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "Verbinden Sie nur eine Test-Wallet",
@@ -5160,8 +5152,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "Diese Überweisung auf diesem Gerät aus der Aktivität ausblenden? Dadurch werden weder Mittel an den Absender zurückgegeben noch die Überweisung storniert. Ausgeblendete Überweisungen können Sie in der Aktivität wiederherstellen.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "Suchaktivität",
@@ -5212,8 +5204,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "Noch nicht akzeptiert – bitte prüfen und akzeptieren, um diese Gelder einzufordern.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "Noch nicht akzeptiert — prüfen und akzeptieren, um diese Mittel Ihrem Guthaben hinzuzufügen.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "Das Netzwerk kann zurückgesetzt werden",
@@ -5371,9 +5363,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "Geltend gemacht",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$ wartend",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ wartend · $hidden$ versteckt",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "Senden Sie an diese Adresse ausschließlich Token von Miden $network$. An diese Adresse gesendete echte Geldbeträge können nicht wiederhergestellt werden.",
@@ -5598,5 +5607,119 @@
   "couldNotCheckUnlockMethod": {
     "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "Farbe des QR-Codes ändern",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "Empfangen an",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Deine Erträge",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "Sek.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Min.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Std.",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "Tag",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Ablaufeinheit",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "Weitere Informationen zu $label$",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "Geben Sie eine ganze Zahl von $min$ bis $max$ ein.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Aktivitätsansicht",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Ansichtsoptionen",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Liste",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Gruppen",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Swaps",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Sonstige Aktivität",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "Akzeptiert",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "Wird akzeptiert…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "Überweisungen",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "Ungelesen",
+    "englishSource": "Unread"
+  },
+  "revealRecoveryPhrase": {
+    "message": "Wiederherstellungsphrase anzeigen",
+    "englishSource": "Reveal recovery phrase"
   }
 }

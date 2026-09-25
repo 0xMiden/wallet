@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 
@@ -24,9 +24,11 @@ jest.mock('lib/shared/format', () => ({
 }));
 
 const mockGetExplorerTxUrl = jest.fn();
+const mockGetExplorerAccountUrl = jest.fn();
 
 jest.mock('lib/miden-chain/constants', () => ({
-  getExplorerTxUrl: (...args: unknown[]) => mockGetExplorerTxUrl(...args)
+  getExplorerTxUrl: (...args: unknown[]) => mockGetExplorerTxUrl(...args),
+  getExplorerAccountUrl: (...args: unknown[]) => mockGetExplorerAccountUrl(...args)
 }));
 
 jest.mock('lib/animation', () => ({
@@ -40,8 +42,24 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title: string; onClick: () => void }) => <button onClick={onClick}>{title}</button>,
-  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    variant,
+    'data-testid': testId
+  }: {
+    title: string;
+    onClick: () => void;
+    disabled?: boolean;
+    variant?: string;
+    'data-testid'?: string;
+  }) => (
+    <button onClick={onClick} disabled={disabled} data-variant={variant} data-testid={testId}>
+      {title}
+    </button>
+  ),
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
 }));
 
 jest.mock('../HashChip', () => ({
@@ -96,8 +114,12 @@ const entry = {
   amount: 500n,
   token: 'MID',
   timestamp: 1_700_000_000,
-  txType: 'swap'
+  txType: 'swap',
+  // A swap row's own `faucetId` is the OFFERED side (SwapTransaction, db/types.ts).
+  faucetId: OFFERED_FAUCET
 } as unknown as IHistoryEntry;
+
+const mockCancelOrder = jest.fn();
 
 const consume = (over: Partial<SwapSettlementTransaction> = {}): SwapSettlementTransaction => ({
   id: 'local-row-1',
@@ -125,6 +147,11 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       reclaimedTransactions={[]}
       fromAccount={<span>me</span>}
       showActions={false}
+      offerCancelOrder={false}
+      reclaimPending={false}
+      isCancellingOrder={false}
+      cancelOrderError={null}
+      onCancelOrder={mockCancelOrder}
       {...over}
     />
   );
@@ -132,6 +159,43 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetExplorerTxUrl.mockImplementation((txId: string) => `https://explorer.test/tx/${txId}`);
+  mockGetExplorerAccountUrl.mockImplementation((address: string) => `https://explorer.test/account/${address}`);
+});
+
+const rowByLabel = (label: string) =>
+  Array.from(document.querySelectorAll('[data-testid="detail-row"]')).find(
+    el => el.getAttribute('data-label') === label
+  );
+
+describe('SwapDetail faucet ids', () => {
+  it('names both faucets, each under its own side of the order', () => {
+    renderDetail();
+
+    // Two faucets, two labels: a single "Faucet ID" row could not say which side
+    // it described, which is the whole reason this screen takes two keys.
+    const offered = rowByLabel('faucetIdOffered')!;
+    const requested = rowByLabel('faucetIdRequested')!;
+    expect(offered.querySelector('[data-testid="hash-chip"]')?.textContent).toBe(OFFERED_FAUCET);
+    expect(requested.querySelector('[data-testid="hash-chip"]')?.textContent).toBe(REQUESTED_FAUCET);
+
+    // A faucet is an account, so both link to the ACCOUNT explorer - the same
+    // override-aware helper the From/To rows use - not the transaction one.
+    expect(offered.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+      'href',
+      `https://explorer.test/account/${OFFERED_FAUCET}`
+    );
+    expect(requested.querySelector('a[data-testid="external-link"]')).toHaveAttribute(
+      'href',
+      `https://explorer.test/account/${REQUESTED_FAUCET}`
+    );
+  });
+
+  it('renders no requested row for an order that never recorded a requested faucet', () => {
+    renderDetail({ requestedFaucetId: undefined });
+
+    expect(rowByLabel('faucetIdOffered')).toBeDefined();
+    expect(rowByLabel('faucetIdRequested')).toBeUndefined();
+  });
 });
 
 describe('SwapDetail amounts', () => {
@@ -317,21 +381,25 @@ describe('SwapDetail note rows', () => {
   });
 });
 
+// Scoped to the consume row: the two faucet rows beside it are linked to the
+// ACCOUNT explorer and would otherwise answer a bare `external-link` query.
 describe('SwapDetail explorer links', () => {
+  const consumeLink = () => rowByLabel('consumeTxId')!.querySelector('[data-testid="external-link"]');
+
   it('links a consume by its chain id', () => {
     renderDetail({ settledTransactions: [consume()] });
 
-    expect(screen.getByTestId('external-link')).toHaveAttribute('href', 'https://explorer.test/tx/0xchain1');
+    expect(consumeLink()).toHaveAttribute('href', 'https://explorer.test/tx/0xchain1');
   });
 
   it('will not pass off a local row id as an on-chain identity', () => {
     // Before completion a consume has only its Dexie UUID. Linking that produced
     // a dead explorer link for a transaction the chain has never heard of.
-    const { container } = renderDetail({ settledTransactions: [consume({ transactionId: undefined })] });
+    renderDetail({ settledTransactions: [consume({ transactionId: undefined })] });
 
-    expect(screen.queryByTestId('external-link')).not.toBeInTheDocument();
+    expect(consumeLink()).toBeNull();
     // Still shown, just not as something the explorer can be asked about.
-    expect(container.querySelector('[data-label="consumeTxId"]')).toHaveTextContent('local-row-1');
+    expect(rowByLabel('consumeTxId')).toHaveTextContent('local-row-1');
     expect(mockGetExplorerTxUrl).not.toHaveBeenCalled();
   });
 
@@ -339,14 +407,14 @@ describe('SwapDetail explorer links', () => {
     mockGetExplorerTxUrl.mockReturnValue(undefined);
     renderDetail({ settledTransactions: [consume()] });
 
-    expect(screen.queryByTestId('external-link')).not.toBeInTheDocument();
+    expect(consumeLink()).toBeNull();
   });
 });
 
 describe('SwapDetail actions', () => {
   it('renders no dismiss control of its own - leaving the screen is the page back button', () => {
     // An order that reached the DEX has no cancel path, but there is also no
-    // in-card way off the screen any more: the routed page's own back chevron
+    // in-card way off the screen any more: the routed page's own back button
     // is the only exit, in every order state.
     renderDetail({ showActions: true, orderState: 'filled' });
 
@@ -367,5 +435,69 @@ describe('SwapDetail actions', () => {
 
     expect(screen.queryByText('close')).not.toBeInTheDocument();
     expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+  });
+});
+
+describe('SwapDetail cancelling a live order', () => {
+  it('offers Cancel swap while the order is open, and calls back on the tap', () => {
+    renderDetail({ offerCancelOrder: true });
+
+    const button = screen.getByTestId('swap-cancel-order-button');
+    expect(button).toHaveTextContent('swapCancelOrder');
+    // Destructive, not primary: the offer cannot be put back once it is taken.
+    expect(button).toHaveAttribute('data-variant', 'destructive');
+
+    fireEvent.click(button);
+    expect(mockCancelOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no cancel control when the order cannot be cancelled', () => {
+    // The eligibility is decided once, in `deriveSwapReceipt`; this card never
+    // draws a control the receipt did not offer.
+    renderDetail({ offerCancelOrder: false });
+
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('holds the button in its loading state while the cancel is in flight', () => {
+    renderDetail({ offerCancelOrder: true, isCancellingOrder: true });
+
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeDisabled();
+  });
+
+  it('replaces the button with the reclaim notice once the expiry has lapsed', () => {
+    // Nothing to tap: the wallet owes this account its tip back and will take it
+    // on the next settlement tick. A button there would restate a decision that
+    // has already been made.
+    renderDetail({ offerCancelOrder: false, reclaimPending: true });
+
+    expect(screen.getByTestId('swap-cancel-order-pending')).toHaveTextContent('swapCancelOrderPending');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a failed cancel as a notice, keeping the button available to retry', () => {
+    renderDetail({ offerCancelOrder: true, cancelOrderError: 'nope' });
+
+    const notice = screen.getByTestId('swap-cancel-order-error');
+    expect(notice).toHaveTextContent('nope');
+    expect(notice).toHaveAttribute('data-tone', 'negative');
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
+  });
+
+  it('draws the error even when nothing else would open the action bar', () => {
+    // The bar is rendered only when it has something in it, and a refusal the
+    // user cannot see is the same as no refusal at all.
+    renderDetail({ showActions: false, offerCancelOrder: false, cancelOrderError: 'nope' });
+
+    expect(screen.getByTestId('swap-cancel-order-error')).toBeInTheDocument();
+  });
+
+  it('keeps the claim route and the cancel side by side when both apply', () => {
+    // An order with no expiry is both claimable (nothing will auto-settle it)
+    // and cancellable (the stamp is the only thing that can end its wait).
+    renderDetail({ showActions: true, onOpenPendingNotes: jest.fn(), offerCancelOrder: true });
+
+    expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+    expect(screen.getByTestId('swap-cancel-order-button')).toBeInTheDocument();
   });
 });

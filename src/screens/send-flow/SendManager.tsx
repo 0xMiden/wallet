@@ -2,18 +2,17 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState }
 
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
-import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';
@@ -54,6 +53,7 @@ import {
   SendFlowStep,
   UIToken
 } from './types';
+import { sameUIToken, uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 import { useRecentRecipients } from './useRecentRecipients';
 import { WalletType } from '../onboarding/types';
@@ -364,6 +364,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     setError,
     clearErrors,
     setValue,
+    getValues,
     trigger,
     formState: { errors }
   } = useForm<SendFlowForm>({
@@ -468,8 +469,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
   // WHY a quote is missing instead of on the "$" the fee happens to render.
-  // `fastFeeUsd` below is undefined for three unrelated reasons — no token, no
-  // amount, or no quote — and all three paint the same "—", so a test gated on
+  // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced
+  // or unscaled one, no amount, or no quote - and all paint the same empty-value placeholder, so a test gated on
   // the rendered text cannot tell a quote-service outage from a token that never
   // loaded. `useEpochQuote` already captures the failure reason and nothing reads
   // it. Mirrors the __TEST_STORE__ / __TEST_SET_SHARE_PRIVATELY__ gate; zero
@@ -491,7 +492,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
-    if (!token || !amount || epochQuote.amount == null) return undefined;
+    // Unpriced (0) or unscaled, the input has no dollar value, and a fee from it is invented.
+    if (!token || !token.scaleIsKnown || !(token.fiatPrice > 0) || !amount || epochQuote.amount == null) {
+      return undefined;
+    }
     const input = parseFloat(amount) * token.fiatPrice;
     const output = parseFloat(epochQuote.amount);
     if (!isFinite(input) || !isFinite(output)) return undefined;
@@ -501,22 +505,33 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
+  // Balances and prices refresh on timers, so the preselection is applied once per id and a
+  // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
+  // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
+  const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!preselectedTokenId || !balanceData) return;
-    const match = balanceData.find(t => t.tokenId === preselectedTokenId);
-    if (!match) return;
-    const uiToken: UIToken = {
-      id: match.tokenId,
-      name: match.metadata.symbol,
-      decimals: match.metadata.decimals,
-      balance: match.balance,
-      fiatPrice: match.fiatPrice,
-      scaleIsKnown: hasKnownScale(match.metadata)
-    };
-    setValue('token', uiToken);
-  }, [preselectedTokenId, balanceData, setValue]);
+    if (!preselectedTokenId) appliedPreselectionRef.current = null;
+    if (!balanceData) return;
+    if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
+      const match = balanceData.find(t => t.tokenId === preselectedTokenId);
+      if (match) {
+        appliedPreselectionRef.current = preselectedTokenId;
+        setValue('token', uiTokenFromBalance(match, tokenPrices));
+        return;
+      }
+    }
+    const current = getValues('token');
+    if (!current) return;
+    const held = balanceData.find(t => t.tokenId === current.id);
+    // A token that left a loaded snapshot has nothing to send; its old balance would still confirm.
+    if (!held && balancesLoading) return;
+    const refreshed = held ? uiTokenFromBalance(held, tokenPrices) : { ...current, balance: 0 };
+    if (sameUIToken(refreshed, current)) return;
+    setValue('token', refreshed);
+  }, [preselectedTokenId, balanceData, balancesLoading, tokenPrices, setValue, getValues]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -605,6 +620,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
     },
     [navigateTo, goBack, onClose, setValue, trigger]
+  );
+
+  // A pick in the drawer settles any pending preselection, so a preselected token that
+  // appears later cannot replace it.
+  const onSelectToken = useCallback(
+    (selectedToken: UIToken) => {
+      appliedPreselectionRef.current = preselectedTokenId ?? null;
+      onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
+    },
+    [preselectedTokenId, onAction]
   );
 
   // Hand off to the full-screen review page, which owns the transaction
@@ -1088,31 +1113,15 @@ export const SendManager: React.FC<SendManagerProps> = ({
     ]
   );
 
-  // SendManager is rendered inside TabLayout > HomeSwipeContainer, which already
-  // constrains its size. Hardcoded heights (h-[600px]/h-[640px]) overflow the
-  // parent (which loses ~50px to the top action bar), clipping the bottom CTA.
-  // Inherit from the parent chain instead.
-  const containerClass = 'h-full w-full';
-
   return (
-    <div
-      className={classNames(
-        containerClass,
-        'mx-auto overflow-hidden',
-        'flex flex-col bg-app-bg',
-        'overflow-hidden relative'
-      )}
-      data-testid="send-flow"
-    >
-      <div className="flex flex-col flex-1 h-full min-h-0">
-        <Navigator renderRoute={renderStep} />
-      </div>
+    // The shared home-group pane box. SendManager is rendered inside TabLayout >
+    // HomeSwipeContainer and inherits its size from that chain: hardcoded heights
+    // (h-[600px]/h-[640px]) overflow the parent, which loses ~50px to the top action bar, and
+    // clip the bottom CTA.
+    <HomeGroupPaneRoot testId="send-flow">
+      <Navigator renderRoute={renderStep} />
 
-      <SelectTokenDrawer
-        open={showTokenDrawer}
-        onOpenChange={setShowTokenDrawer}
-        onSelect={selectedToken => onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } })}
-      />
+      <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
 
       <AccountsListDrawer
         open={showContactsDrawer}
@@ -1137,7 +1146,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         onDetected={applyScannedAddress}
         onError={applyScanError}
       />
-    </div>
+    </HomeGroupPaneRoot>
   );
 };
 

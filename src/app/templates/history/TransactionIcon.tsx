@@ -7,12 +7,28 @@ import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
+import { STRUCTURAL_GUARDIAN_TYPES } from 'lib/miden/db/types';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
-/** Slate square behind the white swap glyph for bridge rows (matches the design). */
-const BRIDGE_ICON_BG = '#777487';
+/**
+ * Slate square behind the white swap glyph for bridge rows, and the accent for a Guardian op.
+ * The same value the activity list paints on those rows (`bg-[#777487]`, HistoryView) — keep them
+ * in sync, so a row's icon and its detail page's section rule are one colour.
+ *
+ * Read from `TRANSACTION_COLORS` rather than spelled out again: the bridge progress and receipt
+ * screens tint their summary arrow with it, and they cannot import this module without pulling
+ * in every glyph it draws.
+ */
+const SLATE_ICON_BG = TRANSACTION_COLORS.bridge;
+
+/**
+ * A structural Guardian operation: a guardian switch, a device-key rotation or a procedure-threshold
+ * update. None moves value; each draws the Guardian glyph on the slate in Activity and the slate
+ * accent on its detail page.
+ */
+export const isGuardianOp = (txType: IHistoryEntry['txType']): boolean => STRUCTURAL_GUARDIAN_TYPES.includes(txType);
 
 /**
  * An earn row renders as failed (red cross + red accent) when the tx hard-failed, a
@@ -46,8 +62,13 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
   if (entry.transactionIcon === 'FAILED') return '#CC5D5D';
 
   if (entry.txType === 'bridged-send' || entry.bridgeInProvider) {
-    return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : BRIDGE_ICON_BG;
+    return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : SLATE_ICON_BG;
   }
+
+  // A Guardian op's persisted icon is DEFAULT, which the switch below would paint
+  // the green of money arriving, on a page where nothing moved. It takes the slate
+  // its activity row is painted with.
+  if (isGuardianOp(entry.txType)) return SLATE_ICON_BG;
 
   // Earn rows keep the Earn accent across states; any failed earn leg goes red.
   if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
@@ -95,7 +116,7 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     return (
       <div
         className={`${config.container} rounded-10 flex items-center justify-center`}
-        style={{ backgroundColor: BRIDGE_ICON_BG }}
+        style={{ backgroundColor: SLATE_ICON_BG }}
       >
         <SwapIcon className={config.icon} />
       </div>
@@ -127,6 +148,26 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
 
   if (isPending) {
     return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
+  }
+
+  // Mirrors the Activity row (HistoryView): without this a Guardian op's DEFAULT icon
+  // falls through to the receive arrow.
+  if (isGuardianOp(entry.txType)) {
+    if (entry.transactionIcon === 'FAILED') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-[#CC5D5D]`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
+    }
+    return (
+      <div
+        className={`${config.container} rounded-10 flex items-center justify-center`}
+        style={{ backgroundColor: SLATE_ICON_BG }}
+      >
+        <SwapIcon className={config.icon} />
+      </div>
+    );
   }
 
   if (isFaucetRequest(entry)) {

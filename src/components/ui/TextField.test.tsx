@@ -1,8 +1,10 @@
 import React, { createRef, useState } from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import TextFieldDefault, { TextField } from './TextField';
+import TextFieldDefault, { SECRET_REVEAL_MS, TextField } from './TextField';
+
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 describe('TextField — exports & defaults', () => {
   it('exposes the same component as the default and named export', () => {
@@ -255,5 +257,258 @@ describe('TextField — leading prefix', () => {
   it('ignores the prefix on a multi-line field', () => {
     render(<TextField multiline leading="1." value="" onChange={() => undefined} />);
     expect(screen.queryByText('1.')).not.toBeInTheDocument();
+  });
+});
+
+describe('TextField — secret', () => {
+  const cover = () => document.querySelector('[data-slot="secret-cover"]');
+
+  it('covers a filled secret until it is focused, and again when focus leaves', () => {
+    render(<TextField secret multiline value="my private key" onChange={jest.fn()} />);
+    const field = screen.getByRole('textbox');
+
+    expect(cover()).toBeInTheDocument();
+    fireEvent.focus(field);
+    expect(cover()).toBeNull();
+    fireEvent.blur(field);
+    expect(cover()).toBeInTheDocument();
+  });
+
+  it('covers nothing while the field is empty, and covers what was typed into an uncontrolled one', () => {
+    render(<TextField secret data-testid="key" />);
+    const field = screen.getByTestId('key');
+
+    expect(cover()).toBeNull();
+    fireEvent.change(field, { target: { value: 'aabb' } });
+    fireEvent.blur(field);
+    expect(cover()).toBeInTheDocument();
+
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.blur(field);
+    expect(cover()).toBeNull();
+  });
+
+  it('covers a secret seeded from defaultValue, and uncovers once it is cleared', () => {
+    render(<TextField secret defaultValue="my private key" data-testid="key" />);
+    const field = screen.getByTestId('key');
+
+    expect(cover()).toBeInTheDocument();
+
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.blur(field);
+    expect(cover()).toBeNull();
+  });
+
+  describe('once revealed', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const revealed = () => {
+      render(<TextField secret value="my private key" onChange={jest.fn()} />);
+      const field = screen.getByRole('textbox');
+      act(() => field.focus());
+      expect(field).toHaveFocus();
+      expect(cover()).toBeNull();
+      return field;
+    };
+
+    it('covers the secret again after the reveal window, not a millisecond before', () => {
+      const field = revealed();
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS - 1);
+      });
+      expect(field).toHaveFocus();
+      expect(cover()).toBeNull();
+
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(field).not.toHaveFocus();
+      expect(cover()).toBeInTheDocument();
+    });
+
+    it('covers the secret again when the window goes away', () => {
+      const field = revealed();
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS - 1);
+      });
+      expect(cover()).toBeNull();
+
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(field).not.toHaveFocus();
+      expect(cover()).toBeInTheDocument();
+    });
+  });
+
+  it('keeps autofill off a secret input and textarea, whatever the caller asks for', () => {
+    const { unmount } = render(<TextField secret autoComplete="on" value="k" onChange={jest.fn()} />);
+    expect(screen.getByRole('textbox')).toHaveAttribute('autocomplete', 'off');
+    unmount();
+    render(<TextField secret multiline autoComplete="on" value="k" onChange={jest.fn()} />);
+    expect(screen.getByRole('textbox')).toHaveAttribute('autocomplete', 'off');
+  });
+
+  it('keeps spellcheck, autocorrect and autocapitalize off a secret input and textarea, whatever the caller asks for', () => {
+    const asked = { spellCheck: true, autoCorrect: 'on', autoCapitalize: 'sentences' } as const;
+    render(
+      <>
+        <TextField secret {...asked} value="k" onChange={jest.fn()} />
+        <TextField secret multiline {...asked} value="k" onChange={jest.fn()} />
+      </>
+    );
+    const fields = screen.getAllByRole('textbox');
+    expect(fields.map(field => field.tagName)).toEqual(['INPUT', 'TEXTAREA']);
+    for (const field of fields) {
+      expect(field).toHaveAttribute('spellcheck', 'false');
+      expect(field).toHaveAttribute('autocorrect', 'off');
+      expect(field).toHaveAttribute('autocapitalize', 'none');
+    }
+  });
+
+  it("leaves an ordinary field's spellcheck, autocorrect and autocapitalize to the caller", () => {
+    render(<TextField spellCheck autoCorrect="on" autoCapitalize="sentences" value="k" onChange={jest.fn()} />);
+    const field = screen.getByRole('textbox');
+    expect(field).toHaveAttribute('spellcheck', 'true');
+    expect(field).toHaveAttribute('autocorrect', 'on');
+    expect(field).toHaveAttribute('autocapitalize', 'sentences');
+  });
+
+  describe('when the document is hidden', () => {
+    const setVisibility = (state: DocumentVisibilityState) =>
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+
+    afterEach(() => {
+      setVisibility('visible');
+      jest.restoreAllMocks();
+    });
+
+    const revealed = () => {
+      const view = render(<TextField secret value="my private key" onChange={jest.fn()} />);
+      const field = screen.getByRole('textbox');
+      act(() => field.focus());
+      expect(field).toHaveFocus();
+      expect(cover()).toBeNull();
+      return { ...view, field };
+    };
+
+    it('covers a revealed secret again when the document becomes hidden', () => {
+      const { field } = revealed();
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(field).toHaveFocus();
+
+      setVisibility('hidden');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(field).not.toHaveFocus();
+      expect(cover()).toBeInTheDocument();
+    });
+
+    it('covers a revealed secret again on pagehide', () => {
+      const { field } = revealed();
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      expect(field).not.toHaveFocus();
+      expect(cover()).toBeInTheDocument();
+    });
+
+    // Chromium fires the field's focusout before the window blur on a window switch, and the
+    // browser hands focus back to the same element on return, uncovering it without a tap.
+    describe('when focus leaves before the window event', () => {
+      it.each([
+        ['on the window blur', () => window.dispatchEvent(new Event('blur'))],
+        ['on pagehide', () => window.dispatchEvent(new Event('pagehide'))],
+        [
+          'when the document becomes hidden',
+          () => {
+            setVisibility('hidden');
+            document.dispatchEvent(new Event('visibilitychange'));
+          }
+        ]
+      ])('gives focus back %s', (_, windowEvent) => {
+        const { field } = revealed();
+        act(() => {
+          fireEvent.focusOut(field);
+        });
+        expect(field).toHaveFocus();
+        act(() => {
+          windowEvent();
+        });
+        expect(field).not.toHaveFocus();
+        expect(cover()).toBeInTheDocument();
+      });
+    });
+
+    it('removes every listener, and the timer, once the field leaves secret mode or unmounts', () => {
+      jest.useFakeTimers();
+      try {
+        const windowAdd = jest.spyOn(window, 'addEventListener');
+        const windowRemove = jest.spyOn(window, 'removeEventListener');
+        const documentAdd = jest.spyOn(document, 'addEventListener');
+        const documentRemove = jest.spyOn(document, 'removeEventListener');
+        const { field, rerender, unmount } = revealed();
+        const added = (spy: jest.SpyInstance, type: string) =>
+          spy.mock.calls.filter(([name]) => name === type).at(-1)?.[1];
+        const blur = added(windowAdd, 'blur');
+        const pagehide = added(windowAdd, 'pagehide');
+        const visibility = added(documentAdd, 'visibilitychange');
+        expect([blur, pagehide, visibility]).toEqual([
+          expect.any(Function),
+          expect.any(Function),
+          expect.any(Function)
+        ]);
+
+        rerender(<TextField value="my private key" onChange={jest.fn()} />);
+        expect(windowRemove).toHaveBeenCalledWith('blur', blur);
+        expect(windowRemove).toHaveBeenCalledWith('pagehide', pagehide);
+        expect(documentRemove).toHaveBeenCalledWith('visibilitychange', visibility);
+
+        setVisibility('hidden');
+        act(() => {
+          window.dispatchEvent(new Event('blur'));
+          window.dispatchEvent(new Event('pagehide'));
+          document.dispatchEvent(new Event('visibilitychange'));
+          jest.advanceTimersByTime(SECRET_REVEAL_MS);
+        });
+        expect(field).toHaveFocus();
+
+        setVisibility('visible');
+        rerender(<TextField secret value="my private key" onChange={jest.fn()} />);
+        act(() => field.focus());
+        const blurAgain = added(windowAdd, 'blur');
+        const pagehideAgain = added(windowAdd, 'pagehide');
+        const visibilityAgain = added(documentAdd, 'visibilitychange');
+        unmount();
+        expect(windowRemove).toHaveBeenCalledWith('blur', blurAgain);
+        expect(windowRemove).toHaveBeenCalledWith('pagehide', pagehideAgain);
+        expect(documentRemove).toHaveBeenCalledWith('visibilitychange', visibilityAgain);
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  it('still reports focus and blur to the caller', () => {
+    const onFocus = jest.fn();
+    const onBlur = jest.fn();
+    render(<TextField secret value="x" onChange={jest.fn()} onFocus={onFocus} onBlur={onBlur} />);
+
+    fireEvent.focus(screen.getByRole('textbox'));
+    fireEvent.blur(screen.getByRole('textbox'));
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an ordinary field uncovered', () => {
+    render(<TextField value="not a secret" onChange={jest.fn()} />);
+    expect(cover()).toBeNull();
   });
 });

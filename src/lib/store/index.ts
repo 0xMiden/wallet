@@ -339,20 +339,6 @@ export const useWalletStore = create<WalletStore>()(
       return res.keyPairPayload;
     },
 
-    revealGuardianKeys: async (accountPublicKey, password) => {
-      const res = await request({
-        type: WalletMessageType.RevealGuardianKeysRequest,
-        accountPublicKey,
-        password
-      });
-      assertResponse(res.type === WalletMessageType.RevealGuardianKeysResponse);
-      return {
-        coldPrivateKey: res.coldPrivateKey,
-        coldPublicKey: res.coldPublicKey,
-        hotPublicKey: res.hotPublicKey
-      };
-    },
-
     importAccount: async (privateKey, name) => {
       const res = await request({
         type: WalletMessageType.ImportAccountRequest,

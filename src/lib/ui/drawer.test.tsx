@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+import { sheetMotionVars } from 'lib/animation';
 import { isExtension } from 'lib/platform';
 
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from './drawer';
@@ -56,7 +57,7 @@ describe('Drawer', () => {
     expect(close.className).toContain('text-muted');
   });
 
-  it('renders DrawerTitle at 20px/26 Nunito 800, left-aligned, on the ink token', () => {
+  it('renders DrawerTitle at 18px/24 Nunito 800, left-aligned, on the ink token', () => {
     render(
       <Drawer open>
         <DrawerContent>
@@ -68,9 +69,100 @@ describe('Drawer', () => {
     );
 
     const title = screen.getByRole('heading', { name: 'Settings' });
-    expect(title).toHaveClass('text-title-page');
+    expect(title).toHaveClass('text-title-section');
     expect(title.className).toContain('text-left');
     expect(title.className).toContain('text-ink');
+  });
+
+  it('draws no rule under the header: a sheet separates with fill groups, not a divider', () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Settings</DrawerTitle>
+          </DrawerHeader>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const header = document.querySelector('[data-slot="drawer-header"]')!;
+    expect(header.className).not.toMatch(/\bborder-b\b/);
+    expect(header.className).toContain('px-4');
+  });
+
+  it('dims the page behind with one plain scrim token and no blur', () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const overlay = document.querySelector('[data-vaul-overlay]')!;
+    expect(overlay.className).toContain('bg-scrim');
+    expect(overlay.className).not.toMatch(/backdrop-blur/);
+    // One value in both themes: no `dark:` variant to override it.
+    expect(overlay.className).not.toMatch(/\bdark:/);
+  });
+
+  it('runs the sheet and its backdrop on the tab-bar springs, on one timing', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet">
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    for (const el of [screen.getByTestId('sheet'), document.querySelector('[data-vaul-overlay]')!]) {
+      const style = (el as HTMLElement).style;
+      for (const [name, value] of Object.entries(sheetMotionVars)) {
+        expect(style.getPropertyValue(name)).toBe(value);
+      }
+    }
+  });
+
+  // The spring rule's !important duration and easing reach every property the sheet transitions,
+  // and keyboard padding must snap (lib/mobile/keyboard-inset.ts).
+  it('transitions only its transform, so the keyboard inset snaps', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet">
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const sheet = screen.getByTestId('sheet');
+    expect(sheet).toHaveClass('transition-transform');
+    expect(sheet.className).not.toContain('transition-[padding-bottom]');
+  });
+
+  it('keeps a sheet’s own inline style beside the motion variables', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet" style={{ zIndex: 99 }}>
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const sheet = screen.getByTestId('sheet');
+    expect(sheet.style.zIndex).toBe('99');
+    expect(sheet.style.getPropertyValue('--sheet-open-easing')).toBe(sheetMotionVars['--sheet-open-easing']);
+  });
+
+  it('puts the sheet on the page surface', () => {
+    render(
+      <Drawer open>
+        <DrawerContent data-testid="sheet">
+          <div>Body</div>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    expect(screen.getByTestId('sheet').className).toContain('bg-page');
   });
 
   it('gives the sheet a 28px top radius', () => {

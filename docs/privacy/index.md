@@ -131,8 +131,8 @@ Both are configured to delete data after 90 days, to store no IP addresses, and 
 
 For transparency about how the App functions on your device (this is not data we receive or have access to):
 
-- Your wallet's seed phrase, private keys, account names, transaction history, and balances are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled.
-- This information never leaves your device unless **you** explicitly export it via the in-app "Export Wallet" function.
+- Your wallet's recovery phrase, private keys, account names, transaction history, and balances are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled.
+- This information never leaves your device unless **you** explicitly export it via the in-app "Encrypted Wallet File" export.
 
 ## Biometric authentication (Face ID, Touch ID, Fingerprint)
 
@@ -150,7 +150,7 @@ Biometric matching is performed entirely by your device's operating system insid
 
 ## Network traffic
 
-The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) — never your private keys or seed phrase.
+The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) — never your private keys or recovery phrase.
 
 If **Share usage data** is on, the App also reaches the two processors named above. If it is off, it does not contact them at all.
 

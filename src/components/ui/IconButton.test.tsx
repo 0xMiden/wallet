@@ -118,3 +118,19 @@ it('forwards a data-testid', () => {
   render(<IconButton icon={IconName.Close} label="Close" onClick={jest.fn()} data-testid="my-icon-button" />);
   expect(screen.getByTestId('my-icon-button')).toBeInTheDocument();
 });
+
+describe('IconButton filled', () => {
+  it('draws a page header back button: a 44px fill circle with an ink, medium glyph', () => {
+    render(<IconButton icon={IconName.Close} appearance="filled" label="Back" />);
+    const button = screen.getByRole('button', { name: 'Back' });
+    expect(button).toHaveClass('bg-fill', 'h-11', 'w-11', 'text-ink');
+    expect(button).not.toHaveClass('text-muted');
+    expect(screen.getByTestId('icon-close')).toHaveAttribute('data-size', 'md');
+  });
+
+  it.each(['32', '36'] as const)('keeps a %spx circle muted with the small glyph', size => {
+    render(<IconButton icon={IconName.Close} appearance="circle" circleSize={size} label="Close" />);
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('bg-fill', 'text-muted');
+    expect(screen.getByTestId('icon-close')).toHaveAttribute('data-size', 'sm');
+  });
+});

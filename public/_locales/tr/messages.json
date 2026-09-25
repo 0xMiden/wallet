@@ -119,18 +119,9 @@
     "message": "Yükleniyor",
     "englishSource": "Loading"
   },
-  "pendingTabApproxUsd": {
-    "message": "≈ $value$",
-    "englishSource": "≈ $value$",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "noteReturnsToSenderBy": {
-    "message": "$date$ tarafından talep edilmezse gönderene iade edilir.",
-    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "message": "$date$ tarihine kadar kabul edilmezse gönderene geri döner",
+    "englishSource": "Returns to the sender if not accepted by $date$",
     "placeholders": {
       "date": {
         "content": "$1"
@@ -440,6 +431,10 @@
     "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnVaultLoadError": {
+    "message": "Bu kasayı yükleyemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't load this vault. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -460,6 +455,14 @@
   "earnSeeAll": {
     "message": "Tümünü Göster",
     "englishSource": "See All"
+  },
+  "earnNoActivePositionsTitle": {
+    "message": "Aktif pozisyon yok",
+    "englishSource": "No active positions"
+  },
+  "earnNoActivePositionsBody": {
+    "message": "Ödüller kazanmaya başlamak için aşağıdaki kasalardan birine para yatırın.",
+    "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
     "message": "Öne Çıkan Kasalar",
@@ -636,24 +639,24 @@
     "englishSource": "Recipient not notified"
   },
   "noteDeliveryUndeliveredBody": {
-    "message": "Bu işlem blok zinciri üzerindedir, ancak özel note, note aktarım hizmetine teslim edilememiştir. Teslim edilene kadar alıcı bu tutarı göremez veya harcayamaz.",
-    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+    "message": "Bu işlem zincirde, ancak özel transfer teslimat hizmetine iletilemedi. İletilene kadar alıcı transferi göremez veya harcayamaz.",
+    "englishSource": "This transaction is on chain, but the private transfer could not be handed to the delivery service. Until it is, the recipient cannot see or spend it."
   },
   "noteDeliveryPendingBody": {
-    "message": "Bu işlem zincir üzerindedir, ancak cüzdan, özel note adresinin note aktarım hizmetine ulaştığını doğrulayamadı.",
-    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+    "message": "Bu işlem zincirde, ancak cüzdan özel transferin teslimat hizmetine ulaştığını doğrulayamadı.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Bu cüzdanı açık ve bağlı tutun — gönderimden sonra bir süre boyunca teslimat otomatik olarak yeniden denenir ve işlem başarılı olursa bu uyarı kaybolur. Alıcı bir saat sonra hâlâ bir şey almamışsa, tekrar göndermeyin; aşağıdaki işlem kimliğini kaydedin ve destek ekibiyle iletişime geçin, çünkü note bu kimlikten kurtarılabilir.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Bu cüzdanı açık ve bağlı tutun — teslimat, gönderimden sonra bir süre otomatik olarak yeniden denenir ve başarılı olursa bu uyarı kalkar. Bir saat sonra alıcıda hâlâ bir şey yoksa tekrar göndermeyin; aşağıdaki işlem kimliğini kaydedin ve desteğe başvurun, çünkü transfer bu kimlikten hâlâ kurtarılabilir.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Teslimat onaylandı",
     "englishSource": "Delivery confirmed"
   },
   "noteDeliveryConfirmedBody": {
-    "message": "Alıcı bu özel note adresini almış ve harcamıştır, bu nedenle teslimatı zincir üzerinde onaylanmıştır.",
-    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+    "message": "Alıcı bu özel transferi kabul edip harcadı, bu nedenle teslimatı zincirde doğrulandı.",
+    "englishSource": "The recipient has accepted and spent this private transfer, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
@@ -721,8 +724,8 @@
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "“Seed phrase” adlı kitabım $num$ kelimeden oluşuyor",
-    "englishSource": "My Seed phrase is $num$ words",
+    "message": "Benim kurtarma ifadem şudur$num$ kelime",
+    "englishSource": "My recovery phrase is $num$ words",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -913,8 +916,8 @@
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "note'i Talep Etme",
-    "englishSource": "Claiming note"
+    "message": "Transfer kabul ediliyor",
+    "englishSource": "Accepting transfer"
   },
   "transactionStageExecuting": {
     "message": "İşlemin gerçekleştirilmesi",
@@ -1005,12 +1008,12 @@
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "note’in Teslimatı",
-    "englishSource": "Delivering note"
+    "message": "Transfer teslim ediliyor",
+    "englishSource": "Delivering transfer"
   },
   "transactionStageDeliveringDescription": {
-    "message": "note'i alıcıya güvenli bir şekilde gönderme.",
-    "englishSource": "Securely sending the note to the recipient."
+    "message": "Transfer alıcıya güvenli şekilde gönderiliyor.",
+    "englishSource": "Securely sending the transfer to the recipient."
   },
   "status": {
     "message": "Durum",
@@ -1053,8 +1056,8 @@
     "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "Özel anahtarınızın QR kodunu tarayın veya Miden hot anahtarınızı ve EVM özel anahtarınızı girin. Hot anahtarınız, Guardian hesabınızı bulur. Sağlanan EVM anahtarı, EVM adresini geri yükler; cüzdan, bu anahtarların birbirine ait olduğunu doğrulayamaz.",
-    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+    "message": "Özel anahtarınızın QR kodunu tarayın veya Miden günlük ve EVM özel anahtarlarınızı girin. Günlük anahtarınız, Guardian hesabınızı bulur. Sağlanan EVM anahtarı ise EVM adresini geri yükler; cüzdan, bu anahtarların birbirine ait olduğunu doğrulayamaz.",
+    "englishSource": "Scan your private-key QR or enter your Miden everyday and EVM private keys. Your everyday key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Günlük anahtar (hex)",
@@ -1065,8 +1068,8 @@
     "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
   },
   "midenHotPrivateKey": {
-    "message": "Miden sıcak özel anahtarı",
-    "englishSource": "Miden hot private key"
+    "message": "Günlük özel anahtar",
+    "englishSource": "Miden everyday private key"
   },
   "evmPrivateKey": {
     "message": "EVM özel anahtarı",
@@ -1129,7 +1132,7 @@
     "englishSource": "This looks like your recovery key. Paste the everyday key instead."
   },
   "importHotKeyNotActive": {
-    "message": "Bu anahtar, hesap için artık aktif değildir. Güncel günlük anahtarı yapıştırın.",
+    "message": "Bu anahtar artık hesap için aktif değildir. Mevcut günlük anahtarı yapıştırın.",
     "englishSource": "This key is no longer active for the account. Paste the current everyday key."
   },
   "recoveryActionsRequireRecoveryKey": {
@@ -1352,8 +1355,8 @@
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
-    "message": "Seed Phrase",
-    "englishSource": "Seed Phrase"
+    "message": "Kurtarma İfadesi",
+    "englishSource": "Recovery Phrase"
   },
   "keepSeedPhraseSecret": {
     "message": "Bunu gizli tut.",
@@ -1573,6 +1576,10 @@
     "message": "Alıcı",
     "englishSource": "Send to"
   },
+  "sendRecipientPlaceholder": {
+    "message": "Miden veya Ethereum adresi girin",
+    "englishSource": "Enter Miden or Ethereum Address"
+  },
   "selectAmount": {
     "message": "Tutar Seç",
     "englishSource": "Select Amount"
@@ -1580,6 +1587,10 @@
   "enterAmount": {
     "message": "Tutarı girin",
     "englishSource": "Enter amount"
+  },
+  "calculatingQuote": {
+    "message": "Hesaplanıyor",
+    "englishSource": "Calculating"
   },
   "selectAToken": {
     "message": "Bir jeton seçin",
@@ -1682,8 +1693,8 @@
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Otomatik tüketim",
-    "englishSource": "Auto consume"
+    "message": "Otomatik kabul",
+    "englishSource": "Auto accept"
   },
   "swapSameToken": {
     "message": "Değiştirmek için iki farklı jeton seçin.",
@@ -1719,8 +1730,8 @@
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "O zamana kadar talep edilmezse, $amount$ adresinden cüzdanınıza geri alabilirsiniz. Hiçbir fon kaybolmaz.",
-    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
+    "message": "O tarihe kadar kabul edilmezse $amount$ sizin kabul edeceğiniz bekleyen bir transfer olarak geri döner. Hiçbir fon kaybolmaz.",
+    "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1794,8 +1805,8 @@
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Seed Phrase adresini doğrulayın",
-    "englishSource": "Verify seed phrase"
+    "message": "Kurtarma ifadesini doğrulayın",
+    "englishSource": "Verify recovery phrase"
   },
   "faucetPromptTitle": {
     "message": "Cüzdanınıza para yatırın",
@@ -1835,20 +1846,20 @@
     "englishSource": "Account recovery detected"
   },
   "guardianNoteRecoveryTransportStep": {
-    "message": "Özel notes adresini tarama: note aktarımını boşaltma…",
-    "englishSource": "Scanning private notes: draining the note transport…"
+    "message": "Özel transferler aranıyor…",
+    "englishSource": "Checking for private transfers…"
   },
   "guardianNoteRecoveryProposalsStep": {
-    "message": "Özel notes adresini tarama: bekleyen tekliflerden notes adresini içe aktarma…",
-    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+    "message": "Özel transferler aranıyor: bekleyen teklifler içe aktarılıyor…",
+    "englishSource": "Checking for private transfers: importing pending proposals…"
   },
   "guardianNoteRecoveryPublicPreparingStep": {
-    "message": "notes'un halka açık veritabanını senkronize ediyor…",
-    "englishSource": "Syncing public notes…"
+    "message": "Herkese açık transferler eşitleniyor…",
+    "englishSource": "Syncing public transfers…"
   },
   "guardianNoteRecoveryPublicStep": {
-    "message": "notes'ın senkronizasyonu: $latest$ adresindeki $current$ bloğu",
-    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "message": "Herkese açık transferler eşitleniyor: blok $current$ / $latest$",
+    "englishSource": "Syncing public transfers: block $current$ of $latest$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -1859,14 +1870,14 @@
     }
   },
   "pendingNotesPromptTitle": {
-    "message": "Bekleyen Notes'unuz var",
-    "englishSource": "You have Pending Notes"
+    "message": "Kabul edilecek transferleriniz var",
+    "englishSource": "You have transfers to accept"
   },
   "pendingNotesPromptBody": {
-    "message": "$amount$ değerinde bekleyen notes'nuz bulunmaktadır.",
-    "englishSource": "You have pending notes worth $amount$.",
+    "message": "$count$ bekliyor",
+    "englishSource": "$count$ waiting",
     "placeholders": {
-      "amount": {
+      "count": {
         "content": "$1"
       }
     }
@@ -1892,12 +1903,12 @@
     "englishSource": "Copy error"
   },
   "hotKeyRotationPromptTitle": {
-    "message": "Aygıt anahtarının yenilenmesi gerekiyor",
-    "englishSource": "Device key needs rotation"
+    "message": "Günlük anahtarın değiştirilmesi gerekir",
+    "englishSource": "Everyday key needs rotation"
   },
   "hotKeyRotationPromptBody": {
-    "message": "Bu cihaz artık cihazınızın (hızlı erişim) tuşunu kullanamaz. İmzalama işlevini geri yüklemek için tuşu çevirin — bakiyeniz bundan etkilenmez.",
-    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+    "message": "Bu cihaz artık günlük anahtarınızı kullanamıyor. İmzalama işlevini geri kazanmak için anahtarı değiştirin — paranız bundan etkilenmez.",
+    "englishSource": "This device can no longer use your everyday key. Rotate it to restore signing — your funds are unaffected."
   },
   "hotKeyRotationPromptAction": {
     "message": "Döndür tuşu",
@@ -2033,8 +2044,8 @@
     "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
   },
   "importWithSeedPhrase": {
-    "message": "Seed Phraseyle İçe Aktarma",
-    "englishSource": "Import with seed phrase"
+    "message": "Kurtarma ifadesiyle içe aktarma",
+    "englishSource": "Import with recovery phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Mevcut 12 kelimelik bir kurtarma ifadesini kullanın. Ayrıca diğer cüzdan sağlayıcılarından da cüzdanları içe aktarabilirsiniz.",
@@ -2152,6 +2163,99 @@
     "message": "Aşağıdaki seçeneklerden birini seçin",
     "englishSource": "Select an option below"
   },
+  "setUpYourAccount": {
+    "message": "Hesabınızı oluşturun",
+    "englishSource": "Set up your account"
+  },
+  "setUpYourAccountDescription": {
+    "message": "Miden’de hesabınız gizlidir. Nasıl korunduğunu anlamak için her bir maddeyi bir kez gözden geçirin.",
+    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
+  },
+  "meetGuardianLocalStateTitle": {
+    "message": "Hesabınız bu cihazda bulunur",
+    "englishSource": "Your account lives on this device"
+  },
+  "meetGuardianLocalStateBody": {
+    "message": "Özel hesap durumu cihazınızda kalır. Ağ, yalnızca kriptografik bir taahhüdü görür.",
+    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
+  },
+  "meetGuardianSeedPhraseTitle": {
+    "message": "Bir kurtarma ifadesi yeterli değildir",
+    "englishSource": "A recovery phrase isn't enough"
+  },
+  "meetGuardianSeedPhraseBody": {
+    "message": "Kurtarma ifadeniz, hesap durumunuzu değil, anahtarlarınızı geri yükler. Cihazı kaybederseniz, o durum da kaybolur.",
+    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
+  },
+  "meetGuardianProtectsTitle": {
+    "message": "Guardian'i sizi koruyabilir",
+    "englishSource": "A Guardian can protect you"
+  },
+  "meetGuardianProtectsBody": {
+    "message": "Guardian, hesap durumunuzu saklar ve geri almanıza yardımcı olur. Bunu, size yedekleme sağlayan bir sunucu olarak düşünün; ancak bu sunucu, fonlarınıza asla erişemez.",
+    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
+  },
+  "meetGuardianFastestOf": {
+    "message": "$operators$ arasından şu anda en hızlı operatör",
+    "englishSource": "Fastest operator right now, out of $operators$",
+    "placeholders": {
+      "operators": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianOnlyOperator": {
+    "message": "Bu ağdaki operatör",
+    "englishSource": "The operator on this network"
+  },
+  "meetGuardianCannotMoveFunds": {
+    "message": "Guardian, fonlarınızı kendi başına hareket ettiremez",
+    "englishSource": "The Guardian can't move your funds on its own"
+  },
+  "meetGuardianBacksUpState": {
+    "message": "Guardian, hesap durumunuzu yedekler",
+    "englishSource": "The Guardian backs up your account state"
+  },
+  "meetGuardianCanSwitch": {
+    "message": "Kurtarma ifadenizle başka bir Guardian operatörüne geçebilirsiniz",
+    "englishSource": "You can switch Guardians with your recovery phrase"
+  },
+  "meetGuardianChecking": {
+    "message": "Hangi operatörün en hızlı yanıt verdiğini kontrol ediyorum…",
+    "englishSource": "Checking which operator answers fastest…"
+  },
+  "meetGuardianNoneReachable": {
+    "message": "Bu ağda hiçbir Guardian operatörüne ulaşılamaz.",
+    "englishSource": "No Guardian operator is reachable on this network."
+  },
+  "meetGuardianFullyPrivateInstead": {
+    "message": "Bunun yerine tamamen özel bir hesap açmayı tercih ederim",
+    "englishSource": "I'd rather make a fully private account instead"
+  },
+  "chooseDifferentGuardian": {
+    "message": "Farklı bir Guardian seçin",
+    "englishSource": "Choose a different Guardian"
+  },
+  "guardianBioGeneric": {
+    "message": "Miden'de bağımsız bir Guardian operatörü.",
+    "englishSource": "An independent Guardian operator on Miden."
+  },
+  "guardianBioOpenZeppelin": {
+    "message": "OpenZeppelin, Ethereum için yaygın olarak kullanılan akıllı sözleşme kütüphanelerinin arkasındaki bir blockchain güvenlik şirketidir.",
+    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
+  },
+  "guardianBioGateway": {
+    "message": "Gateway.fm, ağlar ve rollup'lar için blockchain altyapısı kurar ve işletir.",
+    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
+  },
+  "guardianBioLambdaClass": {
+    "message": "LambdaClass, gelişmiş kriptografi ve blockchain altyapısı geliştiren bir mühendislik firmasıdır.",
+    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
+  },
+  "guardianBioKoda": {
+    "message": "Korea Digital Asset (KODA), Güney Kore’de faaliyet gösteren ve düzenlemelere tabi bir dijital varlık saklama kuruluşudur.",
+    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
+  },
   "learnMoreAboutGuardian": {
     "message": "Guardian hakkında daha fazla bilgi edinin",
     "englishSource": "Learn more about the Guardian"
@@ -2161,8 +2265,8 @@
     "englishSource": "No guardian"
   },
   "noGuardianOptionSubtitle": {
-    "message": "Gelişmiş — yalnızca seed phrase ile kurtarın. Veli ortak imzalayan yok.",
-    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+    "message": "Gelişmiş — yalnızca kurtarma ifadenizle kurtarma yapın. guardian ortak imzalayıcısı kullanmayın.",
+    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "İşletmeci:",
@@ -2285,12 +2389,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "Cüzdanınızın 12 kelimelik “Seed phrase”sini girin.",
-    "englishSource": "Enter your wallet's 12-word seed phrase."
+    "message": "Cüzdanınızın 12 kelimelik kurtarma ifadesini girin.",
+    "englishSource": "Enter your wallet's 12-word recovery phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Yalnızca Miden Seed ifadeleri desteklenmektedir.",
-    "englishSource": "Only Miden seed phrases are supported."
+    "message": "Yalnızca Miden kurtarma ifadeleri desteklenmektedir.",
+    "englishSource": "Only Miden recovery phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Cüzdanınız hazır!",
@@ -2377,8 +2481,8 @@
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "seed phrase'ınız, kurtarma anahtarınızdır — bu anahtar, cihaz anahtarlarını değiştirmek için kullanılır; günlük işlemler için değildir.",
-    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+    "message": "Kurtarma ifadeniz, anahtarlarınızı geri yükler. Bu ifade, günlük işlemler için değil, günlük anahtarınızı değiştirmek için kullanılır.",
+    "englishSource": "Your recovery phrase restores your keys. It is used to rotate your everyday key, not for day-to-day transactions."
   },
   "select": {
     "message": "Seç",
@@ -2437,8 +2541,8 @@
     "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
-    "message": "Miden Testnet, kullanıcı deneyiminizi iyileştirmek amacıyla bech32 hesap kimliklerine geçiş yapmıştır. Cüzdanınızı kullanmaya devam etmek için lütfen bir yedekleme dosyasından veya seed phrase adresinden geri yükleme yapın ya da yeni bir cüzdan oluşturun.",
-    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
+    "message": "Miden Testnet, kullanıcı deneyiminizi iyileştirmek için bech32 hesap kimliklerine geçmiştir. Cüzdanınızı kullanmaya devam etmek için lütfen bir yedekleme dosyasından veya kurtarma ifadesinden geri yükleme yapın ya da yeni bir cüzdan oluşturun.",
+    "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or recovery phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
     "message": "Yaşadığınız rahatsızlıktan dolayı özür dileriz.",
@@ -2457,16 +2561,16 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12 kelimelik “Seed phrase”’ınızı bilmiyorsanız veya şifrelenmiş bir yedekleme dosyanız yoksa oturumunuzu kapatmayın.",
-    "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
+    "message": "12 kelimelik kurtarma ifadenizi bilmiyorsanız veya şifrelenmiş bir yedekleme dosyanız yoksa oturumu kapatmayın.",
+    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
     "message": "Biyometrik Kilit Açma Gerekli",
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "Bu cüzdan yalnızca biyometrik kimlik doğrulama özelliğini kullanır. Kilidi açmak için Face ID, Touch ID veya cihazınızın şifresini kullanın. Başka bir cihazdan cüzdanınıza erişmek için 12 kelimelik “Seed phrase”ınızı kullanın.",
-    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
+    "message": "Bu cüzdan yalnızca biyometrik kimlik doğrulama kullanır. Kilidi açmak için Face ID, Touch ID veya cihazınızın şifresini kullanın. Başka bir cihazdan cüzdanınıza erişmek için 12 kelimelik kurtarma ifadenizi kullanın.",
+    "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase."
   },
   "resetWallet": {
     "message": "Cüzdanı Sıfırla",
@@ -2633,8 +2737,8 @@
     "englishSource": "Authentication is unavailable. Try again before switching Guardian."
   },
   "walletKeyHot": {
-    "message": "Cüzdan anahtarı (aktif)",
-    "englishSource": "Wallet key (hot)"
+    "message": "Günlük anahtar",
+    "englishSource": "Everyday key"
   },
   "recoveryPhraseCold": {
     "message": "Geri yükleme ifadesi (soğuk)",
@@ -2649,36 +2753,40 @@
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "Cihaz tuşunu döndür",
-    "englishSource": "Rotate device key"
+    "message": "Günlük anahtarı değiştirin",
+    "englishSource": "Rotate everyday key"
+  },
+  "newDeviceKey": {
+    "message": "Yeni günlük anahtar",
+    "englishSource": "New everyday key"
   },
   "replaceHotKeyDescription": {
-    "message": "Yeni bir cihaz (hızlı erişim) tuşu oluşturun ve zincir üzerindeki mevcut tuşu bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu işlem yararlı olabilir.",
-    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+    "message": "Yeni bir günlük anahtar oluşturun ve zincir üzerinde mevcut anahtarı değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu yöntem yararlıdır.",
+    "englishSource": "Generate a new everyday key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanmıştır. seed phrase adresiniz gerekmemektedir; bakiyeniz ve hesabınız değişmez. Devam etmek istiyor musunuz?",
-    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+    "message": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanır. Kurtarma ifadeniz gerekli değildir ve paranız ile hesabınız aynı kalır. Devam etmek istiyor musunuz?",
+    "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
     "message": "Dönüşü onayla",
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "Cihaz anahtarınızı döndürme",
-    "englishSource": "Rotating your device key"
+    "message": "Günlük anahtarınızı değiştirme",
+    "englishSource": "Rotating your everyday key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "Cihazınızın (hızlı erişim) tuşu döndürülüyor. Bu işlem, kurtarılan bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",
-    "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
+    "message": "Günlük anahtarınız değiştiriliyor. Bu işlem, kurtarılmış bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",
+    "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "Aygıt anahtarının döndürülmesi başarısız oldu",
-    "englishSource": "Device key rotation failed"
+    "message": "Günlük anahtar rotasyonu başarısız oldu",
+    "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Cihaz anahtarınızı döndürürken bir hata oluştu.",
-    "englishSource": "Something went wrong while rotating your device key."
+    "message": "Günlük anahtarınızı değiştirirken bir sorun oluştu.",
+    "englishSource": "Something went wrong while rotating your everyday key."
   },
   "hotKeyRotationRetry": {
     "message": "Tekrar dene",
@@ -2717,40 +2825,20 @@
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
-    "message": "Cihaz anahtarını göster",
-    "englishSource": "Reveal device key"
+    "message": "Günlük anahtarı göster",
+    "englishSource": "Reveal everyday key"
   },
   "revealHotKeyDescription": {
-    "message": "Cihazınızın (hızlı erişim) tuşu, Ayarlar → Cihaz Tuşunu Döndür seçeneğinden döndürülebilir; bu nedenle, bu tuşun görünür olması, “seed phrase” tuşuna kıyasla daha az risk taşır — ancak siz tuşu döndürene kadar, elinde tutan herhangi bir kişi işlemleri imzalayabilir.",
-    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
-  },
-  "hotPrivateKey": {
-    "message": "Cihaz Özel Anahtarı",
-    "englishSource": "Device Private Key"
-  },
-  "hotPublicKeyLabel": {
-    "message": "Cihazın Açık Anahtarı",
-    "englishSource": "Device Public Key"
-  },
-  "coldPrivateKey": {
-    "message": "Geri Yükleme (Soğuk) Özel Anahtarı",
-    "englishSource": "Recovery (Cold) Private Key"
-  },
-  "coldPublicKeyLabel": {
-    "message": "Kurtarma (Soğuk) Açık Anahtarı",
-    "englishSource": "Recovery (Cold) Public Key"
-  },
-  "guardianKeysRevealDescription": {
-    "message": "Guardian hesabınız üç anahtarla korunmaktadır: rutin imzalamalar için bir cihaz (sıcak) anahtarı, hesap yönetimi işlemleri için seed phrase adresinizden türetilen bir kurtarma (soğuk) anahtarı ve harici bir guardian ortak imzalayıcısı. Aşağıda soğuk özel anahtarınız ve her iki açık anahtarınız yer almaktadır. Cihaz özel anahtarını görüntülemek için Ayarlar → Cihaz Anahtarını Göster seçeneğini kullanın.",
-    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+    "message": "Günlük anahtarınız Ayarlar → Günlük anahtarı değiştir seçeneğinden değiştirilebilir; bu nedenle, bu anahtarı ifşa etmenin riski kurtarma ifadenizi ifşa etmekten daha düşüktür — ancak anahtara sahip olan herhangi bir kişi, siz anahtarı değiştirene kadar işlemleri imzalayabilir.",
+    "englishSource": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotKeyRevealWarningTitle": {
     "message": "Özel anahtarlarınızı ifşa etmeden önce",
     "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Bu anahtarlara sahip olan herhangi bir kişi, Miden ve EVM varlıklarınızı kontrol edebilir. Miden cihaz anahtarınızı değiştirmek, sızdırılmış bir EVM anahtarını değiştirmez veya korumaz.",
-    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
+    "message": "Bu anahtarlara sahip olan herkes, Miden ve EVM varlıklarınızı kontrol edebilir. Miden günlük anahtarınızı değiştirmek, sızdırılmış bir EVM anahtarını değiştirmez veya korumaz.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden everyday key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "http:// veya https:// ile başlayan geçerli bir URL girin",
@@ -3199,18 +3287,6 @@
     "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
     "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
   },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "feeChargedPerClaim": {
-    "message": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
-    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
-  },
-  "feeChargedPerAsset": {
-    "message": "Talep edilen her varlık için bir kez ücret alınır.",
-    "englishSource": "Charged once per asset claimed."
-  },
   "insufficientFeeAsset": {
     "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
@@ -3220,12 +3296,12 @@
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto Consume MIDEN notes",
-    "englishSource": "Auto Consume MIDEN notes"
+    "message": "MIDEN transferlerini otomatik kabul et",
+    "englishSource": "Auto-accept MIDEN transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\" düğmesine dokunmakla aynıdır. Kendiniz \"Talep Et\" düğmesine dokunmaktan daha sık talep etmez veya daha fazla ücret gerektirmez.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+    "message": "Gelen MIDEN transferlerini bakiyenize otomatik olarak kabul eder — Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
+    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Cüzdan dosyanız oluşturuluyor…",
@@ -3437,8 +3513,8 @@
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "seed phrase'tan elde ettiğiniz genel hesabı içe aktarın.",
-    "englishSource": "Import the public account derived from your seed phrase."
+    "message": "Kurtarma ifadenizden türetilen genel hesabı içe aktarın.",
+    "englishSource": "Import the public account derived from your recovery phrase."
   },
   "guardianEndpoint": {
     "message": "Guardian URL",
@@ -3501,6 +3577,10 @@
   "home": {
     "message": "Ana Sayfa",
     "englishSource": "Home"
+  },
+  "earn": {
+    "message": "Kazan",
+    "englishSource": "Earn"
   },
   "noteId": {
     "message": "Note Kimlik",
@@ -3670,137 +3750,17 @@
     "message": "Ödemeyi Gönder",
     "englishSource": "Send Payment"
   },
-  "claimAll": {
-    "message": "Tümünü Talep Et",
-    "englishSource": "Claim All"
-  },
-  "claimAllProgress": {
-    "message": "Hepsini Talep Et? ($unclaimed$ / $total$)",
-    "englishSource": "Claim All? ($unclaimed$/$total$)",
-    "placeholders": {
-      "unclaimed": {
-        "content": "$1"
-      },
-      "total": {
-        "content": "$2"
-      }
-    }
-  },
-  "totalPending": {
-    "message": "Toplam Beklemede Olan",
-    "englishSource": "Total Pending"
-  },
-  "pendingNotesCount": {
-    "message": "notes beklemede",
-    "englishSource": "notes pending"
-  },
   "pendingAssetsCount": {
     "message": "varlıklar",
     "englishSource": "assets"
   },
-  "incomingCount": {
-    "message": "$count$ Gelen",
-    "englishSource": "$count$ Incoming",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesInfo": {
-    "message": "Miden, \"notes\" (Gelen Ödemeleri Talep Etme) adlı benzersiz bir sistem kullanır. Bu sistemde, gelen parayı manuel olarak talep edersiniz. Bu, cüzdanınızı kötü niyetli kişilerden korumanın bir yoludur.",
-    "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
-  },
-  "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$’ın tüm varlıklarında beklemede olan",
-    "englishSource": "$notes$ notes pending across $assets$ assets",
-    "placeholders": {
-      "notes": {
-        "content": "$1"
-      },
-      "assets": {
-        "content": "$2"
-      }
-    }
-  },
-  "incomingTransfersCount": {
-    "message": "$count$ gelen havaleler",
-    "englishSource": "$count$ incoming transfers",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "notesUnresolved": {
-    "message": "$count$ çözülmemiş",
-    "englishSource": "$count$ unresolved",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
   "noteClaimFailedRetry": {
-    "message": "Talep başarısız oldu — Yeniden Dene düğmesine dokunarak tekrar deneyin",
-    "englishSource": "Claim failed — tap Retry to try again"
+    "message": "Kabul edilemedi — tekrar denemek için Yeniden Dene'ye dokunun",
+    "englishSource": "Could not accept — tap Retry to try again"
   },
   "noteUnavailable": {
-    "message": "Bu note adresi artık kullanılamıyor",
-    "englishSource": "This note is no longer available"
-  },
-  "pendingNotes": {
-    "message": "Bekleyen notes",
-    "englishSource": "Pending notes"
-  },
-  "whatArePendingNotes": {
-    "message": "Bekleyen \"notes\" nedir?",
-    "englishSource": "What are pending notes?"
-  },
-  "consumeYourNotes": {
-    "message": "notes'ınızı kullanın",
-    "englishSource": "Consume your notes"
-  },
-  "consumeYourNotesDescription": {
-    "message": "Harcamaya başlamak için bu bekleyen fonları bakiyenize ekleyin.",
-    "englishSource": "Add these pending funds to your balance to start spending."
-  },
-  "pendingNotesDrawerP1a": {
-    "message": "Birisi size para gönderdiğinde, bu para \"private\" olarak gelir",
-    "englishSource": "When someone sends you funds, they arrive as private"
-  },
-  "pendingNotesDrawerP1Bold": {
-    "message": "notes",
-    "englishSource": "notes"
-  },
-  "pendingNotesDrawerP1b": {
-    "message": "— Yalnızca sizin açabileceğiniz mühürlü paketler.",
-    "englishSource": "— sealed packages only you can open."
-  },
-  "pendingNotesDrawerP2Bold": {
-    "message": "Tüketim",
-    "englishSource": "Consuming"
-  },
-  "pendingNotesDrawerP2": {
-    "message": "Bir \"note\" işlemi, bu tutarı harcayabileceğiniz bakiyenize aktarır. Bu işlemi gerçekleştirene kadar fonlar size aittir ancak henüz harcanamaz.",
-    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
-  },
-  "pendingNotesDrawerP3a": {
-    "message": "Elinizde",
-    "englishSource": "You have"
-  },
-  "pendingNotesDrawerP3Bold": {
-    "message": "$count$ notes",
-    "englishSource": "$count$ notes",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "pendingNotesDrawerP3b": {
-    "message": "Bekliyor. Bunları istediğiniz zaman kullanabilirsiniz — aceleye gerek yok ve hiçbir zaman fonlarınız risk altında olmaz.",
-    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+    "message": "Bu transfer artık kullanılamıyor",
+    "englishSource": "This transfer is no longer available"
   },
   "getTokens": {
     "message": "Jetonları al",
@@ -3821,6 +3781,18 @@
   "faucetId": {
     "message": "Faucet Kimlik",
     "englishSource": "Faucet ID"
+  },
+  "faucetIdOffered": {
+    "message": "Sunulan Faucet Kimlik",
+    "englishSource": "Offered Faucet ID"
+  },
+  "faucetIdRequested": {
+    "message": "İstenen Faucet Kimlik",
+    "englishSource": "Requested Faucet ID"
+  },
+  "faucetIds": {
+    "message": "Faucet IDs",
+    "englishSource": "Faucet IDs"
   },
   "setNewFaucetId": {
     "message": "Faucet'ın yeni kimliğini belirle",
@@ -3883,12 +3855,12 @@
     "englishSource": "Retry sync"
   },
   "deadletteredNotesTitle": {
-    "message": "Gelen \"notes\" işlemleri için yeniden deneme gerekir",
-    "englishSource": "Incoming notes need a retry"
+    "message": "Gelen transferler için yeniden deneme gerekiyor",
+    "englishSource": "Incoming transfers need a retry"
   },
   "deadletteredNotesTitleOne": {
-    "message": "Gelen bir note işlemi için yeniden deneme gerekir",
-    "englishSource": "An incoming note needs a retry"
+    "message": "Gelen bir transfer için yeniden deneme gerekiyor",
+    "englishSource": "An incoming transfer needs a retry"
   },
   "deadletteredNotesBody": {
     "message": "$count$ otomatik olarak içe aktarılamadı.",
@@ -3900,8 +3872,8 @@
     }
   },
   "deadletteredNotesBodyOne": {
-    "message": "1 note otomatik olarak içe aktarılamadı.",
-    "englishSource": "1 note couldn't be imported automatically."
+    "message": "1 transfer otomatik olarak içe aktarılamadı.",
+    "englishSource": "1 transfer couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Yarın",
@@ -4265,13 +4237,9 @@
     "message": "Dokunsal Geri Bildirim",
     "englishSource": "Haptic Feedback"
   },
-  "noNotesToClaim": {
-    "message": "Şu anda talep edebileceğiniz bir notes'ınız bulunmamaktadır.",
-    "englishSource": "You don't currently have notes to claim."
-  },
   "noteReceivedTitle": {
-    "message": "note'i aldınız",
-    "englishSource": "You have received a note"
+    "message": "Gelen bir transferiniz var",
+    "englishSource": "You have an incoming transfer"
   },
   "transactionFailedNotificationTitle": {
     "message": "İşlem başarısız oldu",
@@ -4282,16 +4250,16 @@
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
   "noteReceivedTapToClaim": {
-    "message": "Almak için buraya dokunun",
-    "englishSource": "Tap here to claim it"
+    "message": "Kabul etmek için buraya dokunun",
+    "englishSource": "Tap here to accept it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Görüntülemek ve talepte bulunmak için tıklayın",
-    "englishSource": "Click to view and claim it"
+    "message": "İncelemek ve kabul etmek için tıklayın",
+    "englishSource": "Click to review and accept it"
   },
   "noteReceivedMultiple": {
-    "message": "$count$ notes talep etmek",
-    "englishSource": "$count$ notes to claim",
+    "message": "Kabul edilecek $count$ transfer",
+    "englishSource": "$count$ transfers to accept",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4307,8 +4275,8 @@
     "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
-    "message": "seed phrase ile genel hesabınızı her zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini hızlı bir şekilde nasıl açacağınızı aşağıdan seçin.",
-    "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+    "message": "Kurtarma ifadesi ile kamuya açık hesabınızı her zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini hızlı bir şekilde nasıl açacağınızı aşağıdan seçin.",
+    "englishSource": "With the recovery phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
     "message": "Faucet Talep",
@@ -4378,10 +4346,6 @@
     "message": "Adresi Girin",
     "englishSource": "Enter Address"
   },
-  "failedToClaimNote": {
-    "message": "note'i talep edemedi",
-    "englishSource": "Failed to claim note"
-  },
   "testnet": {
     "message": "Test ağı",
     "englishSource": "Testnet"
@@ -4413,6 +4377,18 @@
   "recentActivity": {
     "message": "Son etkinlikler",
     "englishSource": "Recent activity"
+  },
+  "tokenActivityEmptyTitle": {
+    "message": "Henüz herhangi bir işlem yok",
+    "englishSource": "No activity yet"
+  },
+  "tokenActivityEmptyBody": {
+    "message": "Bu token ile yapılan işlemler burada görünecektir.",
+    "englishSource": "Transactions with this token will appear here."
+  },
+  "tokenActivityLoadError": {
+    "message": "Bu etkinlik yüklenemedi.",
+    "englishSource": "Couldn't load this activity."
   },
   "type": {
     "message": "Tür",
@@ -4487,12 +4463,12 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Bu takasta paketlenen Notes",
-    "englishSource": "Notes bundled into this swap"
+    "message": "Bu takasta toplanan gerçekleşmeler",
+    "englishSource": "Fills bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Gerçekleşme Note $number$",
-    "englishSource": "Fill note $number$",
+    "message": "Gerçekleşme $number$",
+    "englishSource": "Fill $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4500,8 +4476,8 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Kullanıldı · $time$",
-    "englishSource": "Consumed · $time$",
+    "message": "Kabul edildi · $time$",
+    "englishSource": "Accepted · $time$",
     "placeholders": {
       "time": {
         "content": "$1"
@@ -4529,24 +4505,40 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Henüz hiçbir Note paketlenmedi.",
-    "englishSource": "No fill notes have been bundled yet."
+    "message": "Henüz gerçekleşme toplanmadı.",
+    "englishSource": "No fills have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Pending Notes'a git",
-    "englishSource": "Go to Pending Notes"
+    "message": "Bekleyen transferlere git",
+    "englishSource": "Go to pending transfers"
+  },
+  "swapCancelOrder": {
+    "message": "Takası iptal et",
+    "englishSource": "Cancel swap"
+  },
+  "swapCancelOrderConfirmTitle": {
+    "message": "Bu takas iptal edilsin mi?",
+    "englishSource": "Cancel this swap?"
+  },
+  "swapCancelOrderConfirmBody": {
+    "message": "Hâlâ teklifte duran tutar hesabınıza geri döner. Zaten eşleşen kısım sizde kalır.",
+    "englishSource": "The amount still on offer comes back to your account. Anything already matched stays yours."
+  },
+  "swapCancelOrderPending": {
+    "message": "Hâlâ teklifte duran tutar hesabınıza geri gönderiliyor. Bu biraz sürebilir.",
+    "englishSource": "Returning the amount still on offer to your account. This can take a moment."
   },
   "trackingUnavailable": {
     "message": "Mevcut değil",
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Kullanım işlemi kimliği",
-    "englishSource": "Consume TX ID"
+    "message": "Kabul TX kimliği",
+    "englishSource": "Accept TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Kullanım işlemi kimliği $number$",
-    "englishSource": "Consume TX ID $number$",
+    "message": "Kabul TX kimliği $number$",
+    "englishSource": "Accept TX ID $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -4926,12 +4918,12 @@
     "englishSource": "Total Paid"
   },
   "totalConsumed": {
-    "message": "Toplam Tüketim",
-    "englishSource": "Total Consumed"
+    "message": "Toplam Kabul Edilen",
+    "englishSource": "Total Accepted"
   },
   "notesConsumed": {
-    "message": "Notes Tüketilen",
-    "englishSource": "Notes Consumed"
+    "message": "Transfer kimlikleri",
+    "englishSource": "Transfer IDs"
   },
   "consumed": {
     "message": "Tüketilen",
@@ -5034,72 +5026,72 @@
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
   "removeSeedPhrase": {
-    "message": "seed phrase ifadesini kaldırın",
-    "englishSource": "Remove seed phrase"
+    "message": "Kurtarma ifadesini kaldırın",
+    "englishSource": "Remove recovery phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "seed phrase'ınızı silmeden önce bir yere not edin. Günlük işlemler yine de devam edecektir. Guardian adresindeki değişiklikler ve günlük anahtar değiştirme işlemleri için seed phrase'ı girmeniz gerekecektir.",
-    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+    "message": "Geri yükleme ifadesini silmeden önce bir yere not edin. Günlük işlemler yine de devam edecektir. Guardian adresindeki değişiklikler ve günlük anahtar değiştirme işlemleri için geri yükleme ifadesini girmeniz gerekecektir.",
+    "englishSource": "Write down your recovery phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the recovery phrase."
   },
   "removeSeedPhraseWriteDown": {
     "message": "Tüm kelimeleri bu sırayla kağıda yazın. Kağıdı bu cihazın dışında güvenli bir yerde saklayın.",
     "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
   "removeSeedPhraseConfirmation": {
-    "message": "Bu işlem, bu cihazdaki bu cüzdandan seed phrase ve Guardian kurtarma anahtarlarını siler. Kağıt yedeğinizi saklayın. Daha önce oluşturulmuş yedekler silinmez.",
-    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+    "message": "Bu işlem, bu cihazdaki bu cüzdandan kurtarma ifadesini ve Guardian kurtarma anahtarlarını siler. Kağıt yedeğinizi saklayın. Daha önce yapılmış yedeklemeler silinmez.",
+    "englishSource": "This removes the recovery phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
   "removeSeedPhraseConfirm": {
     "message": "Bu cihazdan sil",
     "englishSource": "Remove from this device"
   },
   "seedPhraseRemoved": {
-    "message": "Seed phrase bu cihazdan kaldırıldı",
-    "englishSource": "Seed phrase removed from this device"
+    "message": "Bu cihazdan kurtarma ifadesi kaldırıldı",
+    "englishSource": "Recovery phrase removed from this device"
   },
   "seedPhraseUnavailable": {
-    "message": "Bu cüzdanda seed phrase saklanmamaktadır.",
-    "englishSource": "There is no seed phrase stored in this wallet."
+    "message": "Bu cüzdanda saklanan herhangi bir kurtarma ifadesi yoktur.",
+    "englishSource": "There is no recovery phrase stored in this wallet."
   },
   "seedRemovalIncomplete": {
     "message": "Kaldırma işlemi tamamlanmadı. Kurtarma materyalini kaldırmayı tamamlamak için cüzdanın kilidini tekrar açın.",
     "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
   "seedRemovalFailed": {
-    "message": "seed phrase dosyasını silme işlemi tamamlanamadı. Lütfen tekrar deneyin.",
-    "englishSource": "Could not finish removing the seed phrase. Try again."
+    "message": "Kurtarma ifadesinin kaldırılması tamamlanamadı. Lütfen tekrar deneyin.",
+    "englishSource": "Could not finish removing the recovery phrase. Try again."
   },
   "seedRemovalBusy": {
-    "message": "seed phrase'i kaldırmadan önce mevcut işlemlerin tamamlanmasını bekleyin.",
-    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+    "message": "Kurtarma ifadesini kaldırmadan önce mevcut işlemlerin tamamlanmasını bekleyin.",
+    "englishSource": "Wait for the current transactions to finish before removing the recovery phrase."
   },
   "seedRemovalKeysNotReady": {
-    "message": "seed phrase'i kaldırmadan önce hesap kurtarma ve günlük anahtar etkinleştirme işlemlerini tamamlayın.",
-    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+    "message": "Kurtarma ifadesini silmeden önce hesap kurtarma işlemini ve günlük anahtar etkinleştirme işlemini tamamlayın.",
+    "englishSource": "Finish account recovery and everyday key activation before removing the recovery phrase."
   },
   "seedRequiredForAccountCreation": {
-    "message": "Hesap oluşturmak için kayıtlı bir tohum (seed phrase) gereklidir. Bu işlem için geçici tohum girişi henüz mevcut değildir.",
-    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+    "message": "Hesap oluşturmak için önceden kaydedilmiş bir kurtarma ifadesi gereklidir. Yalnızca bu işlem için girmek henüz mümkün değildir.",
+    "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "Bu işlem için kurtarma seed phrase'ınız gereklidir.",
-    "englishSource": "This action requires your recovery seed phrase."
+    "message": "Bu işlem için kurtarma ifadeniz gereklidir.",
+    "englishSource": "This action requires your recovery phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "seed phrase'ınızı girin",
-    "englishSource": "Enter your seed phrase"
+    "message": "Kurtarma ifadenizi girin",
+    "englishSource": "Enter your recovery phrase"
   },
   "recoverySeedTemporaryDescription": {
     "message": "Kağıt yedeğinizi kullanın. Bu ifade yalnızca bu eylem için kullanılır ve bu cihaza kaydedilmez.",
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Geçerli bir seed phrase girin.",
-    "englishSource": "Enter a valid seed phrase."
+    "message": "Geçerli bir kurtarma ifadesi girin.",
+    "englishSource": "Enter a valid recovery phrase."
   },
   "wrongRecoverySeed": {
-    "message": "Bu seed phrase bu hesapla eşleşmiyor.",
-    "englishSource": "This seed phrase does not match this account."
+    "message": "Bu kurtarma ifadesi bu hesapla eşleşmiyor.",
+    "englishSource": "This recovery phrase does not match this account."
   },
   "recoveryActionUnavailable": {
     "message": "Bu geri alma işlemi artık kullanılamamaktadır.",
@@ -5139,8 +5131,8 @@
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
   "activityClaimedOn": {
-    "message": "Talep edildi",
-    "englishSource": "Claimed on"
+    "message": "Kabul edildi",
+    "englishSource": "Accepted on"
   },
   "evmConnectTestWalletTitle": {
     "message": "Yalnızca bir test cüzdanını bağlayın",
@@ -5160,8 +5152,8 @@
     }
   },
   "activityRejectExplanation": {
-    "message": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
-    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+    "message": "Bu transfer bu cihazdaki Etkinlik'ten gizlensin mi? Bu, parayı gönderene iade etmez ve transferi iptal etmez. Gizlenen transferleri Etkinlik'ten geri getirebilirsiniz.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or cancel the transfer. You can restore hidden transfers in Activity."
   },
   "activitySearch": {
     "message": "Arama etkinliği",
@@ -5212,8 +5204,8 @@
     "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
   },
   "activityNotYetAccepted": {
-    "message": "Henüz kabul edilmedi — bu fonları talep etmek için inceleyin ve kabul edin.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+    "message": "Henüz kabul edilmedi — bu parayı bakiyenize eklemek için inceleyip kabul edin.",
+    "englishSource": "Not yet accepted — review and accept to add these funds to your balance."
   },
   "networkNoticeResetTitle": {
     "message": "Ağ sıfırlanabilir",
@@ -5371,9 +5363,26 @@
       }
     }
   },
-  "activityTransferClaimed": {
-    "message": "Talep Edildi",
-    "englishSource": "Claimed"
+  "activityPendingWaiting": {
+    "message": "$count$ bekliyor",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityPendingWaitingHidden": {
+    "message": "$count$ bekliyor · $hidden$ gizli",
+    "englishSource": "$count$ waiting · $hidden$ hidden",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "hidden": {
+        "content": "$2"
+      }
+    }
   },
   "receiveTestFundsBody": {
     "message": "Buraya yalnızca Miden $network$ tokenleri gönderin. Bu adrese gönderilen gerçek fonlar geri alınamaz.",
@@ -5598,5 +5607,119 @@
   "couldNotCheckUnlockMethod": {
     "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
+  },
+  "receiveQrColorAction": {
+    "message": "QR kodu rengini değiştir",
+    "englishSource": "Change the QR code color"
+  },
+  "receiveAt": {
+    "message": "Şu adrese al",
+    "englishSource": "Receive at"
+  },
+  "earnTitle": {
+    "message": "Kazançlarınız",
+    "englishSource": "Your Earnings"
+  },
+  "durationUnitSeconds": {
+    "message": "Sn.",
+    "englishSource": "Sec"
+  },
+  "durationUnitMinutes": {
+    "message": "Dk.",
+    "englishSource": "Min"
+  },
+  "durationUnitHours": {
+    "message": "Saat",
+    "englishSource": "Hour"
+  },
+  "durationUnitDays": {
+    "message": "Gün",
+    "englishSource": "Day"
+  },
+  "swapExpiryUnit": {
+    "message": "Son kullanma birimi",
+    "englishSource": "Expiry unit"
+  },
+  "moreInfoAbout": {
+    "message": "$label$ hakkında daha fazla bilgi",
+    "englishSource": "More information about $label$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapExpiryRange": {
+    "message": "$min$ ile $max$ arasında bir tam sayı girin.",
+    "englishSource": "Enter a whole number from $min$ to $max$.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "activityView": {
+    "message": "Etkinlik görünümü",
+    "englishSource": "Activity view"
+  },
+  "activityViewOptions": {
+    "message": "Görünüm seçenekleri",
+    "englishSource": "View options"
+  },
+  "activityViewList": {
+    "message": "Liste",
+    "englishSource": "List"
+  },
+  "activityViewGroups": {
+    "message": "Gruplar",
+    "englishSource": "Groups"
+  },
+  "activityGroupSwaps": {
+    "message": "Takaslar",
+    "englishSource": "Swaps"
+  },
+  "activityGroupFaucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
+  },
+  "activityGroupGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "activityGroupOther": {
+    "message": "Diğer etkinlikler",
+    "englishSource": "Other activity"
+  },
+  "activityGroupPartialCount": {
+    "message": "$count$+",
+    "englishSource": "$count$+",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accepted": {
+    "message": "Kabul Edildi",
+    "englishSource": "Accepted"
+  },
+  "activityAcceptingTransfer": {
+    "message": "Kabul ediliyor…",
+    "englishSource": "Accepting…"
+  },
+  "transfersSection": {
+    "message": "Transferler",
+    "englishSource": "Transfers"
+  },
+  "activityUnread": {
+    "message": "Okunmadı",
+    "englishSource": "Unread"
+  },
+  "revealRecoveryPhrase": {
+    "message": "Kurtarma ifadesini göster",
+    "englishSource": "Reveal recovery phrase"
   }
 }

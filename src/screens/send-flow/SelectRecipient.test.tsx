@@ -35,8 +35,8 @@ jest.mock('components/Button', () => {
   return {
     __esModule: true,
     ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-    Button: ({ variant: _variant, title, iconLeft, children, ...rest }: any) =>
-      ReactMock.createElement('button', { type: 'button', ...rest }, iconLeft, children ?? title)
+    Button: ({ variant: _variant, accent, title, iconLeft, children, ...rest }: any) =>
+      ReactMock.createElement('button', { type: 'button', 'data-accent': accent, ...rest }, iconLeft, children ?? title)
   };
 });
 
@@ -61,14 +61,20 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
 }
 
 describe('SelectRecipient', () => {
-  it('titles the step as the tab, with the entry below it on one row of pills that never wraps', () => {
-    renderRecipient();
+  it('titles the step as the tab, with the entry below it over pills that wrap rather than scroll', () => {
+    renderRecipient({ onScan: jest.fn() });
     const title = screen.getByRole('heading', { level: 1 });
     expect(title).toHaveClass('text-title-tab');
     expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-hero-name');
+
+    // The row used to be a sideways scroller bleeding past the page margin. A horizontally
+    // scrollable element is the handler for a sideways pan, so it — not HomeSwipeContainer — took
+    // the swipe, and the Send pane could no longer be swiped to the next tab; the bleed also let
+    // the column be dragged out from under its own title. Scan QR code goes to a second line
+    // instead.
     const pills = screen.getByTestId('send-address-book').parentElement;
-    expect(pills).toHaveClass('overflow-x-auto');
-    expect(pills).not.toHaveClass('flex-wrap');
+    expect(pills).toHaveClass('flex-wrap');
+    expect(pills?.className).not.toMatch(/overflow-x-|-mx-/);
   });
 
   it('hides the network selector before an address is entered', () => {
@@ -80,23 +86,22 @@ describe('SelectRecipient', () => {
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
 
-    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute(
-      'placeholder',
-      'Enter Miden or Ethereum Address'
-    );
+    // Localised, like every other string on the page: the placeholder and the scan label used to
+    // be English literals held in a `const`, which `lint:i18n` cannot see (it only reads JSX).
+    expect(screen.getByTestId('send-recipient-input')).toHaveAttribute('placeholder', 'sendRecipientPlaceholder');
     expect(screen.queryByTestId('send-recipient-avatar')).not.toBeInTheDocument();
-    expect(screen.queryByText('Scan QR Code')).not.toBeInTheDocument();
+    expect(screen.queryByText('scanQrTitle')).not.toBeInTheDocument();
   });
 
-  it('shows Scan QR Code with extracted icons and compact action pills while the address field is empty', () => {
+  it('shows Scan QR code with extracted icons and compact action pills while the address field is empty', () => {
     renderRecipient({ onScan: jest.fn() });
 
-    expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
+    expect(screen.getByText('scanQrTitle')).toBeInTheDocument();
     expect(screen.getByTestId('send-address-book-icon')).toBeInTheDocument();
     expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
     // Both pills are the app's shared Pill, so they are the same height, padding and type
     // scale as every other chip (the network chip beside them included).
-    for (const label of ['addressBook', 'Scan QR Code']) {
+    for (const label of ['addressBook', 'scanQrTitle']) {
       expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-pill');
     }
   });
@@ -160,6 +165,12 @@ describe('SelectRecipient', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
+  });
+
+  it('gives Confirm the send flow colour', () => {
+    renderRecipient();
+
+    expect(screen.getByTestId('send-recipient-confirm')).toHaveAttribute('data-accent', 'send');
   });
 
   it('shows Miden as the network for a valid Miden recipient', () => {
@@ -277,9 +288,9 @@ describe('SelectRecipient — mobile keyboard (regression)', () => {
   it('keeps the confirm footer at a fixed height that only the keyboard shrinks', () => {
     renderRecipient();
     const footer = screen.getByTestId('send-recipient-confirm').parentElement;
-    // No data-navbar-cushion: that CSS collapses the cushion whenever the tab bar
-    // hides, which would move the CTA between steps.
-    expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
+    // data-navbar-cushion: the CSS collapses the cushion when the tab bar hides, which is the
+    // only way the CTA is guaranteed to stay clear of a bar that draws over it.
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
     expect(footer?.className).toContain('var(--keyboard-height,0px)');
   });
 });

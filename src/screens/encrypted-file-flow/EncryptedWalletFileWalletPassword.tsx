@@ -3,13 +3,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
-import { CheckboxIndicator } from 'components/ui/Checkbox';
+import { CheckboxConsent } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
-import { SubPageSection } from 'components/ui/SubPageLayout';
+import { Notice } from 'components/ui/Notice';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { Vault } from 'lib/miden/back/vault';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
@@ -71,7 +71,11 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
 
   useEffect(() => {
-    Vault.hasHardwareProtector().then(setHasHardwareProtector);
+    // This step draws the flow's only header and its body waits for the probe, so a rejection
+    // falls back to the password step-up rather than leaving an empty page for good.
+    Vault.hasHardwareProtector()
+      .then(setHasHardwareProtector)
+      .catch(() => setHasHardwareProtector(false));
   }, []);
 
   const onSubmit = useCallback(
@@ -116,32 +120,54 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     ]
   );
 
-  const handleEnterKey = useCallback(
-    (e: React.KeyboardEvent<TextFieldElement>) => {
-      if (e.key === 'Enter' && confirmed) {
-        e.preventDefault();
-        onSubmit();
-      }
-    },
-    [onSubmit, confirmed]
-  );
-
   const continueEnabled = hasHardwareProtector
     ? !!confirmed && !isSubmitting
     : !isDisabled && !!confirmed && !!walletPassword && !isSubmitting;
+
+  const handleEnterKey = useCallback(
+    (e: React.KeyboardEvent<TextFieldElement>) => {
+      if (e.key !== 'Enter') return;
+      // Always swallowed: this step is now a page inside the flow's own form, whose submit
+      // handler only clears errors. Enter submits exactly when the button would.
+      e.preventDefault();
+      if (continueEnabled) onSubmit();
+    },
+    [onSubmit, continueEnabled]
+  );
 
   // Non-hardware mobile wallets are protected by the 6-digit onboarding
   // passcode, so unlock with the numpad (auto-submits once six digits are
   // entered); extension/desktop use a typed password.
   const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
 
+  // The frame renders while the protector check runs, so the flow's title and back are there from
+  // the first frame; the body waits.
   if (hasHardwareProtector === null) {
-    return null;
+    return <SubPageLayout data-testid="encrypted-file-wallet-password">{null}</SubPageLayout>;
   }
 
   return (
-    // A sheet's content, not a page: the drawer brings the title and the margins.
-    <div className="flex min-h-0 flex-1 flex-col gap-5" data-testid="encrypted-file-wallet-password">
+    // A page on the shared frame: the header, the 16px margin and the pinned action all come from
+    // the layout, and the flow above hands it the title and the back.
+    <SubPageLayout
+      data-testid="encrypted-file-wallet-password"
+      // The title takes focus only where no field does: the desktop password field autofocuses.
+      // This is what focuses the title under a host that does not.
+      focusTitleOnMount={isMobile() || hasHardwareProtector}
+      footer={
+        usePasscodeEntry ? undefined : (
+          <Button
+            className="flex-1 max-w-none"
+            variant={ButtonVariant.Primary}
+            data-testid="encrypted-file-wallet-password-submit"
+            title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+            disabled={!continueEnabled}
+            onClick={() => onSubmit()}
+            isLoading={isSubmitting}
+          />
+        )
+      }
+    >
       <SubPageSection
         description={t(
           hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription'
@@ -170,30 +196,26 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
         )}
       </SubPageSection>
 
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={confirmed}
-        className="flex items-start gap-x-2 px-1 text-left"
-        onClick={() => setConfirmed(!confirmed)}
+      <CheckboxConsent
+        checked={confirmed}
+        onCheckedChange={setConfirmed}
+        data-testid="encrypted-file-wallet-password-consent"
       >
-        <CheckboxIndicator checked={confirmed} />
-        <span className="cursor-pointer font-sans text-sm text-ink">{t('encryptedWalletFileConfirmation')}</span>
-      </button>
+        {t('encryptedWalletFileConfirmation')}
+      </CheckboxConsent>
 
       {!hasHardwareProtector && isDisabled && (
-        <Alert
-          type="error"
-          title={t('error')}
-          description={`${t('unlockPasswordErrorDelay')} ${timeleft}`}
-          className="rounded-2xl"
-        />
+        <Notice tone="negative" role="alert" title={t('error')}>
+          {`${t('unlockPasswordErrorDelay')} ${timeleft}`}
+        </Notice>
       )}
       {hasHardwareProtector && errors.password && (
-        <Alert type="error" title={t('error')} description={errors.password.message || ''} className="rounded-2xl" />
+        <Notice tone="negative" role="alert" title={t('error')}>
+          {errors.password.message || ''}
+        </Notice>
       )}
 
-      {usePasscodeEntry ? (
+      {usePasscodeEntry && (
         <PasscodeEntry
           onSubmit={code => onSubmit(code)}
           onChange={value => {
@@ -203,19 +225,10 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           error={errors.password?.message ?? null}
           disabled={isDisabled || !confirmed}
           isSubmitting={isSubmitting}
-          className="mt-auto"
-        />
-      ) : (
-        <Button
-          className="mt-auto w-full max-w-none"
-          variant={ButtonVariant.Primary}
-          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-          disabled={!continueEnabled}
-          onClick={() => onSubmit()}
-          isLoading={isSubmitting}
+          className="mt-auto pb-2"
         />
       )}
-    </div>
+    </SubPageLayout>
   );
 };
 

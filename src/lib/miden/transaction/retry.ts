@@ -12,7 +12,8 @@ import {
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
-  nextQueuedSeq
+  nextQueuedSeq,
+  STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
 
 /**
@@ -133,11 +134,10 @@ export const isRequeueableTransaction = (tx: {
 };
 
 /**
- * Structural account operations - the ones that rewrite the account's own
- * authorization rather than move value. None of them is requeueable (see
+ * Structural account operations. None of them is requeueable (see
  * `REQUEUEABLE_TYPES`): the user re-initiates them from Settings.
  */
-const STRUCTURAL_TYPES: ITransactionType[] = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'];
+const STRUCTURAL_TYPES = STRUCTURAL_GUARDIAN_TYPES;
 
 /**
  * Whether the UI should still offer Cancel on an in-flight row.

@@ -21,7 +21,7 @@ describe('SettingsSelectors', () => {
     SpendingLimitsButton: 'Settings/SpendingLimitsButton',
     MidenNameButton: 'Settings/MidenNameButton',
     GuardianSettingsButton: 'Settings/GuardianSettingsButton',
-    RevealSeedPhraseButton: 'Settings/RevealSeedPhraseButton',
+    RecoveryPhraseButton: 'Settings/RecoveryPhraseButton',
     DAppsButton: 'Settings/DAppsButton',
     NetworksButton: 'Settings/NetworksButton',
     ActivateAccountButton: 'Settings/ActivateAccountButton',
@@ -46,7 +46,7 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.KeysButton).toBe('Settings/KeysButton');
     expect(SettingsSelectors.SpendingLimitsButton).toBe('Settings/SpendingLimitsButton');
     expect(SettingsSelectors.MidenNameButton).toBe('Settings/MidenNameButton');
-    expect(SettingsSelectors.RevealSeedPhraseButton).toBe('Settings/RevealSeedPhraseButton');
+    expect(SettingsSelectors.RecoveryPhraseButton).toBe('Settings/RecoveryPhraseButton');
     expect(SettingsSelectors.DAppsButton).toBe('Settings/DAppsButton');
     expect(SettingsSelectors.NetworksButton).toBe('Settings/NetworksButton');
     expect(SettingsSelectors.ActivateAccountButton).toBe('Settings/ActivateAccountButton');
@@ -89,10 +89,5 @@ describe('SettingsSelectors', () => {
   it('has unique selector values across all members', () => {
     const values = Object.values(SettingsSelectors);
     expect(new Set(values).size).toBe(values.length);
-  });
-
-  it('is consistent across repeated accesses', () => {
-    // Two reads of the same member must yield the identical string.
-    expect(SettingsSelectors.EncryptedWalletFile).toBe(SettingsSelectors.EncryptedWalletFile);
   });
 });

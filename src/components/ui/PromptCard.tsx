@@ -8,6 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
 
+import { Card } from './Card';
+
 export type PromptCardVariant = 'default' | 'warning' | 'critical';
 export type PromptCardStatus = 'idle' | 'loading' | 'success' | 'failure';
 
@@ -26,6 +28,13 @@ export interface PromptCardHero {
 export interface PromptCardProps {
   title: string;
   body?: string;
+  /**
+   * A figure that belongs on the body line and has to be READ, not scanned past — the money
+   * waiting behind the card. Rendered at the end of the line in the value style on `ink`, so it
+   * stands out from the `muted` words beside it. Kept out of `body` on purpose: a number
+   * interpolated into a translated sentence cannot be styled differently from the sentence.
+   */
+  bodyValue?: string;
   variant?: PromptCardVariant;
   icon?: IconName;
   hero?: PromptCardHero;
@@ -57,9 +66,64 @@ const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> =
   </button>
 );
 
+/**
+ * The tone of an icon bubble: the accent for anything neutral or in progress, the status green for
+ * a finished one, the status red for a failed one.
+ */
+type PromptIconTone = 'accent' | 'positive' | 'negative';
+
+const ICON_BUBBLE_TONE: Record<PromptIconTone, string> = {
+  accent: 'bg-accent-primary/15 text-accent-primary',
+  positive: 'bg-status-positive/15 text-status-positive',
+  negative: 'bg-status-negative/15 text-status-negative'
+};
+
+interface PromptIconBubbleProps {
+  tone: PromptIconTone;
+  /** 24px for a status mark in the corner, 36px for the icon beside a title. */
+  size: 24 | 36;
+  role?: 'status';
+  'aria-label'?: string;
+  className?: string;
+  children: React.ReactNode;
+}
+
+/**
+ * The card's icon circle, in one shape: a round bubble in the tone's own tint carrying the tone's
+ * own ink, like every other icon circle in the wallet. All four of the card's icons — its leading
+ * glyph, the success and failure status marks and the hero lockup — are drawn by this, so none of
+ * them can drift back into a squared tile on a solid fill with a white glyph.
+ *
+ * Deliberately not `Avatar`: that is a disc of one solid colour with WHITE initials or a white
+ * glyph (`text-pure-white` sits in its base class and its `color` prop takes a raw CSS colour, not
+ * a token), which is the opposite pairing to the tinted fill and tinted ink these bubbles use.
+ */
+const PromptIconBubble: FC<PromptIconBubbleProps> = ({
+  tone,
+  size,
+  role,
+  'aria-label': ariaLabel,
+  className,
+  children
+}) => (
+  <span
+    role={role}
+    aria-label={ariaLabel}
+    className={classNames(
+      'flex shrink-0 items-center justify-center overflow-hidden rounded-full',
+      size === 24 ? 'h-6 w-6' : 'h-9 w-9',
+      ICON_BUBBLE_TONE[tone],
+      className
+    )}
+  >
+    {children}
+  </span>
+);
+
 export const PromptCard: FC<PromptCardProps> = ({
   title,
   body,
+  bodyValue,
   icon,
   hero,
   onClick,
@@ -124,7 +188,7 @@ export const PromptCard: FC<PromptCardProps> = ({
   const liveAnnouncement = hero
     ? [hero.label, hero.subLabel].filter(Boolean).join('. ')
     : status === 'failure'
-      ? [t('failed'), body].filter(Boolean).join('. ')
+      ? [t('failed'), body, bodyValue].filter(Boolean).join('. ')
       : '';
 
   const heroShown = hero !== undefined;
@@ -160,144 +224,137 @@ export const PromptCard: FC<PromptCardProps> = ({
         <Icon name={IconName.Loader} size="sm" className="animate-spin" fill="currentColor" />
       </span>
     ) : status === 'success' ? (
-      <span
-        role="status"
-        aria-label={t('success')}
-        className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-status-positive/15 text-status-positive"
-      >
+      <PromptIconBubble tone="positive" size={24} role="status" aria-label={t('success')}>
         <Icon name={IconName.Checkmark} size="xs" className="scale-75" fill="currentColor" />
-      </span>
+      </PromptIconBubble>
     ) : status === 'failure' ? (
-      <span
-        role="status"
-        aria-label={t('failed')}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-status-negative/15 text-status-negative"
-      >
+      <PromptIconBubble tone="negative" size={24} role="status" aria-label={t('failed')}>
         <Icon name={IconName.Close} size="xs" fill="currentColor" />
-      </span>
+      </PromptIconBubble>
     ) : null;
 
   return (
-    <div
-      ref={containerRef}
-      data-testid={testId}
-      // Focusable while a hero holds the card, as the place focus stays, and until focus leaves.
-      tabIndex={heroShown || holdsFocus ? -1 : undefined}
-      onFocus={event => {
-        if (event.target === event.currentTarget) setHoldsFocus(true);
-      }}
-      onBlur={event => {
-        // A page, tab or side-panel blur fires this too while focus stays on the card.
-        if (event.target === event.currentTarget && document.activeElement !== event.currentTarget) {
-          setHoldsFocus(false);
-        }
-      }}
-      onClick={onClick ? handleClick : undefined}
-      className={classNames(
-        'relative overflow-hidden w-full h-[72px] bg-fill rounded-2xl',
-        'flex items-center gap-3 px-4',
-        // Tappable cards press in like the app's buttons do.
-        onClick && 'transition-transform active:scale-[0.98]',
-        className
-      )}
-    >
-      {!hero && icon && (
-        <span
-          className={classNames(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-primary/15 text-accent-primary',
-            status === 'loading' && 'animate-pulse'
-          )}
-        >
-          <Icon name={icon} size="sm" fill="currentColor" />
-        </span>
-      )}
-      {/* The hero replaces the title, body and CTA outright, so this is the only
+    // `outline`, like Activity's rows: a single actionable card that has to separate itself where it
+    // sits on the page, not a grey block on the home page.
+    <Card asChild surface="outline" padding="none">
+      <div
+        ref={containerRef}
+        data-testid={testId}
+        // Focusable while a hero holds the card, as the place focus stays, and until focus leaves.
+        tabIndex={heroShown || holdsFocus ? -1 : undefined}
+        onFocus={event => {
+          if (event.target === event.currentTarget) setHoldsFocus(true);
+        }}
+        onBlur={event => {
+          // A page, tab or side-panel blur fires this too while focus stays on the card.
+          if (event.target === event.currentTarget && document.activeElement !== event.currentTarget) {
+            setHoldsFocus(false);
+          }
+        }}
+        onClick={onClick ? handleClick : undefined}
+        className={classNames(
+          'relative overflow-hidden w-full h-[72px]',
+          'flex items-center gap-3 px-4',
+          // Tappable cards press in like the app's buttons do.
+          onClick && 'transition-transform active:scale-[0.98]',
+          className
+        )}
+      >
+        {!hero && icon && (
+          <PromptIconBubble tone="accent" size={36} className={status === 'loading' ? 'animate-pulse' : undefined}>
+            <Icon name={icon} size="sm" fill="currentColor" />
+          </PromptIconBubble>
+        )}
+        {/* The hero replaces the title, body and CTA outright, so this is the only
           thing left to narrate the funding lifecycle. It is rendered on every
           card and never keyed: a live region is only announced when it already
           exists before its content changes, and the hero lockup itself is keyed
           by label, so putting the role there recreated the node on each swap
           and the "Funds deposited" beat went unannounced. */}
-      <span role="status" aria-live="polite" className="sr-only">
-        {liveAnnouncement}
-      </span>
-      {status === 'loading' && (
-        <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-accent-primary/15">
-          <motion.span
-            className="block h-full w-1/3 rounded-full bg-accent-primary"
-            animate={reduceMotion ? { x: 0 } : { x: ['-100%', '300%'] }}
-            transition={reduceMotion ? { duration: 0 } : { duration: 1.4, ease: 'easeInOut', repeat: Infinity }}
-          />
+        <span role="status" aria-live="polite" className="sr-only">
+          {liveAnnouncement}
         </span>
-      )}
-      {hero ? (
-        // Keyed so the lockup re-pops when the hero swaps (Funding → Funded!).
-        <motion.div
-          key={hero.label}
-          // The stable live region below narrates this; the keyed lockup is
-          // recreated on every hero swap, so it must not be read a second time.
-          aria-hidden="true"
-          className="flex flex-1 flex-col items-center justify-center gap-1"
-          initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.23, 1, 0.32, 1] }}
-        >
-          <div className="flex items-center gap-2.5">
-            <span
-              className={classNames(
-                'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-pure-white',
-                hero.tone === 'positive' ? 'bg-status-positive' : 'bg-accent-primary'
-              )}
-            >
-              <motion.span
-                className="flex items-center justify-center"
-                animate={flipping ? { rotate: [0, 0, 180, 180, 360] } : { rotate: 0 }}
-                transition={
-                  flipping
-                    ? { duration: 2.2, times: [0, 0.35, 0.5, 0.85, 1], ease: [0.77, 0, 0.175, 1], repeat: Infinity }
-                    : { duration: 0 }
-                }
-              >
-                <Icon name={hero.icon} size="xs" fill="currentColor" />
-              </motion.span>
-            </span>
-            <span className="text-title-page text-ink">{hero.label}</span>
-          </div>
-          {hero.subLabel && <span className="text-caption text-text-tertiary-token">{hero.subLabel}</span>}
-        </motion.div>
-      ) : (
-        <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-ink">
-          <div className="text-row-title truncate">{title}</div>
-          {body && <div className="text-caption line-clamp-2">{body}</div>}
-        </Lockup>
-      )}
-      {onDismiss && !hero ? (
-        // Right rail: a plain dismiss X tucked in the box's top-right corner,
-        // with the CTA/status on the body line below — same edge, no overlap.
-        // Hidden during a hero takeover: an in-process card can't be dismissed.
-        <div className="flex shrink-0 flex-col items-end justify-between self-stretch py-2">
-          <button
-            type="button"
-            onClick={handleDismiss}
-            aria-label={t('promptCardDismiss')}
-            className="flex h-5 w-5 items-center justify-center text-text-tertiary-token"
+        {status === 'loading' && (
+          <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-accent-primary/15">
+            <motion.span
+              className="block h-full w-1/3 rounded-full bg-accent-primary"
+              animate={reduceMotion ? { x: 0 } : { x: ['-100%', '300%'] }}
+              transition={reduceMotion ? { duration: 0 } : { duration: 1.4, ease: 'easeInOut', repeat: Infinity }}
+            />
+          </span>
+        )}
+        {hero ? (
+          // Keyed so the lockup re-pops when the hero swaps (Funding → Funded!).
+          <motion.div
+            key={hero.label}
+            // The stable live region below narrates this; the keyed lockup is
+            // recreated on every hero swap, so it must not be read a second time.
+            aria-hidden="true"
+            className="flex flex-1 flex-col items-center justify-center gap-1"
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.23, 1, 0.32, 1] }}
           >
-            <Icon name={IconName.Close} className="w-3.5 h-3.5" fill="currentColor" />
-          </button>
-          <div className="flex items-center gap-2">
-            {StatusIndicator}
-            {ActionButton}
+            <div className="flex items-center gap-2.5">
+              {/* The same bubble the card's other icons wear, sized to sit with its `text-title-page`
+                  label - not a squared tile on a solid fill with a white glyph. */}
+              <PromptIconBubble tone={hero.tone} size={36}>
+                <motion.span
+                  className="flex items-center justify-center"
+                  animate={flipping ? { rotate: [0, 0, 180, 180, 360] } : { rotate: 0 }}
+                  transition={
+                    flipping
+                      ? { duration: 2.2, times: [0, 0.35, 0.5, 0.85, 1], ease: [0.77, 0, 0.175, 1], repeat: Infinity }
+                      : { duration: 0 }
+                  }
+                >
+                  <Icon name={hero.icon} size="sm" fill="currentColor" />
+                </motion.span>
+              </PromptIconBubble>
+              <span className="text-title-page text-ink">{hero.label}</span>
+            </div>
+            {hero.subLabel && <span className="text-caption text-text-tertiary-token">{hero.subLabel}</span>}
+          </motion.div>
+        ) : (
+          <Lockup className="flex flex-col gap-0.5 min-w-0 flex-1 text-left text-ink">
+            <div className="text-row-title truncate">{title}</div>
+            {(body || bodyValue) && (
+              <div className="flex min-w-0 items-baseline gap-1.5">
+                {body && <span className="line-clamp-2 min-w-0 text-caption text-muted">{body}</span>}
+                {bodyValue && <span className="shrink-0 text-value text-ink">{bodyValue}</span>}
+              </div>
+            )}
+          </Lockup>
+        )}
+        {onDismiss && !hero ? (
+          // Right rail: a plain dismiss X tucked in the box's top-right corner,
+          // with the CTA/status on the body line below — same edge, no overlap.
+          // Hidden during a hero takeover: an in-process card can't be dismissed.
+          <div className="flex shrink-0 flex-col items-end justify-between self-stretch py-2">
+            <button
+              type="button"
+              onClick={handleDismiss}
+              aria-label={t('promptCardDismiss')}
+              className="flex h-5 w-5 items-center justify-center text-text-tertiary-token"
+            >
+              <Icon name={IconName.Close} className="w-3.5 h-3.5" fill="currentColor" />
+            </button>
+            <div className="flex items-center gap-2">
+              {StatusIndicator}
+              {ActionButton}
+            </div>
           </div>
-        </div>
-      ) : (
-        !hero && (
-          <>
-            {StatusIndicator}
-            {ActionButton}
-            <Icon name={IconName.ChevronRight} size="xs" className="dark:stroke-pure-white" />
-          </>
-        )
-      )}
-    </div>
+        ) : (
+          !hero && (
+            <>
+              {StatusIndicator}
+              {ActionButton}
+              <Icon name={IconName.ChevronRight} size="xs" className="dark:stroke-pure-white" />
+            </>
+          )
+        )}
+      </div>
+    </Card>
   );
 };
 

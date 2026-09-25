@@ -17,6 +17,8 @@ export default {
     // extension: the update-catalog validator ships as ESM so a plain `node` CI
     // step can share it with the app bundle.
     'src/**/*.{ts,tsx,mjs}',
+    'packages/hd-key/src/**/*.ts',
+    '!packages/hd-key/src/**/*.test.ts',
     '!src/**/*.d.ts',
     '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
@@ -95,8 +97,8 @@ export default {
     '/src/screens/generating-transaction/success/SwapSuccess\\.tsx$',
     '/packages/dapp-browser/'
   ],
-  // 'json-summary' emits coverage/coverage-summary.json, consumed by the
-  // coverage-badge workflow to publish the README shields.io badge.
+  // 'json-summary' serves local unsharded coverage runs. The README badge reads
+  // the summary scripts/merge-jest-coverage.mjs writes in pr.yml instead.
   coverageReporters: ['json-summary', 'text-summary', 'lcov'],
   // Sharded CI runs set JEST_COVERAGE_SHARD and check the 95% gate after merge
   // (scripts/merge-jest-coverage.mjs). A partial map would fail the threshold
@@ -115,6 +117,8 @@ export default {
     // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
     // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the
     // stub instead of trying to execute the PNG bytes as JavaScript.
+    // A `?url` import is the asset's URL, not a component, and `\.svg$` cannot match past the query.
+    '\\.svg\\?url$': '<rootDir>/__mocks__/fileMock.js',
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
     '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
     '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.ts',
@@ -124,6 +128,10 @@ export default {
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
+    // The in-house key-derivation package is consumed from source so unit
+    // tests need no build step; the app bundles resolve it through the
+    // `link:` symlink and its built `dist/` instead.
+    '^@miden/hd-key$': '<rootDir>/packages/hd-key/src/index.ts',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',

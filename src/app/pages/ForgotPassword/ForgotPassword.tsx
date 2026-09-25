@@ -1,9 +1,8 @@
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
-import { generateMnemonic } from 'bip39';
-import wordsList from 'bip39/src/wordlists/english.json';
 import { useTranslation } from 'react-i18next';
 
+import { englishWordlist as wordsList, generateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
@@ -184,7 +183,7 @@ const ForgotPassword: FC = () => {
       switch (action.id) {
         case 'create-wallet':
           discardGuardianProbe();
-          setSeedPhrase(generateMnemonic(128).split(' '));
+          setSeedPhrase(generateMnemonic().split(' '));
           setOnboardingType(OnboardingType.Create);
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
@@ -210,7 +209,7 @@ const ForgotPassword: FC = () => {
         }
         case 'backup-seed-phrase':
           discardGuardianProbe();
-          setSeedPhrase(generateMnemonic(128).split(' '));
+          setSeedPhrase(generateMnemonic().split(' '));
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
         case 'verify-seed-phrase':

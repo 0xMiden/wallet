@@ -23,7 +23,11 @@ jest.mock('lib/ui/drawer', () => ({
 }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
+    <button data-accent={accent} {...rest}>
+      {title}
+    </button>
+  )
 }));
 jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
@@ -74,6 +78,12 @@ it('suggests the resolved Miden Name as an editable label and saves the actual a
     fireEvent.click(screen.getByTestId('address-book-add-contact'));
   });
   expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ address: MIDEN, name: 'alice.miden' }));
+});
+
+it('gives the add-contact submit the send flow colour', () => {
+  renderSheet();
+
+  expect(screen.getByTestId('address-book-add-contact')).toHaveAttribute('data-accent', 'send');
 });
 
 it('saves a Miden contact with a trimmed name and closes', async () => {

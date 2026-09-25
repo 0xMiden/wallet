@@ -2,22 +2,27 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
+import { usePageActive } from 'app/layouts/page-active';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { NetworkChip } from 'components/NetworkChip';
-import { QRCode, type QRCodeHandle } from 'components/QRCode';
+import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
 import { CopyButton } from 'components/ui/CopyButton';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { formatMidenName } from 'lib/miden/name/encoding';
 import { useOwnedMidenName } from 'lib/miden/name/registrations';
 import { useMidenNameResolvesHere } from 'lib/miden/name/useMidenNameResolvesHere';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
+import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { cn } from 'lib/ui/util';
@@ -32,6 +37,14 @@ interface AddressTabProps {
 }
 
 const QR_FILE_NAME = 'miden-address.png';
+
+/**
+ * Tapping the Bread logo in the middle of the QR walks this cycle. It opens on the brand orange,
+ * the wallet's own colour, and then runs the other four account card colours. Every one is a
+ * palette colour, so the modules never lighten past a scannable QR.
+ */
+const QR_PALETTE_CYCLE: readonly QRPalette[] = ['orange', 'green', 'slate', 'blue', 'purple'];
+
 /** Resolution of the shared QR image; on screen the QR scales to the room the layout leaves. */
 const QR_EXPORT_SIZE = 300;
 
@@ -65,6 +78,41 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const ownedLabel = useOwnedMidenName(address);
   // Always false in v1: the registry has no records yet.
   const nameResolvesHere = useMidenNameResolvesHere(address, ownedLabel);
+
+  // The logo easter egg. `TabLayout` keeps a visited tab mounted, so leaving the page is a change
+  // of `usePageActive`, not an unmount: reset the cycle there or the QR keeps a stray colour.
+  const pageActive = usePageActive();
+  const [paletteStep, setPaletteStep] = useState(0);
+  // Bumped on every tap, including a retry of the same step: a failed draw never changes
+  // `paletteStep`'s target, and QRCode's own redraw effect keys on its prop values, so asking for
+  // the same colour twice needs this to tell it a fresh attempt is wanted.
+  const [paletteAttempt, setPaletteAttempt] = useState(0);
+  // Mirrors the step QRCode last actually painted (via onPaletteCommitted), read when a tap asks
+  // for the next colour: a request whose draw fails never lands here, so the next tap asks for the
+  // same one again instead of skipping past a colour nobody saw.
+  const committedPaletteStepRef = useRef(0);
+  const [logoPressed, setLogoPressed] = useState(false);
+  const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (pageActive) return;
+    setPaletteStep(0);
+    committedPaletteStepRef.current = 0;
+    setLogoPressed(false);
+  }, [pageActive]);
+
+  const cyclePalette = useCallback(() => {
+    hapticLight();
+    setPaletteStep((committedPaletteStepRef.current + 1) % QR_PALETTE_CYCLE.length);
+    setPaletteAttempt(attempt => attempt + 1);
+  }, []);
+
+  const handlePaletteCommitted = useCallback((committedPalette: QRPalette) => {
+    const index = QR_PALETTE_CYCLE.indexOf(committedPalette);
+    if (index !== -1) committedPaletteStepRef.current = index;
+  }, []);
+
+  const releaseLogo = useCallback(() => setLogoPressed(false), []);
 
   const openBridgeDeposit = useCallback(() => {
     onBridgeDeposit();
@@ -138,45 +186,59 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const showCrossChain = !isExtension() && isBridgeDepositEnabled();
 
   return (
-    // Last-resort scroll only: the column below is laid out to fit between the top action bar and
-    // the tab bar on every supported height (the QR takes whatever height is left), and scrolls
-    // only when even the smallest QR does not fit.
-    <div
-      className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
-      style={{ touchAction: 'pan-y' }}
-      data-testid="receive-page"
-    >
-      <div
-        className={cn(
-          'mx-auto flex min-h-full w-full max-w-150 flex-col px-4 pt-4',
-          // Clears the tab bar that overlays the page (TabLayout): 57px docked on an iPhone, 64px
-          // floating elsewhere, plus the 16px gutter.
-          isMobile() ? 'pb-18' : 'pb-20'
-        )}
-      >
-        {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
-        <span data-testid="receive-address-full" className="sr-only">
-          {address}
-        </span>
+    // The shared home-group pane body (HomeGroupPane): the page margin, the offset to the title, the
+    // scroll and gesture contract and the clearance over the tab bar, the same as Send, Earn and
+    // Swap. Last-resort scroll only: the column is laid out to fit between the top action bar and
+    // the tab bar on every supported height, and scrolls only when even that does not fit.
+    // The page keeps the app's own surface: the Receive green is carried by the affordances, not
+    // by a wash, and the code needs a plain light field around it to scan off.
+    <HomeGroupPaneBody testId="receive-page" title={t('receiveAt')} titleTestId="receive-title">
+      {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
+      <span data-testid="receive-address-full" className="sr-only">
+        {address}
+      </span>
 
-        {/* The QR block: one centred column. */}
-        <div data-testid="receive-qr-block" className="flex flex-1 flex-col items-center gap-3">
-          {/* The QR takes the height the rest of the page leaves (never under 160px), square and
-              capped at 288px. The frame is sized off the slot's flexed height through an absolute
-              box: a size container would be simpler, but Chrome resolves `cqh` to 0 in a slot whose
-              height comes from flexing. */}
-          <div data-testid="receive-qr-slot" className="relative min-h-40 w-full flex-1">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div data-testid="receive-qr-frame" className="aspect-square h-full max-h-72 max-w-full">
-                <QRCode
-                  ref={qrRef}
-                  address={address}
-                  size={QR_EXPORT_SIZE}
-                  // The page names the network in the chip below; the shared image still carries it.
-                  caption={network ? t('qrNetworkCaption', { network }) : undefined}
-                />
-              </div>
-            </div>
+      {/* The code, its network and the address: one centred block on the page itself, no card
+            around it — the card only added an edge between the code and the actions below. */}
+      <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2 pt-2">
+        <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
+          {/* The QR is a fixed square (208px), not the leftover height: big enough to scan
+                across a table, small enough to leave the page room to breathe. */}
+          <div data-testid="receive-qr-slot" className="relative w-full max-w-52">
+            <motion.div
+              data-testid="receive-qr-frame"
+              className="aspect-square w-full"
+              // The dip of the logo press. The card is what moves: the logo is drawn inside the
+              // QR's own SVG, so it cannot be scaled on its own.
+              animate={{ scale: logoPressed && !reduceMotion ? tabBarMotion.pressScale : 1 }}
+              transition={resolveTransition(reduceMotion, tabBarMotion.press)}
+            >
+              <QRCode
+                ref={qrRef}
+                address={address}
+                size={QR_EXPORT_SIZE}
+                palette={QR_PALETTE_CYCLE[paletteStep] ?? 'green'}
+                recolourAttempt={paletteAttempt}
+                onPaletteCommitted={handlePaletteCommitted}
+                // The page names the network in the chip below; the shared image still carries it.
+                caption={network ? t('qrNetworkCaption', { network }) : undefined}
+              />
+            </motion.div>
+            {/* The Bread logo in the middle of the code, as a target: each tap repaints the
+                  modules in the next colour of the cycle. The logo itself is left alone. */}
+            <button
+              type="button"
+              onClick={cyclePalette}
+              onPointerDown={() => setLogoPressed(true)}
+              onPointerUp={releaseLogo}
+              onPointerCancel={releaseLogo}
+              onPointerLeave={releaseLogo}
+              onBlur={releaseLogo}
+              aria-label={t('receiveQrColorAction')}
+              data-testid="receive-qr-logo"
+              data-qr-palette={QR_PALETTE_CYCLE[paletteStep]}
+              className="absolute left-1/2 top-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
+            />
           </div>
           {network && (
             <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
@@ -212,10 +274,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             data-testid="receive-copy-address"
             label={truncateAddress(address, false, 16, 8)}
             icon="leading"
-            iconClassName="text-muted"
+            iconClassName="text-accent-receive"
             checkClassName="text-positive-ink"
             className={cn(
-              'flex items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
+              'flex items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive',
               // Under a name headline the address is a small pill.
               ownedLabel === undefined ? 'h-11 w-full' : 'h-9 max-w-full'
             )}
@@ -224,46 +286,52 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             }
           />
         </div>
+      </div>
 
-        <div className="mt-5 flex shrink-0 flex-col gap-3">
-          {/* Test-funds warning sits before the share and bridge actions:
-              the funding decision point named in #875. */}
-          {network && (
-            <Notice
-              tone="warning"
-              icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-              data-testid="receive-test-funds-warning"
-            >
-              {t('receiveTestFundsBody', { network })}
-            </Notice>
-          )}
-          <ListGroup data-testid="receive-actions">
-            <ListRow
-              icon={<Icon name={IconName.Share} size="xs" />}
-              title={t('share')}
-              onClick={() => void handleShare()}
-              data-testid="receive-share"
-            />
-            {/* Renders nothing on a network with no Miden Name deployment. */}
-            <MidenNameReceiveRow address={address} />
-            {/* WalletConnect is not supported on the extension: the Reown relay
+      <div className="mt-2 flex shrink-0 flex-col gap-2">
+        {/* The app's grouped `fill` list, with the flow accent on the glyphs, chevron and
+              hairlines. */}
+        <ListGroup data-testid="receive-actions">
+          <ListRow
+            icon={<Icon name={IconName.Share} size="xs" />}
+            title={t('share')}
+            accent="receive"
+            onClick={() => void handleShare()}
+            data-testid="receive-share"
+          />
+          {/* Renders nothing on a network with no Miden Name deployment. */}
+          <MidenNameReceiveRow address={address} />
+          {/* WalletConnect is not supported on the extension: the Reown relay
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
                 the AppKit connect flow can never complete there. */}
-            {showCrossChain && (
-              <ListRow
-                icon={<Icon name={IconName.CrossChain} size="xs" />}
-                title={t('crossChain')}
-                // Name the actual source test network, not a bare "Testnet" (#875).
-                subtitle={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-                chevron
-                onClick={handleOpenEvm}
-                data-testid="receive-cross-chain"
-              />
-            )}
-          </ListGroup>
-        </div>
+          {showCrossChain && (
+            <ListRow
+              icon={<Icon name={IconName.CrossChain} size="xs" />}
+              title={t('crossChain')}
+              // Name the actual source test network, not a bare "Testnet" (#875).
+              subtitle={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+              accent="receive"
+              chevron
+              onClick={handleOpenEvm}
+              data-testid="receive-cross-chain"
+            />
+          )}
+        </ListGroup>
+        {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
+              this qualifies all of it. A caption with the warning glyph, not a tinted block —
+              between the address and the actions it split the page in two. */}
+        {network && (
+          <Notice
+            tone="warning"
+            variant="inline"
+            icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+            data-testid="receive-test-funds-warning"
+          >
+            {t('receiveTestFundsBody', { network })}
+          </Notice>
+        )}
       </div>
       {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
-    </div>
+    </HomeGroupPaneBody>
   );
 };

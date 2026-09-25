@@ -1623,11 +1623,11 @@ const buildColdServiceForAccount = async (
   accountId: string,
   guardianProvider: GuardianAccountProvider
 ): Promise<MultisigService> => {
-  const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === accountId);
+  const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount) {
     throw new Error(`Guardian account ${accountId} not found in provider`);
   }
-  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(accountId));
+  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
   if (!sdkAccount) {
     throw new Error(`Guardian account ${accountId} not found in local client`);
   }
@@ -2430,15 +2430,24 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'replace-hot-key': {
-      const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+      const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+        sameWalletAccountId(a.publicKey, transaction.accountId)
+      );
       if (!walletAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
       }
-      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
+      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
       if (!sdkAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
       service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      // Stamp the guardian this rotation runs under before anything below can fail: a switch that
+      // completed after initiation moved the account's endpoint, and the row must name this one.
+      const rTx = transaction as ReplaceHotKeyTransaction;
+      rTx.extraInputs = { ...(rTx.extraInputs ?? {}), guardianEndpoint: service.guardianEndpoint };
+      await Repo.transactions.where({ id: transaction.id }).modify(t => {
+        t.extraInputs = rTx.extraInputs;
+      });
       // NOT retry-wrapped — createReplaceHotKeyProposal mints a hot key.
       const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);
       if (!guardianProvider.persistNewHotKey) {
@@ -2458,7 +2467,6 @@ const generateGuardianTransaction = async (
       await guardianProvider.persistNewHotKey(newHot.publicKeyHex, newHot.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
-      const rTx = transaction as ReplaceHotKeyTransaction;
       rTx.extraInputs = { ...(rTx.extraInputs ?? {}), newHotPublicKey: newHot.publicKeyHex };
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
@@ -2730,11 +2738,13 @@ const generateGuardianTransaction = async (
   // Guardian server keyed by proposal id so order doesn't matter, and the
   // transient cold service is dropped at scope exit.
   if (transaction.type === 'switch-guardian') {
-    const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+      sameWalletAccountId(a.publicKey, transaction.accountId)
+    );
     if (!walletAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
     }
-    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(transaction.accountId));
+    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
     if (!sdkAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
     }

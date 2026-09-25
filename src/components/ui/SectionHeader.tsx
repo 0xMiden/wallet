@@ -13,9 +13,14 @@ const headingVariants = cva('min-w-0 truncate', {
       sm: 'text-label text-muted',
       lg: 'text-title-section text-ink',
       xl: 'text-title-page text-ink'
+    },
+    /** `muted` quiets a `lg`/`xl` title to the label colour: a page's section labels beside `ink` values. */
+    tone: {
+      ink: '',
+      muted: 'text-muted'
     }
   },
-  defaultVariants: { size: 'sm' }
+  defaultVariants: { size: 'sm', tone: 'ink' }
 });
 
 export interface SectionHeaderProps extends VariantProps<typeof headingVariants> {
@@ -30,7 +35,7 @@ export interface SectionHeaderProps extends VariantProps<typeof headingVariants>
    * glyph keeps its own colour (an SVG with its own fills) — the circle is decoration only.
    */
   icon?: React.ReactNode;
-  /** Layout only (margins). */
+  /** Layout only (margins, padding). */
   className?: string;
   'data-testid'?: string;
 }
@@ -42,6 +47,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
   action,
   icon,
   size,
+  tone,
   className,
   'data-testid': dataTestId
 }) => (
@@ -54,10 +60,10 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
         >
           {icon}
         </span>
-        <Heading className={headingVariants({ size })}>{children}</Heading>
+        <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
       </span>
     ) : (
-      <Heading className={headingVariants({ size })}>{children}</Heading>
+      <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
     )}
     {action && <div className="shrink-0">{action}</div>}
   </div>

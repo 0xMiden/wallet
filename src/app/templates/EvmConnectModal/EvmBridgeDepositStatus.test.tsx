@@ -57,16 +57,32 @@ jest.mock('screens/generating-transaction/components', () => ({
   TransactionHeroIcon: ({ state }: { state: string }) => <div data-testid="hero-state">{state}</div>
 }));
 
+// `fillForArrow` surfaced as an attribute: the real badge paints it into an SVG the stub does
+// not draw, and a bridge screen handing it the default (the Send blue) is the bug below.
 jest.mock('screens/generating-transaction/TransactionSummaryBadge', () => ({
-  TransactionSummaryBadge: ({ lhs, rhs }: { lhs?: React.ReactNode; rhs?: React.ReactNode }) => (
-    <div data-testid="summary-badge">
+  TransactionSummaryBadge: ({
+    lhs,
+    rhs,
+    fillForArrow
+  }: {
+    lhs?: React.ReactNode;
+    rhs?: React.ReactNode;
+    fillForArrow?: string;
+  }) => (
+    <div data-testid="summary-badge" data-arrow-fill={fillForArrow}>
       {lhs} → {rhs}
     </div>
   )
 }));
 
+// Children rendered, so the submitted branch's own badge is reachable from this suite.
 jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () => ({
-  TransactionSuccessLayout: ({ title }: { title: string }) => <div data-testid="success-layout">{title}</div>,
+  TransactionSuccessLayout: ({ title, children }: { title: string; children?: React.ReactNode }) => (
+    <div data-testid="success-layout">
+      {title}
+      {children}
+    </div>
+  ),
   ReceiptRows: () => null
 }));
 
@@ -114,6 +130,9 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByText('bridgeDepositProcessingDescription')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
     expect(screen.getByTestId('summary-badge')).toHaveTextContent('12.5000 USDC → Miden');
+    // A bridge row is the slate wherever it is drawn, so its arrow is too — not the badge's
+    // default, which is the Send flow's blue.
+    expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
 
     fireEvent.click(screen.getByRole('button', { name: 'hide' }));
     expect(onDone).toHaveBeenCalledTimes(1);
@@ -146,5 +165,7 @@ describe('EvmBridgeDepositStatus', () => {
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     expect(screen.getByTestId('success-layout')).toHaveTextContent('bridgeDepositSubmitted');
+    // The same slate as the processing body: one bridge, one colour, either side of submission.
+    expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
   });
 });

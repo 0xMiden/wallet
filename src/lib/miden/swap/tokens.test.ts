@@ -1,3 +1,5 @@
+import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 import {
@@ -6,7 +8,13 @@ import {
   getSwapTokenByFaucetId,
   getSwapTokens,
   getSwapTokenBySymbol,
+  normalizedFaucetId,
+  priceSymbolFor,
+  TOKEN_IBTC,
+  TOKEN_IETH,
   TOKEN_IMIDEN,
+  TOKEN_IUSDT,
+  _resetNormalizedFaucetIdsForTest,
   _setSwapTokensForTest,
   SWAP_TOKEN_DECIMALS,
   SWAP_TOKENS
@@ -16,6 +24,25 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
   getNativeAssetMetadataSync: jest.fn()
 }));
+
+// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountIdStringToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: jest.fn((id: string) => `bech32:${id}`)
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: jest.fn(() => 'testnet')
+}));
+
+const mockToBech32 = jest.mocked(getBech32AddressFromAccountId);
+const mockNetworkName = jest.mocked(getEffectiveNetworkName);
+
+beforeEach(() => {
+  _resetNormalizedFaucetIdsForTest();
+  mockToBech32.mockReset().mockImplementation((id: any) => `bech32:${id}`);
+  mockNetworkName.mockReturnValue('testnet' as any);
+});
 
 const mockGetNativeAssetIdSync = jest.mocked(getNativeAssetIdSync);
 const mockGetNativeAssetMetadataSync = jest.mocked(getNativeAssetMetadataSync);
@@ -69,6 +96,67 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokens()).toEqual([t]);
     expect(getSwapTokenBySymbol('SWPA')).toEqual(t);
     expect(getSwapTokenBySymbol('IMIDEN')).toBeUndefined();
+  });
+});
+
+describe('swap token price symbols', () => {
+  it('prices IETH and IBTC as the ETH and BTC the feed lists', () => {
+    expect(TOKEN_IETH.priceSymbol).toBe('ETH');
+    expect(TOKEN_IBTC.priceSymbol).toBe('BTC');
+  });
+
+  it('leaves IUSDT and IMIDEN unpriced, whatever logo they borrow', () => {
+    expect(TOKEN_IUSDT.priceSymbol).toBeUndefined();
+    expect(TOKEN_IMIDEN.priceSymbol).toBeUndefined();
+  });
+});
+
+describe('priceSymbolFor', () => {
+  beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
+
+  it('prices IETH and IBTC as ETH and BTC under either id encoding', () => {
+    expect(priceSymbolFor(TOKEN_IETH.faucetId, 'IETH')).toBe('ETH');
+    expect(priceSymbolFor(`bech32:${TOKEN_IETH.faucetId}`, 'IETH')).toBe('ETH');
+    expect(priceSymbolFor(TOKEN_IBTC.faucetId, 'IBTC')).toBe('BTC');
+    expect(priceSymbolFor(`bech32:${TOKEN_IBTC.faucetId}`, 'IBTC')).toBe('BTC');
+  });
+
+  it('leaves IUSDT, IMIDEN and a non-swap token on their own symbol', () => {
+    expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBe('IUSDT');
+    expect(priceSymbolFor(`bech32:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBe('IMIDEN');
+    expect(priceSymbolFor('mtst1other', 'ETH')).toBe('ETH');
+  });
+
+  it('converts each registry id once across calls', () => {
+    priceSymbolFor('mtst1other', 'ETH');
+    priceSymbolFor('mtst1another', 'BTC');
+    expect(mockToBech32).toHaveBeenCalledTimes(getSwapTokens().length);
+  });
+});
+
+describe('normalizedFaucetId', () => {
+  it('converts an id once per network', () => {
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(mockToBech32).toHaveBeenCalledTimes(1);
+  });
+
+  it('converts again on another network and reuses the first result on returning to it', () => {
+    mockToBech32.mockImplementation((id: any) => `${mockNetworkName()}:${id}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+    mockNetworkName.mockReturnValue('devnet' as any);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`devnet:${TOKEN_IETH.faucetId}`);
+    mockNetworkName.mockReturnValue('testnet' as any);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+    expect(mockToBech32).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an id the SDK cannot parse yet as it is, and tries it again later', () => {
+    mockToBech32.mockImplementationOnce(() => {
+      throw new Error('wasm not ready');
+    });
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(TOKEN_IETH.faucetId);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
   });
 });
 

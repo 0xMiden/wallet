@@ -34,6 +34,7 @@ export type PillTone =
   | 'negative'
   | 'inactive'
   | 'plain'
+  | 'page'
   | 'inverse';
 
 /**
@@ -100,6 +101,9 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
       inactive: 'border-transparent bg-fill-pressed text-ink',
       plain: 'border-transparent',
+      // A pill sitting INSIDE a `fill` element — the Paste and Scan pills in a text field, a tag
+      // over a card's artwork — so it takes the page's surface to stand off the one under it.
+      page: 'border-transparent bg-page text-ink',
       inverse: 'border-transparent bg-surface-balance-pill text-surface-balance-fg'
     } satisfies Record<PillTone, string>
   },

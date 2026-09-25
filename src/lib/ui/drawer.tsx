@@ -6,6 +6,7 @@ import { Drawer as VaulDrawer } from 'vaul';
 
 import { IconName } from 'app/icons/v2';
 import { IconButton } from 'components/ui/IconButton';
+import { sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
@@ -66,6 +67,11 @@ function Drawer({ open = false, onOpenChange, children, screenKey, dismissible, 
   );
 }
 
+/**
+ * The sheet itself. It must never clip (`overflow-hidden` on it): the open spring overshoots, and
+ * vaul's `::after` skirt under the sheet fills the gap only while the sheet does not cut it off. A
+ * sheet whose content outgrows the cap scrolls an inner `min-h-0` column instead.
+ */
 interface DrawerContentProps extends Omit<
   React.ComponentPropsWithoutRef<typeof VaulDrawer.Content>,
   'children' | 'className'
@@ -78,24 +84,34 @@ interface DrawerContentProps extends Omit<
   hideHandle?: boolean;
 }
 
-function DrawerContent({ className, overlayClassName, children, hideHandle = true, ...props }: DrawerContentProps) {
+function DrawerContent({
+  className,
+  overlayClassName,
+  children,
+  hideHandle = true,
+  style,
+  ...props
+}: DrawerContentProps) {
   return (
     <VaulDrawer.Portal>
-      <VaulDrawer.Overlay
-        className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
-      />
+      {/* A plain scrim, one token in both themes: dimming the page is the whole job, and a frosted
+          blur over it only smears whatever is underneath. */}
+      <VaulDrawer.Overlay style={sheetMotionVars} className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)} />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
+        // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
+        style={{ ...sheetMotionVars, ...style }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the
           // Android nav bar / iOS home indicator AND the iOS soft keyboard
           // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
-          // (env() and the var are 0 on extension/Android). The transition runs
-          // in sync with the native keyboard slide.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-surface-solid text-body-sm outline-none',
-          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
+          // (env() and the var are 0 on extension/Android). The padding snaps:
+          // only the transform transitions, so main.css's sheet spring, which
+          // lands on every transitioned property, never animates the inset.
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
+          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
           className
         )}
         {...props}
@@ -112,21 +128,22 @@ function DrawerContent({ className, overlayClassName, children, hideHandle = tru
 }
 
 /**
- * Drawer header / top bar: a large left-aligned title (via `DrawerTitle`, 28px
- * semibold) with a circular close button on the right, a bottom divider, and a
- * 16px gap to the content below (`mb-4`). The handle-less default closes through
- * this button — it reads `onClose` from the drawer context, so no extra wiring.
- * Children render in a column on the left (title + optional `DrawerDescription`).
+ * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` (optionally
+ * over a `DrawerDescription`) and the 32px circular close on the right, on the 16px sheet margin.
+ * No rule under it — separation inside a sheet comes from the `fill` groups below, not from a
+ * divider across the top (design-system.md, "Elevation"). The close reads `onClose` from the drawer
+ * context, so the handle-less default needs no extra wiring.
  */
 function DrawerHeader({ className, children }: { className?: string; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const { onClose } = useContext(DrawerContext);
   return (
-    <div data-slot="drawer-header" className={cn('border-b border-border-faint mb-4', className)}>
-      <div className="flex w-full items-center justify-between gap-3 p-4">
-        <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-        <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
-      </div>
+    <div
+      data-slot="drawer-header"
+      className={cn('flex w-full shrink-0 items-center justify-between gap-3 px-4 pt-5 pb-4', className)}
+    >
+      <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
+      <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
     </div>
   );
 }
@@ -139,7 +156,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
   return (
     <VaulDrawer.Title
       data-slot="drawer-title"
-      className={cn('text-left text-title-page text-ink', className)}
+      className={cn('text-left text-title-section text-ink', className)}
       {...props}
     >
       {children}

@@ -20,7 +20,11 @@
  *                                  startCreateFlow() → protectionStepRoute()
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
- *                                  '/#choose-guardian' (onAction 'create-password-submit')
+ *                                  '/#meet-guardian' (onAction 'create-password-submit')
+ *   Meet your Guardian           `onboarding-meet-guardian`
+ *     └ tick the three facts     → the fastest operator's card appears
+ *     └ "Choose a different      → '/#choose-guardian' (onAction 'choose-guardian')
+ *        Guardian"
  *   Choose guardian              `onboarding-choose-guardian`
  *     └ Continue                 → WalletType.Guardian + '/#confirmation'
  *                                  (onAction 'choose-guardian-submit')
@@ -66,6 +70,7 @@
  */
 import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
+import { openGuardianPickerFromMeetGuardian } from '../helpers/meet-guardian';
 import { acknowledgeNetworkNotice } from '../helpers/network-notice';
 import { dismissTelemetryConsent } from '../helpers/telemetry-consent';
 
@@ -150,6 +155,9 @@ test.describe('Onboarding — create', () => {
     });
 
     await steps.step('guardian_choice_is_offered_and_accepted', async () => {
+      // Meet your Guardian picks the fastest operator on its own; the spec wants THE operator
+      // this run is configured for, so it ticks the three facts and opens the full picker.
+      await openGuardianPickerFromMeetGuardian(page);
       await expect(page.getByTestId('onboarding-choose-guardian')).toBeVisible({ timeout: 30_000 });
 
       // The picker renders one card per operator that runs a guardian on this

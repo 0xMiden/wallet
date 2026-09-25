@@ -50,6 +50,13 @@ export interface ActivityRowProps {
   status?: Status;
   /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
   timestamp?: string;
+  /**
+   * A mark the row positions in its own left margin rather than in the content flow — an
+   * `UnreadDot`. Absolutely placed on purpose: a dot that took layout would shift the leading
+   * avatar and the title column between a read row and an unread one, and the column has to
+   * start at the same x down the whole list.
+   */
+  leading?: ReactNode;
   onClick?: () => void;
   /**
    * Layout, or the surface a `Card asChild` draws onto the row. Merged with `cn`, so a card's
@@ -104,6 +111,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   amount,
   status,
   timestamp,
+  leading,
   onClick,
   className,
   testId,
@@ -147,9 +155,16 @@ export const ActivityRow: FC<ActivityRowProps> = ({
       data-entry-key={entryKey}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
-      className={cn('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
+      // Every row is the same height: the title and subtitle each hold one line, so a long
+      // subtitle (a guardian's two provider names) truncates instead of pushing the row taller.
+      className={cn(
+        'relative w-full flex items-center py-4 justify-between gap-3',
+        onClick && 'cursor-pointer',
+        className
+      )}
     >
-      <div className="flex items-center gap-2">
+      {leading}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <div
           className={classNames(
             'shrink-0 flex items-center justify-center w-10 h-10 rounded-full text-pure-white',
@@ -160,19 +175,19 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           {icon}
         </div>
 
-        <div className="flex flex-col text-ink dark:text-pure-white">
-          <span data-testid={testId && `${testId}-title`} className="text-row-title">
+        <div className="flex min-w-0 flex-col text-ink dark:text-pure-white">
+          <span data-testid={testId && `${testId}-title`} className="truncate text-row-title">
             {title}
           </span>
           {subtitle && (
-            <span data-testid={testId && `${testId}-subtitle`} className="text-caption text-muted">
+            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption text-muted">
               {subtitle}
             </span>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex shrink-0 flex-col items-end gap-1">
         {amount && (
           <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
             {amount.value !== '' && (

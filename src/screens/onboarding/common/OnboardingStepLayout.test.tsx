@@ -43,6 +43,10 @@ describe('OnboardingStepLayout', () => {
     expect(footer).toHaveAttribute('data-slot', 'footer');
     expect(footer).toHaveClass('flex-col');
     expect(screen.getByTestId('step').querySelector('[data-slot="body"]')).not.toContainElement(footer);
+    // No tab bar is drawn over onboarding and nothing raises the navbar flag here, so the CTA keeps
+    // the flat 16px margin instead of a cushion that would never collapse.
+    expect(footer).toHaveClass('pb-4');
+    expect(footer).not.toHaveAttribute('data-navbar-cushion');
   });
 
   it('draws no heading block when there is nothing to head the step with', () => {

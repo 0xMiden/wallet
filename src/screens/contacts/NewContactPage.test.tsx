@@ -50,16 +50,7 @@ jest.mock('react-i18next', () => ({
     t: (key: string, params?: Record<string, string>) => (params ? `${key}:${JSON.stringify(params)}` : key)
   })
 }));
-jest.mock('components/flow/FlowLayout', () => ({
-  FlowLayout: ({ title, onBack, children, footer }: any) => (
-    <div>
-      <button type="button" onClick={onBack} data-testid="flow-back" />
-      <h1>{title}</h1>
-      {children}
-      {footer}
-    </div>
-  )
-}));
+
 jest.mock('components/ui/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
   Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
@@ -346,7 +337,7 @@ it('ignores the header back while the save is in flight, so the save navigates e
 
   // `back` is claim-gated once per location. A tap here would navigate AND reset the claim, so the
   // save's own back() would fire again and overshoot by a screen.
-  fireEvent.click(screen.getByTestId('flow-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
   expect(backMock).not.toHaveBeenCalled();
 
   await act(async () => {

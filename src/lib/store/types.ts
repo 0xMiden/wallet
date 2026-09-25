@@ -173,10 +173,6 @@ export interface WalletActions {
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
   exportAccountFile: (accountPublicKey: string, password?: string) => Promise<Uint8Array>;
   revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
-  revealGuardianKeys: (
-    accountPublicKey: string,
-    password?: string
-  ) => Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }>;
   importAccount: (privateKey: string, name?: string) => Promise<string>;
 
   // Settings actions

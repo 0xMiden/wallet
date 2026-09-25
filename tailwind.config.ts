@@ -162,6 +162,11 @@ export default {
         'accent-swap': 'var(--accent-swap)',
         'accent-swap-tint': 'var(--accent-swap-tint)',
         'accent-swap-ink': 'var(--accent-swap-ink)',
+        'accent-brand-on': 'var(--accent-brand-on)',
+        'accent-send-on': 'var(--accent-send-on)',
+        'accent-receive-on': 'var(--accent-receive-on)',
+        'accent-earn-on': 'var(--accent-earn-on)',
+        'accent-swap-on': 'var(--accent-swap-on)',
         'network-miden-tint': 'var(--network-miden-tint)',
         'network-miden-border': 'var(--network-miden-border)',
         'network-miden-text': 'var(--network-miden-text)',
@@ -184,12 +189,17 @@ export default {
         'tx-swap': 'var(--tx-swap)',
         'tx-earn': 'var(--tx-earn)',
         'tx-faucet': 'var(--tx-faucet)',
+        'tx-other': 'var(--tx-other)',
         'rule-default': 'var(--rule-default)',
         'rule-strong': 'var(--rule-strong)',
         // Design system, direction B. See skills/miden-wallet-frontend/references/design-system.md.
         page: 'var(--ds-page)',
+        /* The dim behind a sheet or an overlay — one value in both themes, no blur. */
+        scrim: 'var(--ds-scrim)',
         fill: 'var(--ds-fill)',
         'fill-pressed': 'var(--ds-fill-pressed)',
+        // The top action bar's strip, a hair off `page` so the bar reads as its own band.
+        'action-bar': 'var(--ds-action-bar)',
         hairline: 'var(--ds-hairline)',
         raised: 'var(--ds-raised)',
         ink: 'var(--ds-ink)',
@@ -205,6 +215,7 @@ export default {
         'positive-tint-ink': 'var(--ds-positive-tint-ink)',
         'pending-tint-ink': 'var(--ds-pending-tint-ink)',
         'negative-tint-ink': 'var(--ds-negative-tint-ink)',
+        notification: 'var(--ds-notification)',
         'border-button': 'var(--color-border-button)',
         // Balance card surface — signature royal blue, distinct from system surfaces.
         'surface-balance': 'var(--surface-balance)',

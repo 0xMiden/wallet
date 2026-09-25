@@ -520,15 +520,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         keyPairPayload: keyPairPayload ?? ''
       };
     }
-    case WalletMessageType.RevealGuardianKeysRequest: {
-      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
-      return {
-        type: WalletMessageType.RevealGuardianKeysResponse,
-        coldPrivateKey: keys?.coldPrivateKey ?? '',
-        coldPublicKey: keys?.coldPublicKey ?? '',
-        hotPublicKey: keys?.hotPublicKey
-      };
-    }
     case WalletMessageType.RemoveSeedPhraseRequest:
       await Actions.removeSeedPhrase(req.password);
       return { type: WalletMessageType.RemoveSeedPhraseResponse };

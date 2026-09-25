@@ -1,10 +1,10 @@
 /**
- * `pingGuardianEndpoint` answers "is this operator responding right now?" via
- * the unauthenticated `GET /pubkey` — a real guardian answers with a key
- * commitment; anything else (error, timeout, empty commitment) is offline.
- * It must never throw: the result decides whether the picker lets an operator be selected.
+ * `pingGuardianEndpointLatency` times the unauthenticated `GET /pubkey`: a real guardian answers
+ * with a key commitment and gets a round trip in ms; anything else (error, timeout, empty
+ * commitment) is null, which the screens read as offline. It must never throw: the result decides
+ * whether the picker lets an operator be selected, and which operator onboarding picks.
  */
-import { pingGuardianEndpoint } from './availability';
+import { pingGuardianEndpointLatency } from './availability';
 
 const mockGetPubkey = jest.fn();
 jest.mock('@openzeppelin/guardian-client', () => ({
@@ -29,11 +29,11 @@ beforeEach(() => {
   lastConstructedUrl = undefined;
 });
 
-describe('pingGuardianEndpoint', () => {
-  it('reports online when the endpoint answers with a commitment', async () => {
+describe('pingGuardianEndpointLatency', () => {
+  it('reports a round trip when the endpoint answers with a commitment', async () => {
     mockGetPubkey.mockResolvedValue({ commitment: '0xAAA' });
 
-    await expect(pingGuardianEndpoint('https://g.example.com')).resolves.toBe(true);
+    await expect(pingGuardianEndpointLatency('https://g.example.com')).resolves.toEqual(expect.any(Number));
     expect(lastConstructedUrl).toBe('https://g.example.com');
     expect(mockGetPubkey).toHaveBeenCalledWith('https://g.example.com', 'ecdsa');
     // Registered for the mobile native-HTTP CORS bypass before pinging.
@@ -42,12 +42,12 @@ describe('pingGuardianEndpoint', () => {
 
   it('reports offline when the request rejects (connection refused / 5xx)', async () => {
     mockGetPubkey.mockRejectedValue(new Error('Failed to fetch'));
-    await expect(pingGuardianEndpoint('https://down.example.com')).resolves.toBe(false);
+    await expect(pingGuardianEndpointLatency('https://down.example.com')).resolves.toBeNull();
   });
 
   it('reports offline when the response carries no commitment', async () => {
     mockGetPubkey.mockResolvedValue({ commitment: '' });
-    await expect(pingGuardianEndpoint('https://weird.example.com')).resolves.toBe(false);
+    await expect(pingGuardianEndpointLatency('https://weird.example.com')).resolves.toBeNull();
   });
 
   // The body is an unchecked `response.json()` cast, so a host serving nonsense
@@ -58,7 +58,7 @@ describe('pingGuardianEndpoint', () => {
     'reports offline when the commitment is not a string (%p)',
     async commitment => {
       mockGetPubkey.mockResolvedValue({ commitment });
-      await expect(pingGuardianEndpoint('https://nonsense.example.com')).resolves.toBe(false);
+      await expect(pingGuardianEndpointLatency('https://nonsense.example.com')).resolves.toBeNull();
     }
   );
 
@@ -68,9 +68,9 @@ describe('pingGuardianEndpoint', () => {
       // Never settles — only the deadline can resolve the ping.
       mockGetPubkey.mockReturnValue(new Promise(() => undefined));
 
-      const ping = pingGuardianEndpoint('https://slow.example.com', 1_000);
+      const ping = pingGuardianEndpointLatency('https://slow.example.com', 1_000);
       jest.advanceTimersByTime(1_001);
-      await expect(ping).resolves.toBe(false);
+      await expect(ping).resolves.toBeNull();
     } finally {
       jest.useRealTimers();
     }
@@ -80,10 +80,28 @@ describe('pingGuardianEndpoint', () => {
     jest.useFakeTimers();
     try {
       mockGetPubkey.mockResolvedValue({ commitment: '0xBBB' });
-      await expect(pingGuardianEndpoint('https://fast.example.com', 1_000)).resolves.toBe(true);
+      await expect(pingGuardianEndpointLatency('https://fast.example.com', 1_000)).resolves.toEqual(expect.any(Number));
       expect(jest.getTimerCount()).toBe(0);
     } finally {
       jest.useRealTimers();
+    }
+  });
+
+  // Onboarding picks the operator with the smallest number, so the number is the request's own
+  // round trip: taken before the request goes out, read after the commitment is checked, rounded.
+  it('measures the round trip of the request, in whole milliseconds', async () => {
+    // The clock moves only while the request is out, so a start or an end read on the wrong side of
+    // the await reads 0, not 234.
+    let clock = 1000;
+    const now = jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    try {
+      mockGetPubkey.mockImplementation(async () => {
+        clock += 234.4;
+        return { commitment: '0xCCC' };
+      });
+      await expect(pingGuardianEndpointLatency('https://timed.example.com')).resolves.toBe(234);
+    } finally {
+      now.mockRestore();
     }
   });
 });

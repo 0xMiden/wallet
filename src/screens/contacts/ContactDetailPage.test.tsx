@@ -44,20 +44,26 @@ jest.mock('lib/woozie', () => ({
 jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => 'en_US' }));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => backMock }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('components/flow/FlowLayout', () => ({
-  FlowLayout: ({ title, titleAccessory, onBack, children, footer }: any) => (
-    <div>
-      <button type="button" onClick={onBack} data-testid="flow-back" />
+jest.mock('components/ui/SubPageLayout', () => ({
+  SubPageLayout: ({ title, headerActions, onBack, onSubmit, children, footer, ...rest }: any) => (
+    <div data-testid={rest['data-testid']}>
+      <button type="button" onClick={onBack} data-testid="page-back" />
       <h1>{title}</h1>
-      {titleAccessory}
-      {children}
+      {headerActions}
+      <form onSubmit={onSubmit}>{children}</form>
       {footer}
     </div>
   )
 }));
 jest.mock('components/ui/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
+  // `type="button"` like the real Button: the edit view's body is a <form>, so a bare stub would
+  // submit it on every click.
+  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => (
+    <button type="button" {...rest}>
+      {title}
+    </button>
+  )
 }));
 jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
@@ -166,7 +172,7 @@ it('renames a contact from edit mode', async () => {
 it('leaves edit mode on back without saving', () => {
   render(<ContactDetailPage address="0xpaul" />);
   fireEvent.click(screen.getByTestId('contact-edit'));
-  fireEvent.click(screen.getByTestId('flow-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
 
   expect(screen.getByTestId('contact-send')).toBeInTheDocument();
   expect(backMock).not.toHaveBeenCalled();
@@ -302,7 +308,7 @@ it('will not leave edit mode while a write is in flight, so the error still has 
 
   // The role="alert" node lives only in the editing branch, so leaving edit mode mid-write would
   // destroy the only thing that can report the failure below.
-  fireEvent.click(screen.getByTestId('flow-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
   expect(screen.getByTestId('contact-save')).toBeInTheDocument();
 
   await act(async () => {
@@ -510,7 +516,7 @@ it('releases the row when the user leaves edit mode after a failed save', async 
   });
   expect(screen.getByRole('alert')).toHaveTextContent('contact store unavailable');
 
-  fireEvent.click(screen.getByTestId('flow-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
   contactsMock.mockReturnValue([ALICE, NINA]);
   await act(async () => {
     rerender(<ContactDetailPage address="0xpaul" />);
