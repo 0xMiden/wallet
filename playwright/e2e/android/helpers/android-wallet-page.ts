@@ -300,8 +300,8 @@ export class AndroidWalletPage implements WalletPage {
     await pumpProveTimings();
 
     // Nothing authoritative has been read yet. The loop above polls the store IN
-    // PLACE, and for the whole of a claim this page sits on the Pending list (or
-    // the transaction-progress route), where no mounted screen refreshes
+    // PLACE, and for the whole of a claim this page waits on the Activity Pending
+    // list (Accept All never routes to the progress page), where no screen refreshes
     // `st.balances` — that projection is written only by the `useAllBalances`
     // poll in Balance/Explore/TokenDetail. So the loop can report 0 for a
     // consume that has already landed on chain. Confirm with `getBalance()`,
@@ -324,12 +324,15 @@ export class AndroidWalletPage implements WalletPage {
     // The claim did NOT land. This used to return normally, so the run continued
     // as if the notes were claimed and blew up later on a balance assertion,
     // attributing a failed consume to delivery. Chrome and iOS both throw here;
-    // this brings Android in line. (Ported from wallet #638.)
+    // this brings Android in line. (Ported from wallet #638.) Accept All stays mounted
+    // while its batch drains, so the probe reports its busy state: busy is merely slow,
+    // idle means the batch came back or failed, absent means the list drained.
     const surface = await this.cdp
       .eval<string>(
         `var h = String(location.hash || ''); ` +
           `var claimAll = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
-          `return 'hash=' + h + ' acceptAllButton=' + (claimAll ? 'present' : 'absent');`
+          `var state = !claimAll ? 'absent' : claimAll.getAttribute('aria-busy') === 'true' ? 'busy' : 'idle'; ` +
+          `return 'hash=' + h + ' acceptAll=' + state;`
       )
       .catch(() => 'unreadable');
     await this.navigateHome();

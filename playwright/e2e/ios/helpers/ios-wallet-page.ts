@@ -33,8 +33,8 @@ const UNLOCKED_CONDITION_JS =
  * Totals the store's balances projection, in place, with no navigation.
  *
  * Only valid on a screen that mounts the balance poll (`useAllBalances`, in
- * `Balance.tsx` / `Explore.tsx` / `TokenDetail.tsx`). Anywhere else — notably
- * `/generating-transaction-full/:txId` — nothing writes `st.balances`, so this
+ * `Balance.tsx` / `Explore.tsx` / `TokenDetail.tsx`). Anywhere else - notably the Activity
+ * Pending list, where a claim waits - nothing writes `st.balances`, so this
  * returns whatever it held when that screen was last up. `getBalance()` is the
  * read that navigates home first and is therefore authoritative.
  */
@@ -656,23 +656,25 @@ export class IosWalletPage implements WalletPage {
     // delivery. Chrome's claimAllNotes already throws here
     // (`confirmDrainedOrThrow`); this brings iOS in line.
     //
-    // Report where the wallet actually ended up: still on the transaction
-    // progress route means the consume is merely slow, while the Pending list with its Accept
-    // All button back means it went nowhere.
+    // Report what the Pending list shows. The claim waits there either way, and Accept All stays
+    // mounted while its batch drains, so read its busy state: busy means the consume is merely
+    // slow, idle means the batch came back or failed, absent means the list drained without the
+    // balance reaching the store.
     const surface = await this.cdp
       .eval<string>(
         `var h = String(location.hash || ''); ` +
           `var claimAll = document.querySelector('[data-testid="pending-row-accept-all"]'); ` +
-          `return 'hash=' + h + ' acceptAllButton=' + (claimAll ? 'present' : 'absent');`
+          `var state = !claimAll ? 'absent' : claimAll.getAttribute('aria-busy') === 'true' ? 'busy' : 'idle'; ` +
+          `return 'hash=' + h + ' acceptAll=' + state;`
       )
       .catch(() => 'unreadable');
 
     // Nothing authoritative has actually been read yet. The loop above polls the
-    // store IN PLACE, and for the whole of a claim the wallet sits on
-    // `/generating-transaction-full/:txId`, where no mounted screen refreshes
-    // `st.balances` — so that poll can report 0 for a consume that has already
-    // landed on-chain. Before failing, confirm with `getBalance()`, which
-    // navigates home and therefore reads a projection something is updating.
+    // store IN PLACE, and for the whole of a claim the wallet waits on the Activity
+    // Pending list, where no screen refreshes `st.balances` - so that poll can report 0
+    // for a consume that has already landed on-chain. Before failing, confirm with
+    // `getBalance()`, which navigates home and therefore reads a projection something
+    // is updating.
     //
     // This is not a new grace period bolted on: it is the read the spec used to
     // perform immediately afterwards (`waitForBalanceAbove` → `getBalance`), which
