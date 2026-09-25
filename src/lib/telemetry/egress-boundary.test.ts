@@ -25,6 +25,7 @@ import {
   TelemetryResult,
   TelemetryStep
 } from './types';
+import packageJson from '../../../package.json';
 
 /**
  * The adversarial anti-leak guard, asserted at the two egress boundaries rather
@@ -803,7 +804,7 @@ describe('product-event egress', () => {
       const system = objectAt(envelope, 'systemProps');
       for (const [key, value] of Object.entries(system)) {
         if (typeof value !== 'string') continue;
-        if (key === 'appVersion' && /^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(value)) continue;
+        if (key === 'appVersion' && value === packageJson.version) continue;
         if (key === 'osName' && platforms.has(value)) continue;
         if (key === 'sdkVersion' && /^[a-z0-9-]+@\d+\.\d+\.\d+$/.test(value)) continue;
         problems.push(`systemProps.${key}=${value}`);
