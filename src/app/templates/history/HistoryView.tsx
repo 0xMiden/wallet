@@ -15,12 +15,13 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { springs, useMotion } from 'lib/animation';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
 import HistoryItem from './HistoryItem';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameRowTitle } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { isGuardianOp } from './TransactionIcon';
 import {
@@ -170,6 +171,11 @@ function buildRowProps(
   } else if (isGuardianOp(entry.txType)) {
     iconNode = <SwapIcon className="w-5 h-5" />;
     iconBg = 'bg-[#777487]';
+  } else if (entry.txType === 'register-name' || entry.txType === 'publish-name-record') {
+    // Same glyph and colour as `TransactionIcon`: the row pays for, or publishes, a name.
+    iconNode = <Icon name={IconName.User} size="sm" className="[&_path]:fill-pure-white" />;
+    iconBg = 'bg-accent-primary';
+    amountDirection = 'negative';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-tx-received';
@@ -205,14 +211,18 @@ function buildRowProps(
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
   const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
+  const nameTitle =
+    !isFailed && entry.type === HistoryEntryType.CompletedTransaction ? midenNameRowTitle(entry, t) : undefined;
 
   const title = isCancelled
     ? t('cancelled')
     : faucet
       ? t('faucetRequestTitle')
-      : isSwap && entry.token && entry.requestedToken
-        ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-        : entry.message || '';
+      : nameTitle
+        ? nameTitle
+        : isSwap && entry.token && entry.requestedToken
+          ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+          : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -222,7 +232,7 @@ function buildRowProps(
       : isSwap
         ? t('viaInProtocolDex')
         : entry.secondaryAddress
-          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${entry.recipientName || shortAddr(entry.secondaryAddress)}`
           : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page
@@ -306,6 +316,9 @@ function buildRowProps(
     }
   }
 
+  // Publishing transfers the name NFA, not an unknown fungible token.
+  if (entry.txType === 'publish-name-record') amount = undefined;
+
   let status: Status = 'confirmed';
   if (isCancelled) {
     status = 'cancelled';
@@ -316,6 +329,8 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
+  } else if (entry.midenNameStatus) {
+    status = entry.midenNameStatus;
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
@@ -406,6 +421,7 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
+    const { allContacts } = useFilteredContacts();
     // Same spring as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useMotion(springs.settle);
@@ -549,7 +565,14 @@ const HistoryView = memo<HistoryViewProps>(
                     </motion.div>
                   );
                 }
-                const props = buildRowProps(entry, t, tokenId);
+                const contact = allContacts.find(
+                  contact => contact.address.toLowerCase() === entry.secondaryAddress?.toLowerCase()
+                );
+                const props = buildRowProps(
+                  { ...entry, recipientName: entry.recipientName || contact?.name },
+                  t,
+                  tokenId
+                );
                 const unread = isHistoryEntryUnread(readState, entry);
                 return (
                   <Card

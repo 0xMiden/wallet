@@ -30,6 +30,13 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary' }
 }));
 
+const mockNavigate = jest.fn();
+
+jest.mock('lib/woozie', () => ({
+  ...jest.requireActual('lib/woozie'),
+  navigate: (to: string) => mockNavigate(to)
+}));
+
 const mockMidenMeta: { symbol: string | undefined; decimals: number } = { symbol: 'MIDEN', decimals: 6 };
 
 jest.mock('lib/miden/metadata', () => ({
@@ -494,6 +501,41 @@ describe('TransactionSuccess', () => {
       />
     );
     expect(container.textContent).toContain('9 MIDEN');
+    act(() => root.unmount());
+  });
+
+  it('routes a register-name row to the Miden Name receipt with a "View status" action', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          id: 'reg-1',
+          type: 'register-name',
+          amount: 20000000n,
+          faucetId: 'faucet-miden',
+          secondaryAccountId: 'mtst1registry',
+          extraInputs: { label: 'alice', phase: 'submitted' }
+        })}
+        txHash="0xabcdef1234567890"
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('midenNameStepRequestSent');
+    expect(container.textContent).toContain('midenNameReceiptName');
+    expect(container.textContent).toContain('alice.miden');
+    expect(container.textContent).toContain('20000000 MIDEN');
+    expect(container.textContent).toContain('Transaction ID');
+    expect(container.textContent).not.toContain('Payment Sent!');
+
+    const viewStatus = Array.from(container.querySelectorAll('[data-testid="done-button"]')).find(
+      button => button.getAttribute('data-title') === 'midenNameViewStatus'
+    );
+    expect(viewStatus).toBeDefined();
+    act(() => {
+      viewStatus?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('/miden-name/status/reg-1');
+
     act(() => root.unmount());
   });
 });

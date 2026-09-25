@@ -7,7 +7,7 @@ import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
-import { SendFlow } from './SendManager';
+import { RECIPIENT_VALIDATION_DEBOUNCE_MS, SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
 
@@ -115,6 +115,7 @@ jest.mock('./SelectRecipient', () => ({
       <span data-testid="sr-network">{props.network ?? ''}</span>
       <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
       <span data-testid="sr-error">{props.error ?? ''}</span>
+      <span data-testid="sr-name">{props.recipientName ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
       <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
       <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
@@ -288,6 +289,17 @@ jest.mock('utils/miden', () => {
   };
 });
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
+// The Miden Name lookup and the network deployment check. By default the network
+// has no deployment, so the suites above see the plain address behaviour.
+let mockNameSupported = false;
+const resolveMidenNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }?]>();
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
+}));
+jest.mock('lib/miden/name/resolver', () => ({
+  resolveMidenName: (label: string, options?: { signal?: AbortSignal }) => resolveMidenNameMock(label, options)
+}));
 // The real `./send-telemetry` is kept so the cross-route handoff it exists for is
 // exercised for real; only the reporting primitive underneath it is mocked.
 jest.mock('lib/telemetry', () => ({
@@ -328,6 +340,7 @@ beforeEach(() => {
 
   walletStoreState.isTransactionModalOpen = false;
   walletStoreState.lastCompletedTxHash = null;
+  mockNameSupported = false;
 
   // Capture the back-button handler the way registration actually picks one. The real hook
   // registers inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately excluded
@@ -672,44 +685,95 @@ describe('adding an unknown recipient to contacts', () => {
 // Recipient address entry + validation.
 // ---------------------------------------------------------------------------
 describe('recipient address entry', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  const type = (value: string) =>
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+    });
+  /** The user stopped typing: the validation runs. */
+  const stopTyping = () =>
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+    });
+
+  it('shows the recipient error only after the user stopped typing for a second', () => {
+    renderFlow();
+    type('not-an-address');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+  });
+
+  it('restarts the wait on every keystroke', () => {
+    renderFlow();
+    type('not-an');
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    type('not-an-address');
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+  });
+
   it('sets and clears the recipient error as the address becomes invalid/valid', () => {
     renderFlow();
     // Invalid address -> manual error, isValidAddress false.
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
-    });
+    type('not-an-address');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
     expect(screen.getByTestId('sr-address')).toHaveTextContent('not-an-address');
 
-    // Valid address -> error cleared, isValidAddress true.
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xvalid' } });
-    });
+    // A new keystroke removes the error at once; a valid address keeps it away.
+    type('0xvalid');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
   });
 
-  it('clears the recipient error when the address is emptied', () => {
+  it('clears the recipient error when the address is emptied, and validates nothing', () => {
     renderFlow();
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
-    });
+    type('not-an-address');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '   ' } });
-    });
+    type('   ');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('clears the typing validation on unmount', () => {
+    const view = renderFlow();
+    type('not-an-address');
+    view.unmount();
+    expect(() => stopTyping()).not.toThrow();
   });
 
   it('rejects the current Miden account as a typed recipient', () => {
     isValidMidenAddressMock.mockImplementation((address: string) => address === 'me-pk');
     renderFlow();
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'me-pk' } });
-    });
+    type('me-pk');
+    stopTyping();
 
     expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
@@ -718,9 +782,8 @@ describe('recipient address entry', () => {
   it('uses the Ethereum-specific error for a malformed 0x recipient', () => {
     renderFlow();
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0x' } });
-    });
+    type('0x');
+    stopTyping();
 
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidEthereumAddress');
   });
@@ -1624,6 +1687,244 @@ describe('send telemetry', () => {
     expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
     expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
     expect(telemetryPayload()).not.toContain('4200');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Miden Name recipient (`alice.miden`), on a network with a Miden Name deployment.
+// ---------------------------------------------------------------------------
+describe('Miden Name recipient', () => {
+  const DEBOUNCE_MS = 400;
+  let warnSpy: jest.SpyInstance;
+
+  interface Deferred {
+    promise: Promise<string | null>;
+    resolve: (value: string | null) => void;
+  }
+
+  function deferredAddress(): Deferred {
+    let resolve: (value: string | null) => void = () => undefined;
+    const promise = new Promise<string | null>(res => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  const typeRecipient = (value: string) => {
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+    });
+  };
+
+  /**
+   * Let the lookup debounce and the typing validation fire, and the lookup
+   * promise settle. The typing validation waits longer than the lookup.
+   */
+  const runLookup = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockNameSupported = true;
+    resolveMidenNameMock.mockReset();
+    // Resolved bech32 addresses do not start with 0x, so they are Miden addresses here.
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr.startsWith('mtst1') || addr === 'me-pk');
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    warnSpy.mockRestore();
+  });
+
+  it('on a network without a deployment, a name input shows the address error and does no lookup', async () => {
+    mockNameSupported = false;
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+  });
+
+  it('does no lookup for a bech32 address', async () => {
+    renderFlow();
+
+    typeRecipient('mtst1recipient');
+    await runLookup();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+  });
+
+  it('shows resolving, then the name, and sends the resolved address with the name to review', async () => {
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    const view = renderFlow();
+
+    typeRecipient('Alice.miden');
+    // No lookup state on the field while the user types.
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+
+    // The lookup waits for the debounce.
+    act(() => {
+      jest.advanceTimersByTime(DEBOUNCE_MS - 1);
+    });
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+
+    await runLookup();
+    expect(resolveMidenNameMock).toHaveBeenCalledTimes(1);
+    expect(resolveMidenNameMock.mock.calls[0]?.[0]).toBe('alice');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('alice.miden');
+
+    // Continue to the amount step and on to review.
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
+    view.rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-recipient')).toHaveTextContent('alice.miden');
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const url: string = navigateMock.mock.calls[0][0];
+    const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+    expect(url.startsWith('/send/review?')).toBe(true);
+    expect(params.get('to')).toBe('mtst1alice');
+    expect(params.get('name')).toBe('alice.miden');
+
+    // The draft keeps the name, so backing out of review shows it again.
+    expect(consumeSendDraft()).toEqual({
+      amount: '5',
+      recipientAddress: 'Alice.miden',
+      tokenId: 'T1',
+      bridgeNetwork: undefined,
+      bridgeRoute: undefined,
+      midenName: { label: 'alice', address: 'mtst1alice' }
+    });
+  });
+
+  it('recognizes a saved contact by the resolved name address', async () => {
+    useFilteredContactsMock.mockReturnValue({ contacts: [{ address: 'mtst1alice', name: 'Alice' }] });
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    renderFlow();
+    typeRecipient('alice.miden');
+    await runLookup();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('false');
+  });
+
+  it('blocks a name that is not found', async () => {
+    resolveMidenNameMock.mockResolvedValue(null);
+    renderFlow();
+
+    typeRecipient('ghost.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameNotFound');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('');
+  });
+
+  it('shows the lookup failure when the lookup throws', async () => {
+    resolveMidenNameMock.mockRejectedValue(new Error('rpc down'));
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolveFailed');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+  });
+
+  it('ignores the result of a lookup for an input that changed', async () => {
+    const alice = deferredAddress();
+    const bob = deferredAddress();
+    resolveMidenNameMock.mockReturnValueOnce(alice.promise).mockReturnValueOnce(bob.promise);
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+    typeRecipient('bob.miden');
+    // The change aborts the first lookup.
+    expect(resolveMidenNameMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    // The user stopped typing: the field shows the lookup of bob.
+    await act(async () => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+    });
+
+    // The old lookup settles late: nothing changes.
+    await act(async () => {
+      alice.resolve('mtst1alice');
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolving');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('');
+
+    await act(async () => {
+      bob.resolve('mtst1bob');
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('bob.miden');
+  });
+
+  it('blocks a name that resolves to the current account', async () => {
+    resolveMidenNameMock.mockResolvedValue('me-pk');
+    renderFlow();
+
+    typeRecipient('me.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+  });
+
+  it('clears the debounce timer on unmount', async () => {
+    const view = renderFlow();
+
+    typeRecipient('alice.miden');
+    view.unmount();
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS * 2);
+    });
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+  });
+
+  it('restores a resolved name from the draft without a new lookup', async () => {
+    setSendDraft({
+      amount: '5',
+      recipientAddress: 'alice.miden',
+      tokenId: 'T1',
+      midenName: { label: 'alice', address: 'mtst1alice' }
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    renderFlow();
+    await runLookup();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('alice.miden');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
   });
 });
 

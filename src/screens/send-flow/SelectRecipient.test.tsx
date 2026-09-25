@@ -116,6 +116,21 @@ describe('SelectRecipient', () => {
 
     expect(screen.getByText('Charlie')).toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-avatar')).toHaveTextContent('C');
+    expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-body-sm');
+    expect(screen.getByTestId('send-recipient-input')).toHaveValue(ETH_ADDRESS);
+  });
+
+  it('keeps a typed Miden Name primary and shows its resolved destination below it', () => {
+    renderRecipient({
+      address: 'alice.miden',
+      recipientName: 'alice.miden',
+      resolvedAddress: MIDEN_ADDRESS,
+      isValidAddress: true
+    });
+    expect(screen.getByTestId('send-recipient-input')).toHaveValue('alice.miden');
+    expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-hero-name');
+    expect(screen.queryByTestId('send-recipient-name')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-resolved-address')).toHaveTextContent(MIDEN_ADDRESS);
   });
 
   it('shows the only bridge network as a fact rather than a lone selectable chip', () => {

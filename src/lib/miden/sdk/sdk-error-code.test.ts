@@ -60,6 +60,18 @@ describe('isApplyAfterSubmitError', () => {
     expect(isApplyAfterSubmitError(err)).toBe(true);
   });
 
+  it("matches web-sdk's `applyTransaction` context strings, which follow a successful submit", () => {
+    // Verbatim from a guardian publish whose registry note the note screener
+    // refused during the local apply (the NFA was still in the pre-apply vault).
+    const screener =
+      "Offscreen call 'guardianPipeline' failed: failed to build transaction update: note screener error: " +
+      'note consumption check failed: transaction execution prologue failed: failed to execute transaction ' +
+      'kernel program: assertion failed with error message: failed to add non-fungible asset that already ' +
+      'exists in the vault';
+    expect(isApplyAfterSubmitError(new Error(screener))).toBe(true);
+    expect(isApplyAfterSubmitError(new Error('failed to apply transaction result: storage error'))).toBe(true);
+  });
+
   it('matches through a `cause` chain', () => {
     const err = new Error('Failed to submit transaction', {
       cause: new Error(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0])

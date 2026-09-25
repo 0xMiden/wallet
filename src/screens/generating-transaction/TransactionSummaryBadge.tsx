@@ -5,11 +5,12 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
-import { ITransaction } from 'lib/miden/db/types';
+import { IPublishNameRecordExtraInputs, IRegisterNameExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
+import { formatMidenName } from 'lib/miden/name/encoding';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
@@ -307,6 +308,7 @@ export const earnMarketLabel = (marketUid: string): string | undefined => {
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Accepted
+ *   register-name →  {label}.miden            ·   {price} MIDEN     (dot separator)
  *
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
@@ -332,6 +334,34 @@ export const useTransactionSummaryBadgeContent = (
         // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
         // dusty rose on this very page (a bridge-in's the slate), and the arrow sat green under it.
         fillForArrow: claimAccentColor(transaction, nativeFaucetId)
+      };
+    }
+
+    if (transaction?.type === 'register-name') {
+      const inputs: IRegisterNameExtraInputs | undefined = transaction.extraInputs;
+      const label = inputs?.label;
+      if (!label || transaction.amount === undefined) return undefined;
+
+      // The price is always in the native token. When the store has no metadata
+      // for the faucet yet, use the MIDEN metadata, not the unknown-token placeholder.
+      const tokenMetadata =
+        (transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined) ?? MIDEN_METADATA;
+
+      return {
+        lhs: formatMidenName(label),
+        rhs: `${formatAmount(BigInt(transaction.amount), tokenMetadata.decimals)} ${tokenMetadata.symbol}`,
+        separator: <span className="text-xl font-extrabold text-muted">·</span>
+      };
+    }
+
+    if (transaction?.type === 'publish-name-record') {
+      const inputs: IPublishNameRecordExtraInputs | undefined = transaction.extraInputs;
+      const label = inputs?.label;
+      if (!label) return undefined;
+      return {
+        lhs: formatMidenName(label),
+        rhs: t('midenNameBadgePublishing'),
+        separator: <span className="text-xl font-extrabold text-muted">·</span>
       };
     }
 

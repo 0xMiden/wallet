@@ -1,7 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
-import { ConsumableNote, NoteType } from '../types';
+import { ConsumableNote, NoteType, NoteTypeEnum } from '../types';
 
 export interface IInputNote {
   noteId: string;
@@ -27,7 +27,9 @@ export type ITransactionType =
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
-  | 'update-procedure-threshold';
+  | 'update-procedure-threshold'
+  | 'register-name'
+  | 'publish-name-record';
 
 /**
  * Structural Guardian operations: they rewrite the account's own authorization rather
@@ -205,6 +207,133 @@ export interface IEarnDepositExtraInputs {
   outputSymbol?: string;
   /** settlement status derived from polling `getIntentStatus`. */
   epochStatus?: 'pending' | 'confirmed' | 'failed';
+}
+
+/**
+ * Phase of a Miden Name registration. The order is
+ * `requested → submitted → issued → claiming → owned`. `failed` is terminal.
+ *   - requested : the row is queued; the register note is not on chain yet
+ *   - submitted : the transaction with the register note is committed
+ *   - issued    : the registry consumed the note and issued the name
+ *   - claiming  : a consume row for the delivery note is queued
+ *   - owned     : the consume of the delivery note is complete
+ *   - failed    : see `MidenNameFailure`
+ */
+export type MidenNamePhase = 'requested' | 'submitted' | 'issued' | 'claiming' | 'owned' | 'failed';
+
+/**
+ * Cause of a `failed` Miden Name registration.
+ *   - tx-failed    : the register transaction failed
+ *   - discarded    : the registry discarded the register note
+ *   - taken        : an other account got the name first
+ *   - expired      : the chain passed the reclaim height and the registry did not consume the note
+ *   - claim-failed : the consume of the delivery note failed
+ */
+export type MidenNameFailure = 'tx-failed' | 'discarded' | 'taken' | 'expired' | 'claim-failed';
+
+/**
+ * `extraInputs` shape for a `RegisterNameTransaction`. This row is the record of
+ * the registration: the tracker patches `phase` monotonically through
+ * `patchRegisterNameExtraInputs` (complete.ts).
+ */
+export interface IRegisterNameExtraInputs {
+  /** The label without the `.miden` suffix. */
+  label: string;
+  /** Network name (`MIDEN_NETWORK_NAME` value) at the time of the build. */
+  network: string;
+  /** Id (hex) of the public register note in `requestBytes`. */
+  registrationNoteId: string;
+  /** Block after which the payer can reclaim the register note. */
+  reclaimHeight: number;
+  /** Chain tip at the time of the build. */
+  builtAtBlock: number;
+  /** Price of the name in base units of the payment token (a decimal string). */
+  priceBaseUnits: string;
+  /** Network (sponsorship) fee in base units (a decimal string). */
+  networkFeeBaseUnits: string;
+  phase: MidenNamePhase;
+  failure?: MidenNameFailure;
+  lastError?: string;
+  /** Id (hex) of the note that delivers the name to the account. */
+  deliveryNoteId?: string;
+  /** Id of the consume row that claims the delivery note. */
+  claimTxId?: string;
+  /** First block of the next delivery scan. */
+  deliveryScanFrom?: number;
+  /** Wall-clock time (ms since epoch) of the last phase change. */
+  phaseUpdatedAt: number;
+}
+
+/** `extraInputs` shape for a consume row that claims a Miden Name delivery note. */
+export interface IConsumeMidenNameExtraInputs {
+  midenNameClaim: {
+    label: string;
+    /** Id of the `register-name` row. */
+    registerTxId: string;
+  };
+}
+
+/**
+ * `extraInputs` shape for a consume row that takes back the name NFA that the
+ * registry returns after a registry-record publish.
+ */
+export interface IConsumeMidenNameReturnExtraInputs {
+  midenNameReturn: {
+    label: string;
+    /** Id of the `publish-name-record` row. */
+    publishTxId: string;
+  };
+}
+
+/**
+ * Phase of a Miden Name registry-record publish. The order is
+ * `requested → submitted → recorded → returning → done`. `failed` is terminal.
+ *   - requested : the row is queued; the registry note is not on chain yet
+ *   - submitted : the transaction with the registry note is committed
+ *   - recorded  : the registry consumed the note and its record points to the account
+ *   - returning : a consume row for the NFA return note is queued
+ *   - done      : the consume of the return note is complete; the NFA is back in the vault
+ *   - failed    : see `MidenNamePublishFailure`
+ */
+export type MidenNamePublishPhase = 'requested' | 'submitted' | 'recorded' | 'returning' | 'done' | 'failed';
+
+/**
+ * Cause of a `failed` registry-record publish.
+ *   - tx-failed     : the publish transaction failed
+ *   - discarded     : the registry discarded the registry note
+ *   - expired       : the chain passed the reclaim height and the registry did not consume the note
+ *   - return-failed : the consume of the NFA return note failed
+ */
+export type MidenNamePublishFailure = 'tx-failed' | 'discarded' | 'expired' | 'return-failed';
+
+/**
+ * `extraInputs` shape for a `PublishNameRecordTransaction`. The tracker patches
+ * `phase` monotonically through `patchPublishNameRecordExtraInputs` (complete.ts).
+ */
+export interface IPublishNameRecordExtraInputs {
+  /** The label without the `.miden` suffix. */
+  label: string;
+  /** Network name (`MIDEN_NETWORK_NAME` value) at the time of the build. */
+  network: string;
+  /** Id (hex) of the public registry note in `requestBytes`. */
+  registryNoteId: string;
+  /** Block after which the sender can reclaim the registry note. */
+  reclaimHeight: number;
+  /** Chain tip at the time of the build. */
+  builtAtBlock: number;
+  /** Registry note action code (a decimal string). 3 writes the records. */
+  action: string;
+  phase: MidenNamePublishPhase;
+  failure?: MidenNamePublishFailure;
+  lastError?: string;
+  /** Id (hex) of the note that returns the NFA to the account. */
+  returnNoteId?: string;
+  /** Id of the consume row that takes the return note. */
+  returnTxId?: string;
+  /** First block of the next return-note scan. */
+  returnScanFrom?: number;
+  /** Wall-clock time (ms since epoch) of the last phase change. */
+  phaseUpdatedAt: number;
 }
 
 /**
@@ -410,6 +539,8 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
 export interface ITransaction {
+  /** Display-only recipient name verified when this send was created. */
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -724,6 +855,7 @@ export class Transaction implements ITransaction {
 }
 
 export class SendTransaction implements ITransaction {
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -1089,6 +1221,160 @@ export class EarnDepositTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       recallBlocks: sendParams.recallBlocks,
       epochStatus: 'pending'
+    };
+  }
+}
+
+/** Arguments of a `RegisterNameTransaction`. */
+export interface RegisterNameTransactionArgs {
+  accountId: string;
+  label: string;
+  network: string;
+  /** Payment faucet (native MIDEN), bech32. */
+  paymentFaucetId: string;
+  /** Registry account, bech32. */
+  registryAccountId: string;
+  priceBaseUnits: bigint;
+  networkFeeBaseUnits: bigint;
+  /** Serialized request with the register note. Built one time; all attempts use the same bytes. */
+  requestBytes: Uint8Array;
+  registrationNoteId: string;
+  reclaimHeight: number;
+  builtAtBlock: number;
+  delegateTransaction?: boolean;
+}
+
+/**
+ * Register a `.miden` name: one PUBLIC register note to the Miden Name registry
+ * that holds the price in native MIDEN. The note is pre-built into
+ * `requestBytes` (`buildRegisterNameRequest`); the pipeline submits these bytes
+ * as they are, on both the standard leaf and the guardian custom proposal.
+ * `amount` is the price only. The auth fee payment of the sender adds the
+ * sponsorship note.
+ */
+export class RegisterNameTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Registry account that receives the register note. */
+  secondaryAccountId: string;
+  noteType: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  requestBytes: Uint8Array;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IRegisterNameExtraInputs;
+
+  constructor(args: RegisterNameTransactionArgs) {
+    this.id = uuid();
+    this.type = 'register-name';
+    this.accountId = args.accountId;
+    this.amount = args.priceBaseUnits;
+    this.faucetId = args.paymentFaucetId;
+    this.secondaryAccountId = args.registryAccountId;
+    this.noteType = NoteTypeEnum.Public;
+    this.requestBytes = args.requestBytes;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Registering name';
+    this.delegateTransaction = args.delegateTransaction;
+    this.extraInputs = {
+      label: args.label,
+      network: args.network,
+      registrationNoteId: args.registrationNoteId,
+      reclaimHeight: args.reclaimHeight,
+      builtAtBlock: args.builtAtBlock,
+      priceBaseUnits: args.priceBaseUnits.toString(),
+      networkFeeBaseUnits: args.networkFeeBaseUnits.toString(),
+      phase: 'requested',
+      phaseUpdatedAt: Date.now()
+    };
+  }
+}
+
+/** Arguments of a `PublishNameRecordTransaction`. */
+export interface PublishNameRecordTransactionArgs {
+  accountId: string;
+  label: string;
+  network: string;
+  /** Registry account, bech32. */
+  registryAccountId: string;
+  /** Registry faucet (the issuer of the name NFA), bech32. The same account as the registry. */
+  nfaFaucetId: string;
+  /** Serialized request with the registry note. Built one time; all attempts use the same bytes. */
+  requestBytes: Uint8Array;
+  registryNoteId: string;
+  reclaimHeight: number;
+  builtAtBlock: number;
+  action: bigint;
+  delegateTransaction?: boolean;
+}
+
+/**
+ * Publish the registry record of a `.miden` name: one PUBLIC registry note to
+ * the Miden Name registry that carries the name NFA and the update-records
+ * action. The note is pre-built into `requestBytes` (`buildPublishNameRecordRequest`);
+ * the pipeline submits these bytes as they are, on both the standard leaf and
+ * the guardian custom proposal. The row moves no fungible asset: `amount` is
+ * undefined and `faucetId` is the NFA issuer.
+ */
+export class PublishNameRecordTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  faucetId: string;
+  /** Registry account that receives the registry note. */
+  secondaryAccountId: string;
+  noteType: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  requestBytes: Uint8Array;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IPublishNameRecordExtraInputs;
+
+  constructor(args: PublishNameRecordTransactionArgs) {
+    this.id = uuid();
+    this.type = 'publish-name-record';
+    this.accountId = args.accountId;
+    this.faucetId = args.nfaFaucetId;
+    this.secondaryAccountId = args.registryAccountId;
+    this.noteType = NoteTypeEnum.Public;
+    this.requestBytes = args.requestBytes;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Publishing name';
+    this.delegateTransaction = args.delegateTransaction;
+    this.extraInputs = {
+      label: args.label,
+      network: args.network,
+      registryNoteId: args.registryNoteId,
+      reclaimHeight: args.reclaimHeight,
+      builtAtBlock: args.builtAtBlock,
+      action: args.action.toString(),
+      phase: 'requested',
+      phaseUpdatedAt: Date.now()
     };
   }
 }

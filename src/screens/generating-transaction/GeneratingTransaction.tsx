@@ -21,6 +21,8 @@ import {
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { publishNameInputsOf } from 'lib/miden/name/registrations';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -273,6 +275,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
+  // A publish of a Miden Name reveals the owner. Say so while the page shows it.
+  const publishExplainer = useMemo(() => {
+    const row = activeTransaction ?? completedTransaction;
+    const label = row ? publishNameInputsOf(row)?.label : undefined;
+    return label === undefined ? undefined : t('midenNamePublishingExplainer', { name: formatMidenName(label) });
+  }, [activeTransaction, completedTransaction, t]);
 
   // The step set and per-step durations derive only from the account flow and
   // the persisted per-stage timestamps — never from live `stage` observation
@@ -467,6 +475,15 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
           {transactionSummaryBadgeContent && (
             <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-4" />
+          )}
+
+          {publishExplainer && (
+            <p
+              className="mt-3 w-full px-2 text-center text-body-sm text-muted"
+              data-testid="miden-name-publish-explainer"
+            >
+              {publishExplainer}
+            </p>
           )}
 
           <div className="mt-6 w-full overflow-hidden rounded-2xl bg-fill">

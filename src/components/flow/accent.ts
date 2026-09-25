@@ -118,6 +118,11 @@ export function accentForTransactionType(type: ITransactionType | undefined): Fl
       return 'earn';
     case 'swap':
       return 'swap';
+    // Claim of a name starts from Receive, but the transaction pays the registry.
+    // It is not a receive or a send flow, so it uses the brand colour.
+    case 'register-name':
+    case 'publish-name-record':
+      return 'brand';
     default:
       return 'brand';
   }

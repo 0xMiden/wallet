@@ -15,7 +15,16 @@
 // With the flag off, every method here is a strict pass-through to the inline
 // `getMidenClient()` singleton.
 
-import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
+import {
+  Account,
+  ChainAnchor,
+  getWasmOrThrow,
+  Note,
+  SyncSummary,
+  TransactionResult,
+  TransactionSummary,
+  type NoteQuery
+} from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
 import type { NoteExportType } from 'lib/miden/sdk/constants';
@@ -950,6 +959,59 @@ export const midenClientProxy = {
     // is a fast, non-wedging op — the expensive DB read ran offscreen.
     await getWasmOrThrow();
     return Account.deserialize(b64ToBytes(resultB64));
+  },
+
+  // Callers hold the WASM lock. Account imports must use the transaction writer's tree cache.
+  async insertAccount(account: Account, overwrite: boolean): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      await (await getMidenClient()).client.accounts.insert({ account, overwrite });
+      return;
+    }
+    await this.call('insertAccount', [account.serialize(), overwrite], { deadlineMs: READ_DEADLINE_MS });
+  },
+
+  async captureGuardianAnchor(requestBytes: Uint8Array): Promise<ChainAnchor> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const { TransactionRequest } = await getWasmOrThrow();
+      return (await getMidenClient()).client.transactions.captureAnchor(TransactionRequest.deserialize(requestBytes));
+    }
+    const result = await this.call('captureGuardianAnchor', [requestBytes], { deadlineMs: READ_DEADLINE_MS });
+    if (result === null) throw new Error('Guardian anchor was not returned');
+    await getWasmOrThrow();
+    return ChainAnchor.deserialize(b64ToBytes(result));
+  },
+
+  async previewGuardianRequest(
+    accountId: string,
+    requestBytes: Uint8Array,
+    anchorBytes?: Uint8Array
+  ): Promise<TransactionSummary> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const { TransactionRequest } = await getWasmOrThrow();
+      return (await getMidenClient()).client.transactions.preview({
+        operation: 'custom',
+        account: accountId,
+        request: TransactionRequest.deserialize(requestBytes),
+        anchor: anchorBytes ? ChainAnchor.deserialize(anchorBytes) : undefined
+      });
+    }
+    const result = await this.call('previewGuardianRequest', [accountId, requestBytes, anchorBytes ?? null], {
+      deadlineMs: READ_DEADLINE_MS
+    });
+    if (result === null) throw new Error('Guardian transaction summary was not returned');
+    await getWasmOrThrow();
+    return TransactionSummary.deserialize(b64ToBytes(result));
+  },
+
+  async syncGuardianState(chainOnly: boolean): Promise<SyncSummary> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const client = (await getMidenClient()).client;
+      return chainOnly ? client.syncChain() : client.sync();
+    }
+    const result = await this.call('syncGuardianState', [chainOnly], { deadlineMs: SYNC_DEADLINE_MS });
+    if (result === null) throw new Error('Guardian sync summary was not returned');
+    await getWasmOrThrow();
+    return SyncSummary.deserialize(b64ToBytes(result));
   },
 
   /**

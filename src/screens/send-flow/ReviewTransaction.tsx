@@ -23,6 +23,10 @@ import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { isMidenNameSupported } from 'lib/miden/name/config';
+import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
+import { isMidenNameAbortedError } from 'lib/miden/name/errors';
+import { resolveMidenName } from 'lib/miden/name/resolver';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -48,6 +52,44 @@ import { uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 
 /**
+ * Return the formatted Miden Name (`alice.miden`) of the `name` URL value when
+ * a new lookup of it gives `to`. Return undefined while the lookup runs, when
+ * the network has no Miden Name deployment, or when the name does not resolve
+ * to `to`. A name that is dropped is logged.
+ */
+function useVerifiedMidenName(nameParam: string, to: string): string | undefined {
+  const [verified, setVerified] = useState<{ nameParam: string; to: string; name: string }>();
+
+  useEffect(() => {
+    if (!nameParam) return;
+    if (!isMidenNameSupported() || !looksLikeMidenName(nameParam)) {
+      console.warn('Review: dropped the recipient name because name lookup is not available for it');
+      return;
+    }
+    const label = normalizeMidenNameInput(nameParam);
+    const controller = new AbortController();
+    const verify = async () => {
+      try {
+        const address = await resolveMidenName(label, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (address !== null && address === to) {
+          setVerified({ nameParam, to, name: formatMidenName(label) });
+          return;
+        }
+        console.warn('Review: dropped the recipient name because it does not resolve to the recipient address');
+      } catch (error) {
+        if (controller.signal.aborted || isMidenNameAbortedError(error)) return;
+        console.warn('Review: dropped the recipient name because the name lookup failed', error);
+      }
+    };
+    verify();
+    return () => controller.abort();
+  }, [nameParam, to]);
+
+  return verified && verified.nameParam === nameParam && verified.to === to ? verified.name : undefined;
+}
+
+/**
  * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
  *
  * Owns the whole transaction-creation pipeline: the send form at `/send` only
@@ -66,7 +108,7 @@ export const ReviewTransaction: React.FC = () => {
 
   const { signTransaction } = useMidenContext();
 
-  const { amount, to, tokenId, network, route } = useMemo(() => {
+  const { amount, to, tokenId, network, route, nameParam } = useMemo(() => {
     const params = new URLSearchParams(search);
     const networkParam = params.get('network');
     const routeParam = params.get('route');
@@ -75,9 +117,16 @@ export const ReviewTransaction: React.FC = () => {
       to: params.get('to') ?? '',
       tokenId: params.get('tokenId') ?? '',
       network: (networkParam ?? undefined) as BridgeNetworkId | undefined,
-      route: (routeParam ?? undefined) as BridgeRoute | undefined
+      route: (routeParam ?? undefined) as BridgeRoute | undefined,
+      nameParam: params.get('name') ?? ''
     };
   }, [search]);
+
+  // The Miden Name of the recipient, for display only. The URL is not trusted:
+  // the name shows only when the network has a Miden Name deployment and a new
+  // lookup of the name gives the same address as `to`. Else the name is dropped. The send always signs
+  // `to`, never the name.
+  const verifiedName = useVerifiedMidenName(nameParam, to);
 
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
@@ -291,8 +340,9 @@ export const ReviewTransaction: React.FC = () => {
           recallBlocks ? parseInt(recallBlocks) : undefined,
           isDelegateProofEnabled()
         ] as const;
-        const txId =
-          authorization === undefined
+        const txId = verifiedName
+          ? await initiateSendTransaction(...commonArguments, authorization, verifiedName)
+          : authorization === undefined
             ? await initiateSendTransaction(...commonArguments)
             : await initiateSendTransaction(...commonArguments, authorization);
         if (isExtension()) requestSWTransactionProcessing();
@@ -331,6 +381,7 @@ export const ReviewTransaction: React.FC = () => {
       publicKey,
       recallBlocks,
       sharePrivately,
+      verifiedName,
       to,
       token
     ]
@@ -573,6 +624,11 @@ export const ReviewTransaction: React.FC = () => {
           {/* The full address, never truncated: this is the last look before funds move. Set in body
               text rather than the bold value face, so it reads as something to check, not a headline. */}
           <DetailRow label={t('to')} stacked data-testid="review-row-to">
+            {verifiedName && (
+              <span data-testid="review-recipient-name" className="block font-semibold text-ink">
+                {verifiedName}
+              </span>
+            )}
             <span className="text-body-sm break-all text-ink">{to}</span>
           </DetailRow>
           {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}

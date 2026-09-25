@@ -39,7 +39,11 @@ const OPERATION_BY_TYPE: Record<ITransactionType, TelemetryOperation> = {
   // healthy. Splitting them would make each too rare to read.
   'switch-guardian': 'tx_guardian',
   'replace-hot-key': 'tx_guardian',
-  'update-procedure-threshold': 'tx_guardian'
+  'update-procedure-threshold': 'tx_guardian',
+  // Testnet only and rare. It folds into the generic name until it has enough
+  // volume to be worth a name of its own.
+  'register-name': 'tx_other',
+  'publish-name-record': 'tx_other'
 };
 
 /**

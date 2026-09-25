@@ -740,24 +740,143 @@ describe('completeConsumeTransaction', () => {
     await expect(completeConsumeTransaction('tx-1', txResult)).rejects.toThrow(/no input notes/);
   });
 
-  it('throws when the input note has no fungible assets', async () => {
-    txStore.push({ id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, initiatedAt: 100 });
-    const txResult = {
+  // A note with no fungible asset (a Miden Name NFA delivery) completes. It has
+  // no faucet and no amount.
+  const nonFungibleResult = () =>
+    ({
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'h' }),
         inputNotes: () => ({
           notes: () => [
             {
               note: () => ({
-                metadata: () => ({ sender: () => 'sender', noteType: () => 0 }),
+                metadata: () => ({ sender: () => 'registry', noteType: () => 0 }),
                 assets: () => ({ fungibleAssets: () => [] })
               })
             }
           ]
         })
-      })
-    } as any;
-    await expect(completeConsumeTransaction('tx-1', txResult)).rejects.toThrow(/no fungible/);
+      }),
+      serialize: () => new Uint8Array([9])
+    }) as any;
+
+  it('completes a consume whose note has no fungible assets, with no amount', async () => {
+    txStore.push({
+      id: 'tx-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      faucetId: '',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.amount).toBeUndefined();
+    expect(txStore[0]!.faucetId).toBeUndefined();
+    expect(txStore[0]!.assetTotals).toEqual([]);
+    expect(txStore[0]!.displayMessage).toBe('Received');
+    expect(txStore[0]!.secondaryAccountId).toBe('registry');
+  });
+
+  it('labels a Miden Name claim "Name received" and moves the register row to owned', async () => {
+    txStore.push(
+      {
+        id: 'reg-1',
+        type: 'register-name',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 90,
+        extraInputs: { label: 'alice', phase: 'claiming', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'tx-1',
+        type: 'consume',
+        accountId: 'acc-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'reg-1' } }
+      }
+    );
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    const consumeRow = txStore.find(row => row.id === 'tx-1');
+    const registerRow = txStore.find(row => row.id === 'reg-1');
+    expect(consumeRow.status).toBe(ITransactionStatus.Completed);
+    expect(consumeRow.displayMessage).toBe('Name received');
+    expect(consumeRow.amount).toBeUndefined();
+    expect(registerRow.extraInputs.phase).toBe('owned');
+  });
+
+  it('completes a Miden Name claim even when the register row is missing', async () => {
+    txStore.push({
+      id: 'tx-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'missing' } }
+    });
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.displayMessage).toBe('Name received');
+  });
+
+  it('labels a Miden Name return "Name returned" and moves the publish row to done', async () => {
+    txStore.push(
+      {
+        id: 'pub-1',
+        type: 'publish-name-record',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 90,
+        extraInputs: { label: 'alice', phase: 'returning', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'tx-1',
+        type: 'consume',
+        accountId: 'acc-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        extraInputs: { midenNameReturn: { label: 'alice', publishTxId: 'pub-1' } }
+      }
+    );
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    const consumeRow = txStore.find(row => row.id === 'tx-1');
+    const publishRow = txStore.find(row => row.id === 'pub-1');
+    expect(consumeRow.status).toBe(ITransactionStatus.Completed);
+    expect(consumeRow.displayMessage).toBe('Name returned');
+    expect(consumeRow.amount).toBeUndefined();
+    expect(publishRow.extraInputs.phase).toBe('done');
+  });
+
+  it('completes a Miden Name return even when the done patch throws', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const publishRow = {
+      id: 'pub-1',
+      type: 'publish-name-record',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 90
+    };
+    // A read of the row's extraInputs throws, so the patch throws.
+    Object.defineProperty(publishRow, 'extraInputs', {
+      get: () => {
+        throw new Error('db closed');
+      }
+    });
+    txStore.push(publishRow, {
+      id: 'tx-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      extraInputs: { midenNameReturn: { label: 'alice', publishTxId: 'pub-1' } }
+    });
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    const consumeRow = txStore.find(row => row.id === 'tx-1');
+    expect(consumeRow.status).toBe(ITransactionStatus.Completed);
+    expect(consumeRow.displayMessage).toBe('Name returned');
+    expect(warn).toHaveBeenCalledWith('[miden-name] done patch failed (non-fatal)', expect.any(Error));
+    warn.mockRestore();
   });
 });
 

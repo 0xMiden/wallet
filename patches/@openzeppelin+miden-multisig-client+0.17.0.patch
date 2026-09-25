@@ -1,0 +1,124 @@
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/client.js b/node_modules/@openzeppelin/miden-multisig-client/dist/client.js
+index 72a0499..c6b277b 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/client.js
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/client.js
+@@ -9,7 +9,7 @@ import { GuardianHttpClient } from '@openzeppelin/guardian-client';
+ import { Multisig } from './multisig.js';
+ import { createMultisigAccount } from './account/index.js';
+ import { AccountInspector, assertCompleteDetectedConfig } from './inspector.js';
+-import { requireConfigValue, requireMidenRpcEndpoint } from './raw-client.js';
++import { getRawMidenClient, requireConfigValue, requireMidenRpcEndpoint } from './raw-client.js';
+ import { resolveProverConfig, } from './prover/config.js';
+ import { resolveRpcConfig, } from './rpc/config.js';
+ async function bindSignerAccountKey(signer, midenClient, accountId) {
+@@ -140,9 +140,10 @@ export class MultisigClient {
+             guardianCommitment: detected.guardianCommitment,
+             procedureThresholds: Array.from(detected.procedureThresholds.entries()).map(([procedure, threshold]) => ({ procedure, threshold })),
+         };
+-        const existingAccount = await this.midenClient.accounts.get(AccountId.fromHex(accountId));
++        const rawClient = await getRawMidenClient(this.midenClient, this.midenRpcEndpoint);
++        const existingAccount = await rawClient.getAccount(AccountId.fromHex(accountId));
+         if (!existingAccount) {
+-            await this.midenClient.accounts.insert({ account, overwrite: true });
++            await rawClient.newAccount(account, true);
+         }
+         await bindSignerAccountKey(signer, this.midenClient, accountId);
+         return new Multisig(account, config, this._guardianClient, signer, this.midenClient, accountId, this.midenRpcEndpoint, this.proverConfig, this.rpcConfig);
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/index.d.ts b/node_modules/@openzeppelin/miden-multisig-client/dist/index.d.ts
+index 25cb883..59c3e8b 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/index.d.ts
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/index.d.ts
+@@ -76,3 +76,4 @@ export { noteToBase64, noteFromBase64, } from './utils/encoding.js';
+ export { PROCEDURE_ROOTS, getProcedureRoot, isProcedureName, getProcedureNames, type ProcedureName, } from './procedures.js';
+ export type { MultisigAccountState, MultisigConfig, CreateAccountResult, ProcedureThreshold, Proposal, ProposalStatus, ProposalSignatureEntry, ProposalMetadata, ProposalType, ExportedProposal, ExportedTransactionProposal, SignTransactionProposalParams, TransactionProposal, TransactionProposalSignature, TransactionProposalStatus, TransactionType, ConsumableNote, NoteAsset, FalconSignature, Signer, SignatureScheme, AuthConfig, DeltaObject, DeltaStatus, StateObject, CosignerSignature, ConfigureRequest, ConfigureResponse, DeltaProposalRequest, DeltaProposalResponse, ProposalsResponse, PubkeyResponse, SignProposalRequest, } from './types.js';
+ //# sourceMappingURL=index.d.ts.map
++export { setRawClientAdapter } from './raw-client.js';
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/index.js b/node_modules/@openzeppelin/miden-multisig-client/dist/index.js
+index f008a9f..66b6175 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/index.js
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/index.js
+@@ -71,3 +71,4 @@ export { ProposalAuthArgUnresolvableError, ProposalSaltMalformedError, } from '.
+ export { noteToBase64, noteFromBase64, } from './utils/encoding.js';
+ export { PROCEDURE_ROOTS, getProcedureRoot, isProcedureName, getProcedureNames, } from './procedures.js';
+ //# sourceMappingURL=index.js.map
++export { setRawClientAdapter } from './raw-client.js';
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js b/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js
+index e5362c6..fc35028 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js
+@@ -1099,7 +1099,7 @@ export class Multisig {
+                 // own — so sync the chain state first. Incremental, so cheap when
+                 // the store is already synced.
+                 try {
+-                    await this.midenClient.syncChain();
++                    await (await this.getRawClient()).syncChain();
+                 }
+                 catch (error) {
+                     throw new Error(`failed to sync the chain state the backfill imports against: ${error instanceof Error ? error.message : String(error)}`);
+@@ -1113,7 +1113,7 @@ export class Multisig {
+                 // Parity with the Rust flow's `sync()`: the transport fetch plus the
+                 // chain sync (`MidenClient.sync()` runs both, fail-fast), then the
+                 // GUARDIAN state sync.
+-                await this.midenClient.sync();
++                await (await this.getRawClient()).syncState();
+                 await this.syncState();
+             },
+         };
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.d.ts b/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.d.ts
+index 6f049b1..ed2cc99 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.d.ts
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.d.ts
+@@ -11,3 +11,14 @@ export declare function getRawMidenClient(client: RawClientSource, rpcUrl?: stri
+ export declare function getTransactionProver(client: RawClientSource): TransactionProver | null;
+ export declare function compileTxScript(client: RawClientSource, code: string, libraries?: ScriptLibrarySource[], rpcUrl?: string): Promise<TransactionScript>;
+ //# sourceMappingURL=raw-client.d.ts.map
++export interface RawClientAdapter {
++    getAccount: WasmWebClient['getAccount'];
++    newAccount: WasmWebClient['newAccount'];
++    syncState(): Promise<import('@miden-sdk/miden-sdk').SyncSummary>;
++    syncChain(): Promise<import('@miden-sdk/miden-sdk').SyncSummary>;
++    chainAnchorForRequest: WasmWebClient['chainAnchorForRequest'];
++    executeForSummary: WasmWebClient['executeForSummary'];
++    executeForSummaryAt: WasmWebClient['executeForSummaryAt'];
++    importNoteFile: WasmWebClient['importNoteFile'];
++}
++export declare function setRawClientAdapter(client: MidenClient, adapter: RawClientAdapter): void;
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.js b/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.js
+index 33bbf90..8dc5d8e 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.js
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/raw-client.js
+@@ -1,5 +1,11 @@
+-import { WasmWebClient, } from '@miden-sdk/miden-sdk';
+ const rawClientCache = new WeakMap();
++const rawClientAdapters = new WeakMap();
++
++// The wallet can route state operations to its offscreen write client.
++export function setRawClientAdapter(client, adapter) {
++    rawClientAdapters.set(client, adapter);
++}
++
+ export function requireConfigValue(field, value) {
+     if (typeof value !== 'string') {
+         throw new Error(`missing required configuration: ${field}`);
+@@ -24,8 +30,19 @@ export async function getRawMidenClient(client, rpcUrl) {
+     if (cached) {
+         return cached;
+     }
+-    const endpoint = requireMidenRpcEndpoint(rpcUrl);
+-    const rawClient = WasmWebClient.createClient(endpoint, undefined, undefined, await client.storeIdentifier());
++    const rawClient = new Proxy({}, {
++        get(_target, method) {
++            if (method === 'then') return undefined;
++            return (...args) => {
++                const adapter = rawClientAdapters.get(client);
++                if (adapter && typeof adapter[method] === 'function') {
++                    return adapter[method](...args);
++                }
++                // Use the supplied client's store and tree cache. Do not open another client.
++                return client._withInnerWebClient(inner => inner[method](...args));
++            };
++        },
++    });
+     rawClientCache.set(client, rawClient);
+     return rawClient;
+ }

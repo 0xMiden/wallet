@@ -1,4 +1,29 @@
 {
+  "midenNameUnsupportedNetwork": {
+    "message": "O nome do meio não está disponível nesta rede.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Endereço ou nome do meio",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Digite um endereço ou nome.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Endereço da resolução: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "Nome da transação de recebimento",
+    "englishSource": "Name receipt transaction"
+  },
   "payload": {
     "message": "Carga útil",
     "englishSource": "Payload"
@@ -2886,6 +2911,365 @@
   "cannotSendToSelf": {
     "message": "Você não pode enviar para o seu próprio endereço",
     "englishSource": "You can't send to your own address"
+  },
+  "midenNameResolving": {
+    "message": "Pesquisando esse nome…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Nenhuma conta usa esse nome",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Não foi possível localizar esse nome. Tente novamente.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Nome do meio",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Reivindique um nome",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Obtenha seu próprio nome $suffix$, que será seu para sempre",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Reivindique um nome",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "seunome",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 caracteres · somente a–z e 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ está disponível",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ já está em uso",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Digite um nome",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Use até 21 caracteres",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Use apenas letras de a a z e números de 0 a 9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Verificando…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Não foi possível verificar esse nome. Tente novamente.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "A Miden Name não aceita novos nomes no momento",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "O preço mudou. Verifique o novo preço e tente novamente.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Preço · comprimento$length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Taxa de rede",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Taxa máxima de transação",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Total",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Vai para",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Saldo após",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "O cadastro é permanente. O nome fica vinculado a esta conta e o valor pago não é reembolsado.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "Não há MIDEN suficiente. Você precisa de um “$amount$”.",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Reivindicar $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Solicitação enviada",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Nome emitido pela Miden Name",
+    "englishSource": "Name issued by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Adicionando à sua conta",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameStepPublishing": {
+    "message": "Publicação no registro",
+    "englishSource": "Publishing to the registry"
+  },
+  "midenNamePublishExplainer": {
+    "message": "A publicação torna público que esta conta é dona de $name$, para que qualquer pessoa possa enviar fundos para ela. Até você publicar, somente você sabe que é o dono desse nome.",
+    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNamePublishingExplainer": {
+    "message": "Isso torna público que sua conta possui o endereço $name$, de modo que qualquer pessoa pode enviar fundos para ele. Até agora, apenas você sabia que era o proprietário desse endereço.",
+    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameFailedTaken": {
+    "message": "Outra pessoa já havia escolhido esse nome primeiro.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "O registro não processou a solicitação a tempo.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "O registro não conseguiu processar a solicitação.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "A transação solicitada falhou. Nenhum nome foi registrado.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "O nome foi emitido, mas não foi possível adicioná-lo à sua conta.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Tentar novamente a reivindicação",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Reivindicação de $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Concluído",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "De sua propriedade",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Reivindicação",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Falha",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Não publicado · ninguém pode enviar para ele ainda",
+    "englishSource": "Not published · nobody can send to it yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Isso se aplica a esta conta",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "Você ainda não tem um nome do meio",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Reivindicar outro nome",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Nome principal",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Seus nomes",
+    "englishSource": "Your names"
+  },
+  "midenNamePublish": {
+    "message": "Publicar",
+    "englishSource": "Publish"
+  },
+  "midenNamePublishing": {
+    "message": "Publicando…",
+    "englishSource": "Publishing…"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Verificando o registro…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Redireciona para outra conta",
+    "englishSource": "Resolves to another account"
+  },
+  "midenNameBadgePublishing": {
+    "message": "Publicação no registro",
+    "englishSource": "Publishing to registry"
+  },
+  "midenNameClearRecords": {
+    "message": "Remova meus registros do cadastro",
+    "englishSource": "Remove my records from the registry"
+  },
+  "transactionStagePublishingName": {
+    "message": "Nome de publicação",
+    "englishSource": "Publishing name"
+  },
+  "transactionTitlePublishName": {
+    "message": "Nome da publicação",
+    "englishSource": "Publishing Name"
+  },
+  "historyPublishedName": {
+    "message": "Publicado em $name$",
+    "englishSource": "Published $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "transactionStageRegisteringName": {
+    "message": "Registro do nome",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Registro do nome",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "$name$ registrado",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "Recebido$name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Ver status",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Nome",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Registro",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "note de cadastro",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Fase",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
   },
   "networkFee": {
     "message": "Network Fee",

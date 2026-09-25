@@ -97,6 +97,8 @@ export enum WalletMessageType {
   SetGuardianSyncStatusResponse = 'SET_GUARDIAN_SYNC_STATUS_RESPONSE',
   CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
+  GuardianClientRequest = 'GUARDIAN_CLIENT_REQUEST',
+  GuardianClientResponse = 'GUARDIAN_CLIENT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
   ApplyUserGuardianEndpointResponse = 'APPLY_USER_GUARDIAN_ENDPOINT_RESPONSE',
   StartGuardianRecoveryRequest = 'START_GUARDIAN_RECOVERY_REQUEST',
@@ -979,6 +981,24 @@ export interface CheckGuardianDriftRequest extends WalletMessageBase {
   accountPublicKey: string;
 }
 
+export type GuardianClientOperation =
+  | { method: 'getAccount'; accountId: string }
+  | { method: 'insertAccount'; accountB64: string; overwrite: boolean }
+  | { method: 'sync'; chainOnly: boolean }
+  | { method: 'captureAnchor'; requestB64: string }
+  | { method: 'preview'; accountId: string; requestB64: string; anchorB64?: string }
+  | { method: 'importNote'; noteB64: string };
+
+export interface GuardianClientRequest extends WalletMessageBase {
+  type: WalletMessageType.GuardianClientRequest;
+  operation: GuardianClientOperation;
+}
+
+export interface GuardianClientResponse extends WalletMessageBase {
+  type: WalletMessageType.GuardianClientResponse;
+  result: string | null;
+}
+
 export interface CheckGuardianDriftResponse extends WalletMessageBase {
   type: WalletMessageType.CheckGuardianDriftResponse;
   guardianSyncStatus: GuardianSyncStatus;
@@ -1247,6 +1267,7 @@ export type WalletRequest =
   | SetGuardianOperatorCommitmentRequest
   | SetGuardianSyncStatusRequest
   | CheckGuardianDriftRequest
+  | GuardianClientRequest
   | ApplyUserGuardianEndpointRequest
   | StartGuardianRecoveryRequest
   | GetPublicKeyForCommitmentRequest
@@ -1319,6 +1340,7 @@ export type WalletResponse =
   | SetGuardianOperatorCommitmentResponse
   | SetGuardianSyncStatusResponse
   | CheckGuardianDriftResponse
+  | GuardianClientResponse
   | ApplyUserGuardianEndpointResponse
   | StartGuardianRecoveryResponse
   | GetPublicKeyForCommitmentResponse

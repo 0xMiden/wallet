@@ -84,6 +84,30 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey
 }));
 
+// The Miden Name row reads Dexie and the network config; MidenNameReceiveRow.test.tsx covers it.
+jest.mock('app/pages/Receive/MidenNameReceiveRow', () => ({
+  MidenNameReceiveRow: () => null
+}));
+
+// The owned name reads Dexie; a test sets the label directly. Undefined is "no owned name".
+let mockOwnedLabel: string | undefined;
+jest.mock('lib/miden/name/registrations', () => ({
+  useOwnedMidenName: () => mockOwnedLabel
+}));
+
+// The network deployment check. By default the network has no deployment.
+let mockNameSupported = false;
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
+}));
+
+let mockReverseLabel: string | null = null;
+const mockReverseResolve = jest.fn(async (_accountId: string) => mockReverseLabel);
+jest.mock('lib/miden/name/resolver', () => ({
+  reverseResolveMidenName: (accountId: string) => mockReverseResolve(accountId)
+}));
+
 jest.mock('app/templates/EvmConnectModal', () => ({
   __esModule: true,
   default: () => null
@@ -219,6 +243,10 @@ describe('Receive - Address', () => {
     mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
     jest.mocked(hapticLight).mockClear();
+    mockOwnedLabel = undefined;
+    mockNameSupported = false;
+    mockReverseLabel = null;
+    mockReverseResolve.mockClear();
   });
 
   afterEach(async () => {
@@ -263,6 +291,71 @@ describe('Receive - Address', () => {
 
     const full = container.querySelector('[data-testid="receive-address-full"]');
     expect(full?.textContent).toBe('test-account-123');
+  });
+
+  describe('Miden Name headline', () => {
+    it('renders no headline when the account owns no name', async () => {
+      const container = await renderReceive();
+
+      expect(container.querySelector('[data-testid="receive-miden-name-headline"]')).toBeNull();
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).toBeNull();
+    });
+
+    it('shows the owned name between the QR and the address, which the copy still copies', async () => {
+      mockOwnedLabel = 'alice';
+      const container = await renderReceive();
+
+      const headline = container.querySelector('[data-testid="receive-miden-name-headline"]')!;
+      expect(headline.textContent).toBe('alice.miden');
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')?.textContent).toBe(
+        'midenNameNotYetResolvable'
+      );
+      expect(container.querySelector('[data-testid="receive-miden-name-resolves"]')).toBeNull();
+
+      const qrSlot = container.querySelector('[data-testid="receive-qr-slot"]')!;
+      const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
+      expect(qrSlot.compareDocumentPosition(headline)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(headline.compareDocumentPosition(copyButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+      await act(async () => {
+        fireEvent.click(copyButton);
+      });
+      expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
+    });
+
+    it('does not reverse-resolve on a network without a deployment', async () => {
+      mockOwnedLabel = 'alice';
+      mockReverseLabel = 'alice';
+      await renderReceive();
+
+      expect(mockReverseResolve).not.toHaveBeenCalled();
+    });
+
+    it('shows the resolves pill only when the reverse record is the owned name', async () => {
+      mockOwnedLabel = 'alice';
+      mockNameSupported = true;
+      mockReverseLabel = 'alice';
+      const container = await renderReceive();
+
+      await waitFor(() =>
+        expect(container.querySelector('[data-testid="receive-miden-name-resolves"]')?.textContent).toBe(
+          'midenNameResolvesHere'
+        )
+      );
+      expect(mockReverseResolve).toHaveBeenCalledWith('test-account-123');
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).toBeNull();
+    });
+
+    it('keeps the muted pill when the reverse record names another label', async () => {
+      mockOwnedLabel = 'alice';
+      mockNameSupported = true;
+      mockReverseLabel = 'bob';
+      const container = await renderReceive();
+
+      await waitFor(() => expect(mockReverseResolve).toHaveBeenCalled());
+      expect(container.querySelector('[data-testid="receive-miden-name-resolves"]')).toBeNull();
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).not.toBeNull();
+    });
   });
 
   it('rolls the address to "copied" and morphs the glyph to a check for a beat, then reverts', async () => {

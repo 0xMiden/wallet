@@ -20,7 +20,6 @@ jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
   useMidenContext: () => ({ ready: true })
 }));
-jest.mock('@miden-sdk/react/lazy', () => ({ MidenProvider: ({ children }: any) => <>{children}</> }));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
 jest.mock('lib/settings/helpers', () => ({ mirrorBackgroundSettings: jest.fn() }));
@@ -31,6 +30,7 @@ jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
+jest.mock('lib/miden/name/MidenNameWatcher', () => ({ MidenNameWatcher: () => null }));
 
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 

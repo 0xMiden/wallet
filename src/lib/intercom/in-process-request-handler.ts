@@ -248,6 +248,12 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.GuardianClientRequest:
+      return {
+        type: WalletMessageType.GuardianClientResponse,
+        result: await Actions.guardianClientRequest(req.operation)
+      };
+
     case WalletMessageType.CheckGuardianDriftRequest: {
       const guardianSyncStatus = await Actions.checkGuardianDrift(req.accountPublicKey);
       return {

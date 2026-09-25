@@ -164,8 +164,18 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
   // two errors that never described one event — and this classifier's verdict is
   // that the write DID reach the chain, which marks the row Completed. A
   // never-submitted write reported as success is the worse direction of the two.
-  return errorMessageParts(err).some(part =>
-    /accepted into the node's mempool[\s\S]*local store update failed/i.test(part)
+  return errorMessageParts(err).some(
+    part =>
+      /accepted into the node's mempool[\s\S]*local store update failed/i.test(part) ||
+      // web-sdk's `applyTransaction` binding, which every SDK write sequence
+      // (`submitNewTransaction*`, the JS `transactions.submit`, and this wallet's
+      // split `submit()` + `apply()` leaves) calls ONLY after
+      // `submitProvenTransaction` returned a height. It wraps a failed store
+      // update with one of these two context strings and no code, so without
+      // them a landed write whose local apply failed (for example the note
+      // screener refusing an output note) is misread as a failed submit.
+      /failed to build transaction update/i.test(part) ||
+      /failed to apply transaction result/i.test(part)
   );
 }
 

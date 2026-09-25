@@ -22,6 +22,8 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { useOwnedMidenName } from 'lib/miden/name/registrations';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
@@ -333,6 +335,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
+  // Undefined on a network with no Miden Name deployment.
+  const ownedMidenName = useOwnedMidenName(address);
   return (
     <>
       <Balance>
@@ -341,6 +345,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
+            accountAlias={ownedMidenName ? formatMidenName(ownedMidenName) : undefined}
             // Gap 16: until real prices have loaded, every token falls back to the
             // $1 default, so the "USD total" would be a fabricated number equal to
             // the raw token count. When no prices are available (feed down or still

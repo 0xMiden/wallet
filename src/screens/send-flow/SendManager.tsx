@@ -13,6 +13,10 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { isMidenNameSupported } from 'lib/miden/name/config';
+import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
+import { isMidenNameAbortedError } from 'lib/miden/name/errors';
+import { resolveMidenName } from 'lib/miden/name/resolver';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -72,6 +76,44 @@ const ROUTES: Route[] = [
   }
 ];
 
+/** Time to wait after the last keystroke before a Miden Name lookup starts. */
+const MIDEN_NAME_RESOLVE_DEBOUNCE_MS = 400;
+
+/**
+ * Time to wait after the last keystroke before the recipient field shows an
+ * error. A partly typed address is not valid yet; it must not turn red while
+ * the user types. A scanned, pasted or picked recipient is complete and is
+ * validated at once.
+ */
+export const RECIPIENT_VALIDATION_DEBOUNCE_MS = 1000;
+
+type MidenNameResolutionStatus = 'idle' | 'resolving' | 'resolved' | 'not-found' | 'error';
+
+/** The lookup state of a recipient input that is a Miden Name (for example `alice.miden`). */
+interface MidenNameResolution {
+  /** The trimmed recipient input that this state is for. */
+  input: string;
+  status: MidenNameResolutionStatus;
+  /** The label without ".miden". */
+  label?: string;
+  /** The resolved bech32 address. Only set when `status` is 'resolved'. */
+  address?: string;
+}
+
+const IDLE_NAME_RESOLUTION: MidenNameResolution = { input: '', status: 'idle' };
+
+/** Context that the recipient schema gets from the form. */
+interface RecipientValidationContext {
+  /** The trimmed input of a Miden Name that resolved to an address. */
+  resolvedMidenNameInput?: string;
+}
+
+/** True when the value is the Miden Name input that resolved to an address. */
+function isResolvedMidenNameInput(value: string | undefined, context: RecipientValidationContext | undefined) {
+  const input = context?.resolvedMidenNameInput;
+  return !!input && value?.trim() === input;
+}
+
 const validations = {
   amount: yup
     .string()
@@ -80,10 +122,17 @@ const validations = {
       return parseFloat(value) > 0;
     }),
   // Chain-aware: a Miden bech32 address (same-chain) or a 0x address (bridge).
+  // A Miden Name is valid only after it resolved; the form gives that input
+  // through the schema context.
   recipientAddress: yup
     .string()
     .required()
-    .test('is-valid-address', 'Invalid address', value => isValidRecipientAddress(value ?? ''))
+    .test(
+      'is-valid-address',
+      'Invalid address',
+      (value, testContext) =>
+        isValidRecipientAddress(value ?? '') || isResolvedMidenNameInput(value, testContext.options.context)
+    )
 };
 
 const validationSchema = yup.object().shape(validations).required();
@@ -280,6 +329,35 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [currentStep, onSendRoute]);
 
+  // The Miden Name lookup of the recipient input. A restored draft starts in
+  // the resolved state, so that backing out of review shows the name again
+  // without a new lookup.
+  const [nameResolution, setNameResolution] = useState<MidenNameResolution>(() =>
+    draft?.midenName
+      ? {
+          input: draft.recipientAddress.trim(),
+          status: 'resolved',
+          label: draft.midenName.label,
+          address: draft.midenName.address
+        }
+      : IDLE_NAME_RESOLUTION
+  );
+  const nameResolutionRef = useRef(nameResolution);
+  const nameLookupTimingRef = useRef<{ input: string; startedAt: number } | null>(null);
+  const logNameLookupStage = useCallback((input: string, stage: string) => {
+    const timing = nameLookupTimingRef.current;
+    if (timing?.input !== input) return;
+    console.log(`[registry-debug] resolve.ui:${stage}`, {
+      elapsedMs: Math.round(performance.now() - timing.startedAt)
+    });
+  }, []);
+  nameResolutionRef.current = nameResolution;
+  const resolvedMidenNameInput = nameResolution.status === 'resolved' ? nameResolution.input : undefined;
+  const recipientValidationContext = useMemo<RecipientValidationContext>(
+    () => ({ resolvedMidenNameInput }),
+    [resolvedMidenNameInput]
+  );
+
   const {
     register,
     watch,
@@ -297,6 +375,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       bridgeNetwork: draft?.bridgeNetwork,
       bridgeRoute: draft?.bridgeRoute ?? 'epoch'
     },
+    context: recipientValidationContext,
     resolver: yupResolver(validationSchema) as any
   });
 
@@ -322,13 +401,26 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
+  // The name and address of a recipient input that is a resolved Miden Name.
+  // Undefined for every other input.
+  const resolvedMidenName = useMemo(() => {
+    const { status, input, label, address } = nameResolution;
+    if (status !== 'resolved' || !label || !address || input !== (recipientAddress ?? '').trim()) return undefined;
+    return { label, address };
+  }, [nameResolution, recipientAddress]);
+  // The address that the send goes to: the resolved address for a Miden Name,
+  // else the input.
+  const effectiveRecipientAddress = resolvedMidenName?.address ?? recipientAddress;
   const selectedContact = useMemo(() => {
-    const normalizedAddress = recipientAddress?.trim().toLowerCase();
+    const normalizedAddress = effectiveRecipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
     return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
-  }, [allContactsList, recipientAddress]);
+  }, [allContactsList, effectiveRecipientAddress]);
+  const recipientName = resolvedMidenName ? formatMidenName(resolvedMidenName.label) : selectedContact?.name;
 
-  const isValidRecipient = !errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress);
+  const isValidRecipient =
+    !errors.recipientAddress &&
+    validations.recipientAddress.isValidSync(recipientAddress, { context: recipientValidationContext });
   // A valid address that isn't in the wallet or the address book can be saved
   // straight from the recipient step — the pill offers "Add to contacts?".
   const canAddContact = isValidRecipient && !selectedContact;
@@ -546,21 +638,32 @@ export const SendManager: React.FC<SendManagerProps> = ({
   //
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
+  //
+  // A Miden Name recipient goes to review as its resolved address (`to`) and
+  // the name (`name`). The raw name is never the `to` value, because review
+  // signs `to`. An unresolved name cannot go to review.
   const goToReview = useCallback(() => {
     if (!token || !amount || !recipientAddress) return;
+    if (!resolvedMidenName && isMidenNameSupported() && looksLikeMidenName(recipientAddress)) return;
     reviewHandoffRef.current = true;
     setSendDraft({
       amount,
       recipientAddress,
       tokenId: token.id,
       bridgeNetwork: isBridge ? bridgeNetwork : undefined,
-      bridgeRoute: isBridge ? bridgeRoute : undefined
+      bridgeRoute: isBridge ? bridgeRoute : undefined,
+      ...(resolvedMidenName ? { midenName: resolvedMidenName } : {})
     });
-    const params = new URLSearchParams({ amount, to: recipientAddress, tokenId: token.id });
+    const params = new URLSearchParams({
+      amount,
+      to: resolvedMidenName?.address ?? recipientAddress,
+      tokenId: token.id
+    });
+    if (resolvedMidenName) params.set('name', formatMidenName(resolvedMidenName.label));
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
-  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute]);
+  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute, resolvedMidenName]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
   // Miden send goes straight to review.
@@ -583,6 +686,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // strict Miden bech32 decode via the SDK. The error copy matches the detected
   // chain, and a well-formed address for a different Miden network gets its own
   // message instead of failing later in the transaction pipeline.
+  //
+  // A Miden Name input (on a network with a Miden Name deployment) shows the
+  // lookup state until it resolves.
+  // After that, the same checks apply to the RESOLVED address. The state for a
+  // different input means that the lookup for this input did not start yet.
   const recipientErrorKey = useCallback(
     (raw: string): string | null => {
       const trimmed = raw.trim();
@@ -590,13 +698,29 @@ export const SendManager: React.FC<SendManagerProps> = ({
       if (detectAddressChain(trimmed) === 'ethereum') {
         return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
       }
+      let address = trimmed;
+      if (isMidenNameSupported() && looksLikeMidenName(trimmed)) {
+        const status = nameResolution.input === trimmed ? nameResolution.status : 'resolving';
+        switch (status) {
+          case 'resolved':
+            if (!nameResolution.address) return 'midenNameNotFound';
+            address = nameResolution.address;
+            break;
+          case 'not-found':
+            return 'midenNameNotFound';
+          case 'error':
+            return 'midenNameResolveFailed';
+          default:
+            return 'midenNameResolving';
+        }
+      }
       // Self-send guard: a P2IDE to yourself consumes through the kernel's
       // target branch, so recall semantics are meaningless and auto-consume
       // would claim it right back. Block it at entry, before the decode check —
       // it's the more specific message for the account's own address.
-      if (sameWalletAccountId(trimmed, publicKey)) return 'cannotSendToSelf';
+      if (sameWalletAccountId(address, publicKey)) return 'cannotSendToSelf';
       try {
-        isValidMidenAddress(trimmed);
+        isValidMidenAddress(address);
       } catch (error) {
         return error instanceof MidenAddressError && error.reason === 'wrong-network'
           ? 'midenAddressWrongNetwork'
@@ -604,11 +728,22 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
       return null;
     },
-    [publicKey]
+    [publicKey, nameResolution]
   );
 
+  // The validation that waits for the user to stop typing (see `onAddressChange`).
+  const validationTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const cancelPendingValidation = useCallback(() => {
+    if (validationTimerRef.current === undefined) return;
+    clearTimeout(validationTimerRef.current);
+    validationTimerRef.current = undefined;
+  }, []);
+  useEffect(() => cancelPendingValidation, [cancelPendingValidation]);
+
+  /** Validate the recipient now. A pending typing validation is dropped: this one is newer. */
   const applyRecipientValidation = useCallback(
     (address: string) => {
+      cancelPendingValidation();
       const errorKey = recipientErrorKey(address);
       if (errorKey) {
         setError('recipientAddress', { type: 'manual', message: errorKey });
@@ -616,19 +751,105 @@ export const SendManager: React.FC<SendManagerProps> = ({
         clearErrors('recipientAddress');
       }
     },
-    [recipientErrorKey, setError, clearErrors]
+    [cancelPendingValidation, recipientErrorKey, setError, clearErrors]
   );
+  // The timer callback reads the newest validation, with the lookup state of that moment.
+  const applyRecipientValidationRef = useRef(applyRecipientValidation);
+  applyRecipientValidationRef.current = applyRecipientValidation;
+
+  // Look up a Miden Name recipient (on a network with a Miden Name deployment).
+  // The lookup starts 400 ms after the last change of the input. A change of the input or an unmount stops
+  // the timer and aborts the lookup. A result for an input that is not the
+  // current input is ignored. A bech32 or 0x input starts no lookup.
+  useEffect(() => {
+    const input = (recipientAddress ?? '').trim();
+    if (!isMidenNameSupported() || !looksLikeMidenName(input)) {
+      setNameResolution(prev => (prev.status === 'idle' ? prev : IDLE_NAME_RESOLUTION));
+      return;
+    }
+    const current = nameResolutionRef.current;
+    // A restored draft is resolved already.
+    if (current.input === input && current.status === 'resolved') return;
+
+    if (nameLookupTimingRef.current?.input !== input) {
+      nameLookupTimingRef.current = { input, startedAt: performance.now() };
+    }
+    logNameLookupStage(input, 'effect');
+
+    const label = normalizeMidenNameInput(input);
+    const applyForInput = (next: MidenNameResolution) =>
+      setNameResolution(prev => (prev.input === input ? next : prev));
+    setNameResolution({ input, status: 'resolving', label });
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      logNameLookupStage(input, 'debounce-fired');
+      try {
+        const address = await resolveMidenName(label, { signal: controller.signal });
+        logNameLookupStage(input, 'resolver-returned');
+        if (controller.signal.aborted) return;
+        applyForInput(address ? { input, status: 'resolved', label, address } : { input, status: 'not-found', label });
+      } catch (error) {
+        logNameLookupStage(input, 'resolver-failed');
+        if (controller.signal.aborted || isMidenNameAbortedError(error)) return;
+        console.warn('Miden Name lookup failed', error);
+        applyForInput({ input, status: 'error', label });
+      }
+    }, MIDEN_NAME_RESOLVE_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+      logNameLookupStage(input, 'cancelled');
+    };
+  }, [recipientAddress, logNameLookupStage]);
+
+  useEffect(() => {
+    if (nameResolution.status !== 'resolved' || !isValidRecipient) return;
+    const input = nameResolution.input;
+    logNameLookupStage(input, 'confirm-enabled');
+    const frame = requestAnimationFrame(() => logNameLookupStage(input, 'next-frame'));
+    return () => cancelAnimationFrame(frame);
+  }, [nameResolution, isValidRecipient, logNameLookupStage]);
+
+  // Show the new lookup state on the recipient field when it is for the
+  // current input.
+  useEffect(() => {
+    const input = (recipientAddress ?? '').trim();
+    if (nameResolution.status === 'idle' || nameResolution.input !== input) return;
+    // The user is still typing: the typing validation shows this state when it runs.
+    if (validationTimerRef.current !== undefined) return;
+    applyRecipientValidation(input);
+    // Only a change of the lookup state starts this. A change of the input
+    // already validated the field in its own handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameResolution]);
 
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const address = event.target.value;
+      if (looksLikeMidenName(address.trim())) {
+        const startedAt = performance.now();
+        nameLookupTimingRef.current = { input: address.trim(), startedAt };
+        console.log('[registry-debug] resolve.ui:input', {
+          eventLagMs: Math.max(0, Math.round(startedAt - event.timeStamp))
+        });
+      }
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      applyRecipientValidation(address);
+      // Do not show an error in the middle of the entry: remove the one on
+      // show, and validate RECIPIENT_VALIDATION_DEBOUNCE_MS after the last keystroke.
+      cancelPendingValidation();
+      clearErrors('recipientAddress');
+      if (!address.trim()) return;
+      validationTimerRef.current = setTimeout(() => {
+        validationTimerRef.current = undefined;
+        applyRecipientValidationRef.current(address);
+      }, RECIPIENT_VALIDATION_DEBOUNCE_MS);
     },
-    [onAction, applyRecipientValidation]
+    [onAction, cancelPendingValidation, clearErrors]
   );
 
   // Apply a scanned recipient address. Shared by the mobile native scanner and
@@ -808,11 +1029,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
           return (
             <SelectRecipient
               address={recipientAddress || ''}
+              resolvedAddress={effectiveRecipientAddress}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
               chain={chain}
               network={displayedNetwork}
-              recipientName={selectedContact?.name}
+              recipientName={recipientName}
               recents={recents}
               canAddContact={canAddContact}
               onAddressChange={onAddressChange}
@@ -832,8 +1054,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
-              recipientAddress={recipientAddress || ''}
-              recipientName={selectedContact?.name}
+              recipientAddress={effectiveRecipientAddress || ''}
+              recipientName={recipientName}
               network={displayedNetwork}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
@@ -881,7 +1103,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onReceive,
       chain,
       displayedNetwork,
-      selectedContact?.name,
+      recipientName,
+      effectiveRecipientAddress,
       bridgeRoute,
       onRouteChange,
       fastFeeUsd,
@@ -912,7 +1135,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
         open={showAddContactDrawer}
         onOpenChange={setShowAddContactDrawer}
         onBusyChange={setAddContactSaving}
-        address={recipientAddress ?? ''}
+        address={effectiveRecipientAddress ?? ''}
+        initialName={resolvedMidenName ? formatMidenName(resolvedMidenName.label) : undefined}
         network={isBridge ? bridgeNetwork : undefined}
       />
 
