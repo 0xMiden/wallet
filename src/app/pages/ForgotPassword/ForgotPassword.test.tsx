@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
+import { isOnboardingFinishing } from 'app/onboarding-finish';
 import { deserializeError } from 'lib/intercom/helpers';
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
@@ -362,6 +363,32 @@ describe('ForgotPassword', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
+
+  it('holds the finishing mark while it registers and releases it after navigating on', async () => {
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    let heldDuringRegister: boolean | undefined;
+    mockRegisterWallet.mockImplementationOnce(async () => {
+      heldDuringRegister = isOnboardingFinishing();
+    });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(heldDuringRegister).toBe(true);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(isOnboardingFinishing()).toBe(false);
+  });
+
+  it('releases the finishing mark when registration fails', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(isOnboardingFinishing()).toBe(false);
   });
 
   it('confirmation does NOT navigate when registration fails — the reset already happened (#630)', async () => {

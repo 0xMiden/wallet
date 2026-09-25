@@ -1,5 +1,6 @@
 import {
   ONBOARDING_FINISH_BUDGET_MS,
+  armHeldOnboardingMark,
   isOnboardingFinishing,
   markOnboardingFinishing,
   subscribeOnboardingFinishing
@@ -42,6 +43,31 @@ describe('onboarding finish mark', () => {
     first.release();
     expect(isOnboardingFinishing()).toBe(true);
     second.release();
+    expect(isOnboardingFinishing()).toBe(false);
+  });
+
+  it('arms the held mark from outside the holder, so a hold on screen is always bounded', () => {
+    jest.useFakeTimers();
+    markOnboardingFinishing();
+    armHeldOnboardingMark();
+    jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS);
+    expect(isOnboardingFinishing()).toBe(false);
+  });
+
+  it('arming with no mark held does nothing', () => {
+    jest.useFakeTimers();
+    expect(() => armHeldOnboardingMark()).not.toThrow();
+    expect(isOnboardingFinishing()).toBe(false);
+  });
+
+  it('a second arm does not restart the running timer', () => {
+    jest.useFakeTimers();
+    const mark = markOnboardingFinishing();
+    mark.arm();
+    jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS - 1);
+    armHeldOnboardingMark();
+    mark.arm();
+    jest.advanceTimersByTime(1);
     expect(isOnboardingFinishing()).toBe(false);
   });
 

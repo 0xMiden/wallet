@@ -30,7 +30,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 
 import * as Woozie from 'lib/woozie';
 
-import { markOnboardingFinishing } from './onboarding-finish';
+import { ONBOARDING_FINISH_BUDGET_MS, markOnboardingFinishing } from './onboarding-finish';
 import PageRouter from './PageRouter';
 import { resolveRootView } from './root-view';
 
@@ -731,6 +731,22 @@ describe('app/PageRouter - a just-created wallet finishing onboarding', () => {
       act(() => mark.release());
     }
     expect(screen.getByTestId('explore')).toBeInTheDocument();
+  });
+
+  it('arms a held mark once the wallet is Ready on screen, so a stalled holder cannot hold the loading view forever', () => {
+    jest.useFakeTimers();
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+      act(() => {
+        jest.advanceTimersByTime(ONBOARDING_FINISH_BUDGET_MS);
+      });
+      expect(screen.getByTestId('explore')).toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+      jest.useRealTimers();
+    }
   });
 
   it('keeps the finishing mark out of the lifecycle telemetry ctx', () => {

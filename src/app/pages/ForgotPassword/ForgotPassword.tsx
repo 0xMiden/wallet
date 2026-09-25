@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { englishWordlist as wordsList, generateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
+import { markOnboardingFinishing } from 'app/onboarding-finish';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
@@ -249,18 +250,25 @@ const ForgotPassword: FC = () => {
         case 'confirmation': {
           setIsLoading(true);
           setRecoveryError(null);
-          const outcome = await register();
-          setIsLoading(false);
-          // Block the exit ONLY on a real failure. 'skipped' means the guarded
-          // branch never ran, so nothing was destroyed and the previous
-          // navigate-home behaviour is still right; 'failed' means the reset
-          // already happened, so leaving would strand the user on a wiped
-          // wallet with no explanation (#630).
-          if (outcome === 'failed') break;
-          if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
-          // Guardian recovery just completed — hand off to the side panel like
-          // first-run onboarding rather than always entering in-tab (#428).
-          navigate(postOnboardingRoute());
+          // A Ready broadcast can land while register() finishes; the mark keeps Home off screen until we navigate on.
+          const finishMark = markOnboardingFinishing();
+          try {
+            const outcome = await register();
+            finishMark.arm();
+            setIsLoading(false);
+            // Block the exit ONLY on a real failure. 'skipped' means the guarded
+            // branch never ran, so nothing was destroyed and the previous
+            // navigate-home behaviour is still right; 'failed' means the reset
+            // already happened, so leaving would strand the user on a wiped
+            // wallet with no explanation (#630).
+            if (outcome === 'failed') break;
+            if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
+            // Guardian recovery just completed — hand off to the side panel like
+            // first-run onboarding rather than always entering in-tab (#428).
+            navigate(postOnboardingRoute());
+          } finally {
+            finishMark.release();
+          }
           break;
         }
         case 'back':

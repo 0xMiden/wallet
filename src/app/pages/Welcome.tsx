@@ -524,14 +524,17 @@ const Welcome: FC = () => {
     setConfirmPhase('creating');
     attemptInFlightRef.current = true;
     setIsLoading(true);
+    // A Ready broadcast can land while register() finishes; the mark keeps Home off screen until the handoff.
+    const finishMark = markOnboardingFinishing();
     (async () => {
       try {
         await register();
+        finishMark.arm();
         settleOnboardingFlow(handle => handle.complete());
         // Move to the dedicated handoff route, which survives the Ready
-        // transition and shows the "Open wallet" button. Crucially we do NOT
-        // waitForReadyState here — pushing Ready into the store first would
-        // route this tab to the wallet home before we navigate.
+        // transition and shows the "Open wallet" button. We do NOT
+        // waitForReadyState here; a Ready broadcast that lands first is held
+        // off screen by the finishing mark.
         navigate(postCreationRoute('/finish-side-panel'));
       } catch (error) {
         // Fall back to the classic click-to-create flow: the confirmation
@@ -543,6 +546,7 @@ const Welcome: FC = () => {
         setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
         setConfirmPhase('failed');
       } finally {
+        finishMark.release();
         attemptInFlightRef.current = false;
         setIsLoading(false);
       }

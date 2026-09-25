@@ -2818,6 +2818,45 @@ describe('Welcome — back navigation', () => {
 // ===========================================================================
 
 describe('Welcome — side-panel handoff', () => {
+  it('holds the finishing mark while it registers and releases it after the handoff navigation', async () => {
+    mockCanHandoff = true;
+    let heldDuringRegister: boolean | undefined;
+    mockRegisterWallet.mockImplementationOnce(async () => {
+      heldDuringRegister = isOnboardingFinishing();
+    });
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(heldDuringRegister).toBe(true);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mark.release.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      mockNavigate.mock.invocationCallOrder[mockNavigate.mock.invocationCallOrder.length - 1]!
+    );
+    expect(isOnboardingFinishing()).toBe(false);
+  });
+
+  it('releases the finishing mark when the auto-create fails', async () => {
+    mockCanHandoff = true;
+    mockRegisterWallet.mockRejectedValueOnce(new Error('creation failed'));
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(isOnboardingFinishing()).toBe(false);
+  });
+
   it('auto-creates the wallet and moves to the handoff route on Confirmation', async () => {
     mockCanHandoff = true;
     await renderWelcome();

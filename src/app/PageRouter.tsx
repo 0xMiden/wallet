@@ -1,4 +1,4 @@
-import React, { FC, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { FC, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
@@ -35,7 +35,7 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
-import { useOnboardingFinishing } from './onboarding-finish';
+import { armHeldOnboardingMark, useOnboardingFinishing } from './onboarding-finish';
 import { ACTIVITY_PENDING_PATH } from './pages/activity-paths';
 import { ActivityGroupPage } from './pages/ActivityGroup';
 import AllHistory from './pages/AllHistory';
@@ -475,6 +475,10 @@ const PageRouter: FC = () => {
     }),
     [appEnv.popup, appEnv.fullPage, miden, finishingOnboarding]
   );
+  // Once the hold is on screen its safety clock must run, however long the holder's registration still takes.
+  useEffect(() => {
+    if (miden.ready && finishingOnboarding) armHeldOnboardingMark();
+  }, [miden.ready, finishingOnboarding]);
   // Telemetry reports the wallet's own state, not the frame onboarding holds back.
   const lifecycleCtx = useMemo(
     () => ({ ready: miden.ready, locked: miden.locked, hydrated: miden.hydrated }),
