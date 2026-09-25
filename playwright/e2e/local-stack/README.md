@@ -119,7 +119,7 @@ pkill -f 'miden-(node|validator|ntx-builder|remote-prover)'   # the host-process
 |---|---|---|
 | `NODE_SRC_REPO` / `NODE_SRC_REF` | from `versions.env` | miden-client repo + rev the test node is built from |
 | `MIDEN_NTX_AUTH` | `e2e-ntx-secret` | Shared auth header: sequencer `--rpc.network-tx-auth-header-value` = ntx-builder `--rpc.auth-header-value` |
-| `MIDEN_NODE_BLOCK_INTERVAL` / `MIDEN_NODE_BATCH_INTERVAL` | node defaults | Block/batch cadence; local-e2e CI sets `500ms` |
+| `MIDEN_NODE_BLOCK_INTERVAL` / `MIDEN_NODE_BATCH_INTERVAL` | node defaults (3s / 1s) | Block/batch cadence. Keep it at or above the default: a 0.17 transaction expires 20 blocks after its reference block |
 | `RUNNER_TEMP` | `/tmp` | Parent of the rust-sdk clone `run-note-transport.sh` starts the transport from (set automatically by GitHub Actions) |
 | `GUARDIAN_IMAGE_TAG` | from `versions.env` | ghcr.io/openzeppelin/guardian tag (Tier-2 `guardian` profile) |
 | `GUARDIAN_URL` | `http://localhost:3000` | Guardian endpoint the guardian specs point the wallet at |

@@ -107,13 +107,15 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
     expect(src).not.toMatch(/select-earn-e2e/);
   });
 
-  it('local-e2e has no fast-blocks matrix and uses 500ms blocks', () => {
+  // 0.17 expires a transaction 20 blocks after its reference block, so 500ms blocks left 10s
+  // for a proof plus sync lag and the node dropped accepted transactions.
+  it('local-e2e has no fast-blocks matrix and runs the node at its default 3s cadence', () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
     expect(src).not.toMatch(/fast blocks/);
     expect(src).not.toMatch(/strategy:/);
     expect(src).toMatch(/name: local-e2e \(chrome\)/);
     expect(src).toMatch(/runs-on: warp-ubuntu-latest-x64-8x/);
-    expect(src).toMatch(/MIDEN_NODE_BLOCK_INTERVAL: 500ms/);
+    expect(src).not.toMatch(/MIDEN_NODE_BLOCK_INTERVAL:/);
   });
 
   it('coverage is sharded and gated under the required check name', () => {
