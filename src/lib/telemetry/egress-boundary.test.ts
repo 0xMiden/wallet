@@ -803,7 +803,7 @@ describe('product-event egress', () => {
       const system = objectAt(envelope, 'systemProps');
       for (const [key, value] of Object.entries(system)) {
         if (typeof value !== 'string') continue;
-        if (key === 'appVersion' && /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(value)) continue;
+        if (key === 'appVersion' && /^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(value)) continue;
         if (key === 'osName' && platforms.has(value)) continue;
         if (key === 'sdkVersion' && /^[a-z0-9-]+@\d+\.\d+\.\d+$/.test(value)) continue;
         problems.push(`systemProps.${key}=${value}`);

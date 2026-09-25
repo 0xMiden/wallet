@@ -55,6 +55,7 @@ import {
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication
 } from './actions';
+import packageJson from '../../../../package.json';
 
 jest.mock('lib/miden/spending-limits/valuation', () => ({ resolveSpendsUsd: jest.fn() }));
 
@@ -1895,7 +1896,7 @@ describe('handleReportTelemetryEvent', () => {
     });
     expect(response.type).toBe(WalletMessageType.ReportTelemetryEventResponse);
     expect(jest.mocked(sendEvent).mock.calls[0]?.[1]).toEqual({
-      appVersion: expect.stringMatching(/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/),
+      appVersion: packageJson.version,
       platform: expect.any(String)
     });
   });

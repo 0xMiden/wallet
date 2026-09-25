@@ -1,6 +1,7 @@
 import { isAndroid, isIOS } from 'lib/platform';
 
 import { resolveTelemetryContext } from './context';
+import packageJson from '../../../package.json';
 
 jest.mock('lib/platform', () => ({
   isIOS: jest.fn(() => false),
@@ -27,7 +28,7 @@ describe('resolveTelemetryContext', () => {
     expect(resolveTelemetryContext().platform).toBe('android');
   });
 
-  it('reports a semver app version, with a pre-release suffix on release candidates', () => {
-    expect(resolveTelemetryContext().appVersion).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/);
+  it('reports the package version exactly, pre-release suffix included', () => {
+    expect(resolveTelemetryContext().appVersion).toBe(packageJson.version);
   });
 });
