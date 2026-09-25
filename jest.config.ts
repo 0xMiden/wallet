@@ -96,8 +96,8 @@ export default {
     '/src/screens/generating-transaction/success/SwapSuccess\\.tsx$',
     '/packages/dapp-browser/'
   ],
-  // 'json-summary' emits coverage/coverage-summary.json, consumed by the
-  // coverage-badge workflow to publish the README shields.io badge.
+  // 'json-summary' serves local unsharded coverage runs. The README badge reads
+  // the summary scripts/merge-jest-coverage.mjs writes in pr.yml instead.
   coverageReporters: ['json-summary', 'text-summary', 'lcov'],
   // Sharded CI runs set JEST_COVERAGE_SHARD and check the 95% gate after merge
   // (scripts/merge-jest-coverage.mjs). A partial map would fail the threshold
