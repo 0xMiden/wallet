@@ -1,11 +1,4 @@
-import {
-  AccountId,
-  Note,
-  NoteArray,
-  NoteAssets,
-  NoteAttachment,
-  NoteType
-} from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, Note, NoteArray, NoteAssets, NoteAttachment, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
@@ -127,6 +120,9 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       feeSalt
     );
     assertWasmHoldCurrent(hold, 'after the fee-aware collateral builder');
-    return builder.withOwnOutputNotes(new NoteArray([note])).build().serialize();
+    return builder
+      .withOwnOutputNotes(new NoteArray([note]))
+      .build()
+      .serialize();
   });
 }
