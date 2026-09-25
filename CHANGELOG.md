@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.16.3 (TBD)
+
+### Changes
+
+- [CHANGE][ci] The README coverage and test-count badges now come from the pull request's own coverage run, so main no longer reruns the whole suite, a run that had outgrown one runner.
+
 ## 1.16.2 (2026-09-24)
 
 ### Features

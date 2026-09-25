@@ -268,8 +268,11 @@ jobs:
   # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
   # one ubuntu-latest). Three shards keep billed minutes about the same and cut
   # wall clock under 25m. The required-check name stays on the merge gate.
+  # The shard count is the matrix length: steps and the name read it as
+  # strategy.job-total, and coverage-gate's COVERAGE_SHARDS must match it
+  # (Actions cannot feed an env value into a matrix).
   coverage:
-    name: Coverage shard ${{ matrix.shard }}/3
+    name: Coverage shard ${{ matrix.shard }}/${{ strategy.job-total }}
     needs: translations
     strategy:
       fail-fast: false
@@ -298,13 +301,29 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
+      # `--json --outputFile` adds the shard's test count (numTotalTests) for the tests badge; Jest keeps its
+      # normal console output on stderr. Only the count is uploaded: the full results carry absolute paths and
+      # failure text nothing downstream needs.
       - name: Run Coverage shard
-        run: yarn test:coverage --shard=${{ matrix.shard }}/3 --coverageReporters=json --coverageReporters=text-summary
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: |
+          set -euo pipefail
+          yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+
+      # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
+      # A missing count only makes the gate's record step skip the badge artifact.
+      - name: Count shard tests
+        continue-on-error: true
+        run: node scripts/badge-data.mjs count coverage/jest-results.json coverage/test-count.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-shard-${{ matrix.shard }}
-          path: coverage/coverage-final.json
+          path: |
+            coverage/coverage-final.json
+            coverage/test-count.json
           if-no-files-found: error
 
   coverage-gate:
@@ -312,11 +331,16 @@ jobs:
     needs: coverage
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
+    env:
+      # Must equal the length of the coverage job's matrix.
+      COVERAGE_SHARDS: 3
     steps:
       - name: Check shards
+        env:
+          SHARDS_RESULT: ${{ needs.coverage.result }}
         run: |
-          if [ "${{ needs.coverage.result }}" != "success" ]; then
-            echo "coverage shards ${{ needs.coverage.result }}"; exit 1; fi
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "coverage shards $SHARDS_RESULT"; exit 1; fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -337,6 +361,23 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/covtools/node_modules
         run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
+      # The main-branch Badges workflow reads this instead of rerunning the whole suite unsharded (which
+      # outgrew one runner): the merged line coverage and the summed test count of this PR head. Badge
+      # bookkeeping never fails the gate; a missing artifact only leaves the badges as they were.
+      # The record goes to the runner temp directory and is uploaded only when this step succeeded, so the
+      # artifact never carries a file the step did not write.
+      - name: Record badge data
+        id: badge-data
+        continue-on-error: true
+        run: node scripts/badge-data.mjs record "$COVERAGE_SHARDS" coverage/coverage-summary.json coverage-shards "$RUNNER_TEMP/badge-data.json"
+      - name: Upload badge data
+        if: steps.badge-data.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge-data
+          path: ${{ runner.temp }}/badge-data.json
+          if-no-files-found: error
 
   i18n-check:
     name: Check for non-i18n'd strings
