@@ -8,7 +8,8 @@
 
 import { classifyUrl, isMidenRelated } from './network-capture';
 
-const SEND_NOTE = 'miden_note_transport.MidenNoteTransport/SendNote';
+const SEND_NOTE = 'note_transport.Api/SendNote';
+const LEGACY_SEND_NOTE = 'miden_note_transport.MidenNoteTransport/SendNote';
 
 describe('classifyUrl — transport', () => {
   it('classifies the deployed transport host', () => {
@@ -32,8 +33,21 @@ describe('classifyUrl — transport', () => {
   });
 
   it('classifies every transport RPC, not just SendNote', () => {
+    expect(classifyUrl('http://127.0.0.1:9999/note_transport.Api/FetchNotes')).toBe('transport');
     expect(classifyUrl('http://127.0.0.1:9999/miden_note_transport.MidenNoteTransport/FetchNotes')).toBe('transport');
     expect(classifyUrl('http://127.0.0.1:9999/miden_note_transport.MidenNoteTransport/Stats')).toBe('transport');
+  });
+
+  it('still classifies the retired standalone service path, which remote hosts may lag behind', () => {
+    expect(classifyUrl(`http://127.0.0.1:9999/${LEGACY_SEND_NOTE}`)).toBe('transport');
+  });
+
+  it('classifies the transport path as transport even on an rpc host', () => {
+    // The node serves `note_transport.Api`, so it can share a host with `rpc.Api`;
+    // the path must win, or the SendNote decode (gated on `transport`) never runs.
+    expect(classifyUrl(`http://localhost:57291/${SEND_NOTE}`)).toBe('transport');
+    expect(classifyUrl(`https://rpc.testnet.miden.io/${SEND_NOTE}`)).toBe('transport');
+    expect(classifyUrl('https://rpc.testnet.miden.io/rpc.Api/SubmitProvenTransaction')).toBe('rpc');
   });
 });
 

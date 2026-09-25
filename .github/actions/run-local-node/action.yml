@@ -181,7 +181,10 @@ runs:
 
         # The node source start-test-node.sh would have installed from crates.io. Its own
         # --print-rev is the single place that decides it, so ask it rather than re-deriving.
+        # Since rust-sdk v0.17.0-rc.3 it prints a cache key, `<rev>-bins.<cksum>`; the
+        # suffix names the binary set, not a fetchable ref.
         node_rev=$("$clone/scripts/start-test-node.sh" --print-rev)
+        node_rev="${node_rev%-bins.*}"
         [ -n "$node_rev" ] || {
           echo "::error title=run-local-node::start-test-node.sh --print-rev printed nothing; the node source cannot be identified."
           exit 1
@@ -434,8 +437,11 @@ runs:
         mkdir -p "$install" "$build"
         cd "$NODE_DIR"
         # Same four binaries, same profile overrides, as start-test-node.sh's own install.
+        # Every binary in the script's NODE_BINS: one missing makes its cached-binaries
+        # check fail, and it would then reinstall the whole node unpatched.
         for spec in bin/node:miden-node bin/validator:miden-validator \
-                    bin/ntx-builder:miden-ntx-builder bin/remote-prover:miden-remote-prover; do
+                    bin/ntx-builder:miden-ntx-builder bin/remote-prover:miden-remote-prover \
+                    bin/funding-service:miden-funding-service bin/note-transport:miden-note-transport; do
           p="${spec%%:*}"; b="${spec##*:}"
           echo "::group::cargo install $b (from $NODE_DIR/$p)"
           CARGO_PROFILE_RELEASE_DEBUG=false CARGO_PROFILE_RELEASE_STRIP=symbols \
@@ -467,7 +473,8 @@ runs:
           want=" $nodever (registry+"
         fi
         sed -i "s|(path+file://[^)]*)|($src)|g" "$meta"
-        for b in miden-validator miden-node miden-ntx-builder miden-remote-prover; do
+        for b in miden-validator miden-node miden-ntx-builder miden-remote-prover miden-funding-service \
+                 miden-note-transport; do
           [ -x "$install/bin/$b" ] || { echo "::error title=run-local-node::$b was not installed to $install/bin"; exit 1; }
           grep -F -- "\"$b " "$meta" | grep -qF -- "$want" || {
             echo "::error title=run-local-node::$meta does not record $b the way start-test-node.sh looks it up (expected to contain '$want')."
