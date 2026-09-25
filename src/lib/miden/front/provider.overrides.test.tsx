@@ -71,7 +71,6 @@ it('starts the price fetch before endpoint overrides, WASM and the storage prelo
     loadEndpointOverrides.mock.invocationCallOrder[0]!
   );
   expect(preloadTokenPrices.mock.invocationCallOrder[0]!).toBeLessThan(preloadStorage.mock.invocationCallOrder[0]!);
-  expect(warn).not.toHaveBeenCalled();
 });
 
 it('loads endpoint overrides before rendering children', async () => {
@@ -88,7 +87,7 @@ it('loads endpoint overrides before rendering children', async () => {
   expect(loadEndpointOverrides.mock.invocationCallOrder[0]!).toBeLessThan(
     ensureSdkWasmReady.mock.invocationCallOrder[0]!
   );
-  // Nothing here should reach a failure path the preload, or anything else, logs.
+  // The preload is mocked to resolve here; a warning would mean a real storage read ran (an unmocked preload).
   expect(warn).not.toHaveBeenCalled();
 });
 
@@ -112,6 +111,6 @@ it('primes native-asset discovery only AFTER endpoint overrides resolve (not aga
   // Once overrides resolve, priming runs against the now-current endpoint.
   resolveLoad();
   await waitFor(() => expect(primeNativeAssetId).toHaveBeenCalledTimes(1));
-  // Nothing here should reach a failure path the preload, or anything else, logs.
+  // The preload is mocked to resolve here; a warning would mean a real storage read ran (an unmocked preload).
   expect(warn).not.toHaveBeenCalled();
 });

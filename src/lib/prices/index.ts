@@ -26,10 +26,6 @@ export function useTokenSparkline(symbol: string, timeframe: Timeframe = '1D'): 
   return useMemo(() => (data ?? []).map(p => p.value), [data]);
 }
 
-/**
- * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.
- * Mount it once, outside the wallet-ready gate: prices are public, so the fetch can start before unlock.
- */
 const TOKEN_PRICES_KEY = 'token-prices';
 
 /** Starts the price fetch ahead of PriceProvider, whose first read consumes the in-flight request. */
@@ -37,6 +33,10 @@ export function preloadTokenPrices() {
   preload(TOKEN_PRICES_KEY, fetchTokenPrices);
 }
 
+/**
+ * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.
+ * Mount it once, outside the wallet-ready gate: prices are public, so the fetch can start before unlock.
+ */
 export function PriceProvider() {
   const setTokenPrices = useWalletStore(s => s.setTokenPrices);
   const syncDone = useRef(false);
