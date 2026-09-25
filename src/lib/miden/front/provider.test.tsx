@@ -49,8 +49,7 @@ jest.mock('./storage', () => ({
 }));
 
 jest.mock('lib/prices', () => ({
-  PriceProvider: () => <div data-testid="price-provider" />,
-  preloadTokenPrices: jest.fn()
+  PriceProvider: () => <div data-testid="price-provider" />
 }));
 
 jest.mock('components/NoteToastProvider', () => ({

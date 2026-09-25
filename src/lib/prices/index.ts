@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 
-import { preload } from 'swr';
-
+import { useMidenContext } from 'lib/miden/front';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
@@ -28,20 +27,17 @@ export function useTokenSparkline(symbol: string, timeframe: Timeframe = '1D'): 
 
 const TOKEN_PRICES_KEY = 'token-prices';
 
-/** Starts the price fetch ahead of PriceProvider, whose first read consumes the in-flight request. */
-export function preloadTokenPrices() {
-  preload(TOKEN_PRICES_KEY, fetchTokenPrices);
-}
-
 /**
  * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.
- * Mount it once, outside the wallet-ready gate: prices are public, so the fetch can start before unlock.
+ * Mount it once, outside the wallet-ready gate: prices are public, so the fetch can start before unlock. It reads
+ * nothing until a wallet exists, so onboarding makes no price request.
  */
 export function PriceProvider() {
   const setTokenPrices = useWalletStore(s => s.setTokenPrices);
   const syncDone = useRef(false);
+  const { locked, ready } = useMidenContext();
 
-  const { data: prices } = useRetryableSWR(TOKEN_PRICES_KEY, fetchTokenPrices, {
+  const { data: prices } = useRetryableSWR(locked || ready ? TOKEN_PRICES_KEY : null, fetchTokenPrices, {
     refreshInterval: 5 * 60_000,
     dedupingInterval: 30_000
   });

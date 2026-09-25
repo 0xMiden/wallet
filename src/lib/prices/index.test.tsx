@@ -3,10 +3,10 @@ import React from 'react';
 import { render, renderHook } from '@testing-library/react';
 
 import { fetchTokenPrices } from './binance';
-import { PriceProvider, preloadTokenPrices, useTokenSparkline } from './index';
+import { PriceProvider, useTokenSparkline } from './index';
 
-const mockPreload = jest.fn();
-jest.mock('swr', () => ({ preload: (...args: unknown[]) => mockPreload(...args) }));
+const mockWallet = { locked: false, ready: true };
+jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockWallet }));
 
 const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
@@ -19,6 +19,8 @@ jest.mock('lib/store', () => ({
 }));
 
 beforeEach(() => {
+  mockWallet.locked = false;
+  mockWallet.ready = true;
   setTokenPrices.mockClear();
   mockUseRetryableSWR.mockReset();
   mockUseRetryableSWR.mockReturnValue({
@@ -34,12 +36,21 @@ describe('PriceProvider', () => {
     });
   });
 
-  it('starts the fetch its first read will consume: the same key and fetcher as preloadTokenPrices', () => {
+  it('reads no prices while there is no wallet', () => {
+    mockWallet.ready = false;
     render(<PriceProvider />);
-    preloadTokenPrices();
-    const [readKey, readFetcher] = mockUseRetryableSWR.mock.calls[0]!;
-    expect(mockPreload).toHaveBeenCalledWith(readKey, readFetcher);
-    expect(readFetcher).toBe(fetchTokenPrices);
+    expect(mockUseRetryableSWR.mock.calls[0]![0]).toBeNull();
+  });
+
+  it.each([
+    ['locked', { locked: true, ready: false }],
+    ['ready', { locked: false, ready: true }]
+  ])('reads prices once a wallet exists (%s)', (_state, wallet) => {
+    Object.assign(mockWallet, wallet);
+    render(<PriceProvider />);
+    const [key, fetcher] = mockUseRetryableSWR.mock.calls[0]!;
+    expect(key).toBe('token-prices');
+    expect(fetcher).toBe(fetchTokenPrices);
   });
 
   it('renders nothing (returns null)', () => {
