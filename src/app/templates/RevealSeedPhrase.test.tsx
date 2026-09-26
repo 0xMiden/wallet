@@ -845,10 +845,12 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed failure path -> auth-error view.
   // -------------------------------------------------------------------------
-  // Warning -> words is the boundary that needs the key. The password path reaches the
-  // words through the `!secret && isSubmitting` null return, which already unmounts and
-  // remounts the header on its own, so a test written there would pass with the key
-  // deleted. The hardware path never returns null, so only the key remounts it.
+  // Warning -> words is the boundary that needs the key. Before #1122 the password path
+  // crossed it through the `!secret && isSubmitting` null return, which already unmounted
+  // and remounted the header on its own, so a test written there would have passed with
+  // the key deleted. The reveal now stays on the auth branch while submitting (no empty
+  // render), so both paths depend on the key for this remount - hardware is used here
+  // because it reaches the transition without a drawer interaction.
   it('mounts a fresh header at the words step so its title is announced', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
@@ -995,6 +997,47 @@ describe('RevealSeedPhrase', () => {
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
     // Secret set -> revealed view now renders.
     expect(buttonWithText(container, 'hideRecoveryPhrase')).toBeTruthy();
+  });
+
+  // A pending reveal used to blank the page entirely (`!secret && isSubmitting`
+  // returned null), removing the drawer and the loading button it was waiting on (#1122).
+  it('keeps the password step and a loading Continue on screen while the reveal is pending', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockRevealMnemonic.mockReturnValue(new Promise<string>(() => undefined));
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="reveal-seed-auth"]')).toBeTruthy();
+    expect(container.querySelector('input[name="password"]')).toBeTruthy();
+    expect(buttonWithText(container, 'continue')).toHaveAttribute('aria-busy', 'true');
+  });
+
+  // Hide must land back on the warning, not on the auth branch's closed drawer with
+  // nothing to interact with (#1122).
+  it('returns to the warning when the phrase is hidden', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      (buttonWithText(container, 'hideRecoveryPhrase') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(buttonWithText(container, 'view')).toBeTruthy();
+    expect(container.textContent).not.toContain('alpha');
   });
 
   it('surfaces a submit error caption after a failed desktop password unlock', async () => {

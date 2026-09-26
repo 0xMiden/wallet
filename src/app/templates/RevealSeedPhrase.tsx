@@ -68,6 +68,10 @@ const RevealSeedPhrase: FC = () => {
   const leave = useCallback(() => {
     secretGeneration.current += 1;
     setSecret(null);
+    // An exited instance must never rest on the empty auth branch (a reused layer
+    // showed it until Back, #1122).
+    setStep('warning');
+    setShowPasswordDrawer(false);
     popPage();
   }, [popPage, setSecret]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
@@ -367,9 +371,11 @@ const RevealSeedPhrase: FC = () => {
     );
   }
 
-  // The error view is exempt: a Retry sets isSubmitting again, and blanking here
-  // would take the Notice and the Retry button off screen for the whole prompt.
-  if (!authError && (hasHardwareProtector === null || (!secret && isSubmitting))) {
+  // The probe is the only wait with nothing to show: no branch below has rendered yet.
+  // A pending password reveal keeps its own drawer and Continue spinner instead (#1122),
+  // and the error view stays exempt - blanking it would take the Notice and the Retry
+  // button off screen for the whole prompt.
+  if (!authError && hasHardwareProtector === null) {
     return null;
   }
 
