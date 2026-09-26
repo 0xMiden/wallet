@@ -75,7 +75,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
           sit as one group above centre. */}
         <div className="flex-[1] min-h-6" data-testid="passcode-top-space" />
         <div className="flex flex-col items-center w-full shrink-0" data-testid="passcode-header">
-          <h1 className="font-heading text-title-tab text-ink text-center">{title}</h1>
+          <h1 className="text-title-tab text-ink text-center">{title}</h1>
           {/* The live region announces `announcement` when there is one and `message` otherwise. A
             caller whose message ticks (the lockout countdown) passes a static announcement, and the
             ticking text renders beside the region, hidden from assistive tech, so it is seen but

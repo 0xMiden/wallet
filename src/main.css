@@ -817,7 +817,6 @@ body[data-home-band]::before {
     /* Balance card surface — neutral graphite grey. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-rule: rgba(255, 255, 255, 0.18);
     /* The balance card's change pill: a darker well of the card's own color, so it suits every
      * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
     --surface-balance-pill: rgba(0, 0, 0, 0.24);
@@ -829,7 +828,7 @@ body[data-home-band]::before {
     /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
      * get lighter variants in dark mode; slate/orange stay fixed. These five are BRAND colors:
      * never shift them for contrast. The card solves readability with type size and weight
-     * (amount, currency) and a darker well (change pill), see BalanceCard and the contrast
+     * (amount, currency) and darker wells (change pill, footer), see BalanceCard and the contrast
      * test in design-tokens.test.ts. */
     --card-slate: #777386;
     --card-orange: #e77537;
@@ -960,7 +959,6 @@ body[data-home-band]::before {
     /* Balance card surface — keep same graphite grey in dark mode. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-rule: rgba(255, 255, 255, 0.18);
     /* The balance card's change pill: a darker well of the card's own color, so it suits every
      * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
     --surface-balance-pill: rgba(0, 0, 0, 0.24);

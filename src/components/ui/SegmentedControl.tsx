@@ -75,11 +75,11 @@ const segment = cva(
       },
       // Every item is an outlined pill on the page; the selected one hands its outline over to
       // the raised bubble that covers it, keeping the border transparent so the item's width,
-      // and so the row, never shifts as the selection moves. The selected label is the primary
-      // button's pairing, `accent-brand-on` on the `accent-primary` bubble. White on the accent is
-      // 3:1, under rule 6's 4.5:1 for a 14px label: an accepted deviation, like the brand CTA.
+      // and so the row, never shifts as the selection moves. The selected label is
+      // `accent-tint-ink` on the `accent-tint` bubble, the tested 4.5:1 pairing: a 14px label
+      // needs text contrast, which white on the accent (3:1) does not meet.
       active: {
-        true: 'border border-transparent text-accent-brand-on',
+        true: 'border border-transparent text-accent-tint-ink',
         false: 'border border-hairline bg-page text-ink'
       }
     },
@@ -253,7 +253,7 @@ export function SegmentedControl<T extends string>({
           decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
           absolutely positioned against the item's PADDING box, so it has to reach 1px past it to
           cover the item's border and match the outlined pills beside it edge for edge. The bottom
-          nav's bubble in every respect but its fill, the brand accent; shadow, pressed shadow and
+          nav's bubble in every respect but its fill, the accent tint; shadow, pressed shadow and
           spring are the shared ones. */}
       <Highlight
         controlledItems
@@ -264,7 +264,7 @@ export function SegmentedControl<T extends string>({
         // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
         // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
         style={{ zIndex: 1 }}
-        className={cn('-inset-px', raisedBubbleClassName, 'bg-accent-primary')}
+        className={cn('-inset-px', raisedBubbleClassName, 'bg-accent-tint')}
       >
         {items.map((item, index) => (
           <Segment

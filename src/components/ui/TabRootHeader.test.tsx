@@ -92,8 +92,8 @@ it('owns how the filter row looks: the page passes items and a selection, nothin
   expect(selected).toHaveAttribute('aria-checked', 'true');
   // The bottom nav's raised bubble over the selection, filled with the accent tint and carrying an
   // `accent-tint-ink` label; an outlined pill for everything else.
-  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-primary', 'shadow-raised');
-  expect(selected).toHaveClass('text-accent-brand-on');
+  expect(selected.querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-accent-tint', 'shadow-raised');
+  expect(selected).toHaveClass('text-accent-tint-ink');
   expect(rest.querySelector('[data-slot="motion-highlight"]')).toBeNull();
   expect(rest).toHaveClass('border', 'border-hairline', 'bg-page', 'text-ink');
 });

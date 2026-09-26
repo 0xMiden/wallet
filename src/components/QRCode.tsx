@@ -41,18 +41,6 @@ export const QR_PALETTES = ['green', 'orange', 'slate', 'blue', 'purple'] as con
 
 export type QRPalette = (typeof QR_PALETTES)[number];
 
-/**
- * Each treatment's colour as a `--qr-*` token — the card palette pinned to its light values, because
- * the modules are always drawn on a white tile (see src/main.css).
- */
-const PALETTE_TOKENS: Record<QRPalette, string> = {
-  green: '--qr-green',
-  orange: '--qr-orange',
-  slate: '--qr-slate',
-  blue: '--qr-blue',
-  purple: '--qr-purple'
-};
-
 export interface QRCodeHandle {
   /**
    * Returns the rendered QR (with logo) as a PNG Blob, or null if unavailable. With a
@@ -77,10 +65,11 @@ const readToken = (name: string): string => {
 };
 
 /**
- * The module colouring for a treatment: its card colour, solid. The card colours are dark enough on
- * the white tile that the QR stays scannable.
+ * A treatment's colour, painted solid: its `--qr-*` token, the card palette pinned to its light values
+ * because the modules are always drawn on a white tile (see src/main.css). The card colours are dark
+ * enough on that tile that the QR stays scannable.
  */
-const paletteOptions = (palette: QRPalette): { color: string } => ({ color: readToken(PALETTE_TOKENS[palette]) });
+const paletteColor = (palette: QRPalette): string => readToken(`--qr-${palette}`);
 
 /**
  * Paint the caption under the raw QR PNG. Returns null when the realm has no
@@ -128,7 +117,7 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
     const slotB = useRef<HTMLDivElement>(null);
 
     const options = useMemo<Options>(() => {
-      const colors = paletteOptions(palette);
+      const color = paletteColor(palette);
       return {
         type: 'svg',
         width: size,
@@ -140,9 +129,9 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
         // Higher error correction compensates for the centered logo cutout.
         qrOptions: { errorCorrectionLevel: 'H' },
         imageOptions: { crossOrigin: 'anonymous', margin: 6, imageSize: 0.35, hideBackgroundDots: true },
-        dotsOptions: { type: 'dots', ...colors },
-        cornersSquareOptions: { type: 'extra-rounded', ...colors },
-        cornersDotOptions: { type: 'dot', ...colors },
+        dotsOptions: { type: 'dots', color },
+        cornersSquareOptions: { type: 'extra-rounded', color },
+        cornersDotOptions: { type: 'dot', color },
         backgroundOptions: { color: '#FFFFFF' }
       };
     }, [qrValue, size, palette]);
@@ -232,9 +221,9 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(
           if (!(data instanceof Blob)) return null;
           if (!caption) return data;
           try {
-            // The caption is painted in the treatment's own leading colour, so a shared image
+            // The caption is painted in the treatment's colour, so a shared image
             // matches the QR the sender is looking at.
-            const composed = await composeCaptionedPng(data, size, caption, paletteOptions(shownPalette).color);
+            const composed = await composeCaptionedPng(data, size, caption, paletteColor(shownPalette));
             if (composed) return composed;
             // The shared image loses its network caption here; leave a trace.
             console.warn('[QRCode] caption compose unavailable, sharing the raw QR');

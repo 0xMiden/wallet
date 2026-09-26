@@ -116,19 +116,20 @@ from the text, never from the colour.
 
 Dark mode paints the card at 50% over `page`, where white is 5.6:1 or better on every colour.
 In light mode the bare colours reach only 3.0:1. The balance card stays the plain colour, with its
-footer set off by a `surface-balance-rule` hairline, and each text sits as follows:
+footer on `surface-balance-footer`, a darker well of the same colour (black 20%), and each text sits
+as follows:
 
 | Text | Size | Needs | Sits on | Weakest (orange, light) |
 | --- | --- | --- | --- | --- |
 | Amount | 40-56px extrabold | 3:1 | the bare colour | 3.00:1 |
 | Currency | 22px bold | 3:1 | the bare colour | 3.00:1 |
 | Label ("Total balance") | 15px bold (Nunito, `text-value`) | 4.5:1 | the bare colour | 3.00:1 (below 4.5:1, accepted) |
-| Account name and address | 13px bold | 4.5:1 | the bare colour, under the hairline | 3.00:1 (below 4.5:1, accepted) |
+| Account name and address | 13px bold | 4.5:1 | `surface-balance-footer` (black 20%) | 4.47:1 (below 4.5:1, accepted) |
 | Change pill | 14px | 4.5:1 | `surface-balance-pill` (black 24%) | 4.87:1 |
 
-The label and footer keep the plain brand colour by choice: in light mode they pass 4.5:1 on slate
-only (4.58:1) and fall under it on blue, purple, green and orange; in dark mode they pass on every
-colour. Large text on a card colour may never drop below 18.66px bold or 24px regular, since the
+The label keeps the plain brand colour by choice: in light mode it passes 4.5:1 on slate only
+(4.58:1) and falls under it on blue, purple, green and orange. The footer's well lifts it to 4.5:1 on
+every colour but orange (4.47:1). In dark mode both pass on every colour. Large text on a card colour may never drop below 18.66px bold or 24px regular, since the
 orange has no margin above 3:1. `design-tokens.test.ts` pins the brand values, the amount and
 currency at 3:1 and the change pill at 4.5:1.
 

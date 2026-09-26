@@ -245,8 +245,9 @@ describe('card colors are the brand colors', () => {
 // `app-bg`). What each text needs depends on its size (WCAG 1.4.3):
 // - the amount (40-56px extrabold) and the currency (22px bold) are large text: 3:1 on the bare
 //   color. White on the brand orange is 3.0:1, which is why they may never shrink below 18.66px bold.
-// - the label and the footer (13px bold) sit on the bare color too, by choice: the card keeps its
-//   plain brand color, so in light mode they fall under 4.5:1 on every color but slate. Not pinned.
+// - the label (15px bold) sits on the bare color too, by choice: the card keeps its plain brand
+//   color, so in light mode it falls under 4.5:1 on every color but slate. The footer (13px bold)
+//   sits on `surface-balance-footer`, which clears 4.5:1 on every color but orange. Neither is pinned.
 // - the change pill (14px) is small text: 4.5:1 on `surface-balance-pill` over the color.
 describe.each([':root', '.dark'] as const)('balance card ink on every card color in %s', selector => {
   const vars = themeVars(selector);

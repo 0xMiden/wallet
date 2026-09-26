@@ -26,6 +26,8 @@ export type { NoticeProps, NoticeTone } from './Notice';
 
 export { SectionHeader } from './SectionHeader';
 export type { SectionHeaderProps } from './SectionHeader';
+export { FactRow, IconCircle } from './FactRow';
+export type { FactRowProps, IconCircleProps } from './FactRow';
 
 export { Avatar } from './Avatar';
 export type { AvatarProps, AvatarSize } from './Avatar';

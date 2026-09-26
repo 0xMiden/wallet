@@ -16,7 +16,6 @@ import { outlineSurfaceClassName } from 'components/ui/surfaces';
 import { TextAction } from 'components/ui/TextAction';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
-import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
@@ -130,11 +129,6 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const bioKey = chosen ? OPERATOR_BIO_KEYS[chosen.id] : undefined;
 
-  const openInfo = () => {
-    hapticLight();
-    setIsInfoOpen(true);
-  };
-
   const chooseDifferent = noOperators ? null : (
     <TextAction className="-mx-1 self-start" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
       {t('chooseDifferentGuardian')}
@@ -168,11 +162,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
       <section data-testid="meet-guardian-section" className="flex shrink-0 flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-label text-muted">{t('meetGuardianYourGuardian')}</h2>
-          <TextAction
-            className="-mx-1 inline-flex items-center gap-1.5"
-            data-testid="meet-guardian-info"
-            onClick={openInfo}
-          >
+          <TextAction className="-mx-1 gap-1.5" data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
             <Icon name={IconName.Information} size="sm" fill="currentColor" />
             {t('whatIsAGuardian')}
           </TextAction>
@@ -229,20 +219,14 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
             </ul>
 
             {/* The change action closes the section: a full-width row, ruled off from the checklist. */}
-            {!noOperators && (
-              <button
-                type="button"
-                data-testid="meet-guardian-choose-different"
-                onClick={() => {
-                  hapticLight();
-                  onChooseDifferent?.();
-                }}
-                className="mt-1.5 flex min-h-12 w-full items-center justify-between border-b border-hairline text-action text-accent-tint-ink transition-opacity active:opacity-70"
-              >
-                {t('chooseDifferentGuardian')}
-                <Icon name={IconName.ChevronRight} size="sm" fill="currentColor" />
-              </button>
-            )}
+            <TextAction
+              layout="row"
+              className="mt-1.5"
+              data-testid="meet-guardian-choose-different"
+              onClick={onChooseDifferent}
+            >
+              {t('chooseDifferentGuardian')}
+            </TextAction>
           </div>
         ) : noneReachable ? (
           <div className="flex flex-col gap-3">

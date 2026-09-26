@@ -28,6 +28,31 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// The card's own motion.div exposes the scale it is told to animate to, so the press test can check
+// the dip itself rather than the pointer state that drives it. Everything else in framer-motion is real.
+let mockReduceMotion = false;
+jest.mock('framer-motion', () => {
+  const actual = jest.requireActual('framer-motion');
+  const { createElement, forwardRef } = jest.requireActual('react');
+  const MotionDiv = forwardRef(
+    (
+      { animate, transition, ...rest }: { animate?: { scale?: number }; transition?: { duration?: number } },
+      ref: unknown
+    ) =>
+      createElement('div', {
+        ref,
+        'data-animate-scale': animate?.scale,
+        'data-animate-duration': transition?.duration,
+        ...rest
+      })
+  );
+  return {
+    ...actual,
+    useReducedMotion: () => mockReduceMotion,
+    motion: new Proxy(actual.motion, { get: (target, key) => (key === 'div' ? MotionDiv : target[key]) })
+  };
+});
+
 // The canonical CopyButton is used for real (not stubbed) here — it wraps `children` in its own
 // `<span aria-live>`, which is exactly the structure the account row's layout has to survive (see
 // "keeps the label and icon laid out..." below), so a stub that just re-parents `children`
@@ -220,18 +245,38 @@ describe('BalanceCard states, delta, and interactions', () => {
     const card = container.firstElementChild;
     const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
 
-    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
     fireEvent.pointerDown(options);
     expect(card).toHaveAttribute('data-pressed', 'true');
+    expect(card).toHaveAttribute('data-animate-scale', '0.98');
     fireEvent.pointerUp(options);
     expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
 
     fireEvent.pointerDown(options);
     fireEvent.pointerLeave(options);
-    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
 
     fireEvent.pointerDown(screen.getByTestId('balance-card-copy-address'));
     expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+  });
+
+  // Reduced motion keeps the press preset's feedback and makes it instant, as every press does.
+  it('dips on the press spring, and instantly under reduced motion', () => {
+    const first = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" onMore={jest.fn()} />);
+    expect(first.container.firstElementChild).not.toHaveAttribute('data-animate-duration');
+    first.unmount();
+
+    mockReduceMotion = true;
+    try {
+      const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" onMore={jest.fn()} />);
+      fireEvent.pointerDown(screen.getByRole('button', { name: 'balanceCardAccountOptions' }));
+      expect(container.firstElementChild).toHaveAttribute('data-animate-scale', '0.98');
+      expect(container.firstElementChild).toHaveAttribute('data-animate-duration', '0.001');
+    } finally {
+      mockReduceMotion = false;
+    }
   });
 
   it('draws the label in Nunito (15px bold) in the full-strength card ink', () => {

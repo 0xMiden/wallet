@@ -220,7 +220,6 @@ export default {
         // Balance card surface — signature royal blue, distinct from system surfaces.
         'surface-balance': 'var(--surface-balance)',
         'surface-balance-fg': 'var(--surface-balance-fg)',
-        'surface-balance-rule': 'var(--surface-balance-rule)',
         'surface-balance-positive': 'var(--surface-balance-positive)',
         'surface-balance-handle': 'var(--surface-balance-handle)',
         'surface-balance-pill': 'var(--surface-balance-pill)',

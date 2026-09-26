@@ -1,8 +1,9 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
+import { hapticLight } from 'lib/mobile/haptics';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { MeetGuardianScreen } from './MeetGuardian';
@@ -131,15 +132,33 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
     fireEvent.click(screen.getByTestId('meet-guardian-info'));
     expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'true');
+    // TextAction owns the tap haptic: one tap, one buzz.
+    expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the checking card once all facts are ticked and no operator has answered yet', () => {
+  it('shows the checking card while no operator has answered, and keeps Continue closed after every tick', () => {
     renderScreen();
-    tickAll();
 
     expect(screen.getByTestId('meet-guardian-checking')).toBeInTheDocument();
     expect(screen.getByText('meetGuardianChecking')).toBeInTheDocument();
+    tickAll();
+    expect(screen.getByTestId('meet-guardian-checking')).toBeInTheDocument();
     expect(screen.getByTestId('meet-guardian-continue')).toBeDisabled();
+  });
+
+  it("offers the chosen operator's change action as TextAction's row, with its one haptic and focus ring", () => {
+    const onChooseDifferent = jest.fn();
+    const view = renderScreen({ onChooseDifferent });
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    const action = within(screen.getByTestId('meet-guardian-card')).getByTestId('meet-guardian-choose-different');
+    expect(action).toHaveClass('focus-visible:ring-accent-primary', 'w-full', 'justify-between');
+    fireEvent.click(action);
+    expect(onChooseDifferent).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
   it('picks the fastest online operator once every operator has answered, and submits it', () => {

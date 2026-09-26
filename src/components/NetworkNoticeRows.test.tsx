@@ -27,17 +27,12 @@ describe('NetworkNoticeRows (#875)', () => {
     expect(list).not.toHaveClass('bg-fill');
   });
 
-  it('separates the rows with hairlines that start after the icon', () => {
+  it('draws each fact as the shared FactRow, whose own test pins the hairline after the icon', () => {
     render(<NetworkNoticeRows />);
 
     const rows = screen.getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    for (const row of rows) {
-      expect(row.className).toContain('before:bg-hairline');
-      expect(row.className).toContain('before:left-11');
-      expect(row.className).toContain('before:right-0');
-      expect(row.className).toContain('first:before:hidden');
-    }
+    for (const row of rows) expect(row).toHaveAttribute('data-slot', 'fact-row');
   });
 
   it('leads each fact with a decorative Settings-style icon in its card colour', () => {

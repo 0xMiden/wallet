@@ -17,10 +17,11 @@ export const RETIRED_COLOUR_TOKENS: Record<string, string> = {
   'surface-nav-button': 'fill',
   'button-secondary': 'fill',
   'button-secondary-hover': 'fill-pressed',
-  // Retired by the balance-card redesign: the card is one tone now, so its second tone and the
-  // muted ink and divider that sat on it are gone.
+  // Retired by the balance-card redesigns: the muted ink went, and the footer's divider and then its
+  // hairline gave way to the footer's own darker well, the card's second tone.
   'surface-balance-fg-muted': 'surface-balance-fg',
-  'surface-balance-divider': 'surface-balance-rule',
+  'surface-balance-divider': 'surface-balance-footer',
+  'surface-balance-rule': 'surface-balance-footer',
   'card-slate-deep': 'card-slate',
   'card-orange-deep': 'card-orange',
   'card-blue-deep': 'card-blue',
@@ -53,6 +54,7 @@ export const RETIRED_TOKEN_CSS_VARS: Record<string, string> = {
   'button-secondary': 'surface-button-secondary',
   'button-secondary-hover': 'surface-button-secondary-hover',
   'surface-balance-fg-muted': 'surface-balance-fg-muted',
+  'surface-balance-rule': 'surface-balance-rule',
   'card-slate-deep': 'card-slate-deep',
   'card-orange-deep': 'card-orange-deep',
   'card-blue-deep': 'card-blue-deep',

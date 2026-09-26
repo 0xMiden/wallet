@@ -149,9 +149,8 @@ describe('GuardianInfoDrawer', () => {
     // No rules across the sheet and no group fill: the rows sit on the sheet, as the testnet notice's do.
     expect(container.querySelectorAll('.border-b')).toHaveLength(0);
     expect(screen.getByText('guardianInfoWhatItDoesTitle').closest('[class*="bg-fill"]')).toBeNull();
-    const rules = container.querySelectorAll('.before\\:bg-hairline');
-    expect(rules).toHaveLength(3);
-    rules.forEach(row => expect(row.className).toContain('before:left-11'));
+    // The shared FactRow, whose own test pins the hairline after the badge.
+    expect(container.querySelectorAll('[data-slot="fact-row"]')).toHaveLength(3);
     expect(screen.getByText('guardianInfoWhatItDoesDescription')).toHaveClass('text-caption-heading', 'text-muted');
   });
 
@@ -165,6 +164,8 @@ describe('GuardianInfoDrawer', () => {
     expect(badgeOf(checkmark!)).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
     expect(badgeOf(screen.getByText('!'))).toHaveClass('bg-accent-tint', 'text-accent-tint-ink');
     expect(badgeOf(close!)).toHaveClass('bg-negative-tint', 'text-negative-tint-ink');
+    // The tint replaces the shared circle's default fill rather than sitting beside it.
+    for (const glyph of [checkmark!, screen.getByText('!'), close!]) expect(badgeOf(glyph)).not.toHaveClass('bg-fill');
     expect(container.innerHTML).not.toMatch(/#[0-9A-Fa-f]{6}/);
   });
 
