@@ -16,17 +16,22 @@ jest.mock('react-i18next', () => ({
 // Render children inline and surface the `open`/`onOpenChange` props the
 // component wires up so we can assert them.
 const drawerOpenChangeSpy = jest.fn();
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => {
     drawerOpenChangeSpy(open);
+    mockDrawerCloseOnBack = closeOnBack;
     // Expose the handler so a test can invoke the drawer's own close path.
     (globalThis as unknown as { __drawerOnOpenChange?: typeof onOpenChange }).__drawerOnOpenChange = onOpenChange;
     return (
@@ -146,6 +151,11 @@ beforeEach(() => {
 });
 
 describe('AccountsListDrawer', () => {
+  it("leaves mobile back to SendManager's handler, which closes the sheet", () => {
+    renderDrawer({ open: true });
+    expect(mockDrawerCloseOnBack).toBe(false);
+  });
+
   it('renders the drawer shell titled Address Book and forwards `open`', () => {
     renderDrawer({ open: true });
 

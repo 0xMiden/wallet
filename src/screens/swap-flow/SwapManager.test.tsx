@@ -152,8 +152,10 @@ jest.mock('./SelectSwapToken', () => ({
 // own `source.accountId`) but which `runSwap` must independently refuse.
 let mockAuthorizationAccountOverride: string | undefined;
 
+let mockChallengeCloseOnBack: boolean | undefined;
 jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => {
+    mockChallengeCloseOnBack = props.closeOnBack;
     const source = props.assessment ?? props.unpriced;
     return (
       <div data-testid="spending-limit-challenge">
@@ -1431,6 +1433,11 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('7');
       expectReviewQuote('3', '42');
+    });
+
+    it('keeps mobile back with its own handler while the challenge is open', async () => {
+      await openChallengeThenMoveMarket();
+      expect(mockChallengeCloseOnBack).toBe(false);
     });
 
     it('catches the review up once mobile back abandons the challenge', async () => {

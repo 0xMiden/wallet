@@ -33,4 +33,28 @@ describe('TextAction', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('action')).toHaveAttribute('aria-expanded', 'false');
   });
+
+  it('draws the row layout: full width, 48px, a hairline under it and a chevron after the label', () => {
+    render(<TextAction layout="row">Choose a different Guardian</TextAction>);
+    const action = screen.getByRole('button', { name: 'Choose a different Guardian' });
+    expect(action).toHaveClass(
+      'min-h-12',
+      'w-full',
+      'justify-between',
+      'rounded-none',
+      'border-b',
+      'border-hairline',
+      'px-0'
+    );
+    const chevron = action.lastElementChild;
+    expect(chevron?.tagName.toLowerCase()).toBe('svg');
+    expect(chevron).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('draws no chevron inline', () => {
+    render(<TextAction>Learn more</TextAction>);
+    const action = screen.getByRole('button', { name: 'Learn more' });
+    expect(action.querySelector('svg')).toBeNull();
+    expect(action).toHaveClass('min-h-11', 'rounded-full', 'px-1');
+  });
 });

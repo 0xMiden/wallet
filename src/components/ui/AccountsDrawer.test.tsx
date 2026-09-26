@@ -53,13 +53,15 @@ jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} data-close-on-back={String(closeOnBack)}>
       <button data-testid="drawer-onOpenChange-false" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -75,6 +77,20 @@ const renderDrawer = (props: Partial<React.ComponentProps<typeof AccountsDrawer>
   render(<AccountsDrawer open onOpenChange={jest.fn()} {...props} />);
 
 describe('AccountsDrawer', () => {
+  it('closes on mobile back through the shared Drawer, which it does not opt out of', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer({ onOpenChange });
+    // Left unset, the Drawer closes the sheet on back (drawer.test pins how) through onOpenChange.
+    expect(screen.getByTestId('drawer')).toHaveAttribute('data-close-on-back', 'undefined');
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps the documented sheet header: no rule under the title', () => {
+    renderDrawer();
+    expect(screen.getByTestId('drawer-header').nextElementSibling).not.toHaveClass('h-1', 'rounded-full');
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockedUseCardColor.mockReturnValue('slate');
