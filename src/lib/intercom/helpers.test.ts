@@ -141,6 +141,13 @@ describe('intercom helpers', () => {
       code: 'SOME_CODE'
     });
   });
+
+  it('keeps a string code across the intercom', () => {
+    const err = Object.assign(new Error('No Guardian account was found for this key at this Guardian.'), {
+      code: 'GUARDIAN_ACCOUNT_NOT_FOUND'
+    });
+    expect(deserializeError(serializeError(err))).toMatchObject({ code: 'GUARDIAN_ACCOUNT_NOT_FOUND' });
+  });
 });
 
 describe('helpers.ts stays free of the SDK', () => {
