@@ -10,6 +10,9 @@ const read = (relative: string) =>
     .filter(line => !line.trim().startsWith('//'))
     .join('\n');
 
+// A key defined twice in one config: the later entry wins in the object literal, so it must appear once.
+const occurrences = (content: string, token: string) => content.split(token).length - 1;
+
 const CONFIGS = fs
   .readdirSync(REPO_ROOT)
   .filter(file => /^vite\..+\.config\.ts$/.test(file))
@@ -31,7 +34,7 @@ describe('update notification build-time flag', () => {
 
   it.each(Object.entries(EXPECTED_DEFAULTS))('%s defines the supported-platform default', (config, defaultValue) => {
     const source = read(config);
-    expect(source).toContain(`'process.env.MIDEN_UPDATE_NOTIFICATIONS':`);
+    expect(occurrences(source, `'process.env.MIDEN_UPDATE_NOTIFICATIONS':`)).toBe(1);
     expect(source).toContain(`process.env.MIDEN_UPDATE_NOTIFICATIONS ?? ${defaultValue}`);
   });
 
@@ -46,7 +49,7 @@ describe('update notification build-time flag', () => {
     'compiles the E2E injection boundary out of production %s bundles',
     config => {
       const source = read(config);
-      expect(source).toContain(`'process.env.MIDEN_E2E_TEST':`);
+      expect(occurrences(source, `'process.env.MIDEN_E2E_TEST':`)).toBe(1);
       expect(source).toContain(`process.env.MIDEN_E2E_TEST ?? 'false'`);
     }
   );

@@ -36,6 +36,9 @@ const read = (relative: string) =>
     .filter(line => !line.trim().startsWith('//'))
     .join('\n');
 
+// A key defined twice in one config: the later entry wins in the object literal, so it must appear once.
+const occurrences = (content: string, token: string) => content.split(token).length - 1;
+
 /** Flag names read as `process.env.X` / `process.env?.X` by the given source. */
 function envReads(source: string): string[] {
   return [...source.matchAll(/process\.env\??\.([A-Z0-9_]+)/g)].map(match => match[1]!);
@@ -66,6 +69,7 @@ describe('dApp-bridge build-time flags', () => {
 
     it.each(flags)('defines process.env.%s', flag => {
       expect(source).toContain(`'process.env.${flag}':`);
+      expect(occurrences(source, `'process.env.${flag}':`)).toBe(1);
     });
   });
 });
