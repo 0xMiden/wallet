@@ -128,7 +128,7 @@ jest.mock('lib/miden/metadata/utils', () => ({
 
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args),
-  priceSymbolFor: jest.requireActual('lib/miden/swap/tokens').priceSymbolFor
+  tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote
 }));
 
 // The real lookup, reading the store's `tokenPrices`.

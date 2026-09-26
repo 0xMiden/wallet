@@ -23,10 +23,9 @@ import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
-import { quotedPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -173,20 +172,22 @@ const Explore: FC = () => {
   }, [address]);
 
   const sortedTokens = useMemo(() => {
-    const sorted = [...allTokenBalances].sort((a, b) => {
+    // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
+    // nothing, never as its token count at $1 a unit.
+    const fiatValues = new Map(
+      allTokenBalances.map(token => [
+        token,
+        hasKnownScale(token.metadata)
+          ? token.balance * (tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)?.price ?? 0)
+          : 0
+      ])
+    );
+    return [...allTokenBalances].sort((a, b) => {
       const aIsNative = a.tokenId === midenFaucetId;
       const bIsNative = b.tokenId === midenFaucetId;
       if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
-
-      // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
-      // nothing, never as its token count at $1 a unit.
-      const fiatValue = (token: TokenBalanceData) =>
-        hasKnownScale(token.metadata)
-          ? token.balance * (quotedPrice(tokenPrices, priceSymbolFor(token.tokenId, token.metadata.symbol))?.price ?? 0)
-          : 0;
-      return fiatValue(b) - fiatValue(a);
+      return fiatValues.get(b)! - fiatValues.get(a)!;
     });
-    return sorted;
   }, [allTokenBalances, midenFaucetId, tokenPrices]);
 
   const refreshExplore = useCallback(async () => {

@@ -3,6 +3,8 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
 
@@ -393,9 +395,6 @@ describe('Explore', () => {
     });
 
     it('orders by the price-symbol value, IETH at ETH, and puts tokens with no price after every priced one', async () => {
-      // Required here, not imported: loading the registry reads `lib/platform`, whose mock state
-      // is not initialised while the imports are being hoisted.
-      const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken('t-other', 'OTH', 'Other', 1000),

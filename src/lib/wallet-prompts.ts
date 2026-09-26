@@ -16,11 +16,10 @@ import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/fron
 import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
-import { quotedPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 
 export enum WalletPromptType {
@@ -90,7 +89,7 @@ export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], toke
   for (const note of notes) {
     // A registry faucet is priced by its id even when its note still carries the placeholder's
     // guessed decimals, so an unknown scale leaves no total, as a missing quote does.
-    const quote = quotedPrice(tokenPrices, priceSymbolFor(note.faucetId, note.metadata.symbol));
+    const quote = tokenQuote(tokenPrices, note.faucetId, note.metadata.symbol);
     if (!quote || !hasKnownScale(note.metadata)) return null;
     // `amount` is a base-units bigint string; BigNumber keeps full integer
     // precision where Number(amount) would silently round above 2^53.

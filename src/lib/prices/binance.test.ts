@@ -208,6 +208,10 @@ describe('listedPrice', () => {
   it('returns 0 for a symbol the feed does not list, never the $1 default', () => {
     expect(listedPrice(prices, 'IMIDEN')).toBe(0);
   });
+
+  it('returns 0 for a quote that is not a price, as quotedPrice does', () => {
+    expect(listedPrice({ ETH: { price: -1, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBe(0);
+  });
 });
 
 describe('listedFiatValue', () => {

@@ -6,8 +6,7 @@ import CSSTransition from 'react-transition-group/CSSTransition';
 
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
-import { quotedPrice } from 'lib/prices';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { useWalletStore } from 'lib/store';
 
 type BalanceProps = {
@@ -39,7 +38,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
       if (!(token.balance > 0)) continue;
       holdsAnything = true;
       if (!hasKnownScale(token.metadata)) continue;
-      const quote = quotedPrice(tokenPrices, priceSymbolFor(token.tokenId, token.metadata.symbol));
+      const quote = tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol);
       if (!quote) continue;
       valuedAnything = true;
       totalFiat += token.balance * quote.price;

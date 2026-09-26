@@ -37,11 +37,10 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
-import { getSwapTokenByFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
+import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
-import { quotedPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
@@ -164,7 +163,7 @@ function formatFiatDisplayAmount(
 ): string | undefined {
   const displayAmount = new BigNumber(amount.toString());
   // No estimate for a token the feed does not quote, rather than its amount at $1 a unit.
-  const quote = quotedPrice(tokenPrices, faucetId ? priceSymbolFor(faucetId, tokenSymbol) : tokenSymbol);
+  const quote = tokenQuote(tokenPrices, faucetId, tokenSymbol);
 
   if (!displayAmount.isFinite() || !quote) {
     return undefined;

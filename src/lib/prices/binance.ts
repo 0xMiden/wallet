@@ -84,7 +84,7 @@ export function quotedPrice(prices: TokenPrices, symbol: string): TokenPriceInfo
  * send flow reads 0 as no price, so an unlisted token shows no fiat anywhere in it.
  */
 export function listedPrice(prices: TokenPrices, symbol: string): number {
-  return prices[symbol]?.price ?? 0;
+  return quotedPrice(prices, symbol)?.price ?? 0;
 }
 
 /**
