@@ -37,12 +37,20 @@ export interface FetchBalancesOptions {
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
   /**
-   * Queue for the WASM lock instead of skipping when it is busy. For a read whose
-   * caller has nothing to show until it lands (no balances for the address yet): a
-   * skipping read starves while the sync and note reads keep the lock's queue full.
+   * Queue for the WASM lock instead of skipping when it is busy. Every reader passes
+   * `balances[address] === undefined`: with nothing on screen yet, a skipping read
+   * starves while the sync and note reads keep the lock's queue full (#1123), while a
+   * refresh must never wait, or it reopens the SelectToken stall described below.
    */
   waitForLock?: boolean;
 }
+
+/**
+ * One balance read in flight per address across this realm's readers: the Ready-time
+ * read, the `useAllBalances` poll and the store action each skip an address held here,
+ * so none queues a second hold behind another's read. The holder releases it in `finally`.
+ */
+export const fetchingAddresses = new Set<string>();
 
 type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
 
@@ -148,12 +156,9 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
  * lock - during a transaction's `_withInnerWebClient` window the SDK runs an
  * un-locked read inline and double-borrows the WASM RefCell, trapping the
  * client. If the lock is busy this returns `null` (skip this refresh; the
- * caller keeps its prior balances and retries next cycle). `options.waitForLock`
- * queues for the lock instead (`withWasmClientLock`) and never returns `null`
- * for a busy lock, only when the `balances` sync fuse is lit: reserved for a
- * caller with nothing to show until this read lands, since anyone else waiting
- * on it reopens the same SelectToken stall the non-blocking default avoids.
- * Metadata fetching uses RpcClient directly and doesn't touch the WASM client,
+ * caller keeps its prior balances and retries next cycle). With
+ * `options.waitForLock` it queues instead and returns `null` only when the
+ * `balances` sync fuse is lit. Metadata fetching uses RpcClient directly and doesn't touch the WASM client,
  * so it stays outside the lock.
  */
 export async function fetchBalances(
@@ -172,8 +177,7 @@ export async function fetchBalances(
   // (or a `syncState` runs) an un-locked read would run inline / double-borrow
   // and trap the client. Acquiring the lock around the read closes that window.
   // By default this is a NON-BLOCKING attempt: we skip (not queue) when the
-  // lock is busy, so we never stall behind long writes. `waitForLock` queues
-  // instead, for the one caller with nothing on screen until this read lands.
+  // lock is busy, so we never stall behind long writes; `waitForLock` queues.
   // Bounded at the SYNC ceiling rather than left on the 5-minute backstop (#777): a
   // skipping read wins the instant-after-eviction window by chance; a waiting read
   // queued behind the evicted holder wins it reliably instead, since it is already

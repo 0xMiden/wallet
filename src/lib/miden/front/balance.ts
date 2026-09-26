@@ -3,11 +3,10 @@ import { useCallback, useEffect, useRef } from 'react';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { fetchBalances } from 'lib/store/utils/fetchBalances';
+import { fetchBalances, fetchingAddresses } from 'lib/store/utils/fetchBalances';
 
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
-import { isWasmClientBusy } from '../sdk/miden-client';
 
 export interface TokenBalanceData {
   tokenId: string;
@@ -42,9 +41,6 @@ function buildDefaultZeroBalance(): TokenBalanceData[] {
     }
   ];
 }
-
-// Global lock to prevent concurrent fetches to WASM client (per address)
-export const fetchingAddresses = new Set<string>();
 
 /**
  * useAllBalances - Hook to get all token balances for an account
@@ -84,7 +80,7 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   const fetchBalancesWithDeduping = useCallback(async () => {
     if (isExtension()) return;
 
-    // Check global lock - prevents concurrent calls across all component instances
+    // One read per address across every reader, the store's included (`fetchingAddresses`)
     if (fetchingAddresses.has(address)) return;
 
     // Until this address has balances, the read queues for the WASM lock instead of
@@ -93,7 +89,6 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // Once a figure is on screen, a refresh skips instead of queueing, so it never
     // stalls behind a write.
     const waitForLock = useWalletStore.getState().balances[address] === undefined;
-    if (!waitForLock && isWasmClientBusy()) return;
 
     // Read current value from store (not ref) to catch updates from prefetch
     const now = Date.now();
@@ -153,8 +148,8 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     fetchBalancesWithDeduping();
 
     // Set up polling interval. `isTestSyncPaused()` lets an E2E hook quiesce
-    // this poll (which bypasses the WASM lock) while it does its own
-    // single-threaded-WASM read — otherwise the read is livelocked on mobile.
+    // this poll (which contends for the WASM lock every tick) while it does its own
+    // single-threaded-WASM read - otherwise the read is livelocked on mobile.
     // No-op in production (tree-shaken).
     const intervalId = setInterval(() => {
       if (mountedRef.current && !isTestSyncPaused()) {
