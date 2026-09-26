@@ -1074,6 +1074,8 @@
   "seedRemovalBusy": "복구 문구를 제거하기 전에 현재 진행 중인 거래가 완료될 때까지 기다리십시오.",
   "seedRemovalKeysNotReady": "복구 문구를 삭제하기 전에 계정 복구 및 일상용 키 활성화를 완료하십시오.",
   "seedRequiredForAccountCreation": "계정 생성은 저장된 복구 문구가 필요합니다. 이 작업만을 위해 복구 문구를 입력하는 기능은 아직 지원되지 않습니다.",
+  "restoreAccountLookupFailed": "계정을 복구할 수 없습니다. 복구 문구는 정상입니다. 다시 복구를 시도해 주십시오. 자세한 내용: $reason$",
+  "createAccountLookupFailed": "계정을 생성할 수 없습니다. 다시 시도해 주십시오. 상세 정보: $reason$",
   "recoverySeedRequired": "이 작업을 수행하려면 복구 문구가 필요합니다.",
   "recoverySeedRequiredTitle": "복구 문구를 입력하세요",
   "recoverySeedTemporaryDescription": "종이 백업을 사용하십시오. 이 문구는 해당 작업에만 사용되며, 이 기기에는 저장되지 않습니다.",

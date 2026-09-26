@@ -4697,6 +4697,24 @@
     "message": "Hesap oluşturmak için önceden kaydedilmiş bir kurtarma ifadesi gereklidir. Yalnızca bu işlem için girmek henüz mümkün değildir.",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "Hesabınız kurtarılamadı. Kurtarma ifadeniz doğru. Lütfen geri yüklemeyi tekrar deneyin. Ayrıntılar: $reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "Hesap oluşturulamadı. Lütfen tekrar deneyin. Ayrıntılar: $reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "Bu işlem için kurtarma ifadeniz gereklidir.",
     "englishSource": "This action requires your recovery phrase."

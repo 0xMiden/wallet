@@ -4697,6 +4697,24 @@
     "message": "创建账户需要已保存的恢复短语。目前尚不支持仅为执行此操作而输入恢复短语。",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "您的账户无法恢复。您的恢复短语没有问题。请尝试再次恢复。详情请见：$reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "无法创建该账户。请重试。详情：$reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "此操作需要您的恢复短语。",
     "englishSource": "This action requires your recovery phrase."

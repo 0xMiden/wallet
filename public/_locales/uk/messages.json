@@ -4697,6 +4697,24 @@
     "message": "Для створення облікового запису необхідна збережена фраза відновлення. Введення її лише для цієї дії поки що недоступне.",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "Ваш обліковий запис не вдалося відновити. Ваша фраза відновлення правильна. Спробуйте відновити ще раз. Деталі: $reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "Не вдалося створити обліковий запис. Спробуйте ще раз. Деталі: $reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "Для цієї дії потрібна ваша фраза відновлення.",
     "englishSource": "This action requires your recovery phrase."

@@ -4697,6 +4697,24 @@
     "message": "La creación de una cuenta requiere una frase de recuperación almacenada. Aún no es posible introducirla solo para esta acción.",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "No se ha podido recuperar tu cuenta. Tu frase de recuperación es correcta. Intenta restaurarla de nuevo. Más información: $reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "No se ha podido crear la cuenta. Inténtalo de nuevo. Detalles: $reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "Esta acción requiere tu frase de recuperación.",
     "englishSource": "This action requires your recovery phrase."

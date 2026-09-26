@@ -1074,6 +1074,8 @@
   "seedRemovalBusy": "Wait for the current transactions to finish before removing the recovery phrase.",
   "seedRemovalKeysNotReady": "Finish account recovery and everyday key activation before removing the recovery phrase.",
   "seedRequiredForAccountCreation": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available.",
+  "restoreAccountLookupFailed": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+  "createAccountLookupFailed": "The account could not be created. Please try again. Details: $reason$",
   "recoverySeedRequired": "This action requires your recovery phrase.",
   "recoverySeedRequiredTitle": "Enter your recovery phrase",
   "recoverySeedTemporaryDescription": "Use your paper backup. The phrase is used only for this action and is not saved on this device.",

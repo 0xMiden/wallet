@@ -4697,6 +4697,24 @@
     "message": "アカウントの作成には、保存済みのリカバリーフレーズが必要です。この操作のためだけにそれを入力する機能は、現時点では利用できません。",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "アカウントを復元できませんでした。リカバリーフレーズに問題はありません。再度復元をお試しください。詳細：$reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "アカウントを作成できませんでした。もう一度お試しください。詳細：$reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "この操作には、リカバリーフレーズが必要です。",
     "englishSource": "This action requires your recovery phrase."

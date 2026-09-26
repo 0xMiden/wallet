@@ -1074,6 +1074,8 @@
   "seedRemovalBusy": "Espera a que finalicen las transacciones en curso antes de eliminar la frase de recuperación.",
   "seedRemovalKeysNotReady": "Finaliza la recuperación de la cuenta y la activación de la clave diaria antes de eliminar la frase de recuperación.",
   "seedRequiredForAccountCreation": "La creación de una cuenta requiere una frase de recuperación almacenada. Aún no es posible introducirla solo para esta acción.",
+  "restoreAccountLookupFailed": "No se ha podido recuperar tu cuenta. Tu frase de recuperación es correcta. Intenta restaurarla de nuevo. Más información: $reason$",
+  "createAccountLookupFailed": "No se ha podido crear la cuenta. Inténtalo de nuevo. Detalles: $reason$",
   "recoverySeedRequired": "Esta acción requiere tu frase de recuperación.",
   "recoverySeedRequiredTitle": "Introduce tu frase de recuperación",
   "recoverySeedTemporaryDescription": "Utiliza tu copia de seguridad en papel. La frase solo se utiliza para esta acción y no se guarda en este dispositivo.",
