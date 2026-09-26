@@ -78,6 +78,15 @@ jest.mock('lib/ui/drawer', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Capture the back handler the sheet registers (the hook's real body needs a mobile shell).
+const mockBack: { handler: (() => boolean | void) | null; options: unknown } = { handler: null, options: undefined };
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (handler: () => boolean | void, _deps: unknown, options: unknown) => {
+    mockBack.handler = handler;
+    mockBack.options = options;
+  }
+}));
+
 const makeProps = (overrides: Partial<GuardianInfoDrawerProps> = {}): GuardianInfoDrawerProps => ({
   open: true,
   onOpenChange: jest.fn(),
@@ -91,6 +100,23 @@ const renderDrawer = (props: GuardianInfoDrawerProps = makeProps()) => render(<G
 // ---------------------------------------------------------------------------
 
 describe('GuardianInfoDrawer', () => {
+  it('closes on the mobile back press while open, ahead of the page under it', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer(makeProps({ open: true, onOpenChange }));
+
+    expect(mockBack.options).toEqual({ overlay: true });
+    expect(mockBack.handler!()).toBe(true);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('leaves the back press alone while closed', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer(makeProps({ open: false, onOpenChange }));
+
+    expect(mockBack.handler!()).toBe(false);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it('forwards the open prop to the drawer scaffold when open', () => {
     renderDrawer(makeProps({ open: true }));
     expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'true');
@@ -149,8 +175,10 @@ describe('GuardianInfoDrawer', () => {
     // No rules across the sheet and no group fill: the rows sit on the sheet, as the testnet notice's do.
     expect(container.querySelectorAll('.border-b')).toHaveLength(0);
     expect(screen.getByText('guardianInfoWhatItDoesTitle').closest('[class*="bg-fill"]')).toBeNull();
-    // The shared FactRow, whose own test pins the hairline after the badge.
-    expect(container.querySelectorAll('[data-slot="fact-row"]')).toHaveLength(3);
+    // The shared FactRow, whose own test pins the hairline after the badge, in an inset plain ListGroup.
+    const rows = container.querySelectorAll('[data-slot="fact-row"]');
+    expect(rows).toHaveLength(3);
+    expect(rows[0]!.parentElement).toHaveClass('shrink-0', '[&>*]:before:left-[var(--row-flush-inset,0px)]');
     expect(screen.getByText('guardianInfoWhatItDoesDescription')).toHaveClass('text-caption-heading', 'text-muted');
   });
 

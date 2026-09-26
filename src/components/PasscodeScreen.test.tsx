@@ -35,7 +35,7 @@ const renderScreen = (props: Partial<React.ComponentProps<typeof PasscodeScreen>
   );
 
 describe('PasscodeScreen', () => {
-  it('groups the prompt and the keypad, splitting the free height 3:2 above and below', () => {
+  it('groups the prompt and the keypad, splitting the free height 1:2 above and below', () => {
     renderScreen();
 
     const layout = screen.getByTestId('passcode-screen-layout');

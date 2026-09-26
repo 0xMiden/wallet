@@ -138,7 +138,8 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
   const press = usePreset('press');
   // The card dips like the passcode keys, but only for a press on its own options button: the copy
-  // control is a sibling, so a whileTap on the card would dip it for a copy too.
+  // control is a sibling, so a whileTap on the card would dip it for a copy too. Only a primary press
+  // counts, as with framer's tap. Reduced motion keeps the dip, made instant by the preset's transition.
   const [pressed, setPressed] = useState(false);
 
   const deltaDirection = delta ? resolveDeltaDirection(delta) : 'neutral';
@@ -156,7 +157,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   return (
     <motion.div
       data-pressed={pressed || undefined}
-      animate={{ scale: pressed && press.whileTap ? CARD_PRESS_SCALE : 1 }}
+      animate={{ scale: pressed ? CARD_PRESS_SCALE : 1 }}
       transition={press.transition}
       className={classNames(
         'relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token',
@@ -174,7 +175,10 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         <button
           type="button"
           onClick={handleMoreClick}
-          onPointerDown={() => setPressed(true)}
+          onPointerDown={event => {
+            if (event.button > 0 || event.isPrimary === false) return;
+            setPressed(true);
+          }}
           onPointerUp={() => setPressed(false)}
           onPointerCancel={() => setPressed(false)}
           onPointerLeave={() => setPressed(false)}

@@ -33,6 +33,8 @@ describe('NetworkNoticeRows (#875)', () => {
     const rows = screen.getAllByRole('listitem');
     expect(rows).toHaveLength(3);
     for (const row of rows) expect(row).toHaveAttribute('data-slot', 'fact-row');
+    // In an inset plain ListGroup, so each row keeps its hairline after the icon.
+    expect(screen.getByRole('list')).toHaveClass('[&>*]:before:left-[var(--row-flush-inset,0px)]');
   });
 
   it('leads each fact with a decorative Settings-style icon in its card colour', () => {

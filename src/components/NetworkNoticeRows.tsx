@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
-import { cn } from 'lib/ui/util';
+import { ListGroup } from 'components/ui/ListGroup';
 
 export interface NetworkNoticeRow {
   /** Stable id, for test hooks: `no-value`, `no-real-funds`, `reset`. */
@@ -55,7 +55,7 @@ export const NetworkNoticeRows: FC<{ className?: string }> = ({ className }) => 
   const { t } = useTranslation();
 
   return (
-    <ul className={cn('flex flex-col', className)}>
+    <ListGroup as="ul" surface="plain" insetHairlines className={className}>
       {NETWORK_NOTICE_ROWS.map(row => (
         <FactRow
           key={row.titleKey}
@@ -70,6 +70,6 @@ export const NetworkNoticeRows: FC<{ className?: string }> = ({ className }) => 
           description={t(row.bodyKey)}
         />
       ))}
-    </ul>
+    </ListGroup>
   );
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 import { Trans, useTranslation } from 'react-i18next';
 
@@ -6,6 +6,8 @@ import { ReactComponent as WhatIsGuardianHero } from 'app/icons/onboarding/what-
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 export interface GuardianInfoDrawerProps {
@@ -20,6 +22,19 @@ export interface GuardianInfoDrawerProps {
  */
 export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+
+  // Mobile back closes the sheet before the page or flow under it handles the press.
+  useMobileBackHandler(
+    () => {
+      if (!open) return false;
+      onOpenChangeRef.current(false);
+      return true;
+    },
+    [open],
+    { overlay: true }
+  );
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
@@ -35,7 +50,7 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
             <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="text-body-strong" /> }} />
           </p>
 
-          <div className="flex flex-col">
+          <ListGroup surface="plain" insetHairlines className="shrink-0">
             <FactRow
               titleAs="h3"
               leading={
@@ -66,7 +81,7 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
               title={t('guardianInfoWhatItCannotDoTitle')}
               description={t('guardianInfoWhatItCannotDoDescription')}
             />
-          </div>
+          </ListGroup>
 
           <div className="flex justify-center">
             <Button title={t('gotIt')} onClick={() => onOpenChange(false)} />

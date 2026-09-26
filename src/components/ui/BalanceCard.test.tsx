@@ -262,6 +262,28 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(card).toHaveAttribute('data-animate-scale', '1');
   });
 
+  it('dips only for a primary press: not a right click, not a second finger', () => {
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" onMore={jest.fn()} />);
+    const card = container.firstElementChild;
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    // jsdom has no PointerEvent, so a MouseEvent carries the fields React reads.
+    const press = (init: MouseEventInit, isPrimary?: boolean) => {
+      const event = new MouseEvent('pointerdown', { bubbles: true, ...init });
+      if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
+      act(() => {
+        options.dispatchEvent(event);
+      });
+    };
+
+    press({ button: 2 });
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    press({ button: 0 }, false);
+    expect(card).not.toHaveAttribute('data-pressed');
+    expect(card).toHaveAttribute('data-animate-scale', '1');
+  });
+
   // Reduced motion keeps the press preset's feedback and makes it instant, as every press does.
   it('dips on the press spring, and instantly under reduced motion', () => {
     const first = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" onMore={jest.fn()} />);

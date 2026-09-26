@@ -32,3 +32,20 @@ describe('ListGroup surfaces', () => {
     expect(container.firstChild).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
   });
 });
+
+describe('ListGroup options', () => {
+  it('renders a list as a ul', () => {
+    const { container } = render(<ListGroup as="ul">{[<li key="a" />]}</ListGroup>);
+    expect((container.firstChild as HTMLElement).tagName).toBe('UL');
+  });
+
+  it("lets a plain group keep each row's own inset, read from the row's --row-flush-inset", () => {
+    const { container } = render(
+      <ListGroup surface="plain" insetHairlines>
+        {[<div key="a" />]}
+      </ListGroup>
+    );
+    expect(container.firstChild).toHaveClass('[&>*]:px-0', '[&>*]:before:left-[var(--row-flush-inset,0px)]');
+    expect(container.firstChild).not.toHaveClass('[&>*]:before:left-0');
+  });
+});

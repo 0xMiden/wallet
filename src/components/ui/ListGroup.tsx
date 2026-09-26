@@ -20,6 +20,14 @@ export interface ListGroupProps {
    *   sits: Activity's rows, pending transfers, Earn's cards, the home prompt card.
    */
   surface?: 'fill' | 'plain' | 'outline';
+  /** `ul` for a list whose rows are `li`s. */
+  as?: 'div' | 'ul';
+  /**
+   * `plain` only: each row keeps its own hairline inset instead of running the full width, read from
+   * the row's `--row-flush-inset` (its leading visual plus gap: `CheckboxRow`, `FactRow`). A row that
+   * declares none still runs full width.
+   */
+  insetHairlines?: boolean;
   /** Layout only (margins, width). */
   className?: string;
   'aria-label'?: string;
@@ -35,11 +43,13 @@ export interface ListGroupProps {
 export const ListGroup: React.FC<ListGroupProps> = ({
   children,
   surface = 'fill',
+  as: Group = 'div',
+  insetHairlines = false,
   className,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => (
-  <div
+  <Group
     className={cn(
       'flex flex-col overflow-hidden',
       surface === 'fill' && 'rounded-2xl bg-fill',
@@ -47,12 +57,15 @@ export const ListGroup: React.FC<ListGroupProps> = ({
       surface === 'outline' && ['rounded-2xl', outlineSurfaceClassName],
       // No surface to inset from: the rows' content sits on the page margin and their hairlines
       // run the full width, so a plain group lines up with the page's other content.
-      surface === 'plain' && '[&>*]:px-0 [&>*]:before:left-0',
+      surface === 'plain' &&
+        (insetHairlines
+          ? '[&>*]:px-0 [&>*]:before:left-[var(--row-flush-inset,0px)]'
+          : '[&>*]:px-0 [&>*]:before:left-0'),
       className
     )}
     aria-label={ariaLabel}
     data-testid={dataTestId}
   >
     {children}
-  </div>
+  </Group>
 );

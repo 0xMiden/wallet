@@ -179,8 +179,10 @@ export const CheckboxRow: React.FC<CheckboxRowProps> = ({
         'transition-colors duration-150 ease-hover active:bg-fill-pressed motion-reduce:transition-none',
         'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset',
         'disabled:cursor-default disabled:opacity-50',
-        // The hairline above every row but the first, starting after the box, as `ListRow` draws it.
+        // The hairline above every row but the first, starting after the box, as `ListRow` draws it;
+        // flush (an inset plain `ListGroup`), the 22px box and the 14px gap.
         'before:absolute before:top-0 before:right-0 before:left-[52px] before:h-px before:bg-hairline first:before:hidden',
+        '[--row-flush-inset:36px]',
         className
       )}
     >

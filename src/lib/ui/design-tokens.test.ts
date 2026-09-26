@@ -246,8 +246,9 @@ describe('card colors are the brand colors', () => {
 // - the amount (40-56px extrabold) and the currency (22px bold) are large text: 3:1 on the bare
 //   color. White on the brand orange is 3.0:1, which is why they may never shrink below 18.66px bold.
 // - the label (15px bold) sits on the bare color too, by choice: the card keeps its plain brand
-//   color, so in light mode it falls under 4.5:1 on every color but slate. The footer (13px bold)
-//   sits on `surface-balance-footer`, which clears 4.5:1 on every color but orange. Neither is pinned.
+//   color, so in light mode it falls under 4.5:1 on every color but slate. Not pinned.
+// - the footer (13px bold) sits on `surface-balance-footer`, which clears 4.5:1 on every color but
+//   light orange (4.47:1, accepted under rule 7). Pinned below.
 // - the change pill (14px) is small text: 4.5:1 on `surface-balance-pill` over the color.
 describe.each([':root', '.dark'] as const)('balance card ink on every card color in %s', selector => {
   const vars = themeVars(selector);
@@ -264,6 +265,14 @@ describe.each([':root', '.dark'] as const)('balance card ink on every card color
 
   it.each(CARD_COLORS)('%s carries the large amount and currency at 3:1 on the bare color', color => {
     expect(contrast(need('surface-balance-fg'), card(color))).toBeGreaterThanOrEqual(3);
+  });
+
+  // The footer's well: 4.5:1 everywhere but light orange, held to its documented 4.47:1 (4.468 unrounded).
+  it.each(CARD_COLORS)('%s carries the footer on its well', color => {
+    const floor = selector === ':root' && color === 'orange' ? 4.46 : 4.5;
+    expect(
+      contrast(need('surface-balance-fg'), over(need('surface-balance-footer'), card(color)))
+    ).toBeGreaterThanOrEqual(floor);
   });
 
   it.each(CARD_COLORS)('%s carries the change pill at 4.5:1', color => {

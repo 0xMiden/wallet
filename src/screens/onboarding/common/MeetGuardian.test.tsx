@@ -364,3 +364,53 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByText('meetGuardianOnlyOperator')).toBeInTheDocument();
   });
 });
+
+describe('MeetGuardianScreen: shared pieces', () => {
+  it('draws the header, the guarantees and the checklist from the shared components', () => {
+    const view = renderScreen();
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 120 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 42 }
+    });
+
+    // The header is SectionHeader, flush, with the info action as its action.
+    const header = screen.getByTestId('meet-guardian-header');
+    expect(header).toHaveClass('px-0', 'pb-0');
+    expect(within(header).getByRole('heading', { level: 2 })).toHaveTextContent('meetGuardianYourGuardian');
+    expect(within(header).getByTestId('meet-guardian-info')).toBeInTheDocument();
+
+    // The guarantees are FactRow items with a small tinted IconCircle, in an outlined list.
+    const list = screen.getByTestId('meet-guardian-guarantees');
+    expect(list.tagName).toBe('UL');
+    expect(list).toHaveClass('rounded-2xl', 'border', 'border-hairline');
+    const items = Array.from(list.children);
+    expect(items).toHaveLength(3);
+    for (const item of items) {
+      expect(item.tagName).toBe('LI');
+      expect(item).toHaveAttribute('data-slot', 'fact-row');
+      expect(item.querySelector('[data-slot="icon"]')).toHaveClass('size-5', 'bg-positive-tint');
+    }
+
+    // The checklist keeps each row's own inset through ListGroup, not a page override, and its full height.
+    const group = screen.getAllByRole('checkbox')[0]!.parentElement!;
+    expect(group).toHaveClass('shrink-0', '[&>*]:before:left-[var(--row-flush-inset,0px)]');
+    expect(group.className).not.toContain('before:left-9');
+
+    // A long operator name clips inside its column.
+    expect(screen.getByTestId('meet-guardian-name')).toHaveClass('truncate', 'max-w-full');
+  });
+
+  it('offers the one change action, the row, while checking and when no operator answers', () => {
+    const view = renderScreen();
+    const row = () => screen.getByTestId('meet-guardian-choose-different');
+    expect(screen.getByTestId('meet-guardian-checking')).toContainElement(row());
+    expect(row()).toHaveClass('w-full', 'justify-between');
+
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'offline' },
+      [GATEWAY.endpoint]: { status: 'offline' }
+    });
+    expect(screen.getByTestId('meet-guardian-none-reachable')).toBeInTheDocument();
+    expect(row()).toHaveClass('w-full', 'justify-between');
+  });
+});

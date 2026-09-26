@@ -7,16 +7,16 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { CheckboxRow } from 'components/ui/Checkbox';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
 import { StatusBadge } from 'components/ui/StatusBadge';
-import { outlineSurfaceClassName } from 'components/ui/surfaces';
 import { TextAction } from 'components/ui/TextAction';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
-import { cn } from 'lib/ui/util';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { GuardianInfoDrawer } from './GuardianInfoDrawer';
@@ -129,8 +129,9 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const bioKey = chosen ? OPERATOR_BIO_KEYS[chosen.id] : undefined;
 
+  // One action in every state: the full-width row that closes the section, ruled off from the checklist.
   const chooseDifferent = noOperators ? null : (
-    <TextAction className="-mx-1 self-start" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
+    <TextAction layout="row" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
       {t('chooseDifferentGuardian')}
     </TextAction>
   );
@@ -160,20 +161,26 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
       {/* The Guardian leads the page, there from the start, and the facts that explain it follow.
           Both blocks keep their full height so the body scrolls rather than squashing them. */}
       <section data-testid="meet-guardian-section" className="flex shrink-0 flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-label text-muted">{t('meetGuardianYourGuardian')}</h2>
-          <TextAction className="-mx-1 gap-1.5" data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
-            <Icon name={IconName.Information} size="sm" fill="currentColor" />
-            {t('whatIsAGuardian')}
-          </TextAction>
-        </div>
+        <SectionHeader
+          className="px-0 pb-0"
+          data-testid="meet-guardian-header"
+          action={
+            <TextAction className="-mx-1 gap-1.5" data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
+              <Icon name={IconName.Information} size="sm" fill="currentColor" />
+              {t('whatIsAGuardian')}
+            </TextAction>
+          }
+        >
+          {t('meetGuardianYourGuardian')}
+        </SectionHeader>
 
         {chosen ? (
           <div data-testid="meet-guardian-card" className="flex flex-col" aria-busy={chosenVerdict === undefined}>
             <div className="flex items-center gap-3">
               <GuardianLogoTile guardianId={chosen.id} />
               <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
-                <span className="truncate text-title-page text-ink" data-testid="meet-guardian-name">
+                {/* max-w-full: in an items-start column a truncating span is otherwise as wide as its text. */}
+                <span className="max-w-full truncate text-title-page text-ink" data-testid="meet-guardian-name">
                   {chosen.name}
                 </span>
                 {/* "Fastest" is true of the operator locked in here, not of one picked in the full picker. */}
@@ -198,35 +205,23 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
             <p className="mt-2.5 text-caption-heading text-muted">{t(bioKey ?? 'guardianBioGeneric')}</p>
 
             {/* What every operator guarantees, in an outlined list with a positive disc per line. */}
-            <ul
-              data-testid="meet-guardian-guarantees"
-              className={cn('mt-3.5 flex flex-col rounded-2xl px-3 py-1', outlineSurfaceClassName)}
-            >
+            <ListGroup as="ul" surface="outline" className="mt-3.5 px-3 py-1" data-testid="meet-guardian-guarantees">
               {GUARDIAN_GUARANTEE_KEYS.map(key => (
-                <li
+                <FactRow
                   key={key}
-                  className="relative flex items-center gap-2.5 py-2.5 before:absolute before:top-0 before:right-0 before:left-7.5 before:h-px before:bg-hairline first:before:hidden"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="flex size-5 shrink-0 items-center justify-center rounded-full bg-positive-tint text-positive-tint-ink"
-                  >
-                    <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
-                  </span>
-                  <span className="text-value text-ink">{t(key)}</span>
-                </li>
+                  as="li"
+                  variant="item"
+                  leading={
+                    <IconCircle size="sm" className="bg-positive-tint text-positive-tint-ink">
+                      <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
+                    </IconCircle>
+                  }
+                  title={t(key)}
+                />
               ))}
-            </ul>
+            </ListGroup>
 
-            {/* The change action closes the section: a full-width row, ruled off from the checklist. */}
-            <TextAction
-              layout="row"
-              className="mt-1.5"
-              data-testid="meet-guardian-choose-different"
-              onClick={onChooseDifferent}
-            >
-              {t('chooseDifferentGuardian')}
-            </TextAction>
+            <div className="mt-1.5">{chooseDifferent}</div>
           </div>
         ) : noneReachable ? (
           <div className="flex flex-col gap-3">
@@ -251,7 +246,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
       </section>
 
       {/* Plain rows on the page, like the testnet notice before it; the hairlines start after the box. */}
-      <ListGroup surface="plain" className="shrink-0 [&>*]:before:left-9">
+      <ListGroup surface="plain" insetHairlines className="shrink-0">
         {MEET_GUARDIAN_POINTS.map(point => (
           <CheckboxRow
             key={point.id}

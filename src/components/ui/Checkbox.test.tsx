@@ -108,6 +108,11 @@ describe('CheckboxIndicator', () => {
 });
 
 describe('CheckboxRow', () => {
+  it('declares its flush inset (the 22px box and the 14px gap) for an inset plain ListGroup', () => {
+    render(<CheckboxRow data-testid="row" title="Fact" checked={false} onCheckedChange={() => {}} />);
+    expect(screen.getByTestId('row')).toHaveClass('[--row-flush-inset:36px]', 'before:left-[52px]');
+  });
+
   it('is one checkbox named by its title and described by its description', () => {
     render(<Row />);
     const box = screen.getByRole('checkbox', { name: 'Test tokens are not money' });
