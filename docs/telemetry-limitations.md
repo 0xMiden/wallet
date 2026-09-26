@@ -517,10 +517,6 @@ end, and a complete `receive_share` pair. Neither corresponded to anything the
 user did. The swap itself, which had no instrumentation yet, reported nothing.
 Every event was an artifact of the carousel.
 
-The same holds beyond the carousel for any page kept mounted: a visited tab, or a
-page a slide page covers. A view flow begun on mount there must also end when
-`usePageActive()` turns false, as `AllHistory` does for `activity_view`.
-
 So screens in the home group gate on `pathname` — the carousel's own source of
 truth for which page is showing — rather than on mount, and then on that route
 holding still for 600ms rather than merely being current, because every swipe
@@ -534,6 +530,10 @@ release navigates and a crossing is not a visit. See `SendManager`,
 - **`instrumentation-coverage.test.ts` cannot catch this class of bug.** It
   proves a flow is begun somewhere, not that the place it is begun means what
   the flow's name claims. Only a real build against the sink showed it.
+
+Outside the carousel, the same trap holds for any page kept mounted: a visited
+tab, or a page a slide page covers. A view flow begun on mount there must also
+end when `usePageActive()` turns false, as `AllHistory` does for `activity_view`.
 
 ## Coupling to be aware of
 
