@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
 
@@ -63,10 +65,10 @@ jest.mock('lib/store', () => ({
     selector({ tokenPrices: mockTokenPrices })
 }));
 
-const mockGetTokenPrice = jest.fn();
+// The kline fetch is stubbed; the price lookup is the real one, reading `mockTokenPrices`.
 const mockFetchKlineData = jest.fn();
 jest.mock('lib/prices', () => ({
-  getTokenPrice: (...args: unknown[]) => mockGetTokenPrice(...args),
+  quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
   fetchKlineData: (...args: unknown[]) => mockFetchKlineData(...args)
 }));
 
@@ -235,6 +237,7 @@ type Overrides = {
   metadata?: Record<string, unknown>;
   network?: { name: string };
   priceInfo?: { price: number; change24h: number; percentageChange24h?: number };
+  tokenPrices?: Record<string, unknown>;
   klineData?: unknown;
   /** The first kline load still in flight: SWR reports `data: undefined`. */
   klineLoading?: boolean;
@@ -251,7 +254,10 @@ function configure(o: Overrides = {}) {
   });
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockUseNetwork.mockReturnValue(o.network ?? { name: 'Testnet' });
-  mockGetTokenPrice.mockReturnValue(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 });
+  // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
+  mockTokenPrices = o.tokenPrices ?? {
+    ETH: { percentageChange24h: 0, ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }) }
+  };
   mockGetExplorerAccountUrl.mockReturnValue(
     o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
   );
@@ -293,6 +299,28 @@ describe('TokenDetail', () => {
     // Standard 2dp balance formatting and fiatValue = 12.5 * 2000.
     expect(screen.getByText('12.50')).toBeInTheDocument();
     expect(screen.getByText('$25000.00')).toBeInTheDocument();
+  });
+
+  it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
+    configure({
+      balances: [{ tokenId: TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
+      tokenPrices: { ETH: { price: 3000, change24h: 1.5, percentageChange24h: 0.05 } }
+    });
+    render(<TokenDetail tokenId={TOKEN_IETH.faucetId} />);
+
+    // 0.38 * 3000, never 0.38 * $1.
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$1140.00')).toBeInTheDocument();
+    expect(mockFetchKlineData).toHaveBeenCalledWith('ETH', '1D');
+  });
+
+  it('shows no fiat line and no price section for a token the feed does not quote', () => {
+    renderPage({ tokenPrices: {} });
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    // No fiat line at all, not even the dash that means "not priced yet".
+    expect(hero.querySelector('p')).toBeNull();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
   });
 
   it('draws the shared Hero: the 88px logo circle, the amount as the value and the fiat line muted', () => {
