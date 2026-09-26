@@ -1091,6 +1091,32 @@ describe('RevealSeedPhrase', () => {
     expect(container.querySelector('[data-testid="error-caption"]')).toBeNull();
   });
 
+  // The rejection lands while the drawer is still open, so the catch is already inside
+  // its 300ms delay when the user closes it; the guard has to hold across that await.
+  it('discards a rejected password reveal when the drawer is closed during its error delay', async () => {
+    mockIsMobile = false;
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockRevealMnemonic.mockRejectedValueOnce(new Error('wrong password'));
+    const container = await renderAndView();
+
+    await typePassword(container, 'my-password');
+    await act(async () => {
+      (buttonWithText(container, 'continue') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    await act(async () => {
+      (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
+    });
+    await flushErrorDelay();
+
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+    await clickView(container);
+
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+    expect(container.querySelector('[data-testid="error-caption"]')).toBeNull();
+  });
+
   // Hide must land back on the warning, not on the auth branch's closed drawer with
   // nothing to interact with (#1122).
   it('returns to the warning when the phrase is hidden', async () => {

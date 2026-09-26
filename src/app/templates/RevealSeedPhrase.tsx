@@ -276,11 +276,10 @@ const RevealSeedPhrase: FC = () => {
         setSecret(mnemonic);
         setShowPasswordDrawer(false);
       } catch (err: any) {
-        // Same generation guard as the hardware catch in `handleView`: a rejection from a
-        // submit the user has already left (leave() bumps the generation) must not write
-        // a form error onto an instance nobody is looking at any more.
-        if (generation !== secretGeneration.current) return;
         await new Promise(res => setTimeout(res, 300));
+        // Checked after the delay, as RevealSecret does: leave() bumps the generation, and
+        // the user can leave while this await runs, so a guard above it protects nothing.
+        if (generation !== secretGeneration.current) return;
         setError('password', { type: 'submit-error', message: err.message });
       } finally {
         setIsSubmitting(false);
