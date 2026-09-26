@@ -24,6 +24,7 @@ import {
   savePlain
 } from './safe-storage';
 import { Vault } from './vault';
+import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
 
 jest.setTimeout(30_000);
 
@@ -2945,6 +2946,22 @@ describe('Vault hardware branches', () => {
     expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(2);
   });
 
+  it('gives a seed-path network failure after the first scheme misses no not-found code', async () => {
+    // The first scheme's miss is a definite "nothing here" (caught and folded to
+    // [] inside scanUnder); the second scheme's network error is an unrelated
+    // failure that must reach the caller as itself, not as a not-found.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.recoverGuardianAccountsBySeed
+      .mockRejectedValueOnce(new NoGuardianAccountsFoundError())
+      .mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-network', VALID_MNEMONIC, true);
+    await expect(spawning).rejects.toThrow(PublicError);
+    await expect(spawning).rejects.toMatchObject({ message: 'Failed to fetch' });
+    await expect(spawning).rejects.not.toHaveProperty('code');
+  });
+
   it('Vault.spawn re-throws a PublicError from the recovery lookup unchanged', async () => {
     // The lookup may already be raising a user-facing error; promoting it a
     // second time would be a pointless re-wrap, and `withError` passes
@@ -4230,6 +4247,28 @@ describe('Vault.spawnFromHotKey', () => {
     await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(
       'No Guardian account was found for this key'
     );
+  });
+
+  it('keeps the not-found code on the rethrown PublicError', async () => {
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+      new NoGuardianAccountsFoundError('No Guardian account was found for this key at this Guardian.')
+    );
+
+    const promise = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+
+    await expect(promise).rejects.toMatchObject({ code: GUARDIAN_ACCOUNT_NOT_FOUND });
+    await expect(promise).rejects.toBeInstanceOf(PublicError);
+  });
+
+  it('gives a timeout no not-found code', async () => {
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+      new Error('RPC "recoverGuardianByKey" timed out after 30000ms')
+    );
+
+    const promise = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+
+    await expect(promise).rejects.toMatchObject({ message: 'RPC "recoverGuardianByKey" timed out after 30000ms' });
+    await expect(promise).rejects.not.toHaveProperty('code');
   });
 
   it('requires a password when hardware protection is unavailable', async () => {
