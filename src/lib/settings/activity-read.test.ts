@@ -116,15 +116,28 @@ describe('several windows (#1106)', () => {
     expect(isActivityRead(getActivityReadState(), 'tx:b', NOW_S + 20)).toBe(true);
   });
 
-  it('takes the later mark and the later read time when both windows hold one', () => {
+  it("keeps this window's later mark when another window writes an older one", () => {
+    writeFromOtherWindow({ seenBefore: NOW_S + 15, ids: {} });
     getActivityReadState();
-    markActivityRead('tx:a', NOW_S + 10);
-    writeFromOtherWindow({ seenBefore: NOW_S + 15, ids: { 'tx:b': NOW_S + 40 } });
+
+    storageEvent(ACTIVITY_READ_STORAGE_KEY, JSON.stringify({ seenBefore: NOW_S, ids: { 'tx:b': NOW_S + 20 } }));
+
+    const state = getActivityReadState();
+    expect(isActivityRead(state, 'tx:x', NOW_S + 12)).toBe(true);
+    expect(isActivityRead(state, 'tx:b', NOW_S + 20)).toBe(true);
+  });
+
+  it("keeps the other window's later read time of a row both windows marked, and drops rows its mark covers", () => {
+    getActivityReadState();
+    markActivityRead('tx:a', NOW_S + 6);
+    // A row with no usable timestamp is recorded at the time it was read: NOW_S + 5 here.
+    jest.spyOn(Date, 'now').mockReturnValue(NOW_MS + 5_000);
+    markActivityRead('note:x', Number.NaN);
+    writeFromOtherWindow({ seenBefore: NOW_S + 7, ids: { 'note:x': NOW_S + 9 } });
 
     markActivityRead('tx:c', NOW_S + 50);
 
-    // tx:a sits under the other window's later mark now, so compaction drops its own row.
-    expect(stored()).toEqual({ seenBefore: NOW_S + 15, ids: { 'tx:b': NOW_S + 40, 'tx:c': NOW_S + 50 } });
+    expect(stored()).toEqual({ seenBefore: NOW_S + 7, ids: { 'note:x': NOW_S + 9, 'tx:c': NOW_S + 50 } });
   });
 
   it('keeps the later read time of a row both windows marked, so the later mark cannot drop it', () => {
