@@ -264,8 +264,8 @@ const renderExplore = async () => {
 };
 
 /**
- * jsdom has no `matchMedia`, which is exactly the realm the real AnimatedNumber refuses to
- * animate in — so the default here is the settled value, synchronously, and a test that wants the
+ * jsdom has no `matchMedia`, which is exactly the realm the real AnimatedNumber refuses to animate
+ * in. The default here is therefore the settled value, synchronously, and a test that wants the
  * travelling behaviour opts in by installing one.
  */
 function installMatchMedia() {
