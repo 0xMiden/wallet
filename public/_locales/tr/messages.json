@@ -2747,6 +2747,10 @@
     "message": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanır. Kurtarma ifadeniz gerekli değildir ve paranız ile hesabınız aynı kalır. Devam etmek istiyor musunuz?",
     "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
+  "replaceHotKeyConfirmationSeedRequired": {
+    "message": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanır. İmzalamak için kurtarma ifadeniz istenecek ve paranız ile hesabınız aynı kalacaktır. Devam etmek istiyor musunuz?",
+    "englishSource": "This is signed with your recovery (cold) key. You will be asked for your recovery phrase to sign it, and your funds and account stay the same. Continue?"
+  },
   "confirmReplaceHotKey": {
     "message": "Dönüşü onayla",
     "englishSource": "Confirm rotation"

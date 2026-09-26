@@ -2747,6 +2747,10 @@
     "message": "이 작업은 복구(콜드) 키로 서명됩니다. 복구 문구는 필요하지 않으며, 자금과 계정은 그대로 유지됩니다. 계속하시겠습니까?",
     "englishSource": "This is signed with your recovery (cold) key. Your recovery phrase is not required, and your funds and account stay the same. Continue?"
   },
+  "replaceHotKeyConfirmationSeedRequired": {
+    "message": "이 항목은 귀하의 복구(콜드) 키로 서명됩니다. 서명하기 위해 복구 문구를 입력하라는 메시지가 표시되며, 귀하의 자산과 계좌는 그대로 유지됩니다. 계속하시겠습니까?",
+    "englishSource": "This is signed with your recovery (cold) key. You will be asked for your recovery phrase to sign it, and your funds and account stay the same. Continue?"
+  },
   "confirmReplaceHotKey": {
     "message": "회전 확인",
     "englishSource": "Confirm rotation"
