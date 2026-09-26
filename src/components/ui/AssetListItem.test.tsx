@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import AssetListItemDefault, { AssetListItem } from './AssetListItem';
+import AssetListItemDefault, { AssetListItem, AssetListItemSkeleton } from './AssetListItem';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -186,5 +186,21 @@ describe('AssetListItem', () => {
       expect(hapticLight).not.toHaveBeenCalled();
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
     });
+  });
+});
+
+describe('AssetListItemSkeleton', () => {
+  it('stands in for a row with the row height and no text', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    const row = screen.getByTestId('skeleton-row');
+    expect(row).toHaveClass('h-18');
+    expect(row).toHaveTextContent('');
+  });
+
+  it('draws a round icon block and pulsing bars where the name, amount, price and change go', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    const blocks = screen.getByTestId('skeleton-row').querySelectorAll('[data-slot="skeleton"]');
+    expect(blocks).toHaveLength(5);
+    expect(blocks[0]).toHaveClass('rounded-full', 'w-9', 'h-9');
   });
 });
