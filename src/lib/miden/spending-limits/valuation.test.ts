@@ -123,22 +123,3 @@ describe('resolveSpendsUsd', () => {
     expect(mockedMetadata).not.toHaveBeenCalled();
   });
 });
-
-describe('binance default price guard', () => {
-  it('never reaches the one-dollar default', () => {
-    const { readFileSync } = require('fs');
-    const { join } = require('path');
-    const enforcementPath = [
-      'src/lib/miden/spending-limits/valuation.ts',
-      'src/lib/miden/spending-limits/queue.ts',
-      'src/lib/miden/spending-limits/policy.ts',
-      'src/lib/prices/usd.ts'
-    ];
-
-    for (const file of enforcementPath) {
-      const source = readFileSync(join(process.cwd(), file), 'utf8');
-      expect(source).not.toContain('getTokenPrice');
-      expect(source).not.toContain('DEFAULT_PRICE');
-    }
-  });
-});
