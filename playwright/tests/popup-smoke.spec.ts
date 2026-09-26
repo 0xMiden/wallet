@@ -257,7 +257,7 @@ test.describe('Fullpage UI', () => {
     await expect(seedForm.locator('#seed-phrase-input-1')).toBeFocused();
 
     // The extension is a desktop surface: there is no soft keyboard for Done to dismiss, so
-    // Enter on the last word keeps focus there instead of blurring to the grid.
+    // Enter on the last word keeps focus there instead of blurring to body.
     const last = seedForm.locator('#seed-phrase-input-11');
     await last.fill('about');
     await last.press('Enter');
