@@ -7,7 +7,7 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
 
 export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetStateAction<T>) => Promise<void>] {
-  const { data, mutate } = useRetryableSWR<T>(key, fetchFromStorage as (key: string) => Promise<T>, {
+  const { data, mutate } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
@@ -35,7 +35,7 @@ export function useStorage<T = any>(key: string, fallback?: T): [T, (val: SetSta
 }
 
 export function usePassiveStorage<T = any>(key: string, fallback?: T): [T, Dispatch<SetStateAction<T>>] {
-  const { data } = useRetryableSWR<T>(key, fetchFromStorage as (key: string) => Promise<T>, {
+  const { data } = useRetryableSWR<T>(key, fetchForHook as (key: string) => Promise<T>, {
     suspense: true,
     revalidateOnFocus: false,
     revalidateOnReconnect: false
@@ -101,10 +101,20 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   }
 }
 
+// Each key's preload read still in flight. A hook read or a later preload removes or replaces the entry, so a preload
+// still holding it when it lands is the key's newest read and replaces whatever the cache holds.
+const preloadReads = new Map<string, Promise<unknown>>();
+
+function fetchForHook<T>(key: string): Promise<T | null> {
+  preloadReads.delete(key);
+  return fetchFromStorage<T>(key);
+}
+
 /**
  * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
  * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
  * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
+ * A key whose read a hook or a later preload started meanwhile is left to that newer read.
  * Settles only after every key has, calling `onSettled` once per key; rejects once, naming each key that failed.
  */
 export async function preloadStorage(
@@ -113,11 +123,14 @@ export async function preloadStorage(
 ): Promise<void> {
   const results = await Promise.allSettled(
     keys.map(async key => {
+      const read = fetchFromStorage(key);
+      preloadReads.set(key, read);
       try {
-        const value = await fetchFromStorage(key);
-        // A preload that lands after a hook's own read or a storage-change event must not replace that newer value.
-        await mutate(key, (current: unknown) => (current === undefined ? value : current), { revalidate: false });
+        const value = await read;
+        if (preloadReads.get(key) !== read) return;
+        await mutate(key, value, { revalidate: false });
       } finally {
+        if (preloadReads.get(key) === read) preloadReads.delete(key);
         onSettled?.(key);
       }
     })
