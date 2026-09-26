@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ExploreCatalog, RecentDapp } from 'lib/dapp-browser';
+import { buildFaviconUrl } from 'lib/dapp-browser/favicon-cache';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import { DappLauncher } from './index';
@@ -15,6 +16,7 @@ jest.mock('lib/feature-flags', () => ({ isSwapEnabled: () => true }));
 let mockRecents: RecentDapp[] = [];
 jest.mock('lib/dapp-browser', () => ({
   ...jest.requireActual('lib/dapp-browser/explore-catalog'),
+  getFaviconUrl: jest.requireActual('lib/dapp-browser/favicon-cache').getFaviconUrl,
   getRecentDapps: () => Promise.resolve(mockRecents)
 }));
 
@@ -127,6 +129,12 @@ describe('DappLauncher', () => {
     expect(recent.querySelector('[data-slot="chevron"]')).not.toBeNull();
     const catalogRow = within(screen.getByTestId('explore-section-games')).getByTestId('dapp-grid-card');
     expect(catalogRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    // A vertical plain group, like a catalog list: not a sideways scroller, not a fill card.
+    expect(screen.getByTestId('explore-recents')).toHaveClass('px-4');
+    const group = recent.parentElement!;
+    expect(group).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
+    expect(group).not.toHaveClass('bg-fill');
+    expect(group).not.toHaveClass('overflow-x-auto');
   });
 
   it("draws a Recents row's logo from the dApp's favicon", async () => {
@@ -137,6 +145,15 @@ describe('DappLauncher', () => {
     const logo = recentRow.querySelector('[data-slot="app-icon"]');
     expect(logo).not.toHaveAttribute('data-letter');
     expect(logo?.querySelector('img')).toHaveAttribute('src', 'https://recent.example/favicon.ico');
+  });
+
+  it("falls back to the site's logo by origin when a recent has no favicon, as the capsule bar does", async () => {
+    await renderLauncher();
+
+    const recentRow = within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row');
+    const logo = recentRow.querySelector('[data-slot="app-icon"]');
+    expect(logo).not.toHaveAttribute('data-letter');
+    expect(logo?.querySelector('img')).toHaveAttribute('src', buildFaviconUrl('https://recent.example'));
   });
 
   it('lays several featured apps side by side in one scrolling row, each opening its own app', async () => {
@@ -240,8 +257,6 @@ describe('DappLauncher', () => {
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
   });
 
-  // The store decides how many recents exist (it keeps 12); the row renders what it is given. A
-  // second cap here silently dropped two of them, under the same name as the store's.
   // Recents arrive from a promise that resolves after mount. If the first reveal ends on the first
   // commit, the last section on the page rises at index 0 - ahead of every section above it.
   it('gives a late-arriving section its place in the first reveal, not the front', async () => {
@@ -279,6 +294,8 @@ describe('DappLauncher', () => {
     expect(screen.getByTestId('explore-section-helper-tools')).toHaveAttribute('data-reveal-index', '0');
   });
 
+  // The store decides how many recents exist (it keeps 12); Explore's Recents list renders what it is
+  // given. A second cap here silently dropped two of them, under the same name as the store's.
   it('renders every recent the store keeps', async () => {
     mockRecents = Array.from({ length: 12 }, (_, i) => ({
       url: `https://recent-${i}.example/`,

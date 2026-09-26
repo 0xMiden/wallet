@@ -4,8 +4,11 @@
  * Stores up to `MAX_RECENTS` entries keyed by URL with a `lastOpenedAt`
  * timestamp; `getRecentDapps` returns them newest-first, and Explore's
  * Recents section lists them as rows. Two writers: BrowserScreen records
- * every open, and DappActionsSheet's My-dApps toggle saves or removes the
- * open dApp.
+ * each dApp opened from Explore (a row, the featured card, a Recents row,
+ * the address bar) except a web search, and DappActionsSheet's My-dApps
+ * toggle saves (under the same no-search rule) or removes the open dApp.
+ * The actions sheet's Reopen starts a fresh session without recording, and
+ * a desktop open goes to its own window and records nothing.
  *
  * On extension/desktop platforms `@capacitor/preferences` falls back to
  * an in-memory store, which is fine — recents are non-critical and the
@@ -25,7 +28,7 @@ export interface RecentDapp {
    * title when the actions sheet saves a dApp whose page has loaded.
    */
   name: string;
-  /** Recorded with the entry; nothing reads it today. */
+  /** Explore builds a Recents row's fallback logo from it. */
   origin: string;
   /** Cached favicon URL or data: URL — optional. */
   favicon?: string;
@@ -53,8 +56,9 @@ const PURGED_RECENT_HOSTS = new Set(['x.com', 'twitter.com', 'app.uniswap.org', 
  * 1. Before BrowserScreen.handleOpen started deriving a hostname-
  *    style name, recents were written with the raw `https://…` URL
  *    as `name`. Those entries persist in `@capacitor/preferences`
- *    across upgrades and make every Recents row's logo fall back to the 'H'
- *    avatar letter. Replace the bad name with the hostname.
+ *    across upgrades, show the raw URL as the Recents row's title, and
+ *    make 'H' the initial drawn when its logo fails to load. Replace the
+ *    bad name with the hostname.
  * 2. Drop any entry whose host is in PURGED_RECENT_HOSTS (see above).
  *
  * Persists the migrated list when anything changed so subsequent
@@ -128,8 +132,10 @@ export async function getRecentDapps(): Promise<RecentDapp[]> {
 /** Records (or refreshes) a recent open. */
 export async function recordRecentDapp(entry: Omit<RecentDapp, 'lastOpenedAt'>): Promise<void> {
   const list = await read();
+  const stored = list.find(d => d.url === entry.url);
   const filtered = list.filter(d => d.url !== entry.url);
-  filtered.unshift({ ...entry, lastOpenedAt: Date.now() });
+  // Both writers pass `favicon: undefined` when they have none, so a spread would erase a stored one.
+  filtered.unshift({ ...entry, favicon: entry.favicon ?? stored?.favicon, lastOpenedAt: Date.now() });
   await write(filtered.slice(0, MAX_RECENTS));
 }
 

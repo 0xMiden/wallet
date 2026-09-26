@@ -18,7 +18,7 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { ListGroup } from 'components/ui/ListGroup';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
-import { type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
+import { getFaviconUrl, type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
 
 import { AppList, AppRow } from './AppRow';
 import { FeaturedCard } from './FeaturedCard';
@@ -57,7 +57,8 @@ const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, onOpen }) => {
       );
     case 'recents':
       // The dApps opened last, newest first (`getRecentDapps` sorts them), on the rows of the other lists.
-      // No second line: the recorded name is usually the dApp's host already.
+      // No second line: the recorded name is usually the dApp's host already. No writer has a favicon to
+      // store, so the logo falls back to the site's by origin, as the capsule bar's does.
       if (recents.length === 0) return null;
       return (
         <div className="px-4" data-testid="explore-recents">
@@ -67,7 +68,7 @@ const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, onOpen }) => {
                 key={dapp.url}
                 url={dapp.url}
                 name={dapp.name}
-                icon={dapp.favicon}
+                icon={dapp.favicon ?? getFaviconUrl(dapp.origin)}
                 onOpen={onOpen}
                 testId="recent-dapp-row"
               />
