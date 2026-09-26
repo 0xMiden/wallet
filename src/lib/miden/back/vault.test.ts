@@ -1746,7 +1746,11 @@ describe('Vault.createHDAccount', () => {
     mockMidenClient.importPublicMidenWalletFromSeed
       .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
       .mockRejectedValueOnce(new Error(NODE_UNAVAILABLE));
-    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toThrow(/Could not reach the Miden network/i);
+    const error = await vault.createHDAccount(WalletType.OnChain).catch((e: unknown) => e);
+    expect((error as Error).message).toBe(
+      'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+        `Please check your connection and try again. Details: ${NODE_UNAVAILABLE}`
+    );
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
@@ -1928,8 +1932,10 @@ describe('Vault.spawn', () => {
     mockMidenClient.importPublicMidenWalletFromSeed
       .mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS))
       .mockRejectedValueOnce(new Error(NODE_UNAVAILABLE));
-    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toThrow(
-      /Could not reach the Miden network/i
+    const error = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true).catch((e: unknown) => e);
+    expect((error as Error).message).toBe(
+      'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+        `Please check your connection and try restoring again. Details: ${NODE_UNAVAILABLE}`
     );
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();

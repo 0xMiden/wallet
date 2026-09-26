@@ -1126,9 +1126,10 @@ export class Vault {
                   // restore so it can be retried against a reachable node.
                   if (isLikelyNetworkError(probeError)) {
                     console.error(`[Vault.spawn] ${scheme} probe could not reach the node`, probeError);
+                    const reason = probeError instanceof Error ? probeError.message : String(probeError);
                     throw new PublicError(
-                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
-                        'please check your connection and try restoring again.'
+                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+                        `Please check your connection and try restoring again. Details: ${reason}`
                     );
                   }
                   // Anything else (a local store failure after the lookup, say) says
@@ -1849,9 +1850,10 @@ export class Vault {
                 // reachable node (resilience gap 13).
                 if (isLikelyNetworkError(e)) {
                   console.error('[Vault.createHDAccount] import could not reach the node', e);
+                  const reason = e instanceof Error ? e.message : String(e);
                   throw new PublicError(
-                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
-                      'please check your connection and try again.'
+                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+                      `Please check your connection and try again. Details: ${reason}`
                   );
                 }
                 // Anything else says nothing about the chain; see the Vault.spawn probe loop.
