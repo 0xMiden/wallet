@@ -37,11 +37,11 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
-import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getSwapTokenByFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
-import { getTokenPrice } from 'lib/prices';
+import { quotedPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
@@ -158,17 +158,19 @@ function formatDisplayAmount(amount: string | number | bigint): string {
 function formatFiatDisplayAmount(
   t: TFunction,
   amount: string | number | bigint,
+  faucetId: string | undefined,
   tokenSymbol: string,
   tokenPrices: TokenPrices
 ): string | undefined {
   const displayAmount = new BigNumber(amount.toString());
+  // No estimate for a token the feed does not quote, rather than its amount at $1 a unit.
+  const quote = quotedPrice(tokenPrices, faucetId ? priceSymbolFor(faucetId, tokenSymbol) : tokenSymbol);
 
-  if (!displayAmount.isFinite()) {
+  if (!displayAmount.isFinite() || !quote) {
     return undefined;
   }
 
-  const { price } = getTokenPrice(tokenPrices, tokenSymbol);
-  const fiatAmount = displayAmount.abs().times(price);
+  const fiatAmount = displayAmount.abs().times(quote.price);
 
   return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
 }
@@ -577,7 +579,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token && !spansMultipleAssets
-      ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
+      ? formatFiatDisplayAmount(t, entry.amount, entry.faucetId, entry.token, tokenPrices)
       : undefined;
   // One entry per faucet the claim swept up, each with the asset and quantity
   // that faucet contributed. Resolved through the SAME helper as the hero badge
