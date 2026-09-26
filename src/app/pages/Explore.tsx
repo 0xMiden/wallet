@@ -326,8 +326,11 @@ interface HomeOverviewProps {
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
-/** The card's total: always two decimals, so a count never changes the number of them mid-flight. */
-const usdTotal = (value: number) => `$${toLocalFormat(value, { decimalPlaces: 2 })}`;
+/**
+ * The card's total: always two decimals, so a count never changes the number of them mid-flight.
+ * No currency symbol: the card shows the currency as its own unit beside the amount.
+ */
+const usdTotal = (value: number) => toLocalFormat(value, { decimalPlaces: 2 });
 
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
@@ -357,7 +360,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={
               !pricesLoaded(tokenPrices) || balance === null ? (
-                '$—'
+                '—'
               ) : (
                 <AnimatedNumber value={balance.toNumber()} format={usdTotal} />
               )
@@ -366,7 +369,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // this address and `useAllBalances` substitutes a zero placeholder
             // row. Right after a recovery that read can lose the WASM lock to the
             // first sync tick for several seconds, so the card must show the
-            // skeleton and not a "$0.00" that reads as lost funds (#844).
+            // skeleton and not a "0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
             onMore={() => setAccountsOpen(true)}
