@@ -1560,7 +1560,7 @@ describe('MidenClientInterface', () => {
   });
 
   describe('recoverGuardianAccountByHotKey', () => {
-    // The pasted key's commitment, normalized (lowercase, no 0x prefix) — what
+    // The pasted key's commitment, normalized (lowercase, no 0x prefix): what
     // the callback below compares the on-chain hot/cold signer commitments against.
     const PASTED_COMMITMENT = '0xaabb';
 

@@ -29,7 +29,10 @@ import { GuardianProbeState, WalletType } from '../types';
 const PROBE_ESCAPE_HATCH_MS = 10_000;
 
 export interface ImportRecoveryMethodScreenProps {
-  /** The last lookup failure's reason: `undefined`/`null` none, `GUARDIAN_ACCOUNT_NOT_FOUND` not-found, else its text. */
+  /**
+   * The last lookup failure's reason: `undefined`/`null` none, `GUARDIAN_ACCOUNT_NOT_FOUND` not-found, else its
+   * text.
+   */
   error?: string | null;
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
