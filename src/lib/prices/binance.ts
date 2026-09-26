@@ -80,7 +80,9 @@ export function pricesLoaded(prices: TokenPrices): boolean {
 
 /**
  * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
- * price is not a quote. Resolve a held token's symbol with `priceSymbolFor` first (IETH at ETH).
+ * price is not a quote. A held token is priced through `tokenQuote` (lib/miden/swap/tokens),
+ * which resolves its price symbol first (IETH at ETH); call this directly only with a symbol
+ * already resolved, as the sparkline and chart do.
  */
 export function quotedPrice(prices: TokenPrices, symbol: string): TokenPriceInfo | undefined {
   const quote = prices[symbol];
@@ -89,7 +91,7 @@ export function quotedPrice(prices: TokenPrices, symbol: string): TokenPriceInfo
 
 /**
  * The feed's price for a symbol, or 0 when the feed does not list it, never a $1 default: the
- * send flow reads 0 as no price, so an unlisted token shows no fiat anywhere in it.
+ * token pickers (`listedFiatValue`) read 0 as no price, so an unlisted token shows no fiat there.
  */
 export function listedPrice(prices: TokenPrices, symbol: string): number {
   return quotedPrice(prices, symbol)?.price ?? 0;
