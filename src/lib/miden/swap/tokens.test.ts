@@ -14,6 +14,7 @@ import {
   TOKEN_IETH,
   TOKEN_IMIDEN,
   TOKEN_IUSDT,
+  tokenQuote,
   _resetNormalizedFaucetIdsForTest,
   _setSwapTokensForTest,
   SWAP_TOKEN_DECIMALS,
@@ -131,6 +132,31 @@ describe('priceSymbolFor', () => {
     priceSymbolFor('mtst1other', 'ETH');
     priceSymbolFor('mtst1another', 'BTC');
     expect(mockToBech32).toHaveBeenCalledTimes(getSwapTokens().length);
+  });
+});
+
+describe('tokenQuote', () => {
+  beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
+  const eth = { price: 3000, change24h: 40, percentageChange24h: 1.2 };
+
+  it('quotes a registry token under its price symbol, IETH at ETH', () => {
+    expect(tokenQuote({ ETH: eth }, TOKEN_IETH.faucetId, 'IETH')).toEqual({
+      price: 3000,
+      change24h: 40,
+      percentageChange24h: 1.2
+    });
+  });
+
+  it('quotes an unregistered or unknown faucet under its own symbol', () => {
+    expect(tokenQuote({ ETH: eth }, 'mtst1other', 'ETH')).toEqual(eth);
+    expect(tokenQuote({ ETH: eth }, undefined, 'ETH')).toEqual(eth);
+    expect(tokenQuote({ ETH: eth }, undefined, 'IETH')).toBeUndefined();
+  });
+
+  it('gives no quote for a zero price', () => {
+    expect(
+      tokenQuote({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, TOKEN_IETH.faucetId, 'IETH')
+    ).toBeUndefined();
   });
 });
 

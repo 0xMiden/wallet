@@ -4,12 +4,6 @@ import { KNOWN_SYMBOLS } from './constant';
 
 const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
 
-/**
- * Map of wallet token symbols to Binance trading pair symbols.
- * Only tokens listed here will have real price data fetched.
- * All other tokens default to $1 USD.
- */
-
 export interface TokenPriceInfo {
   price: number;
   change24h: number;
@@ -17,8 +11,6 @@ export interface TokenPriceInfo {
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;
-
-export const DEFAULT_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
 
 interface BinanceTicker24hr {
   symbol: string;
@@ -28,9 +20,9 @@ interface BinanceTicker24hr {
 }
 
 /**
- * Fetch token prices and 24hr change from Binance API.
- * Returns a map of wallet symbol -> { price, change24h }.
- * On any error, returns an empty object (callers should default to $1).
+ * Fetch token prices and 24hr change from Binance API for the symbols in `KNOWN_SYMBOLS`.
+ * Returns a map of wallet symbol -> { price, change24h }; a symbol missing from it has no price.
+ * On any error, returns an empty object.
  */
 export async function fetchTokenPrices(): Promise<TokenPrices> {
   const entries = Object.entries(KNOWN_SYMBOLS);
@@ -79,24 +71,36 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
 }
 
 /**
- * Get price info for a token symbol, defaulting to $1 / 0% if not found.
+ * Whether the feed has delivered any quote yet. An empty map is prices still loading, which a
+ * figure shows as its placeholder; a loaded map without a symbol is a token with no price.
  */
-export function getTokenPrice(prices: TokenPrices, symbol: string): TokenPriceInfo {
-  return prices[symbol] ?? DEFAULT_PRICE;
+export function pricesLoaded(prices: TokenPrices): boolean {
+  return Object.keys(prices).length > 0;
 }
 
 /**
- * The feed's price for a symbol, or 0 when the feed does not list it. Never getTokenPrice's $1
- * default: the send flow reads 0 as no price, so an unlisted token shows no fiat anywhere in it.
+ * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
+ * price is not a quote. A held token is priced through `tokenQuote` (lib/miden/swap/tokens),
+ * which resolves its price symbol first (IETH at ETH); call this directly only with a symbol
+ * already resolved, as the sparkline and chart do.
+ */
+export function quotedPrice(prices: TokenPrices, symbol: string): TokenPriceInfo | undefined {
+  const quote = prices[symbol];
+  return quote && quote.price > 0 ? quote : undefined;
+}
+
+/**
+ * The feed's price for a symbol, or 0 when the feed does not list it, never a $1 default: the
+ * token pickers (`listedFiatValue`) read 0 as no price, so an unlisted token shows no fiat there.
  */
 export function listedPrice(prices: TokenPrices, symbol: string): number {
-  return prices[symbol]?.price ?? 0;
+  return quotedPrice(prices, symbol)?.price ?? 0;
 }
 
 /**
  * The fiat value for a token picker's row, or none: only when the feed lists the symbol, the
- * balance's scale is known and there is a balance to value. Never getTokenPrice's $1 default,
- * which would turn every unlisted token into a dollar figure equal to its token count. A number,
+ * balance's scale is known and there is a balance to value. Never a $1 default, which would turn
+ * every unlisted token into a dollar figure equal to its token count. A number,
  * so the row can count it (`AnimatedNumber`) with a formatter bound to it.
  */
 export function listedFiatValue(

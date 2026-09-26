@@ -21,8 +21,9 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
-import { getTokenPrice, type TokenPrices } from 'lib/prices';
+import type { TokenPrices } from 'lib/prices';
 
+import { balancePrice } from './balancePrice';
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
 
 export interface FetchBalancesOptions {
@@ -278,14 +279,12 @@ export async function fetchBalances(
     // Can only fabricate a "0 MIDEN" row once discovery has learned the
     // native asset ID. Until then return [] and let the UI render a skeleton.
     if (!midenFaucetId) return [];
-    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     return [
       {
         tokenId: midenFaucetId,
         tokenSlug: 'MIDEN',
         metadata: MIDEN_METADATA,
-        fiatPrice: midenPrice.price,
-        change24h: midenPrice.change24h,
+        ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
         balance: 0
       }
     ];
@@ -317,14 +316,12 @@ export async function fetchBalances(
     const tokenMetadata = isMiden ? MIDEN_METADATA : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
-    const priceInfo = getTokenPrice(tokenPrices, tokenMetadata.symbol);
 
     balances.push({
       tokenId,
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
-      fiatPrice: priceInfo.price,
-      change24h: priceInfo.change24h,
+      ...balancePrice(tokenPrices, tokenId, tokenMetadata.symbol),
       balance: balance.toNumber()
     });
   }
@@ -334,13 +331,11 @@ export async function fetchBalances(
   // placeholder row; the UI shows a skeleton until discovery resolves and a
   // re-fetch adds the correct row.
   if (!hasMiden && midenFaucetId) {
-    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: midenPrice.price,
-      change24h: midenPrice.change24h,
+      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
       balance: 0
     });
   }

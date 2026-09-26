@@ -105,26 +105,26 @@ describe('BalanceCard amount fit-to-width', () => {
 
   it('keeps the max 3.5rem size when the amount fits', () => {
     amountScrollWidth = 200; // fits inside 400 - (40 + 2) = 358 available px
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
-    expect(getAmountSpan('$123.45').style.fontSize).toBe('3.5rem');
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" />);
+    expect(getAmountSpan('123.45').style.fontSize).toBe('3.5rem');
   });
 
   it('shrinks the font proportionally for a long amount', () => {
     amountScrollWidth = 450; // needs 450px at 3.5rem; available is 358px
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$21,000,000.12" />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="21,000,000.12" />);
     // 3.5 * 358 / 450 = 2.784 (rounded to 3 decimals)
-    expect(getAmountSpan('$21,000,000.12').style.fontSize).toBe('2.784rem');
+    expect(getAmountSpan('21,000,000.12').style.fontSize).toBe('2.784rem');
   });
 
   it('clamps at the 2.5rem floor for extreme lengths', () => {
     amountScrollWidth = 3000;
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$1,234,567,890,123,456.78" />);
-    expect(getAmountSpan('$1,234,567,890,123,456.78').style.fontSize).toBe('2.5rem');
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="1,234,567,890,123,456.78" />);
+    expect(getAmountSpan('1,234,567,890,123,456.78').style.fontSize).toBe('2.5rem');
   });
 
   it('renders the hidden state at the max size', () => {
     amountScrollWidth = 150;
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="hidden" />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" state="hidden" />);
     expect(getAmountSpan('••••••').style.fontSize).toBe('3.5rem');
   });
 });
@@ -135,16 +135,18 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('renders the loading skeleton instead of the amount', () => {
-    const { container } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="loading" />);
+    const { container } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" state="loading" />);
 
     expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
-    expect(screen.queryByText('$123.45')).toBeNull();
+    expect(screen.queryByText('123.45')).toBeNull();
   });
 
-  it('renders the zero state as $0.00', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="zero" />);
+  it('renders the zero state as 0.00 beside the USD unit, with no second currency marker', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" state="zero" />);
 
-    expect(screen.getByText('$0.00')).toBeTruthy();
+    expect(screen.getByText('0.00')).toBeTruthy();
+    expect(screen.queryByText('$0.00')).toBeNull();
+    expect(screen.getByTestId('balance-card-currency')).toHaveTextContent('USD');
   });
 
   // The pill is a darker well of the card's own color, never a status hue (the sage green clashed
@@ -152,7 +154,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   // The component keeps its delta support for when a real source lands; with none passed it simply
   // shows no pill, which is what Home relies on.
   it('renders no change pill when the caller passes no delta', () => {
-    render(<BalanceCard accountNumber="1" accountId="0xabc" amount="$100.00" />);
+    render(<BalanceCard accountNumber="1" accountId="0xabc" amount="100.00" />);
 
     expect(screen.queryByTestId('balance-card-delta')).toBeNull();
   });
@@ -161,7 +163,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     render(
       <BalanceCard
         accountNumber={ADDRESS}
-        amount="$123.45"
+        amount="123.45"
         delta={{ absolute: '+$12.34', percentage: '+2.5%', direction: 'positive' }}
       />
     );
@@ -177,7 +179,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     render(
       <BalanceCard
         accountNumber={ADDRESS}
-        amount="$123.45"
+        amount="123.45"
         delta={{ absolute: '-$5.00', percentage: '-1.0%', direction: 'negative' }}
       />
     );
@@ -192,7 +194,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     render(
       <BalanceCard
         accountNumber={ADDRESS}
-        amount="$123.45"
+        amount="123.45"
         delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
       />
     );
@@ -203,7 +205,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('keeps the plain brand card color with a card-ink hairline footer, no scrim or darker strip', () => {
-    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
+    const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
 
     const card = container.firstElementChild;
     expect(card).toHaveClass('bg-card-slate');
@@ -214,7 +216,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('draws the label as a 13px bold sentence-case label in the full-strength card ink', () => {
-    render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
+    render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
 
     const label = screen.getByTestId('balance-card-label');
     expect(label).toHaveTextContent('balanceCardTotalBalance');
@@ -223,21 +225,21 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('sets the currency as a 22px bold unit on the amount baseline, in the full-strength ink', () => {
-    render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
+    render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
 
     const currency = screen.getByTestId('balance-card-currency');
     expect(currency).toHaveTextContent('USD');
     expect(currency).toHaveClass('text-entry-unit');
     expect(currency.className).not.toMatch(/muted|opacity/);
     expect(currency.parentElement).toHaveClass('items-baseline');
-    expect(currency.previousElementSibling).toHaveTextContent('$123.45');
+    expect(currency.previousElementSibling).toHaveTextContent('123.45');
   });
 
   it('hides the delta pill while loading', () => {
     render(
       <BalanceCard
         accountNumber="mtst1aqg...940z"
-        amount="$123.45"
+        amount="123.45"
         state="loading"
         delta={{ absolute: '+$1.00', percentage: '+0.1%' }}
       />
@@ -248,7 +250,7 @@ describe('BalanceCard states, delta, and interactions', () => {
 
   it('fires haptic feedback and onMore when the card is tapped', () => {
     const onMore = jest.fn();
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={onMore} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'balanceCardAccountOptions' }));
 
@@ -262,7 +264,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   const presentGlyph = () => copyControl().querySelector('[data-copy-icon] [data-present="true"]');
 
   it('renders the shared copy glyph after the address and no edit glyph: the whole card is the account-options control', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
 
     expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
     expect(presentGlyph()?.querySelector('[data-name="CopyNew"]')).toBeInTheDocument();
@@ -273,7 +275,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('lays the address out before the glyph in one truncating row, in the footer type', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
 
     const row = copyControl().querySelector('[aria-live="polite"]')!;
     expect(row).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0', 'text-label');
@@ -283,7 +285,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('morphs the copy glyph to a check while the account id is copied, keeping the address in place', async () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" accountId="mtst1aqgfullaccountid940z" amount="$123.45" />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" accountId="mtst1aqgfullaccountid940z" amount="123.45" />);
 
     await act(async () => {
       fireEvent.click(screen.getByText(ADDRESS));
@@ -302,18 +304,18 @@ describe('BalanceCard states, delta, and interactions', () => {
   // options target is a real button under the content instead, which also brings native keyboard
   // activation back in place of a hand-rolled Enter/Space handler.
   it('keeps the balance and the copy control outside the account-options control', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
 
     const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
     expect(options.tagName).toBe('BUTTON');
     expect(options.querySelectorAll('button')).toHaveLength(0);
-    expect(options).not.toContainElement(screen.getByText('$123.45'));
+    expect(options).not.toContainElement(screen.getByText('123.45'));
     expect(options).not.toContainElement(screen.getByText(ADDRESS));
     expect(screen.getByText(ADDRESS).closest('[role="button"]')).toBeNull();
   });
 
   it('keeps a visible focus ring and lets a tap anywhere on the card reach the options', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
 
     // The ring is inset because the card clips to this button's own border box.
     const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
@@ -322,14 +324,14 @@ describe('BalanceCard states, delta, and interactions', () => {
     // These classes ARE the tap-anywhere behaviour: the content lets taps through to the button
     // underneath, and only the copy control takes its own. jsdom dispatches clicks at the target
     // whatever pointer-events says, so without this assertion dropping them fails no test.
-    const balance = screen.getByText('$123.45');
+    const balance = screen.getByText('123.45');
     expect(balance.closest('.pointer-events-none')).not.toBeNull();
     expect(screen.getByText(ADDRESS).closest('.pointer-events-auto')).not.toBeNull();
   });
 
   it('does not open the account options when the address is copied', async () => {
     const onMore = jest.fn();
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={onMore} />);
 
     await act(async () => {
       fireEvent.click(screen.getByText(ADDRESS));
@@ -339,13 +341,13 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('is not a control when onMore is not provided', () => {
-    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" />);
 
     expect(screen.queryByRole('button', { name: 'balanceCardAccountOptions' })).toBeNull();
   });
 
   it('copies from a 44px target named for what it does, showing the address without an "Address:" prefix', () => {
-    render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
+    render(<BalanceCard accountNumber={ADDRESS} amount="123.45" />);
 
     const copy = screen.getByTestId('balance-card-copy-address');
     expect(copy).toHaveAccessibleName('balanceCardCopyAddress');
@@ -355,7 +357,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   });
 
   it('shows the account name beside the address when given one', () => {
-    render(<BalanceCard accountNumber={ADDRESS} accountName="Account 1" amount="$123.45" />);
+    render(<BalanceCard accountNumber={ADDRESS} accountName="Account 1" amount="123.45" />);
 
     expect(screen.getByTestId('balance-card-account-name')).toHaveTextContent('Account 1');
   });
@@ -365,7 +367,7 @@ describe('BalanceCard states, delta, and interactions', () => {
       <BalanceCard
         accountNumber="mtst1aqg...940z"
         accountId="mtst1aqgfullaccountid940z"
-        amount="$123.45"
+        amount="123.45"
         currency="EUR"
       />
     );
@@ -385,7 +387,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     const original = (global as any).ResizeObserver;
     (global as any).ResizeObserver = MockResizeObserver;
 
-    const { unmount } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+    const { unmount } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" />);
     expect(observe).toHaveBeenCalledTimes(2);
 
     unmount();

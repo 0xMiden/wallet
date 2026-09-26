@@ -145,6 +145,9 @@ const clearOwnFundingMarker = (address: string, requestedAt: number) =>
     const stored = await fetchFaucetFundingMarker(address);
     if (stored?.requestedAt === requestedAt) await setFaucetFundingMarker(address, null);
   }).catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
+
+const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
+
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
 const FAUCET_FUNDED_BEAT_MS = 2400;
@@ -216,6 +219,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // mid-beat left the prompt Pending and re-offered a Fund tap for funds that
   // had already arrived.
   const [fundsArrivedFor, setFundsArrivedFor] = useState<string | null>(null);
+  // The new native notes that ended the wait: what the faucet minted, and all the funded line
+  // may value. Empty when the funds arrived as a balance.
+  const [fundedMintNotes, setFundedMintNotes] = useState<readonly PendingNoteValue[]>([]);
   const faucetFundsArrived = fundsArrivedFor !== null && fundsArrivedFor === account.publicKey;
   // The faucet's actual failure reason, rendered in the card body — a bare red
   // X can't distinguish a rate limit from an outage (#425).
@@ -273,12 +279,15 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const hasPendingNotes = pendingNoteIds.length > 0;
   const showPendingNotesPrompt = isLoaded && hiddenSettled && hasPendingNotes;
   const fundingNoteIds = useMemo(() => fundingNotes?.map(note => note.id) ?? [], [fundingNotes]);
-  const formattedFundingNotesUsdTotal = useMemo(
-    () => formatUsd(getPendingNotesUsdTotal(fundingNotes ?? [], tokenPrices)),
-    [fundingNotes, tokenPrices]
+  // No figure when any note has no price: the funded line falls back to its generic copy and the
+  // pending card shows its count alone. Nothing minted is no figure either, never $0.00.
+  const formattedFundedMintUsdTotal = useMemo(
+    () =>
+      fundedMintNotes.length > 0 ? formatUsdTotal(getPendingNotesUsdTotal(fundedMintNotes, tokenPrices)) : undefined,
+    [fundedMintNotes, tokenPrices]
   );
   const formattedPendingNotesUsdTotal = useMemo(
-    () => formatUsd(getPendingNotesUsdTotal(waitingNotes, tokenPrices)),
+    () => formatUsdTotal(getPendingNotesUsdTotal(waitingNotes, tokenPrices)),
     [waitingNotes, tokenPrices]
   );
 
@@ -653,12 +662,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // here held the Funding hero - up to the 3-minute backstop - while spendable
     // funds were already visible.
     const baseline = new Set(fundingWait.baselineNoteIds);
-    const hasNewNote =
-      fundingNotes !== undefined &&
-      midenFaucetId !== null &&
-      fundingNotes.some(note => note.faucetId === midenFaucetId && !baseline.has(note.id));
-    if (!hasNewNote && !hasBalance) return;
+    const newMintNotes =
+      fundingNotes !== undefined && midenFaucetId !== null
+        ? fundingNotes.filter(note => note.faucetId === midenFaucetId && !baseline.has(note.id))
+        : [];
+    if (newMintNotes.length === 0 && !hasBalance) return;
     setFundingWait(null);
+    setFundedMintNotes(newMintNotes);
     setFundsArrivedFor(fundingWait.address);
     clearOwnFundingMarker(fundingWait.address, fundingWait.requestedAt);
     // Complete the prompt NOW, in the same pass that clears the marker. Holding
@@ -860,10 +870,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
                 ? {
                     icon: IconName.Checkmark,
                     label: t('faucetPromptFunded'),
-                    subLabel:
-                      fundingNoteIds.length > 0
-                        ? t('faucetPromptFundedSub', { amount: formattedFundingNotesUsdTotal })
-                        : t('faucetPromptFundedSubGeneric'),
+                    subLabel: formattedFundedMintUsdTotal
+                      ? t('faucetPromptFundedSub', { amount: formattedFundedMintUsdTotal })
+                      : t('faucetPromptFundedSubGeneric'),
                     tone: 'positive' as const
                   }
                 : undefined
@@ -911,12 +920,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       faucetError,
       faucetFundsArrived,
       faucetStatusIndicator,
-      formattedFundingNotesUsdTotal,
+      formattedFundedMintUsdTotal,
       formattedPendingNotesUsdTotal,
       fundingReady,
       fundWallet,
       rearmedWhileMintClaimable,
-      fundingNoteIds,
       pendingNoteIds,
       rotateHotKey,
       rotationStatusIndicator,
