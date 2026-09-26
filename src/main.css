@@ -659,18 +659,22 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
 body[data-hide-navbar] [data-navbar-cushion='true'] {
   padding-bottom: 1rem;
 }
-/* A route with no TabLayout has no bar to clear, so its cushion takes the same flat margin. */
-body:not([data-navbar-mounted]) [data-navbar-cushion='true'] {
-  padding-bottom: 1rem;
+/* The room a flow CTA's cushion reserves for the tab bar (footer-cushion.ts reads it, 1rem when unset).
+ * Declared on TabLayout's root, so only a page inside the layout that draws the bar inherits it: a slide
+ * page is a sibling of the covered tab layer, has no bar over it, and keeps 1rem while it slides (#1109).
+ * On Android the tabs stay 8px above the system navigation bar: the bar is 73px plus the inset and sinks
+ * by the body's safe-area floor, so it reaches 73px + inset - floor into the page, and the cushion keeps
+ * 15px more at any inset. Off-mobile the bar is a floating pill. */
+[data-tab-layout='docked'] {
+  --navbar-cushion: 4rem;
 }
-/* The room a flow CTA's cushion reserves for the docked bar (footer-cushion.ts reads it, 4rem when
- * unset). On Android the tabs stay 8px above the system navigation bar and TabLayout marks the body:
- * the bar is 73px plus the inset and sinks by the body's safe-area floor, so it reaches 73px + inset -
- * floor into the page, and the cushion keeps 15px more at any inset. */
-body[data-navbar-clears-inset] {
+[data-tab-layout='docked'][data-navbar-clears-inset] {
   --navbar-cushion: calc(
     5.5rem + env(safe-area-inset-bottom) - var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)))
   );
+}
+[data-tab-layout='floating'] {
+  --navbar-cushion: 6rem;
 }
 /* A flow footer's cushion snaps: it slides with useSlideOnReflow, and a padding transition under
  * that slide would reflow every frame and leave the slide's start position stale. */

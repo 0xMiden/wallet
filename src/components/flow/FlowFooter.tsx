@@ -34,8 +34,9 @@ export interface FlowFooterProps {
  *
  * The cushion is on whenever a tab bar is mounted, and `data-navbar-cushion` is what drops it. The
  * docked bar draws OVER the page (`z-60`, screen edge), so the only safe rule is that the CTA clears
- * the bar whenever the bar is actually up: `body[data-hide-navbar]` says it is down, and a missing
- * `body[data-navbar-mounted]` (TabLayout sets it) says there is none. A page-shape guess in its place ("a pushed step has no bar under it") is really a guess
+ * the bar whenever the bar is actually up: `body[data-hide-navbar]` says it is down, and a footer
+ * outside TabLayout's root inherits no room at all (main.css declares it only there), so a slide page
+ * beside the covered tab layer never reserves it. A page-shape guess in its place ("a pushed step has no bar under it") is really a guess
  * about a flag some OTHER component raises: a send sub-step is pushed but still lives inside
  * TabLayout, so on the frames where that flag failed to land, the bar sat on top of the CTA and
  * swallowed every click on it — a visible, enabled, stable button that could not be clicked.
