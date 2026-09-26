@@ -4,8 +4,8 @@ import { join, relative, resolve, sep } from 'node:path';
 
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
-import { useReportNoteClaim } from 'app/hooks/useReportNoteClaim';
 import { request } from 'lib/miden/front';
+import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry';
@@ -555,20 +555,9 @@ async function driveEveryInstrumentedFlow(): Promise<void> {
   });
   fund.unmount();
 
-  // `note_handle`: completed, errored on a poisoned rejection, then abandoned.
-  const claim = renderHook(() => useReportNoteClaim());
-  await act(async () => {
-    await claim.result.current(() => Promise.resolve('claim queued'));
-  });
-  await act(async () => {
-    await swallowRejection(() => claim.result.current(() => Promise.reject(poisonedError('network claim failed'))));
-  });
-  // A claim still in flight when the surface goes away: the unmount has to
-  // settle it as abandoned rather than leave an unmatched `started`.
-  await act(async () => {
-    void swallowRejection(() => claim.result.current(() => new Promise(() => undefined)));
-    claim.unmount();
-  });
+  // `note_handle`: completed, then errored on a poisoned rejection.
+  await reportNoteClaim(() => Promise.resolve('claim queued'));
+  await swallowRejection(() => reportNoteClaim(() => Promise.reject(poisonedError('network claim failed'))));
 
   // `send`: the module-scoped handle, settled three ways.
   enterSendFlow();

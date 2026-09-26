@@ -38,21 +38,16 @@ const mockClaim = {
 };
 
 jest.mock('./useClaimNotes', () => ({ useClaimNotes: () => mockClaim }));
-// A pass-through reporter that records what each wrapped queue call settled with.
-const mockReported: Array<'ok' | 'failed'> = [];
-jest.mock('app/hooks/useReportNoteClaim', () => ({
-  useReportNoteClaim:
-    () =>
-    async <T>(attempt: () => Promise<T>): Promise<T> => {
-      try {
-        const result = await attempt();
-        mockReported.push('ok');
-        return result;
-      } catch (error) {
-        mockReported.push('failed');
-        throw error;
-      }
-    }
+// The real reporter runs; telemetry records how each note_handle flow ended.
+const mockReported: Array<'ok' | 'failed' | 'cancelled'> = [];
+jest.mock('lib/telemetry', () => ({
+  beginFlow: () => ({
+    complete: () => mockReported.push('ok'),
+    fail: () => mockReported.push('failed'),
+    cancel: () => mockReported.push('cancelled'),
+    step: () => {}
+  }),
+  classifyError: () => 'unknown'
 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
@@ -445,18 +440,29 @@ it('keeps a cached note listed as pending while the claim check runs, since it c
   ]);
 });
 
-describe('a claim shared across the Activity views', () => {
-  function deferQueue(mock: jest.Mock) {
-    let release: (txId: string) => void = () => {};
-    mock.mockImplementationOnce(
-      () =>
-        new Promise<string>(resolve => {
-          release = resolve;
-        })
-    );
-    return (txId: string) => release(txId);
-  }
+function deferQueue(mock: jest.Mock) {
+  let release: (txId: string) => void = () => {};
+  mock.mockImplementationOnce(
+    () =>
+      new Promise<string>(resolve => {
+        release = resolve;
+      })
+  );
+  return (txId: string) => release(txId);
+}
 
+function deferQueueFailure(mock: jest.Mock) {
+  let fail: (error: Error) => void = () => {};
+  mock.mockImplementationOnce(
+    () =>
+      new Promise<string>((_resolve, reject) => {
+        fail = reject;
+      })
+  );
+  return (error: Error) => fail(error);
+}
+
+describe('a claim shared across the Activity views', () => {
   it('does not queue a note again after a view switch while its first claim is still being queued', async () => {
     const release = deferQueue(mockQueue);
     const first = renderHook(() => useActivityClaims());
@@ -477,6 +483,7 @@ describe('a claim shared across the Activity views', () => {
     });
     expect(mockQueue).toHaveBeenCalledTimes(1);
     expect(second.result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-one' });
+    expect(mockReported).toEqual(['ok']);
   });
 
   it('does not queue a batch note again after a view switch', async () => {
@@ -497,6 +504,7 @@ describe('a claim shared across the Activity views', () => {
       await pending;
     });
     expect(mockQueueMany).toHaveBeenCalledTimes(1);
+    expect(mockReported).toEqual(['ok']);
   });
 
   it('does not queue a note from a batch while another view is queueing it alone, or the reverse', async () => {
@@ -595,5 +603,45 @@ describe('note_handle reporting', () => {
     expect(mockQueueMany).toHaveBeenCalledTimes(2);
     expect(mockReported).toEqual(['ok', 'failed']);
     log.mockRestore();
+  });
+
+  it('reports a failed accept whose view was switched before the queue call rejected', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const failQueue = deferQueueFailure(mockQueue);
+    const list = renderHook(() => useActivityClaims());
+    let accepting: Promise<void> = Promise.resolve();
+    act(() => {
+      accepting = list.result.current.accept(note);
+    });
+    // AllHistory renders one view or the other, so a List/Groups switch unmounts this hook and mounts another.
+    list.unmount();
+    const groups = renderHook(() => useActivityClaims());
+    await act(async () => {
+      failQueue(new Error('queue failed'));
+      await accepting;
+    });
+    expect(mockReported).toEqual(['failed']);
+    expect(groups.result.current.items[0]?.status).toBe('failed');
+    log.mockRestore();
+  });
+
+  it('completes each Accept All group whose view was switched before it queued', async () => {
+    const other = { ...note, id: 'note-two', faucetId: 'other-faucet' };
+    mockClaim.safeClaimableNotes = [note, other];
+    const queued = deferQueue(mockQueueMany);
+    mockQueueMany.mockResolvedValueOnce('tx-2');
+    const list = renderHook(() => useActivityClaims());
+    let accepting: Promise<void> = Promise.resolve();
+    act(() => {
+      accepting = list.result.current.acceptMany([note, other]);
+    });
+    list.unmount();
+    renderHook(() => useActivityClaims());
+    await act(async () => {
+      queued('tx-1');
+      await accepting;
+    });
+    expect(mockQueueMany).toHaveBeenCalledTimes(2);
+    expect(mockReported).toEqual(['ok', 'ok']);
   });
 });
