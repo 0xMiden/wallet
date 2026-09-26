@@ -164,23 +164,16 @@ describe('QRCode', () => {
       expect(element.props).not.toHaveProperty('palette');
     });
 
-    it('blends two card colors across the dots and both corner marks', () => {
+    it('paints the dots and both corner marks in the one card color, with no gradient', () => {
       const gcs = stubTokens();
       try {
         const { container } = render(<QRCode address={ADDRESS} size={200} palette="green" />);
 
         const opts = ctorOptions();
-        const gradient = {
-          type: 'linear',
-          rotation: Math.PI / 4,
-          colorStops: [
-            { offset: 0, color: 'resolved(--qr-green)' },
-            { offset: 1, color: 'resolved(--qr-blue)' }
-          ]
-        };
-        expect(opts.dotsOptions).toMatchObject({ color: 'resolved(--qr-green)', gradient });
-        expect(opts.cornersSquareOptions).toMatchObject({ gradient });
-        expect(opts.cornersDotOptions).toMatchObject({ gradient });
+        for (const part of [opts.dotsOptions, opts.cornersSquareOptions, opts.cornersDotOptions]) {
+          expect(part).toMatchObject({ color: 'resolved(--qr-green)' });
+          expect(part).not.toHaveProperty('gradient');
+        }
         // The tile the modules sit on never changes: that is what keeps the QR scannable.
         expect(opts.backgroundOptions).toEqual({ color: '#FFFFFF' });
         expect(container.querySelector('[data-testid="qr-code"]')).toHaveAttribute('data-qr-palette', 'green');

@@ -340,14 +340,22 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('leads with the page title, where send puts "Send to" and swap "You Pay"', async () => {
+  it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {
+    const container = await renderReceive();
+
+    const page = container.querySelector('[data-testid="receive-page"]')!;
+    expect(page).toHaveClass('pt-5');
+    expect(page).not.toHaveClass('pt-9');
+    expect(container.querySelector('[data-testid="receive-qr-block"]')!.className).not.toMatch(/(^|\s)-mt-/);
+  });
+
+  it('keeps the page heading for assistive tech only, so the code leads the page', async () => {
     const container = await renderReceive();
 
     const title = container.querySelector('[data-testid="receive-title"]')!;
     expect(title.tagName).toBe('H1');
     expect(title.textContent).toBe('receiveAt');
-    // The same type style as the two tabs beside it, so the line does not move as you swipe.
-    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    expect(title).toHaveClass('sr-only');
     // First in the column, above the code.
     const block = container.querySelector('[data-testid="receive-qr-block"]')!;
     expect(block.parentElement!.contains(title)).toBe(true);
@@ -371,8 +379,8 @@ describe('Receive - Address', () => {
     expect(card.className).not.toContain('bg-page');
     expect(card.className).not.toContain('rounded-2xl');
     const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
-    // 208px, not the leftover height: the rest of the page gets the room back.
-    expect(slot).toHaveClass('relative', 'w-full', 'max-w-52');
+    // 272px, not the leftover height: the rest of the page gets the room back.
+    expect(slot).toHaveClass('relative', 'w-full', 'max-w-68');
     expect(slot).not.toHaveClass('flex-1');
     const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
     expect(frame).toHaveClass('aspect-square', 'w-full');
@@ -384,7 +392,7 @@ describe('Receive - Address', () => {
     // 16px gutter every pane shares.
     const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
     expect(column).toBe(container.querySelector('[data-testid="receive-page"]'));
-    expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-9');
+    expect(column).toHaveClass('flex', 'flex-col', 'px-4', 'pt-5');
   });
 
   it('clears the docked tab bar from the same expression the flow CTAs use', async () => {
@@ -478,7 +486,7 @@ describe('Receive - Address', () => {
       const button = logo(container);
       expect(button.tagName).toBe('BUTTON');
       expect(button).toHaveAttribute('aria-label', 'receiveQrColorAction');
-      // 28% of the 208px code is 58px, past the 44px minimum.
+      // 28% of the 272px code is 76px, past the 44px minimum.
       expect(button).toHaveClass('h-[28%]', 'w-[28%]', 'absolute', 'left-1/2', 'top-1/2');
     });
 
@@ -497,6 +505,24 @@ describe('Receive - Address', () => {
       await act(async () => {
         fireEvent.pointerUp(logo(container));
       });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+    });
+
+    it('dips only for a primary press on the logo: not a right click, not a second finger', async () => {
+      const container = await renderReceive();
+      const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+      // jsdom has no PointerEvent, so a MouseEvent carries the fields React reads.
+      const press = async (init: MouseEventInit, isPrimary?: boolean) => {
+        const event = new MouseEvent('pointerdown', { bubbles: true, ...init });
+        if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
+        await act(async () => {
+          logo(container).dispatchEvent(event);
+        });
+      };
+
+      await press({ button: 2 });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+      await press({ button: 0 }, false);
       expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
     });
 

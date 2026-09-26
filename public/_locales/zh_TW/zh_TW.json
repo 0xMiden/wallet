@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "需要處理",
   "guardianCheckingLabel": "檢查中",
   "whatIsAGuardian": "什麼是「Guardian」？",
+  "meetGuardianYourGuardian": "你的 Guardian",
   "guardianInfoDescription": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
   "guardianInfoWhatItDoesTitle": "功能說明",
   "guardianInfoWhatItDoesDescription": "每筆交易均需共同簽署——無論是您的裝置還是 Guardian 均無法單獨轉移資金。若您遺失裝置，此機制可協助您取回帳戶。",

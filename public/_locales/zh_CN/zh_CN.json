@@ -499,6 +499,7 @@
   "guardianNeedsAttentionLabel": "需要处理",
   "guardianCheckingLabel": "检查中",
   "whatIsAGuardian": "什么是Guardian？",
+  "meetGuardianYourGuardian": "你的Guardian",
   "guardianInfoDescription": "Guardian 是一项独立服务，<b>对您钱包中的每笔交易</b>进行联署，在无需放弃自主托管的前提下提供安全保障。",
   "guardianInfoWhatItDoesTitle": "功能说明",
   "guardianInfoWhatItDoesDescription": "对每笔交易进行共同签名——无论是您的设备还是Guardian，均无法单独转移资金。若您丢失设备，可协助您找回账户。",
