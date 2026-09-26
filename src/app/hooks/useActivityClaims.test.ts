@@ -440,18 +440,29 @@ it('keeps a cached note listed as pending while the claim check runs, since it c
   ]);
 });
 
-describe('a claim shared across the Activity views', () => {
-  function deferQueue(mock: jest.Mock) {
-    let release: (txId: string) => void = () => {};
-    mock.mockImplementationOnce(
-      () =>
-        new Promise<string>(resolve => {
-          release = resolve;
-        })
-    );
-    return (txId: string) => release(txId);
-  }
+function deferQueue(mock: jest.Mock) {
+  let release: (txId: string) => void = () => {};
+  mock.mockImplementationOnce(
+    () =>
+      new Promise<string>(resolve => {
+        release = resolve;
+      })
+  );
+  return (txId: string) => release(txId);
+}
 
+function deferQueueFailure(mock: jest.Mock) {
+  let fail: (error: Error) => void = () => {};
+  mock.mockImplementationOnce(
+    () =>
+      new Promise<string>((_resolve, reject) => {
+        fail = reject;
+      })
+  );
+  return (error: Error) => fail(error);
+}
+
+describe('a claim shared across the Activity views', () => {
   it('does not queue a note again after a view switch while its first claim is still being queued', async () => {
     const release = deferQueue(mockQueue);
     const first = renderHook(() => useActivityClaims());
@@ -472,6 +483,7 @@ describe('a claim shared across the Activity views', () => {
     });
     expect(mockQueue).toHaveBeenCalledTimes(1);
     expect(second.result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-one' });
+    expect(mockReported).toEqual(['ok']);
   });
 
   it('does not queue a batch note again after a view switch', async () => {
@@ -492,6 +504,7 @@ describe('a claim shared across the Activity views', () => {
       await pending;
     });
     expect(mockQueueMany).toHaveBeenCalledTimes(1);
+    expect(mockReported).toEqual(['ok']);
   });
 
   it('does not queue a note from a batch while another view is queueing it alone, or the reverse', async () => {
@@ -592,28 +605,9 @@ describe('note_handle reporting', () => {
     log.mockRestore();
   });
 
-  it('completes an accept whose view was switched before the queue call resolved', async () => {
-    let queued = (_txId: string) => {};
-    mockQueue.mockReturnValue(new Promise<string>(resolve => (queued = resolve)));
-    const list = renderHook(() => useActivityClaims());
-    let accepting: Promise<void> = Promise.resolve();
-    act(() => {
-      accepting = list.result.current.accept(note);
-    });
-    // AllHistory renders one view or the other, so a List/Groups switch unmounts this hook and mounts another.
-    list.unmount();
-    renderHook(() => useActivityClaims());
-    await act(async () => {
-      queued('tx-1');
-      await accepting;
-    });
-    expect(mockReported).toEqual(['ok']);
-  });
-
   it('reports a failed accept whose view was switched before the queue call rejected', async () => {
     const log = jest.spyOn(console, 'error').mockImplementation(() => {});
-    let failQueue = (_error: Error) => {};
-    mockQueue.mockReturnValue(new Promise<string>((_resolve, reject) => (failQueue = reject)));
+    const failQueue = deferQueueFailure(mockQueue);
     const list = renderHook(() => useActivityClaims());
     let accepting: Promise<void> = Promise.resolve();
     act(() => {
@@ -634,8 +628,8 @@ describe('note_handle reporting', () => {
   it('completes each Accept All group whose view was switched before it queued', async () => {
     const other = { ...note, id: 'note-two', faucetId: 'other-faucet' };
     mockClaim.safeClaimableNotes = [note, other];
-    let queued = (_txId: string) => {};
-    mockQueueMany.mockReturnValueOnce(new Promise<string>(resolve => (queued = resolve))).mockResolvedValueOnce('tx-2');
+    const queued = deferQueue(mockQueueMany);
+    mockQueueMany.mockResolvedValueOnce('tx-2');
     const list = renderHook(() => useActivityClaims());
     let accepting: Promise<void> = Promise.resolve();
     act(() => {
