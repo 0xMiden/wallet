@@ -145,7 +145,7 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
  * writes like `syncState` (stacking a blocking mutex on top of the SDK's queue
  * used to hang the Send-flow SelectToken tile past Playwright's 10s click
  * budget), but it also must not run un-serialized while a transaction holds the
- * lock — during a transaction's `_withInnerWebClient` window the SDK runs an
+ * lock - during a transaction's `_withInnerWebClient` window the SDK runs an
  * un-locked read inline and double-borrows the WASM RefCell, trapping the
  * client. If the lock is busy this returns `null` (skip this refresh; the
  * caller keeps its prior balances and retries next cycle). `options.waitForLock`
@@ -174,9 +174,10 @@ export async function fetchBalances(
   // By default this is a NON-BLOCKING attempt: we skip (not queue) when the
   // lock is busy, so we never stall behind long writes. `waitForLock` queues
   // instead, for the one caller with nothing on screen until this read lands.
-  // Bounded at the SYNC ceiling rather than left on the 5-minute backstop (#777):
-  // the window this non-blocking read wins is the instant an eviction released the
-  // mutex, when the client slot is empty — so the read has to rebuild, and the new
+  // Bounded at the SYNC ceiling rather than left on the 5-minute backstop (#777): a
+  // skipping read wins the instant-after-eviction window by chance; a waiting read
+  // queued behind the evicted holder wins it reliably instead, since it is already
+  // next in line. Either way the read has to rebuild the client, and the new
   // client's genesis fetch goes to the node that just parked.
   // Fused (#777): this probe's own last holds were evicted by the watchdog, which means
   // the realm's call is parked and the client the next lap builds parks on it too.
@@ -201,7 +202,7 @@ export async function fetchBalances(
       // Guarded on its own, not merely behind it: the capture dynamically imports the
       // multisig client and then makes its OWN WASM calls on this borrowed account, so
       // an eviction during the account read above must stop it here. Reachable only
-      // under the flag — but the resilience suite is exactly the one that drives
+      // under the flag - but the resilience suite is exactly the one that drives
       // evictions at a real client, which is where a double borrow would surface.
       if (getCurrentWasmLockHold() !== hold) {
         throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the E2E capture'));
@@ -209,7 +210,7 @@ export async function fetchBalances(
       await captureGuardianAuthStructureForTest(address, acc);
     }
 
-    // Checked immediately before the vault read, and after EVERY await above it —
+    // Checked immediately before the vault read, and after EVERY await above it -
     // the account read and, under the E2E flag, the guardian-auth capture. An eviction
     // during either releases the mutex without stopping this callback, and `vault()` is
     // a WASM call on an object borrowed from the client's RefCell, so continuing is the

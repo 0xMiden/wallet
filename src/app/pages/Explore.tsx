@@ -355,11 +355,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
                 <AnimatedNumber value={balance.toNumber()} format={usdTotal} />
               )
             }
-            // Until the first balance read succeeds the store has no entry for
-            // this address and `useAllBalances` substitutes a zero placeholder
-            // row. Right after a recovery that read can lose the WASM lock to the
-            // first sync tick for several seconds, so the card must show the
-            // skeleton and not a "$0.00" that reads as lost funds (#844).
+            // Until the first balance read lands the store has no entry for this
+            // address and `useAllBalances` hands back a zero placeholder, so the
+            // card shows its skeleton, not a "$0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
             onMore={() => setAccountsOpen(true)}

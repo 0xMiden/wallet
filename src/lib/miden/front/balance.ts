@@ -88,15 +88,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     if (fetchingAddresses.has(address)) return;
 
     // Until this address has balances, the read queues for the WASM lock instead of
-    // skipping. After an import the sync, note reads and recovery keep the lock's queue
+    // skipping. After an import, the sync, note reads and recovery keep the lock's queue
     // full, and a skipping read starved behind them for as long as they ran (#1123).
     // Once a figure is on screen, a refresh skips instead of queueing, so it never
     // stalls behind a write.
-    // Holding the lock, not just avoiding it, is what matters: while a
-    // `withWasmClientLock` op (a transaction, sync, etc.) holds the client, an un-locked
-    // `getAccount` runs INLINE inside the SDK's `_withInnerWebClient` window and
-    // double-borrows the WASM RefCell, which panics the client (hangs guardian consumes
-    // on mobile).
     const waitForLock = useWalletStore.getState().balances[address] === undefined;
     if (!waitForLock && isWasmClientBusy()) return;
 
@@ -119,8 +114,8 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
         waitForLock
       });
 
-      // `null` means the WASM client was busy (a tx/sync held the lock) and the
-      // read was skipped — keep the prior balances and let the next tick retry.
+      // `null` means the refresh was skipped: either the lock was busy (a tx/sync held
+      // it) or the balances fuse is lit. Keep the prior balances and let the next tick retry.
       if (fetchedBalances === null) return;
 
       // Update store if still mounted

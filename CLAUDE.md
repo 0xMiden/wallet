@@ -123,7 +123,7 @@ A page supplies content; the design system supplies everything else. Before styl
 `<a download>` does nothing in WebView. Use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
 
 ### Balance loading
-`fetchBalances` reads IndexedDB via `getAccount()` (instant). `AutoSync` (1s interval) calls `syncState()` separately to update IndexedDB. Don't call `syncState()` from the UI path.
+`fetchBalances` reads the account from IndexedDB via `getAccount()` under the WASM lock and never syncs; don't call `syncState()` from the UI path. Sync is separate: on mobile and desktop `useSyncTrigger` runs it every 3 s (in-process, under the lock, with backoff and the sync fuse); on the extension the service worker's lap writes `miden_sync_data`, which the popup turns into balances (`updateBalancesFromSyncData`). A refresh takes the lock with a non-blocking try and skips when it is busy, so it never stalls behind a write. A read for an address with no balances yet (the Ready-time read in `syncFromBackend`, the first read in `useAllBalances`) passes `waitForLock` and queues FIFO: after an import the sync and note reads keep the queue full and a skipping read starves (#1123). Only a landed read ends `balancesLoading`; a failed or fused first read leaves Home on its skeleton. `clearStorage` resets the native-asset cache on every create or import and primes its rediscovery at once, because `fetchBalances` awaits the native faucet id before it returns.
 
 ## Adding a wallet action
 
