@@ -19,7 +19,7 @@ import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
-import { fetchBalances } from './utils/fetchBalances';
+import { fetchBalances, fetchingAddresses } from './utils/fetchBalances';
 
 // Singleton intercom client
 let intercom: IIntercomClient | null = null;
@@ -121,26 +121,19 @@ export const useWalletStore = create<WalletStore>()(
         lastSyncedAt: Date.now()
       });
 
-      // Immediately fetch balances when wallet becomes Ready (before any React effects)
+      // Immediately fetch balances when wallet becomes Ready (before any React effects).
+      // Through the store action: with nothing on screen it queues for the WASM lock rather
+      // than skipping, and called here it holds the lock before the first sync tick can, so an
+      // import's balance lands in one local read instead of after the sync (#1123).
       // On extension, skip — balances arrive via SyncCompleted broadcast from service worker
       if (justBecameReady && state.currentAccount && !isExtension()) {
         const address = state.currentAccount.publicKey;
-        fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
-          .then(balances => {
-            // `null` = WASM client was busy and the read was skipped; leave any
-            // prior balances in place and let a later poll refresh.
-            if (balances === null) return;
-            set(s => ({
-              balances: { ...s.balances, [address]: balances },
-              balancesLoading: { ...s.balancesLoading, [address]: false },
-              balancesLastFetched: { ...s.balancesLastFetched, [address]: Date.now() }
-            }));
-          })
+        get()
+          .fetchBalances(address, get().assetsMetadata)
           .catch(err => {
+            // Loading is left as it was: with nothing read yet, clearing it would show the
+            // zero placeholder as a real "$0.00". The balance poll retries.
             console.warn('[syncFromBackend] Initial balance fetch failed:', err);
-            set(s => ({
-              balancesLoading: { ...s.balancesLoading, [address]: false }
-            }));
           });
       }
     },
@@ -668,40 +661,28 @@ export const useWalletStore = create<WalletStore>()(
 
     // Balance actions
     fetchBalances: async (accountAddress, tokenMetadatas) => {
-      const { balancesLoading, setAssetsMetadata } = get();
-
-      // Skip if already loading
-      if (balancesLoading[accountAddress]) {
-        return;
-      }
-
-      set({
-        balancesLoading: { ...balancesLoading, [accountAddress]: true }
-      });
+      // The one implementation of a balance read: the Ready-time read and the useAllBalances poll
+      // both come through here. The in-flight guard, not `balancesLoading`: Home shows its skeleton
+      // while loading, so a refresh that set it would swap the figures on screen for it (#1123).
+      if (fetchingAddresses.has(accountAddress)) return;
+      fetchingAddresses.add(accountAddress);
 
       try {
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
-          setAssetsMetadata,
-          tokenPrices: get().tokenPrices
+          setAssetsMetadata: get().setAssetsMetadata,
+          tokenPrices: get().tokenPrices,
+          waitForLock: get().balances[accountAddress] === undefined
         });
-        // `null` = WASM client was busy and the read was skipped; clear the
-        // loading flag but keep any prior balances and retry later.
-        if (balances === null) {
-          set(state => ({
-            balancesLoading: { ...state.balancesLoading, [accountAddress]: false }
-          }));
-          return;
-        }
+        // `null` = a refresh found the lock busy or the balance probe is fused; keep any
+        // prior balances. Only a landed read ends loading.
+        if (balances === null) return;
         set(state => ({
           balances: { ...state.balances, [accountAddress]: balances },
           balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
           balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
         }));
-      } catch (error) {
-        set(state => ({
-          balancesLoading: { ...state.balancesLoading, [accountAddress]: false }
-        }));
-        throw error;
+      } finally {
+        fetchingAddresses.delete(accountAddress);
       }
     },
 

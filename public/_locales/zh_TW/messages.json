@@ -2271,6 +2271,10 @@
     "message": "什麼是「Guardian」？",
     "englishSource": "What is a Guardian?"
   },
+  "meetGuardianYourGuardian": {
+    "message": "你的 Guardian",
+    "englishSource": "Your Guardian"
+  },
   "guardianInfoDescription": {
     "message": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

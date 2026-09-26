@@ -165,7 +165,9 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
     // A dismiss - swipe, backdrop, Escape - all route through onOpenChange, and the sheet body
     // holds the only node that can show a failed save. Ignore a dismiss while the write is in
     // flight, the same rule as the header back on the contact pages.
+    // SendManager's back handler closes this sheet, holding it while a save is in flight.
     <Drawer
+      closeOnBack={false}
       open={open}
       onOpenChange={next => {
         if (!next && saving) return;

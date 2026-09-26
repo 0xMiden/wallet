@@ -8,6 +8,7 @@ import { IconName } from 'app/icons/v2';
 import { IconButton } from 'components/ui/IconButton';
 import { sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
@@ -44,15 +45,36 @@ interface DrawerProps {
    * extension a sheet closing over an open drawer still clears that drawer's black background.
    */
   noBodyStyles?: boolean;
+  /**
+   * Mobile back closes an open sheet, ahead of any page handler. `false` for a sheet its host's page
+   * handler closes instead (the send and swap pickers, which that handler guards); a sheet that is not
+   * dismissible never closes on back by itself either.
+   */
+  closeOnBack?: boolean;
 }
 
-function Drawer({ open = false, onOpenChange, children, screenKey, dismissible, noBodyStyles }: DrawerProps) {
+/** Mounted only while an open sheet closes on back, so it registers on top and unregisters on close. */
+function CloseOnBack({ close }: { close: () => void }) {
+  useCloseOnBack(true, close);
+  return null;
+}
+
+function Drawer({
+  open = false,
+  onOpenChange,
+  children,
+  screenKey,
+  dismissible,
+  noBodyStyles,
+  closeOnBack = true
+}: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
+      {open && dismissible !== false && closeOnBack && <CloseOnBack close={onClose} />}
       <VaulDrawer.Root
         open={open}
         onOpenChange={onOpenChange}

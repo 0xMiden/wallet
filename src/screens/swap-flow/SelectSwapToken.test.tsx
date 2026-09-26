@@ -68,17 +68,21 @@ jest.mock('components/TokenLogo', () => ({
 
 // vaul drawer — render children plus a probe button so we can fire the
 // `onOpenChange` the component wires to the sheet, and surface `open`.
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} ref={() => (mockDrawerCloseOnBack = closeOnBack)}>
       <button data-testid="drawer-openchange" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -130,6 +134,11 @@ beforeEach(() => {
 });
 
 describe('SelectSwapTokenDrawer', () => {
+  it("leaves mobile back to SwapManager's handler, which closes the sheet", () => {
+    renderDrawer();
+    expect(mockDrawerCloseOnBack).toBe(false);
+  });
+
   it('renders the open drawer with the localized title and one row per swap token', () => {
     renderDrawer();
 

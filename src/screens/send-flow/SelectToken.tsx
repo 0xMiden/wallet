@@ -58,8 +58,9 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
     [onSelect, onOpenChange]
   );
 
+  // SendManager's back handler closes this sheet, so the sheet does not register its own.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} screenKey="token">
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="token" closeOnBack={false}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>
