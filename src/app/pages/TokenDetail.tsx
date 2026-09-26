@@ -30,7 +30,7 @@ import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { fetchKlineData, quotedPrice } from 'lib/prices';
+import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -122,7 +122,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
             }
             subtitle={
-              scaleIsKnown && quote ? (
+              // The dash while prices load; no line once they have and none quotes this token.
+              scaleIsKnown && (quote || !pricesLoaded(tokenPrices)) ? (
                 <AnimatedNumber
                   value={fiatValue}
                   format={value => `$${formatFiat(value)}`}

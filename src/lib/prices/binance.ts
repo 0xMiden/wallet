@@ -71,6 +71,14 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
 }
 
 /**
+ * Whether the feed has delivered any quote yet. An empty map is prices still loading, which a
+ * figure shows as its placeholder; a loaded map without a symbol is a token with no price.
+ */
+export function pricesLoaded(prices: TokenPrices): boolean {
+  return Object.keys(prices).length > 0;
+}
+
+/**
  * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
  * price is not a quote. Resolve a held token's symbol with `priceSymbolFor` first (IETH at ETH).
  */

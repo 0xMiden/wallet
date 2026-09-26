@@ -26,6 +26,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
+import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -356,7 +357,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={
-              Object.keys(tokenPrices).length === 0 || balance === null ? (
+              !pricesLoaded(tokenPrices) || balance === null ? (
                 '$—'
               ) : (
                 <AnimatedNumber value={balance.toNumber()} format={usdTotal} />

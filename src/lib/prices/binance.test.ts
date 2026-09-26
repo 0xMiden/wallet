@@ -1,6 +1,14 @@
 import axios from 'axios';
 
-import { fetchKlineData, fetchTokenPrices, listedFiatValue, listedPrice, quotedPrice, Timeframe } from './binance';
+import {
+  fetchKlineData,
+  fetchTokenPrices,
+  listedFiatValue,
+  listedPrice,
+  pricesLoaded,
+  quotedPrice,
+  Timeframe
+} from './binance';
 
 jest.mock('axios');
 
@@ -179,6 +187,16 @@ describe('binance', () => {
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('Failed to fetch kline'), expect.any(Error));
       warn.mockRestore();
     });
+  });
+});
+
+describe('pricesLoaded', () => {
+  it('is false before the feed has delivered any quote', () => {
+    expect(pricesLoaded({})).toBe(false);
+  });
+
+  it('is true once any quote exists, whether or not a given symbol is among them', () => {
+    expect(pricesLoaded({ BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } })).toBe(true);
   });
 });
 

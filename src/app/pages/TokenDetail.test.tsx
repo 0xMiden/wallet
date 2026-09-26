@@ -68,6 +68,7 @@ jest.mock('lib/store', () => ({
 // The kline fetch is stubbed; the price lookup is the real one, reading `mockTokenPrices`.
 const mockFetchKlineData = jest.fn();
 jest.mock('lib/prices', () => ({
+  pricesLoaded: jest.requireActual('lib/prices/binance').pricesLoaded,
   quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
   fetchKlineData: (...args: unknown[]) => mockFetchKlineData(...args)
 }));
@@ -314,13 +315,22 @@ describe('TokenDetail', () => {
   });
 
   it('shows no fiat line and no price section for a token the feed does not quote', () => {
-    renderPage({ tokenPrices: {} });
+    // Prices have loaded, and ETH is not among them.
+    renderPage({ tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } } });
 
     const hero = screen.getByTestId('token-detail-hero');
     expect(within(hero).getByText('12.50')).toBeInTheDocument();
     // No fiat line at all, not even the dash that means "not priced yet".
     expect(hero.querySelector('p')).toBeNull();
     expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+  });
+
+  it('shows the placeholder dash in the fiat line while prices have not loaded, not a missing line', () => {
+    renderPage({ tokenPrices: {} });
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    expect(hero.querySelector('p')).toHaveTextContent('\u2014');
   });
 
   it('draws the shared Hero: the 88px logo circle, the amount as the value and the fiat line muted', () => {
