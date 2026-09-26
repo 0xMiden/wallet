@@ -11,9 +11,9 @@ jest.mock('lib/platform', () => ({
   isExtension: () => false
 }));
 
+const mockStored: Record<string, unknown> = { 'stored-key': 'stored-value' };
 const mockGet = jest.fn(
-  async (keys: string[]): Promise<Record<string, unknown>> =>
-    keys[0] === 'stored-key' ? { 'stored-key': 'stored-value' } : {}
+  async ([key]: string[]): Promise<Record<string, unknown>> => (key! in mockStored ? { [key!]: mockStored[key!] } : {})
 );
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({ get: mockGet, set: jest.fn() })
@@ -33,6 +33,7 @@ const renderReader = (storageKey: string) =>
 
 const deferredRead = (key: string, value: string) => {
   let release!: () => void;
+  mockStored[key] = value;
   mockGet.mockImplementationOnce(
     () =>
       new Promise(resolve => {
@@ -91,6 +92,7 @@ describe('preloadStorage', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
       return { 'good-key': 'good-value' };
     });
+    mockStored['good-key'] = 'good-value';
     await expect(preloadStorage(['bad-key', 'good-key'])).rejects.toThrow(
       /1 of 2 keys: bad-key \(Error: storage bridge failed\)/
     );
