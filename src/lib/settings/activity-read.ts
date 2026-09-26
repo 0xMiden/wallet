@@ -77,7 +77,7 @@ function sameState(a: ActivityReadState, b: ActivityReadState): boolean {
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', event => {
     if (event.key !== null && event.key !== ACTIVITY_READ_STORAGE_KEY) return;
-    const incoming = event.key === null ? undefined : parse(event.newValue);
+    const incoming = parse(event.newValue);
     const next = incoming && cached ? merge(cached, incoming) : undefined;
     if (next && cached && sameState(next, cached)) return;
     cached = next;
@@ -149,12 +149,7 @@ export function markActivityRead(id: string, timestamp: number): void {
   // Another window may have written since this one last read: write the union, never this
   // window's copy alone.
   const current = stored ? merge(getActivityReadState(), stored) : getActivityReadState();
-  if (isActivityRead(current, id, timestamp)) {
-    if (cached && sameState(current, cached)) return;
-    cached = current;
-    notify();
-    return;
-  }
+  if (isActivityRead(current, id, timestamp)) return;
   // Only entries strictly ABOVE the mark survive compaction, so a row with no usable timestamp
   // (an incoming transfer that never carried a `receivedAt`) is recorded just past it rather than
   // at a `now` the mark may already have reached — otherwise the read would be dropped on write.
