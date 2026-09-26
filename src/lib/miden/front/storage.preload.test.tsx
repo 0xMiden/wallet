@@ -186,6 +186,10 @@ describe('preloadStorage', () => {
   });
 
   it('keeps the newer of two overlapping preload reads of one key', async () => {
+    mockStored['twice-key'] = 'seed';
+    renderReader('twice-key');
+    expect((await screen.findByTestId('value')).textContent).toBe('seed');
+
     const releaseOlder = deferredRead('twice-key', 'older');
     const older = preloadStorage(['twice-key']);
     const releaseNewer = deferredRead('twice-key', 'newer');
@@ -194,12 +198,13 @@ describe('preloadStorage', () => {
     await act(async () => {
       releaseOlder();
       await older;
+    });
+    expect(screen.getByTestId('value').textContent).toBe('seed');
+
+    await act(async () => {
       releaseNewer();
       await newer;
     });
-    renderReader('twice-key');
-
-    expect(screen.queryByTestId('suspended')).toBeNull();
     expect(screen.getByTestId('value').textContent).toBe('newer');
   });
 
