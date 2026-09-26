@@ -51,8 +51,7 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false),
-  isAndroid: jest.fn(() => false)
+  isMobile: jest.fn(() => false)
 }));
 
 jest.mock('lib/woozie', () => ({

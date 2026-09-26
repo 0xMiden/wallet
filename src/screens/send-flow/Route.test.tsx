@@ -8,7 +8,7 @@ import { Route } from './Route';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: () => true, isAndroid: () => false }));
+jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 
 describe('Route', () => {

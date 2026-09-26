@@ -805,6 +805,62 @@ describe('TabLayout - the tab bar marks body while it is mounted', () => {
     expect(seenAtLayout).toBe(true);
   });
 
+  // Android's bar keeps its tabs above the system navigation bar, so it reaches further into the page
+  // and main.css gives flow CTAs more room under this mark (#1121).
+  const clearsInset = () => document.body.hasAttribute('data-navbar-clears-inset');
+
+  it('marks body for a bar that clears the inset on Android, until the last layout unmounts', () => {
+    mockPlatform.isMobile = true;
+    mockPlatform.isAndroid = true;
+    mockLocation.pathname = '/history';
+    const base = renderLayout();
+    const pushed = renderLayout();
+    expect(clearsInset()).toBe(true);
+    pushed.unmount();
+    expect(clearsInset()).toBe(true);
+    base.unmount();
+    expect(clearsInset()).toBe(false);
+  });
+
+  it('never marks body for a bar that clears the inset on iOS', () => {
+    mockPlatform.isMobile = true;
+    mockPlatform.isIOS = true;
+    mockLocation.pathname = '/history';
+    renderLayout();
+    expect(clearsInset()).toBe(false);
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-clear-inset', 'false');
+  });
+
+  it.each([
+    ['Android', true],
+    ['iOS', false]
+  ])('marks body for the inset before paint on %s, in the commit that mounts the bar', (_platform, android) => {
+    mockPlatform.isMobile = true;
+    mockPlatform.isAndroid = android;
+    mockLocation.pathname = '/history';
+    let seenAtLayout: boolean | undefined;
+    function LayoutProbe() {
+      React.useLayoutEffect(() => {
+        seenAtLayout = clearsInset();
+      }, []);
+      return null;
+    }
+    render(
+      <>
+        <TabLayout>{<div />}</TabLayout>
+        <LayoutProbe />
+      </>
+    );
+    expect(seenAtLayout).toBe(android);
+  });
+
+  it('sizes the flow cushion under that mark from the bar and the body floor, never a copied 16px', () => {
+    const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
+    expect(css).toMatch(
+      /body\[data-navbar-clears-inset\]\s*\{\s*--navbar-cushion:\s*calc\(\s*5\.5rem \+ env\(safe-area-inset-bottom\) - var\(--app-safe-bottom, max\(16px, env\(safe-area-inset-bottom\)\)\)\s*\);\s*\}/
+    );
+  });
+
   it('collapses a flow footer cushion to 1rem when no tab bar is mounted', () => {
     const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
     expect(css).toMatch(

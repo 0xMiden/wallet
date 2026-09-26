@@ -166,8 +166,7 @@ jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { provider:
 
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension(),
-  isMobile: () => mockIsMobile(),
-  isAndroid: () => false
+  isMobile: () => mockIsMobile()
 }));
 
 // Real `sanitizeGuardianUrl`/`isValidGuardianUrl`: they ARE the endpoint guards

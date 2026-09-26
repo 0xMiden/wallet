@@ -7,10 +7,11 @@ import path from 'path';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { FlowLayout } from './FlowLayout';
+import { stepFooterCushionClass } from './footer-cushion';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: () => true, isAndroid: () => false }));
+jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('app/icons/v2', () => ({
   IconName: { ArrowLeft: 'arrow-left', ChevronLeft: 'chevron-left', Close: 'close' },
   // Keep name and className: the glyph and its colour are what the back assertions check, and a
@@ -94,7 +95,7 @@ describe('FlowLayout', () => {
     );
 
     const footer = screen.getByText('cta').parentElement;
-    expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
+    expect(footer).toHaveClass(stepFooterCushionClass());
   });
 
   // The docked bar draws over the page at `z-60` and reaches the screen edge, so a CTA at the
@@ -111,7 +112,7 @@ describe('FlowLayout', () => {
     );
 
     const footer = screen.getByText('cta').parentElement;
-    expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
+    expect(footer).toHaveClass(stepFooterCushionClass());
     expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
     // The flow footer snaps its cushion (the slide animates it), so it opts out of the padding transition.
     expect(footer).toHaveAttribute('data-flow-footer');
@@ -136,7 +137,7 @@ describe('FlowLayout', () => {
         </FlowLayout>
       );
 
-      expect(screen.getByText('cta').parentElement).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
+      expect(screen.getByText('cta').parentElement).toHaveClass(stepFooterCushionClass());
     } finally {
       document.body.removeAttribute('data-hide-navbar');
     }

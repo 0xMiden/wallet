@@ -657,6 +657,15 @@ body[data-hide-navbar] [data-navbar-cushion='true'] {
 body:not([data-navbar-mounted]) [data-navbar-cushion='true'] {
   padding-bottom: 1rem;
 }
+/* The room a flow CTA's cushion reserves for the docked bar (footer-cushion.ts reads it, 4rem when
+ * unset). On Android the tabs stay 8px above the system navigation bar and TabLayout marks the body:
+ * the bar is 73px plus the inset and sinks by the body's safe-area floor, so it reaches 73px + inset -
+ * floor into the page, and the cushion keeps 15px more at any inset. */
+body[data-navbar-clears-inset] {
+  --navbar-cushion: calc(
+    5.5rem + env(safe-area-inset-bottom) - var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)))
+  );
+}
 /* A flow footer's cushion snaps: it slides with useSlideOnReflow, and a padding transition under
  * that slide would reflow every frame and leave the slide's start position stale. */
 [data-navbar-cushion='true'][data-flow-footer] {

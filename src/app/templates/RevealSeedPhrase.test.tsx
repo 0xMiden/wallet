@@ -142,8 +142,7 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile,
-  isAndroid: () => false
+  isMobile: () => mockIsMobile
 }));
 
 jest.mock('lib/ui/useCopyToClipboard', () => ({

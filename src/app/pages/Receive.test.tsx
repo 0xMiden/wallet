@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PageActiveContext } from 'app/layouts/page-active';
+import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
@@ -161,7 +162,6 @@ jest.mock('lib/telemetry', () => ({
 const mockIsMobile = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
-  isAndroid: () => false,
   isExtension: () => false
 }));
 
@@ -395,9 +395,7 @@ describe('Receive - Address', () => {
     mockIsMobile.mockReturnValue(true);
     const container = await renderReceive();
 
-    expect(container.querySelector('[data-testid="receive-page"]')).toHaveClass(
-      'pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]'
-    );
+    expect(container.querySelector('[data-testid="receive-page"]')).toHaveClass(stepFooterCushionClass());
   });
 
   it('leaves the horizontal swipe to the home carousel', async () => {

@@ -21,12 +21,13 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 
 import { HomeGroupPane, HomeGroupPaneBody, HomeGroupPaneRoot } from './HomeGroupPane';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: () => true, isAndroid: () => false }));
+jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('app/icons/v2', () => ({
   IconName: { ArrowLeft: 'arrow-left', Close: 'close' },
   Icon: ({ name }: { name: string }) => <svg data-name={name} />
@@ -107,7 +108,7 @@ describe('HomeGroupPaneBody', () => {
         <p>content</p>
       </HomeGroupPaneBody>
     );
-    const cushion = 'pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]';
+    const cushion = stepFooterCushionClass();
     expect(body(withoutFooter.container)).toHaveClass(cushion);
     withoutFooter.unmount();
 
