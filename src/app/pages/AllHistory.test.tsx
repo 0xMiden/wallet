@@ -218,6 +218,12 @@ describe('AllHistory', () => {
     HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   });
 
+  const onScreen = (active: boolean) => (
+    <PageActiveContext.Provider value={active}>
+      <AllHistory />
+    </PageActiveContext.Provider>
+  );
+
   it('renders the activity header, filter chips and search field', () => {
     render(<AllHistory />);
 
@@ -412,11 +418,6 @@ describe('AllHistory', () => {
     });
 
     const reportLoaded = () => fireEvent.click(screen.getByTestId('history-loaded'));
-    const onScreen = (active: boolean) => (
-      <PageActiveContext.Provider value={active}>
-        <AllHistory />
-      </PageActiveContext.Provider>
-    );
 
     it('cancels the flow when its page goes off screen before the list loads', () => {
       const { rerender } = render(onScreen(true));
@@ -757,6 +758,26 @@ describe('AllHistory', () => {
 
       await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
       expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the feed a link opened while another tab is on screen', () => {
+      const { rerender } = render(onScreen(true));
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+
+      mockLocationSearch.value = '?filter=pending';
+      rerender(onScreen(true));
+      expect(getHistory().getAttribute('data-instance')).toBe('1');
+
+      // TabLayout keeps this pane mounted under the tab now showing, whose location names no filter.
+      mockLocationSearch.value = '';
+      rerender(onScreen(false));
+      expect(screen.queryByTestId('grouped-history')).toBeNull();
+      expect(getHistory().getAttribute('data-instance')).toBe('1');
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+
+      // A tap on the Activity tab goes to `/history`, which names none.
+      rerender(onScreen(true));
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
     });
 
     it('returns to the saved Groups view once the location no longer names a filter', () => {
