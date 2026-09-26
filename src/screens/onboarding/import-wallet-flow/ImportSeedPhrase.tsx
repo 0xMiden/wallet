@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -7,8 +7,9 @@ import { formatMnemonic } from 'app/defaults';
 import { Button } from 'components/Button';
 import { Notice } from 'components/ui/Notice';
 import { TextAction } from 'components/ui/TextAction';
-import { TextField } from 'components/ui/TextField';
+import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { isMobile } from 'lib/platform';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -94,6 +95,23 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
     [setSeedPhrase]
   );
 
+  const wordRefs = useRef<(TextFieldElement | null)[]>([]);
+
+  // With an enterKeyHint set, Android Chromium sends Next and Done as an Enter keydown, with the
+  // word still composing, instead of moving focus. So isComposing cannot gate this, and keyCode
+  // 229 (an Enter that only commits an IME composition) is the one to skip. Done blurs only on
+  // mobile: that dismisses the soft keyboard, while on desktop blurring to body would drop a
+  // keyboard or screen-reader user's place.
+  const onWordKeyDown = (event: React.KeyboardEvent<TextFieldElement>, index: number) => {
+    if (event.key !== 'Enter' || event.nativeEvent.keyCode === 229) return;
+    event.preventDefault();
+    if (index < PHRASE_LENGTH - 1) {
+      wordRefs.current[index + 1]?.focus();
+    } else if (isMobile()) {
+      event.currentTarget.blur();
+    }
+  };
+
   return (
     <OnboardingStepLayout
       data-testid="import-seed-phrase"
@@ -121,6 +139,10 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
             <TextField
               id={`seed-phrase-input-${index}`}
               key={index}
+              ref={node => {
+                wordRefs.current[index] = node;
+              }}
+              onKeyDown={event => onWordKeyDown(event, index)}
               value={seedPhrase[index]}
               aria-label={t('word', { number: String(index + 1) })}
               aria-invalid={errorsMap[index] || undefined}
