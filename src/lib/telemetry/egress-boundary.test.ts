@@ -555,7 +555,7 @@ async function driveEveryInstrumentedFlow(): Promise<void> {
   });
   fund.unmount();
 
-  // `note_handle`: completed, errored on a poisoned rejection, then abandoned.
+  // `note_handle`: completed, then errored on a poisoned rejection.
   const claim = renderHook(() => useReportNoteClaim());
   await act(async () => {
     await claim.result.current(() => Promise.resolve('claim queued'));
@@ -563,12 +563,7 @@ async function driveEveryInstrumentedFlow(): Promise<void> {
   await act(async () => {
     await swallowRejection(() => claim.result.current(() => Promise.reject(poisonedError('network claim failed'))));
   });
-  // A claim still in flight when the surface goes away: the unmount has to
-  // settle it as abandoned rather than leave an unmatched `started`.
-  await act(async () => {
-    void swallowRejection(() => claim.result.current(() => new Promise(() => undefined)));
-    claim.unmount();
-  });
+  claim.unmount();
 
   // `send`: the module-scoped handle, settled three ways.
   enterSendFlow();

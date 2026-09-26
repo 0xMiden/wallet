@@ -18,6 +18,7 @@
 - [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
 - [FIX][all] After importing a wallet, Home shows the balance as soon as it is read from the device instead of waiting behind the first sync (mobile and desktop), and until then the Assets list shows a loading row instead of "0 MIDEN" (#1123).
 - [FIX][all] **Home and token details value IETH at the ETH price instead of $1 per token** (0.38 IETH read $0.38, not about $1,000), and the token-detail chart draws again (#1128). Every dollar figure now appears only for a token the price feed actually quotes: Home rows and token details show no fiat value for an unquoted token such as MIDEN, the Home total adds up the quoted tokens only (and shows "$-" when none of what you hold is quoted), and the Pending transfers total and the home "transfers waiting" prompt show no total when any transfer's asset has no price, where they used to count it at $1 a unit (#1105).
+- [FIX][all] Accepting a transfer and switching Activity between List and Groups before the claim is queued no longer records the accept as abandoned in telemetry: the claim reports its own outcome whichever view is showing (#1111).
 
 ## 1.16.2 (2026-09-24)
 
