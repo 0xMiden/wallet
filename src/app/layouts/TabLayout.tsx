@@ -24,7 +24,7 @@ import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { isAndroid, isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -172,6 +172,7 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         activeId={activeId}
         onChange={onChange}
         docked={isMobile()}
+        clearInset={isAndroid()}
         corner={<NetworkModeRibbon docked={isMobile()} />}
       />
     </div>

@@ -8,7 +8,7 @@ import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 
 export interface NetworkModeRibbonProps {
-  /** The docked mobile bar (screen corner, home indicator) rather than the floating pill. */
+  /** The docked mobile bar (its corner is the screen's on iOS, the system navigation bar's top on Android) rather than the floating pill. */
   docked: boolean;
 }
 
@@ -23,7 +23,8 @@ export interface NetworkModeRibbonProps {
  * "TESTNET" (10px, 0.06em: 48.6 x 7.1px) is fully inside a 55pt screen corner (iPhone 17 Pro) from
  * c = 47.5, inside a 44pt corner (375pt iPhones) from 44, and inside the floating pill's 24px radius
  * from 42.5.
- * - Docked: c = 50, word centre (25, 25) from the bar's bottom-right corner, which is the screen's.
+ * - Docked: c = 50, word centre (25, 25) from the corner box's bottom-right corner, which is the
+ *   screen's on iOS and the top of the system navigation bar on Android (BottomNav's `clearInset`).
  *   The word spans x and y 5.3..44.7; the band clears the popped Settings gear by 22pt (iPhone 17
  *   Pro) and 21pt (375pt).
  * - Floating: c = 44, word centre (22, 22); inside the pill's corner, 17pt clear of the gear.

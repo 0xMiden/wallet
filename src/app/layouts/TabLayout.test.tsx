@@ -24,7 +24,7 @@ import TabLayout from './TabLayout';
 // (Prefixed `mock*` so the jest hoister lets the factories close over them.)
 // ---------------------------------------------------------------------------
 const mockLocation = { pathname: '/' };
-const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, isIOS: false };
+const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, isIOS: false, isAndroid: false };
 const mockEnv = { fullPage: false, sidePanel: false };
 const mockReturning = { value: false };
 const mockHasUnread = { value: false };
@@ -52,7 +52,8 @@ jest.mock('lib/platform', () => ({
   isMobile: () => mockPlatform.isMobile,
   isDesktop: () => mockPlatform.isDesktop,
   isExtension: () => mockPlatform.isExtension,
-  isIOS: () => mockPlatform.isIOS
+  isIOS: () => mockPlatform.isIOS,
+  isAndroid: () => mockPlatform.isAndroid
 }));
 
 jest.mock('lib/mobile/webview-state', () => ({
@@ -140,8 +141,13 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked, corner }: any) => (
-    <div data-testid="bottom-nav" data-active={activeId} data-docked={String(!!docked)}>
+  BottomNav: ({ items, activeId, onChange, docked, clearInset, corner }: any) => (
+    <div
+      data-testid="bottom-nav"
+      data-active={activeId}
+      data-docked={String(!!docked)}
+      data-clear-inset={String(!!clearInset)}
+    >
       <div data-testid="bottom-nav-corner">{corner}</div>
       {items.map((it: any) => (
         <button
@@ -196,6 +202,7 @@ beforeEach(() => {
   mockPlatform.isDesktop = false;
   mockPlatform.isExtension = false;
   mockPlatform.isIOS = false;
+  mockPlatform.isAndroid = false;
   mockEnv.fullPage = false;
   mockEnv.sidePanel = false;
   mockReturning.value = false;
@@ -573,6 +580,22 @@ describe('TabLayout — bottom nav footer padding', () => {
 
     const footer = screen.getByTestId('bottom-nav').parentElement!.parentElement!;
     expect(footer.style.bottom).toBe('calc(-1 * var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom))))');
+  });
+
+  // Android's bottom inset is the system navigation bar, which a tab must not sit on; iOS's is the
+  // home indicator, which the tabs may reach into (#1121).
+  it('keeps the docked tabs above the bottom inset on Android', () => {
+    mockPlatform.isMobile = true;
+    mockPlatform.isAndroid = true;
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-clear-inset', 'true');
+  });
+
+  it('lets the docked tabs reach into the home indicator on iOS', () => {
+    mockPlatform.isMobile = true;
+    mockPlatform.isIOS = true;
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-clear-inset', 'false');
   });
 });
 
