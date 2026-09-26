@@ -22,9 +22,11 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { tokenQuote } from 'lib/miden/swap/tokens';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
-import { getTokenPrice } from 'lib/prices';
+import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -171,16 +173,22 @@ const Explore: FC = () => {
   }, [address]);
 
   const sortedTokens = useMemo(() => {
-    const sorted = [...allTokenBalances].sort((a, b) => {
+    // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
+    // nothing, never as its token count at $1 a unit.
+    const fiatValues = new Map(
+      allTokenBalances.map(token => [
+        token,
+        hasKnownScale(token.metadata)
+          ? token.balance * (tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)?.price ?? 0)
+          : 0
+      ])
+    );
+    return [...allTokenBalances].sort((a, b) => {
       const aIsNative = a.tokenId === midenFaucetId;
       const bIsNative = b.tokenId === midenFaucetId;
       if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
-
-      const aFiatValue = a.balance * getTokenPrice(tokenPrices, a.metadata.symbol).price;
-      const bFiatValue = b.balance * getTokenPrice(tokenPrices, b.metadata.symbol).price;
-      return bFiatValue - aFiatValue;
+      return fiatValues.get(b)! - fiatValues.get(a)!;
     });
-    return sorted;
   }, [allTokenBalances, midenFaucetId, tokenPrices]);
 
   const refreshExplore = useCallback(async () => {
@@ -341,15 +349,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
-            // Gap 16: until real prices have loaded, every token falls back to the
-            // $1 default, so the "USD total" would be a fabricated number equal to
-            // the raw token count. When no prices are available (feed down or still
-            // loading) show "$—" rather than that fake figure; once any real price
-            // lands (stale-but-real via keepPreviousData counts), show the total.
+            // The dash when there is no total to show: prices have not loaded yet (feed
+            // down or still loading), or tokens are held and none can be valued (Balance
+            // hands null). Once any real price lands (stale-but-real via keepPreviousData
+            // counts), the total shows.
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={
-              Object.keys(tokenPrices).length === 0 ? (
+              !pricesLoaded(tokenPrices) || balance === null ? (
                 '$—'
               ) : (
                 <AnimatedNumber value={balance.toNumber()} format={usdTotal} />

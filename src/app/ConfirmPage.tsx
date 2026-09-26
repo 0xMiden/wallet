@@ -734,7 +734,7 @@ const ConfirmDAppForm: FC = () => {
 
   return (
     <div
-      className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
+      className={classNames('relative bg-surface-solid text-ink rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
       style={{
         width: 380,
         height: 610

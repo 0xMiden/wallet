@@ -1,12 +1,12 @@
 import axios from 'axios';
 
 import {
-  DEFAULT_PRICE,
   fetchKlineData,
   fetchTokenPrices,
-  getTokenPrice,
   listedFiatValue,
   listedPrice,
+  pricesLoaded,
+  quotedPrice,
   Timeframe
 } from './binance';
 
@@ -91,20 +91,6 @@ describe('binance', () => {
       expect(result).toEqual({});
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('Failed to fetch'), expect.any(Error));
       warn.mockRestore();
-    });
-  });
-
-  describe('getTokenPrice', () => {
-    it('returns the stored price info for a known symbol', () => {
-      expect(getTokenPrice({ ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } }, 'ETH')).toEqual({
-        price: 3000,
-        change24h: 10,
-        percentageChange24h: 0.1
-      });
-    });
-
-    it('returns DEFAULT_PRICE when the symbol is missing', () => {
-      expect(getTokenPrice({}, 'NOPE')).toBe(DEFAULT_PRICE);
     });
   });
 
@@ -204,6 +190,32 @@ describe('binance', () => {
   });
 });
 
+describe('pricesLoaded', () => {
+  it('is false before the feed has delivered any quote', () => {
+    expect(pricesLoaded({})).toBe(false);
+  });
+
+  it('is true once any quote exists, whether or not a given symbol is among them', () => {
+    expect(pricesLoaded({ BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } })).toBe(true);
+  });
+});
+
+describe('quotedPrice', () => {
+  const eth = { price: 3000, change24h: 10, percentageChange24h: 0.1 };
+
+  it('returns the feed quote of a listed symbol', () => {
+    expect(quotedPrice({ ETH: eth }, 'ETH')).toEqual({ price: 3000, change24h: 10, percentageChange24h: 0.1 });
+  });
+
+  it('returns no quote for a symbol the feed does not list, never a $1 default', () => {
+    expect(quotedPrice({ ETH: eth }, 'MIDEN')).toBeUndefined();
+  });
+
+  it('returns no quote for a zero price', () => {
+    expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBeUndefined();
+  });
+});
+
 describe('listedPrice', () => {
   const prices = { ETH: { price: 2, change24h: 0, percentageChange24h: 0 } };
 
@@ -213,6 +225,10 @@ describe('listedPrice', () => {
 
   it('returns 0 for a symbol the feed does not list, never the $1 default', () => {
     expect(listedPrice(prices, 'IMIDEN')).toBe(0);
+  });
+
+  it('returns 0 for a quote that is not a price, as quotedPrice does', () => {
+    expect(listedPrice({ ETH: { price: -1, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBe(0);
   });
 });
 

@@ -52,7 +52,6 @@ interface MetadataStore {
 const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} }));
 let mockConfiguredNativeFaucet: string | null = 'configured-native';
 let mockChainNativeFaucet: string | null = 'chain-native';
-let mockPrice = 2;
 let mockMaxNetworkFee: string | undefined;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
@@ -128,11 +127,13 @@ jest.mock('lib/miden/metadata/utils', () => ({
 }));
 
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args)
+  getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args),
+  tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote
 }));
 
+// The real lookup, reading the store's `tokenPrices`.
 jest.mock('lib/prices', () => ({
-  getTokenPrice: () => ({ price: mockPrice })
+  quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice
 }));
 
 // Deterministic formatter so amount assertions are exact (real formatAmount
@@ -422,7 +423,6 @@ beforeEach(() => {
   mockWalletStore.setState({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} });
   mockConfiguredNativeFaucet = 'configured-native';
   mockChainNativeFaucet = 'chain-native';
-  mockPrice = 2;
   mockMaxNetworkFee = undefined;
 
   // Default: token metadata for the tx faucet; requested-faucet lookups get a
@@ -483,6 +483,7 @@ describe('HistoryDetails', () => {
 
     it('updates a send amount and symbol when unresolved metadata arrives without a row change', async () => {
       mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
+      mockWalletStore.setState({ tokenPrices: { RES: { price: 2 } } });
       setMockRow({ ...baseSendTx, amount: 250_000_000n });
       await renderAndLoad();
       expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
@@ -1031,6 +1032,25 @@ describe('HistoryDetails', () => {
 
       // Not a swap → no order-tracking card.
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+    });
+
+    it('estimates IETH at the ETH price, the symbol the feed quotes it under', async () => {
+      const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'IETH', decimals: 8 });
+      mockWalletStore.setState({ tokenPrices: { ETH: { price: 3000 } } });
+      setMockRow({ ...baseSendTx, faucetId: TOKEN_IETH.faucetId, amount: 2n });
+      await renderAndLoad();
+
+      expect(screen.getByText('historyDetailsFiatApprox_$6000.00')).toBeInTheDocument();
+    });
+
+    it('gives no estimate for a token the feed does not quote, never a $1 figure', async () => {
+      mockWalletStore.setState({ tokenPrices: {} });
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+
+      expect(screen.getByText('1000 MID')).toBeInTheDocument();
+      expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
     });
 
     // The placeholder's 6 decimals are a guess. Converting an 18-decimal token by

@@ -25,11 +25,12 @@ import { Skeleton } from 'components/ui/Skeleton';
 import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { fetchKlineData, getTokenPrice } from 'lib/prices';
+import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -79,8 +80,11 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
   const balance = balances ? (token?.balance ?? 0) : null;
-  const priceInfo = getTokenPrice(tokenPrices, symbol);
-  const fiatValue = balance === null ? null : balance * priceInfo.price;
+  // The quote of the symbol the feed prices this token under (IETH at ETH). A token without one
+  // has no dollar figure and no price section, never its token count at $1 a unit.
+  const priceSymbol = priceSymbolFor(tokenId, symbol);
+  const quote = quotedPrice(tokenPrices, priceSymbol);
+  const fiatValue = balance === null || !quote ? null : balance * quote.price;
   // `balance` was divided by the placeholder's guessed decimals upstream, so for
   // an unresolved faucet it is not this user's holding — and the fiat figure
   // below is that same wrong number multiplied by a price. The hero is the most
@@ -118,7 +122,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
             }
             subtitle={
-              scaleIsKnown ? (
+              // The dash while prices load; no line once they have and none quotes this token.
+              scaleIsKnown && (quote || !pricesLoaded(tokenPrices)) ? (
                 <AnimatedNumber
                   value={fiatValue}
                   format={value => `$${formatFiat(value)}`}
@@ -155,7 +160,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          <PriceChart symbol={symbol} priceInfo={priceInfo} />
+          {quote && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
 
           <TokenInfo tokenId={tokenId} />
 

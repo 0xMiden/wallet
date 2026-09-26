@@ -296,6 +296,15 @@ it('leads the row with what Accept All is about to accept, in both states', () =
   expect(screen.getByTestId('pending-row-accept-all')).toBeInTheDocument();
 });
 
+it('shows no total when any waiting transfer has no price, never a $1 figure for it', () => {
+  mockState.items = mockItems.map((item, index) =>
+    index === 2 ? { ...item, note: { ...item.note, metadata: { ...item.note.metadata, symbol: 'OTHER' } } } : item
+  );
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
+});
+
 it('reports only the hidden count, and no money, once every transfer is declined', () => {
   mockHidden.ids = new Set(['first', 'second', 'third']);
   render(<ActivityPendingHistory search="" filter="pending" />);

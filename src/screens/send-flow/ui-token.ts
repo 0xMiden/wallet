@@ -1,7 +1,7 @@
 import type { TokenBalanceData } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
-import { listedPrice, TokenPrices } from 'lib/prices';
+import { tokenQuote } from 'lib/miden/swap/tokens';
+import type { TokenPrices } from 'lib/prices';
 
 import { UIToken } from './types';
 
@@ -15,7 +15,7 @@ export function uiTokenFromBalance(
     name: row.metadata.symbol,
     decimals: row.metadata.decimals,
     balance: row.balance,
-    fiatPrice: listedPrice(tokenPrices, priceSymbolFor(row.tokenId, row.metadata.symbol)),
+    fiatPrice: tokenQuote(tokenPrices, row.tokenId, row.metadata.symbol)?.price ?? 0,
     scaleIsKnown: hasKnownScale(row.metadata)
   };
 }
