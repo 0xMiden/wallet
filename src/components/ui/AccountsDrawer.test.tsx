@@ -49,29 +49,19 @@ jest.mock('./BalanceCard', () => ({
   }
 }));
 
-// The real useMobileBackHandler over a recorded registry, so the sheet's back handler is seen as it
-// registers and re-registers.
-const mockRegistrations: { handler: () => boolean | void; options: unknown; unregister: jest.Mock }[] = [];
-jest.mock('lib/mobile/back-handler', () => ({
-  registerMobileBackHandler: (handler: () => boolean | void, options: unknown) => {
-    const unregister = jest.fn();
-    mockRegistrations.push({ handler, options, unregister });
-    return unregister;
-  }
-}));
-jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => true }));
-
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} data-close-on-back={String(closeOnBack)}>
       <button data-testid="drawer-onOpenChange-false" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -87,17 +77,12 @@ const renderDrawer = (props: Partial<React.ComponentProps<typeof AccountsDrawer>
   render(<AccountsDrawer open onOpenChange={jest.fn()} {...props} />);
 
 describe('AccountsDrawer', () => {
-  it('closes on the mobile back press while open, and passes it while closed', () => {
-    mockRegistrations.length = 0;
+  it('closes on mobile back through the shared Drawer, which it does not opt out of', () => {
     const onOpenChange = jest.fn();
-    const live = () => mockRegistrations.filter(r => r.unregister.mock.calls.length === 0);
-    const view = renderDrawer({ open: false, onOpenChange });
-    expect(live()[0]!.handler()).toBe(false);
-
-    view.rerender(<AccountsDrawer open onOpenChange={onOpenChange} />);
-    expect(live()).toHaveLength(1);
-    expect(live()[0]!.options).toEqual({ overlay: true });
-    expect(live()[0]!.handler()).toBe(true);
+    renderDrawer({ onOpenChange });
+    // Left unset, the Drawer closes the sheet on back (drawer.test pins how) through onOpenChange.
+    expect(screen.getByTestId('drawer')).toHaveAttribute('data-close-on-back', 'undefined');
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 

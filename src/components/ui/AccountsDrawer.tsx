@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
-import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { setCardColor, useCardColor } from 'lib/settings/card-color';
 import { CARD_COLORS, CardColor } from 'lib/settings/constants';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -27,7 +26,6 @@ export interface AccountsDrawerProps {
  * (navigates to /settings) and private-key account import.
  */
 export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) => {
-  useCloseOnBack(open, () => onOpenChange(false));
   const { t } = useTranslation();
   const selectedCardColor = useCardColor();
 

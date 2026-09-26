@@ -7,7 +7,6 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { ListGroup } from 'components/ui/ListGroup';
-import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 export interface GuardianInfoDrawerProps {
@@ -22,7 +21,6 @@ export interface GuardianInfoDrawerProps {
  */
 export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
-  useCloseOnBack(open, () => onOpenChange(false));
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">

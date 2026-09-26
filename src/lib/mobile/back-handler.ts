@@ -9,9 +9,10 @@ import { isAndroid, isMobile } from 'lib/platform';
  * Overlay handlers run before page handlers, so a page that re-registers while an
  * overlay is open cannot take the press from it. They are for UI rendered outside the
  * routed page's React tree (app-level dialogs and gates, provider modals, the router's
- * banner sheet) and for a sheet or popover that closes itself through its own back
- * handler (it returns false while closed): it uses `useCloseOnBack`. A sheet its host
- * closes stays in the page tier, closed by that page's own handler.
+ * banner sheet) and for a sheet or popover that closes itself (it returns false while
+ * closed): every sheet on the shared `Drawer` does this for itself, and `Popover` uses
+ * `useCloseOnBack`. A sheet its host's page handler closes passes `closeOnBack={false}`
+ * to the Drawer and stays in the page tier.
  * Within each tier the last registered runs first.
  * If a handler returns true, it consumed the event and no other handlers are called.
  * If no handler consumes the event: Android minimizes app, iOS does nothing.
@@ -22,7 +23,7 @@ type BackHandler = () => boolean | void;
 export interface BackHandlerOptions {
   /**
    * Runs before every page handler: for UI outside the routed page's tree, or a sheet or popover that
-   * closes itself through its own handler (returning false while closed; `useCloseOnBack` does this).
+   * closes itself (returning false while closed; the shared Drawer and `useCloseOnBack` do this).
    */
   overlay?: boolean;
 }
@@ -70,13 +71,14 @@ export async function initMobileBackHandler(): Promise<void> {
  *
  * @param handler - Function that returns true if it handled the back press
  * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree, or for a
- *   sheet or popover that closes itself (returning false while closed; use `useCloseOnBack`)
+ *   sheet or popover that closes itself (returning false while closed; the Drawer and
+ *   `useCloseOnBack` register it)
  * @returns Unregister function
  *
  * @example
  * ```typescript
- * // A sheet this page renders and closes; UI outside the page tree would pass
- * // { overlay: true }, and a sheet that closes itself uses useCloseOnBack instead.
+ * // A sheet this page renders and closes (its Drawer passes closeOnBack={false}); UI
+ * // outside the page tree would pass { overlay: true }.
  * useEffect(() => {
  *   const unregister = registerMobileBackHandler(() => {
  *     if (sheetOpen) {

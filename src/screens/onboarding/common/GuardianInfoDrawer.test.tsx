@@ -46,13 +46,15 @@ jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} data-close-on-back={String(closeOnBack)}>
       <button data-testid="drawer-onOpenChange-false" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -78,22 +80,6 @@ jest.mock('lib/ui/drawer', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-// The real useMobileBackHandler, over a recorded registry: every registration with its options and
-// its own unregister spy, so a test can see which handler is live after a re-render.
-const mockRegistrations: {
-  handler: () => boolean | void;
-  options: unknown;
-  unregister: jest.Mock;
-}[] = [];
-jest.mock('lib/mobile/back-handler', () => ({
-  registerMobileBackHandler: (handler: () => boolean | void, options: unknown) => {
-    const unregister = jest.fn();
-    mockRegistrations.push({ handler, options, unregister });
-    return unregister;
-  }
-}));
-jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => true }));
-
 const makeProps = (overrides: Partial<GuardianInfoDrawerProps> = {}): GuardianInfoDrawerProps => ({
   open: true,
   onOpenChange: jest.fn(),
@@ -107,26 +93,13 @@ const renderDrawer = (props: GuardianInfoDrawerProps = makeProps()) => render(<G
 // ---------------------------------------------------------------------------
 
 describe('GuardianInfoDrawer', () => {
-  it('registers an overlay back handler that follows open: pass while closed, close while open', () => {
-    mockRegistrations.length = 0;
+  it('closes on mobile back through the shared Drawer, which it does not opt out of', () => {
     const onOpenChange = jest.fn();
-    const live = () => mockRegistrations.filter(r => r.unregister.mock.calls.length === 0);
-    // Every host mounts it closed and opens it through state.
-    const view = renderDrawer(makeProps({ open: false, onOpenChange }));
-    expect(live()).toHaveLength(1);
-    expect(live()[0]!.handler()).toBe(false);
-
-    view.rerender(<GuardianInfoDrawer {...makeProps({ open: true, onOpenChange })} />);
-    expect(live()).toHaveLength(1);
-    expect(live()[0]!.options).toEqual({ overlay: true });
-    expect(live()[0]!.handler()).toBe(true);
+    renderDrawer(makeProps({ open: true, onOpenChange }));
+    // Left unset, the Drawer closes the sheet on back (drawer.test pins how) through onOpenChange.
+    expect(screen.getByTestId('drawer')).toHaveAttribute('data-close-on-back', 'undefined');
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
     expect(onOpenChange).toHaveBeenCalledWith(false);
-
-    onOpenChange.mockClear();
-    view.rerender(<GuardianInfoDrawer {...makeProps({ open: false, onOpenChange })} />);
-    expect(live()).toHaveLength(1);
-    expect(live()[0]!.handler()).toBe(false);
-    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it('forwards the open prop to the drawer scaffold when open', () => {
