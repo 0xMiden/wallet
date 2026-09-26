@@ -127,15 +127,8 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 };
 
 /** A list's stand-in for rows it has not read yet: the row's geometry, pulsing, with no figure a user could take for a balance. */
-export const AssetListItemSkeleton: FC<{ className?: string; 'data-testid'?: string }> = ({
-  className,
-  'data-testid': dataTestId
-}) => (
-  <div
-    aria-hidden="true"
-    data-testid={dataTestId}
-    className={classNames('w-full h-18 flex items-center justify-between', className)}
-  >
+export const AssetListItemSkeleton: FC<{ 'data-testid'?: string }> = ({ 'data-testid': dataTestId }) => (
+  <div aria-hidden="true" data-testid={dataTestId} className="w-full h-18 flex items-center justify-between">
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <Skeleton className="shrink-0 w-9 h-9 rounded-full" />
       <div className="flex flex-col gap-1.5">
