@@ -1105,6 +1105,7 @@ describe('HistoryView infinite scroll wiring', () => {
     expect(loadMore).not.toHaveBeenCalled();
     scroller?.loadMore(2);
     expect(loadMore.mock.calls).toEqual([[2]]);
+    expect(within(screen.getByTestId('infinite-scroll')).getAllByTestId('activity-row')).toHaveLength(2);
   });
 
   it('tells the scroller when the history is exhausted', () => {

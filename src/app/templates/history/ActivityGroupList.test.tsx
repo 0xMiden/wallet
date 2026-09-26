@@ -400,6 +400,7 @@ describe('ActivityGroupList', () => {
     expect(loadMore).not.toHaveBeenCalled();
     scroller?.loadMore(2);
     expect(loadMore.mock.calls).toEqual([[2]]);
+    expect(within(screen.getByTestId('infinite-scroll')).getAllByTestId('activity-group-row')).toHaveLength(1);
   });
 
   it('tells the scroller when the history is exhausted', () => {
