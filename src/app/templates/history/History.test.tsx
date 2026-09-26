@@ -47,7 +47,7 @@ const mockSwrConfigs: Record<string, unknown> = {};
 // Hands the real `lib/swr` to the tests that switch it on, for behaviour that lives in SWR's shared cache.
 let mockRealSwr = false;
 const mockUseRetryableSWR = jest.fn(
-  (key: unknown, fetcher: () => Promise<unknown>, config?: { isPaused?: () => boolean }) => {
+  (key: unknown, fetcher: () => Promise<unknown>, config?: Record<string, unknown>) => {
     // A null key is a read that is not running: no fetch, no data, not loading. Every hook still runs.
     if (key !== null) mockSwrConfigs[String((key as unknown[])[0])] = config;
     const keyStr = JSON.stringify(key);
@@ -83,7 +83,7 @@ const mockUseRetryableSWR = jest.fn(
 );
 
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: (...args: [unknown, () => Promise<unknown>, { isPaused?: () => boolean }?]) =>
+  useRetryableSWR: (...args: [unknown, () => Promise<unknown>, Record<string, unknown>?]) =>
     mockRealSwr ? jest.requireActual('lib/swr').useRetryableSWR(...args) : mockUseRetryableSWR(...args)
 }));
 
@@ -546,11 +546,12 @@ describe('History', () => {
       expect(mockSwrMutates['latest-pending-transactions']).toHaveBeenCalled();
     });
 
-    it('ignores a settled-read failure under the Pending filter, where only the in-flight read runs', async () => {
+    it('never runs the settled read under Pending, so its failure cannot surface there', async () => {
       mockGetCompletedTransactions.mockRejectedValue(new Error('db down'));
       await renderHistory({ filter: 'pending' });
 
       await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      expect(mockGetCompletedTransactions).not.toHaveBeenCalled();
       expect(mockHistoryViewProps.loadError).toBe(false);
     });
 
@@ -1480,9 +1481,15 @@ it('lists in-flight transactions under Pending beside the note cards, and no set
     },
     status: 'pending'
   };
-  await renderHistory({ filter: 'pending', pendingItems: [note] });
+  // Settled rows are held first, so choosing Pending has some to drop.
+  const { rerender } = await renderHistory({ filter: 'all', pendingItems: [note] });
+  await waitFor(() => expect(entryKeys()).toContain('completed-S'));
+
+  await act(async () => {
+    rerender(<History address="0xme" filter="pending" pendingItems={[note]} />);
+  });
   // Queued and generating rows (a send, a swap, a consume) stay; completed, failed and cancelled rows do not.
-  await waitFor(() => expect(entryKeys()).toEqual(['pending-PQ', 'pending-PP', 'pending-undefined']));
+  expect(entryKeys()).toEqual(['pending-PQ', 'pending-PP', 'pending-undefined']);
   expect(mockHistoryViewProps.pendingItems).toEqual([note]);
 });
 
@@ -1612,7 +1619,7 @@ it('stops paging and reading settled history under Pending but keeps reading in-
   expect(readsRunning()).toEqual([true, true]);
 });
 
-it('pauses both transaction polls while the page is off screen and refreshes them when it returns', async () => {
+it('stops both transaction reads while the page is off screen and reads them when it returns', async () => {
   const view = (onScreen: boolean) => (
     <PageActiveContext.Provider value={onScreen}>
       <History address="0xme" />
@@ -1803,7 +1810,7 @@ describe('History on the real SWR cache', () => {
   );
   const visibleView = () => mockHistoryViewCalls.filter(props => props.fullHistory).at(-1);
 
-  it('retries on the page that is showing when a paused page of the same account mounted first', async () => {
+  it('retries on the page that is showing when an off-screen page of the same account mounted first', async () => {
     // The first settled read, which only the page on screen runs, fails; later ones succeed.
     let failed = false;
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
@@ -1845,6 +1852,46 @@ describe('History on the real SWR cache', () => {
     });
     await waitFor(() => expect(onInitialLoad).toHaveBeenCalled());
   });
+
+  // Past the hooks' own 3 s dedupe window, so a read again is SWR revalidating a key that comes back, not a dedupe hit.
+  const pastDedupe = () => act(() => new Promise(resolve => setTimeout(resolve, 3_100)));
+  const settledFetches = () => mockGetCompletedTransactions.mock.calls.filter(call => call[1] === undefined).length;
+
+  it('reads both again when its page comes back on screen with their data cached', async () => {
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(inCache(page(true)));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(1));
+    await waitFor(() => expect(mockGetUncompletedTransactions).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      utils?.rerender(inCache(page(false)));
+    });
+    await pastDedupe();
+    await act(async () => {
+      utils?.rerender(inCache(page(true)));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(2));
+    await waitFor(() => expect(mockGetUncompletedTransactions).toHaveBeenCalledTimes(2));
+  }, 10_000);
+
+  it('reads settled history again when the filter leaves Pending', async () => {
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(inCache(page(true, { filter: 'all' })));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(1));
+
+    await act(async () => {
+      utils?.rerender(inCache(page(true, { filter: 'pending' })));
+    });
+    await pastDedupe();
+    await act(async () => {
+      utils?.rerender(inCache(page(true, { filter: 'all' })));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(2));
+  }, 10_000);
 
   it("never shows another account's rows while an off-screen page switches accounts", async () => {
     mockGetCompletedTransactions.mockImplementation(async (addr: string, offset?: number) =>

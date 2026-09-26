@@ -44,9 +44,9 @@ type HistoryViewProps = {
   centerEmptyState?: boolean;
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
-  /** A read behind the list failed: with no rows to show, say so instead of "no activity". */
+  /** A read the list needs failed: with no rows to show, say so instead of "no activity". */
   loadError?: boolean;
-  /** Re-runs the failed reads; backs the load-error card's Retry. */
+  /** Re-runs whichever read is running; backs the load-error card's Retry. */
   onRetry?: () => void;
   className?: string;
 };

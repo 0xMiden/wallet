@@ -57,9 +57,9 @@ type HistoryProps = {
   searchQuery?: string;
   filter?: ActivityFilter;
   /**
-   * Fired when the transaction query settles, i.e. when the list stops being a
-   * spinner. The hosting screen reports "the user can see their activity" from
-   * this; the loading state lives here, so nothing above can derive it.
+   * Fired once the reads the current filter needs have answered (the in-flight read alone under Pending), i.e. when
+   * the list stops being a spinner; never while the page is off screen. The hosting screen reports "the user can see
+   * their activity" from this; the loading state lives here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
   /**
@@ -79,11 +79,14 @@ type HistoryProps = {
 export interface HistoryEntriesView {
   entries: IHistoryEntry[];
   initialLoading: boolean;
-  /** Either read behind `entries` failed. */
+  /** A read the current filter needs failed. */
   loadError: boolean;
-  /** Re-runs both reads. */
+  /** Re-runs whichever read is running. */
   onRetry: () => void;
-  /** False once the history is exhausted — which is when a count over `entries` is final. */
+  /**
+   * False once the history is exhausted, and also while the settled read is not running (off screen, or under
+   * Pending), so it is final only for a page on screen off Pending. The Groups view passes its own false.
+   */
   hasMore: boolean;
   loadMore: (page: number) => Promise<void>;
 }
@@ -176,7 +179,8 @@ const History = memo<HistoryProps>(
     // A read that is not running holds a null key rather than a paused one: another History on the same account
     // (the Activity tab kept under a pushed group page) shares these keys, and SWR sends a key's refreshes (Retry,
     // the cancel refresh, its error retry) to the first hook subscribed to it, so a paused subscriber would swallow
-    // them. SWR reads again when the key comes back. No `keepPreviousData`: both keys carry the address and token,
+    // them. A key that comes back is read again through `revalidateIfStale` (deduped inside the 3 s window), or
+    // `revalidateOnMount` the first time a hook runs it. No `keepPreviousData`: both keys carry the address and token,
     // so it would show another account's (or token's) rows while this one loads.
     const completedKey = [`latest-transactions`, address, tokenId];
     const pendingKey = [`latest-pending-transactions`, address, tokenId];
@@ -189,6 +193,7 @@ const History = memo<HistoryProps>(
       async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
       {
         revalidateOnMount: true,
+        revalidateIfStale: true,
         refreshInterval: 10_000,
         dedupingInterval: 3_000
       }
@@ -204,6 +209,7 @@ const History = memo<HistoryProps>(
       async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
       {
         revalidateOnMount: true,
+        revalidateIfStale: true,
         refreshInterval: 5_000,
         dedupingInterval: 3_000
       }
@@ -217,7 +223,8 @@ const History = memo<HistoryProps>(
     const pendingLoading = latestPendingTransactions === undefined && !pendingError;
     const initialLoading = filter === 'pending' ? pendingLoading : transactionsLoading || pendingLoading;
     // The list is the reads that run together, so either failing is a failed load; Retry re-runs whichever runs.
-    const loadError = filter === 'pending' ? Boolean(pendingError) : Boolean(latestError || pendingError);
+    // Under Pending the settled read holds a null key, so it holds no error either.
+    const loadError = Boolean(latestError || pendingError);
     useEffect(() => {
       if (initialLoading) return;
       onInitialLoad?.();
@@ -323,7 +330,7 @@ const History = memo<HistoryProps>(
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
-        // Only rows still in flight; the settled rows the paused read already holds stay out.
+        // Only rows still in flight; the settled rows kept for this key (and paged ones) stay out.
         if (filter === 'pending') return isPendingActivityEntry(e);
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
@@ -374,7 +381,7 @@ const History = memo<HistoryProps>(
         loadError={loadError}
         onRetry={onRetry}
         loadMore={loadMore}
-        // Paging reads settled rows, so it stops wherever that read pauses: under Pending, where every settled row
+        // Paging reads settled rows, so it stops wherever that read is off: under Pending, where every settled row
         // is filtered out, and off screen.
         hasMore={readingCompleted && hasMore}
         scrollParentRef={scrollParentRef}
