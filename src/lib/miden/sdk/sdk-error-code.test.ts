@@ -1,5 +1,6 @@
 import {
   extractSdkErrorCode,
+  isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isGuardianCanonicalizationError,
   isTransactionDiscardedError
@@ -230,5 +231,85 @@ describe('isGuardianCanonicalizationError', () => {
       isGuardianCanonicalizationError(new WasmClientPoisonedError('realm-error', new Error(CANONICALIZATION_MESSAGE)))
     ).toBe(false);
     expect(isGuardianCanonicalizationError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+describe('isAccountNotFoundOnChainError', () => {
+  // web-sdk 0.16.1 renders miden-client's RequestError for a 0.16 node's
+  // uncoded not-found answer as this chain (issue #1127).
+  const NODE_016_MISS =
+    'failed to import public account: RPC error: grpc request failed for get_account: invalid request parameters: ' +
+    'code: \'Client specified an invalid argument\', message: "account 0x0e3b5b2d8a1f4c10000000000000ab not found at block 1234"';
+
+  it('matches the uncoded 0.16 node answer', () => {
+    expect(isAccountNotFoundOnChainError(new Error(NODE_016_MISS))).toBe(true);
+  });
+
+  it('matches it after the offscreen bus re-wraps the message', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(`Offscreen call 'importPublicMidenWalletFromSeed' failed: ${NODE_016_MISS}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the code web-sdk sets when the node attaches one', () => {
+    expect(isAccountNotFoundOnChainError(Object.assign(new Error('x'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' }))).toBe(
+      true
+    );
+  });
+
+  it("matches the SDK's typed not-found text when the code was lost", () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'failed to import public account: account with id 0x0e3b5b2d8a1f4c10000000000000ab not found on the network'
+        )
+      )
+    ).toBe(true);
+  });
+
+  it('does not match a real outage', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error('client error: RPC error: Miden node is unavailable; check that the node is running and reachable')
+      )
+    ).toBe(false);
+  });
+
+  it('does not match another get_account rejection', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'failed to import public account: RPC error: grpc request failed for get_account: invalid request parameters: ' +
+            'code: \'Client specified an invalid argument\', message: "account 0xabc is not public"'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('does not match a not-found on another endpoint', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'RPC error: grpc request failed for sync_notes: invalid request parameters: note not found at block 9'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('does not assemble a match from two links of the chain', () => {
+    const inner = new Error('state for account 0xabc not found at block 12');
+    const outer = new Error('RPC error: grpc request failed for get_account: invalid request parameters', {
+      cause: inner
+    });
+    expect(isAccountNotFoundOnChainError(outer)).toBe(false);
+  });
+
+  it('never reads a poisoned client as a miss', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    expect(isAccountNotFoundOnChainError(new WasmClientPoisonedError('realm-error', new Error(NODE_016_MISS)))).toBe(
+      false
+    );
   });
 });

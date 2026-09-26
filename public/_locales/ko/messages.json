@@ -4693,6 +4693,24 @@
     "message": "계정 생성은 저장된 복구 문구가 필요합니다. 이 작업만을 위해 복구 문구를 입력하는 기능은 아직 지원되지 않습니다.",
     "englishSource": "Account creation requires a stored recovery phrase. Entering it just for this action is not yet available."
   },
+  "restoreAccountLookupFailed": {
+    "message": "계정을 복구할 수 없습니다. 복구 문구는 정상입니다. 다시 복구를 시도해 주십시오. 자세한 내용: $reason$",
+    "englishSource": "Your account could not be recovered. Your recovery phrase is fine. Please try restoring again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "createAccountLookupFailed": {
+    "message": "계정을 생성할 수 없습니다. 다시 시도해 주십시오. 상세 정보: $reason$",
+    "englishSource": "The account could not be created. Please try again. Details: $reason$",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
   "recoverySeedRequired": {
     "message": "이 작업을 수행하려면 복구 문구가 필요합니다.",
     "englishSource": "This action requires your recovery phrase."

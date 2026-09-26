@@ -85,6 +85,7 @@ import {
   withWasmClientLock
 } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
+import { isAccountNotFoundOnChainError } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
@@ -1109,6 +1110,13 @@ export class Vault {
                   if (isWasmClientPoisonedError(probeError) || client.isDisposed) {
                     throw probeError;
                   }
+                  // The node answered "no such account": a miss. On a 0.16 node that
+                  // answer carries "RPC error", which the network check below would
+                  // read as an outage (#1127).
+                  if (isAccountNotFoundOnChainError(probeError)) {
+                    console.warn(`[Vault.spawn] no ${probe.keyDerivation} ${scheme} account on chain`, probeError);
+                    continue;
+                  }
                   // A probe miss and an UNREACHABLE NODE are different answers, and
                   // swallowing both is a fund-loss-shaped bug: if the RPC is down
                   // mid-restore, every scheme "misses", we fall through, and the user
@@ -1118,12 +1126,21 @@ export class Vault {
                   // restore so it can be retried against a reachable node.
                   if (isLikelyNetworkError(probeError)) {
                     console.error(`[Vault.spawn] ${scheme} probe could not reach the node`, probeError);
+                    const reason = probeError instanceof Error ? probeError.message : String(probeError);
                     throw new PublicError(
-                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
-                        'please check your connection and try restoring again.'
+                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+                        `Please check your connection and try restoring again. Details: ${reason}`
                     );
                   }
-                  // probe miss; try next scheme
+                  // Anything else (a local store failure after the lookup, say) says
+                  // nothing about the chain; counting it as a miss could put a fresh
+                  // wallet in place of the account the other scheme holds.
+                  console.error(`[Vault.spawn] ${probe.keyDerivation} ${scheme} probe failed`, probeError);
+                  throw new PublicError(
+                    getMessage('restoreAccountLookupFailed', {
+                      reason: probeError instanceof Error ? probeError.message : String(probeError)
+                    })
+                  );
                 }
               }
               console.warn('[Vault.spawn] no on-chain account at hdIndex=0 under any scheme; creating fresh');
@@ -1814,6 +1831,16 @@ export class Vault {
                 if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
                   throw e;
                 }
+                // The node answered "no such account": a miss. On a 0.16 node that
+                // answer carries "RPC error", which the network check below would
+                // read as an outage (#1127).
+                if (isAccountNotFoundOnChainError(e)) {
+                  console.warn(
+                    `[Vault.createHDAccount] no ${probe.keyDerivation} ${probe.authScheme} account on chain`,
+                    e
+                  );
+                  continue;
+                }
                 // A network-unreachable import and a genuine "not on chain" miss are
                 // different answers; swallowing both creates a fresh EMPTY wallet on a
                 // transient node blip, hiding the user's real (correctly-seeded)
@@ -1823,12 +1850,17 @@ export class Vault {
                 // reachable node (resilience gap 13).
                 if (isLikelyNetworkError(e)) {
                   console.error('[Vault.createHDAccount] import could not reach the node', e);
+                  const reason = e instanceof Error ? e.message : String(e);
                   throw new PublicError(
-                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
-                      'please check your connection and try again.'
+                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+                      `Please check your connection and try again. Details: ${reason}`
                   );
                 }
-                console.warn(`[Vault.createHDAccount] no ${probe.keyDerivation} account on chain at this index`, e);
+                // Anything else says nothing about the chain; see the Vault.spawn probe loop.
+                console.error(`[Vault.createHDAccount] ${probe.keyDerivation} probe failed`, e);
+                throw new PublicError(
+                  getMessage('createAccountLookupFailed', { reason: e instanceof Error ? e.message : String(e) })
+                );
               }
             }
             console.warn('Seed not found on chain under any derivation; creating a new wallet instead');
