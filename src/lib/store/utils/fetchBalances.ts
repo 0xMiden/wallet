@@ -140,16 +140,21 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
  * This is the single source of truth for balance fetching logic.
  * Used by both the useAllBalances hook and the Zustand store action.
  *
- * The `getAccount` WASM read runs under a NON-BLOCKING attempt on the wallet
- * WASM mutex (`tryWithWasmClientLock`): it must not stall behind long writes
- * like `syncState` (stacking a blocking mutex on top of the SDK's queue used to
- * hang the Send-flow SelectToken tile past Playwright's 10s click budget), but
- * it also must not run un-serialized while a transaction holds the lock — during
- * a transaction's `_withInnerWebClient` window the SDK runs an un-locked read
- * inline and double-borrows the WASM RefCell, trapping the client. If the lock
- * is busy this returns `null` (skip this refresh; the caller keeps its prior
- * balances and retries next cycle). Metadata fetching uses RpcClient directly
- * and doesn't touch the WASM client, so it stays outside the lock.
+ * By default the `getAccount` WASM read runs under a NON-BLOCKING attempt on
+ * the wallet WASM mutex (`tryWithWasmClientLock`): it must not stall behind long
+ * writes like `syncState` (stacking a blocking mutex on top of the SDK's queue
+ * used to hang the Send-flow SelectToken tile past Playwright's 10s click
+ * budget), but it also must not run un-serialized while a transaction holds the
+ * lock — during a transaction's `_withInnerWebClient` window the SDK runs an
+ * un-locked read inline and double-borrows the WASM RefCell, trapping the
+ * client. If the lock is busy this returns `null` (skip this refresh; the
+ * caller keeps its prior balances and retries next cycle). `options.waitForLock`
+ * queues for the lock instead (`withWasmClientLock`) and never returns `null`
+ * for a busy lock, only when the `balances` sync fuse is lit: reserved for a
+ * caller with nothing to show until this read lands, since anyone else waiting
+ * on it reopens the same SelectToken stall the non-blocking default avoids.
+ * Metadata fetching uses RpcClient directly and doesn't touch the WASM client,
+ * so it stays outside the lock.
  */
 export async function fetchBalances(
   address: string,
@@ -162,12 +167,13 @@ export async function fetchBalances(
   // Local copy of metadata that we can add to during this fetch
   const localMetadatas = { ...tokenMetadatas };
 
-  // Read the account under a NON-BLOCKING attempt on the wallet WASM mutex.
-  // `getAccount` borrows the WebClient's single RefCell; while a transaction is
-  // mid-`_withInnerWebClient` (or a `syncState` runs) an un-locked read would
-  // run inline / double-borrow and trap the client. Acquiring the lock around
-  // the read closes that window; the non-blocking try means we skip (not queue)
-  // when the lock is busy, so we never stall behind long writes.
+  // Read the account under the wallet WASM mutex. `getAccount` borrows the
+  // WebClient's single RefCell; while a transaction is mid-`_withInnerWebClient`
+  // (or a `syncState` runs) an un-locked read would run inline / double-borrow
+  // and trap the client. Acquiring the lock around the read closes that window.
+  // By default this is a NON-BLOCKING attempt: we skip (not queue) when the
+  // lock is busy, so we never stall behind long writes. `waitForLock` queues
+  // instead, for the one caller with nothing on screen until this read lands.
   // Bounded at the SYNC ceiling rather than left on the 5-minute backstop (#777):
   // the window this non-blocking read wins is the instant an eviction released the
   // mutex, when the client slot is empty — so the read has to rebuild, and the new
