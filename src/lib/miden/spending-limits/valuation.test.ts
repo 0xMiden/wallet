@@ -1,3 +1,4 @@
+import { TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
 import { getPriceMicro } from 'lib/prices/usd';
 
 import { fetchTokenMetadata } from '../metadata';
@@ -9,6 +10,19 @@ jest.mock('lib/prices/usd', () => ({
   getPriceMicro: jest.fn()
 }));
 jest.mock('../metadata', () => ({ fetchTokenMetadata: jest.fn() }));
+// The dApp custom path emits a faucet's hex spelling; map one to IETH's bech32 id so the test
+// can tell whether the canonical id or the raw one reaches the price-symbol lookup.
+const IETH_HEX = '0x1eth00000000000000000000000000';
+jest.mock('../sdk/helpers', () => {
+  const actual = jest.requireActual('../sdk/helpers');
+  return {
+    ...actual,
+    canonicalFaucetBech32Id: (id: string) =>
+      id === IETH_HEX
+        ? jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH.faucetId
+        : actual.canonicalFaucetBech32Id(id)
+  };
+});
 
 const mockedPrice = jest.mocked(getPriceMicro);
 const mockedMetadata = jest.mocked(fetchTokenMetadata);
@@ -121,5 +135,58 @@ describe('resolveSpendsUsd', () => {
   it('values an empty spend list as nothing', async () => {
     await expect(resolveSpendsUsd([], 10)).resolves.toBe(0n);
     expect(mockedMetadata).not.toHaveBeenCalled();
+  });
+
+  it('values IETH and IBTC at the ETH and BTC price (#1133)', async () => {
+    mockedMetadata.mockImplementation(async faucetId =>
+      faucetId === TOKEN_IETH.faucetId ? base('IETH', 8) : base('IBTC', 8)
+    );
+    mockedPrice.mockImplementation(async symbol => (symbol === 'ETH' ? 4_000_000_000n : 100_000_000_000n));
+
+    const total = await resolveSpendsUsd(
+      [
+        { faucetId: TOKEN_IETH.faucetId, amount: 50_000_000n },
+        { faucetId: TOKEN_IBTC.faucetId, amount: 1_000_000n }
+      ],
+      10
+    );
+
+    // 0.5 ETH at $4000 + 0.01 BTC at $100000
+    expect(total).toBe(3_000_000_000n);
+    expect(mockedPrice.mock.calls.map(call => call[0]).sort()).toEqual(['BTC', 'ETH']);
+  });
+
+  it('values an IETH spend spelled as hex, as the dApp custom path emits it (#1133)', async () => {
+    mockedMetadata.mockResolvedValue(base('IETH', 8));
+    mockedPrice.mockResolvedValue(4_000_000_000n);
+
+    await expect(resolveSpendsUsd([{ faucetId: IETH_HEX, amount: 100_000_000n }], 10)).resolves.toBe(4_000_000_000n);
+    expect(mockedPrice).toHaveBeenCalledWith('ETH', 10);
+  });
+
+  it('fails closed when IETH has no fresh ETH price (#1133)', async () => {
+    mockedMetadata.mockResolvedValue(base('IETH', 8));
+    mockedPrice.mockResolvedValue(undefined);
+
+    await expect(resolveSpendsUsd([{ faucetId: TOKEN_IETH.faucetId, amount: 1n }], 10)).rejects.toBeInstanceOf(
+      SpendingLimitPriceUnavailableError
+    );
+  });
+
+  it('still counts registry tokens without a price symbol as nothing (#1133)', async () => {
+    mockedMetadata.mockImplementation(async faucetId =>
+      faucetId === TOKEN_IUSDT.faucetId ? base('IUSDT', 8) : base('IMIDEN', 8)
+    );
+
+    await expect(
+      resolveSpendsUsd(
+        [
+          { faucetId: TOKEN_IUSDT.faucetId, amount: 999_000_000n },
+          { faucetId: TOKEN_IMIDEN.faucetId, amount: 999_000_000n }
+        ],
+        10
+      )
+    ).resolves.toBe(0n);
+    expect(mockedPrice).not.toHaveBeenCalled();
   });
 });
