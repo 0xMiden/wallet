@@ -1073,6 +1073,8 @@
   "seedRemovalBusy": "請待當前交易完成後，再移除恢復短語。",
   "seedRemovalKeysNotReady": "請在移除恢復短語之前，先完成帳戶恢復及日常金鑰的啟用程序。",
   "seedRequiredForAccountCreation": "建立帳戶需要預先儲存的恢復短語。目前尚無法僅為此操作而輸入該短語。",
+  "restoreAccountLookupFailed": "您的帳戶無法恢復。您的恢復短語沒有問題。請嘗試再次還原。詳情請參閱：$reason$",
+  "createAccountLookupFailed": "無法建立該帳戶。請重試。詳細資訊：$reason$",
   "recoverySeedRequired": "此操作需要您的恢復短語。",
   "recoverySeedRequiredTitle": "請輸入您的恢復短語",
   "recoverySeedTemporaryDescription": "請使用您的紙本備份。此短語僅用於此操作，且不會儲存於本裝置中。",
