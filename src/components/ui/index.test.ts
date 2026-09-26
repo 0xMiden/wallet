@@ -15,7 +15,7 @@ import { ActivityRow } from './ActivityRow';
 import { AlertSheet } from './AlertSheet';
 import { AnimatedCopyIcon } from './AnimatedCopyIcon';
 import { AnimatedNumber } from './AnimatedNumber';
-import { AssetListItem } from './AssetListItem';
+import { AssetListItem, AssetListItemSkeleton } from './AssetListItem';
 import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
@@ -94,6 +94,7 @@ describe('components/ui barrel', () => {
     PromptCard,
     PromptCarousel,
     AssetListItem,
+    AssetListItemSkeleton,
     SegmentedActionBar,
     SegmentedControl,
     SelectionCheck,

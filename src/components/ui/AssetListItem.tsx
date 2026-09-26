@@ -6,6 +6,7 @@ import { type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { SelectionCheck } from './SelectionCheck';
+import { Skeleton } from './Skeleton';
 
 export type AssetDeltaDirection = 'positive' | 'negative' | 'neutral';
 
@@ -124,5 +125,22 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     </div>
   );
 };
+
+/** A list's stand-in for rows it has not read yet: the row's geometry, pulsing, with no figure a user could take for a balance. */
+export const AssetListItemSkeleton: FC<{ 'data-testid'?: string }> = ({ 'data-testid': dataTestId }) => (
+  <div aria-hidden="true" data-testid={dataTestId} className="w-full h-18 flex items-center justify-between">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <Skeleton className="shrink-0 w-9 h-9 rounded-full" />
+      <div className="flex flex-col gap-1.5">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-3 w-16" />
+      </div>
+    </div>
+    <div className="flex flex-col items-end gap-1.5">
+      <Skeleton className="h-4 w-16" />
+      <Skeleton className="h-3 w-10" />
+    </div>
+  </div>
+);
 
 export default AssetListItem;

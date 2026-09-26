@@ -146,6 +146,7 @@ jest.mock('components/ui', () => ({
         </button>
       </div>
     ) : null,
+  AssetListItemSkeleton: (props: { 'data-testid'?: string }) => <div data-testid={props['data-testid']} />,
   SearchInput: ({
     value,
     onChange,
@@ -349,6 +350,30 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'default');
+    });
+
+    it('shows a loading row, not the zero placeholder, in Assets until the first balance read completes (#1123)', async () => {
+      // The hook hands back a "0 MIDEN" placeholder while nothing has been read. Under a
+      // loading card that row still said the imported wallet was empty.
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 0)];
+      mockBalancesLoading = true;
+
+      await renderExplore();
+
+      expect(screen.getByTestId('asset-row-skeleton')).toBeInTheDocument();
+      expect(screen.queryAllByTestId('asset-row')).toHaveLength(0);
+      expect(screen.getByTestId('asset-list')).toHaveAttribute('aria-busy', 'true');
+    });
+
+    it('replaces the loading row with the asset rows once balances have loaded', async () => {
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
+      mockBalancesLoading = false;
+
+      await renderExplore();
+
+      expect(screen.queryByTestId('asset-row-skeleton')).not.toBeInTheDocument();
+      expect(screen.getAllByTestId('asset-row')).toHaveLength(1);
+      expect(screen.getByTestId('asset-list')).toHaveAttribute('aria-busy', 'false');
     });
 
     it('shows the portfolio total as "—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
