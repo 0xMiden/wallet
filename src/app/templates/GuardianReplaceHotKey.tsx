@@ -14,8 +14,7 @@ import { navigate } from 'lib/woozie';
 
 /**
  * Proactive hot-key rotation. Cold-signed (recovery key); the on-chain proposal
- * swaps the hot signer commitment in-place via update_signers. The seed phrase
- * is NOT required — the cold key derived at create time is already in the vault.
+ * swaps the hot signer commitment in-place via update_signers.
  *
  * A section of the Keys page rather than its footer: Keys is a list of places to
  * go, and this is one maintenance action among them (Guardian accounts only), so
@@ -25,6 +24,7 @@ import { navigate } from 'lib/woozie';
 const GuardianReplaceHotKey: FC = () => {
   const { t } = useTranslation();
   const currentAccount = useWalletStore(s => s.currentAccount);
+  const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
 
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -61,7 +61,12 @@ const GuardianReplaceHotKey: FC = () => {
         <>
           <p className="select-text">{t('replaceHotKeyDescription')}</p>
           {/* Ink, not muted: it is the question the second tap answers. */}
-          {confirming && <p className="mt-2 select-text text-ink">{t('replaceHotKeyConfirmation')}</p>}
+          {/* Same test as Vault.prepareRecoveryTransaction: anything but a stored phrase is prompted for. */}
+          {confirming && (
+            <p className="mt-2 select-text text-ink">
+              {t(seedPhraseStatus === 'stored' ? 'replaceHotKeyConfirmation' : 'replaceHotKeyConfirmationSeedRequired')}
+            </p>
+          )}
         </>
       }
     >

@@ -616,6 +616,7 @@
   "newDeviceKey": "Yeni günlük anahtar",
   "replaceHotKeyDescription": "Yeni bir günlük anahtar oluşturun ve zincir üzerinde mevcut anahtarı değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu yöntem yararlıdır.",
   "replaceHotKeyConfirmation": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanır. Kurtarma ifadeniz gerekli değildir ve paranız ile hesabınız aynı kalır. Devam etmek istiyor musunuz?",
+  "replaceHotKeyConfirmationSeedRequired": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanır. İmzalamak için kurtarma ifadeniz istenecek ve paranız ile hesabınız aynı kalacaktır. Devam etmek istiyor musunuz?",
   "confirmReplaceHotKey": "Dönüşü onayla",
   "hotKeyRotationOverlayTitle": "Günlük anahtarınızı değiştirme",
   "hotKeyRotationOverlayBody": "Günlük anahtarınız değiştiriliyor. Bu işlem, kurtarılmış bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",

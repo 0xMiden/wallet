@@ -616,6 +616,7 @@
   "newDeviceKey": "Nova chave diária",
   "replaceHotKeyDescription": "Gere uma nova chave diária e substitua a atual na cadeia de blocos. Isso é útil se você suspeitar que seu dispositivo foi comprometido.",
   "replaceHotKeyConfirmation": "Isso é assinado com sua chave de recuperação (fria). Sua frase de recuperação não é necessária, e seus fundos e sua conta permanecem os mesmos. Deseja continuar?",
+  "replaceHotKeyConfirmationSeedRequired": "Isso é assinado com sua chave de recuperação (fria). Será solicitada sua frase de recuperação para assiná-lo, e seus fundos e conta permanecerão os mesmos. Deseja continuar?",
   "confirmReplaceHotKey": "Confirmar rotação",
   "hotKeyRotationOverlayTitle": "Rotacionando sua chave de uso diário",
   "hotKeyRotationOverlayBody": "Sua chave de uso diário está sendo alternada. Isso é necessário ao configurar uma conta recuperada para que ela possa sincronizar e realizar transações.",

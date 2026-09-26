@@ -616,6 +616,7 @@
   "newDeviceKey": "新的日常金鑰",
   "replaceHotKeyDescription": "生成一個新的日常金鑰，並在鏈上替換當前的金鑰。若您懷疑裝置已遭入侵，此操作將十分有用。",
   "replaceHotKeyConfirmation": "此操作將使用您的恢復（冷）金鑰進行簽署。此過程無需輸入恢復短語，您的資金與帳戶狀態將保持不變。繼續嗎？",
+  "replaceHotKeyConfirmationSeedRequired": "此操作將使用您的恢復（冷）金鑰進行簽署。系統將要求您輸入恢復短語以完成簽署，您的資金與帳戶將保持不變。要繼續嗎？",
   "confirmReplaceHotKey": "確認旋轉方向",
   "hotKeyRotationOverlayTitle": "輪替您的日常金鑰",
   "hotKeyRotationOverlayBody": "您的日常金鑰正在進行輪替。這是設定已還原帳戶時所需的步驟，以便該帳戶能夠同步資料並進行交易。",
