@@ -17,6 +17,7 @@
 - [FIX][all] **Opening a page again after backing out of it no longer slides the page you opened it from away.** A page you backed out of stayed mounted off screen, so opening it again (Rotate Guardian from Guardian Settings, say) was taken for a Back: the page beneath slid out and exposed the Settings list, and the reopened page kept its old state. It now opens as a new page over the one you opened it from.
 - [FIX][all] Unlocking no longer blanks the screen for a moment before Home, and token prices are fetched from the moment the wallet opens instead of after unlock, so the balance card no longer waits on them.
 - [FIX][all] **Home and token details value IETH at the ETH price instead of $1 per token** (0.38 IETH read $0.38, not about $1,000), and the token-detail chart draws again (#1128). Every dollar figure now appears only for a token the price feed actually quotes: Home rows and token details show no fiat value for an unquoted token such as MIDEN, the Home total adds up the quoted tokens only (and shows "$-" when none of what you hold is quoted), and the Pending transfers total and the home "transfers waiting" prompt show no total when any transfer's asset has no price, where they used to count it at $1 a unit (#1105).
+- [FIX][all] The everyday-key rotation confirmation no longer says your recovery phrase is not required on a wallet that does not store it (after Remove recovery phrase, or a Guardian account imported without one); it now says the phrase will be asked for (#1113).
 
 ## 1.16.2 (2026-09-24)
 

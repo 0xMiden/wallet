@@ -74,6 +74,7 @@ jest.mock('lib/woozie', () => ({ navigate: (...a: unknown[]) => mockNavigate(...
 // Store that satisfies both the hook-selector call form and `.getState()`.
 const mockState: any = {
   currentAccount: { publicKey: 'pk_1' },
+  seedPhraseStatus: 'stored',
   openTransactionModal: jest.fn()
 };
 jest.mock('lib/store', () => ({
@@ -117,6 +118,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   fsbHolder.props = null;
   mockState.currentAccount = { publicKey: 'pk_1' };
+  mockState.seedPhraseStatus = 'stored';
   mockState.openTransactionModal = jest.fn();
   mockIsExtension.mockReturnValue(false);
   mockIsDelegateProofEnabled.mockReturnValue(false);
@@ -203,6 +205,34 @@ describe('GuardianReplaceHotKey — guards', () => {
     expect(label()).toBe('confirmReplaceHotKey');
     expect(screen.getByText('replaceHotKeyConfirmation')).toBeInTheDocument();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Confirmation copy follows whether the vault will ask for the phrase (#1113).
+// ---------------------------------------------------------------------------
+describe('GuardianReplaceHotKey - confirmation copy', () => {
+  it('says the recovery phrase is not required when the wallet stores it', async () => {
+    mockState.seedPhraseStatus = 'stored';
+    render(<GuardianReplaceHotKey />);
+
+    await click();
+
+    expect(screen.getByText('replaceHotKeyConfirmation')).toBeInTheDocument();
+    expect(screen.queryByText('replaceHotKeyConfirmationSeedRequired')).not.toBeInTheDocument();
+  });
+
+  it.each(['removing', 'removed', 'unavailable', undefined])(
+    'says the recovery phrase will be asked for when its status is %s',
+    async status => {
+      mockState.seedPhraseStatus = status;
+      render(<GuardianReplaceHotKey />);
+
+      await click();
+
+      expect(screen.getByText('replaceHotKeyConfirmationSeedRequired')).toBeInTheDocument();
+      expect(screen.queryByText('replaceHotKeyConfirmation')).not.toBeInTheDocument();
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------
