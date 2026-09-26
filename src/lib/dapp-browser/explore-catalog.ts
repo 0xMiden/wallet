@@ -7,8 +7,9 @@
  * renders whatever the config holds, so no layout work is needed.
  *
  * - `featured`: a large card with the app's art or brand color, its name, tagline and Open.
- * - `list`: rows in one grouped card (icon, name, tagline, Open), with "See all" past `limit`.
- * - `recents`: the dApps the user opened last, from `recent-dapps.ts`. Not part of any category.
+ * - `list`: every item as a row on the page margin in a plain group (logo tile, name, tagline, chevron).
+ * - `recents`: the same rows, name only, newest first: the dApps the user opened last, from
+ *   `recent-dapps.ts`. Not part of any category.
  *
  * The dApp data itself stays in `FEATURED_DAPPS`; the catalog picks from it by id.
  */

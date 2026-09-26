@@ -121,7 +121,7 @@ describe('DappLauncher', () => {
     const recent = within(screen.getByTestId('explore-recents')).getByTestId('recent-dapp-row');
     expect(within(recent).getByText('Recent')).toBeInTheDocument();
     // The recorded name is usually the host itself, so a host line would repeat it.
-    expect(within(recent).queryByText('recent.example')).not.toBeInTheDocument();
+    expect(within(recent).queryByText(/recent\.example/)).not.toBeInTheDocument();
     expect(recent.querySelector('[data-slot="chevron"]')).not.toBeNull();
     const catalogRow = within(screen.getByTestId('explore-section-games')).getByTestId('dapp-grid-card');
     expect(catalogRow.querySelector('[data-slot="chevron"]')).not.toBeNull();
@@ -171,7 +171,7 @@ describe('DappLauncher', () => {
     const group = row.parentElement!;
     expect(group).toHaveClass('[&>*]:px-0', '[&>*]:before:left-0');
     expect(group).not.toHaveClass('bg-fill');
-    // Still a ListRow, with the app's url for the E2E driver and Open as its trailing pill.
+    // Still a ListRow, with the app's url for the E2E driver.
     expect(row).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
     expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('Faucet');
     // The row opens the app the way every navigating row says so: a chevron, no tinted pill.

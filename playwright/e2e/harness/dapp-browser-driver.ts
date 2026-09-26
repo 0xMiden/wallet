@@ -218,7 +218,7 @@ export class DappBrowserDriver {
   }
 
   /**
-   * How many cards the curated grid is rendering.
+   * The data-dapp-url of every row the curated lists render (empty for a row without one).
    *
    * The curated list rows and the Recents rows are the same `AppRow` under
    * different test ids (`dapp-grid-card`, `recent-dapp-row`), so counting one

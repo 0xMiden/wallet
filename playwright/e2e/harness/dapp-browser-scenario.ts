@@ -50,7 +50,7 @@ export async function runDappBrowserJourney({ driver, server, steps }: DappJourn
     // whole FEATURED_DAPPS list; its rows share `AppRow` with Recents but carry
     // their own test id (`dapp-grid-card`). Assert the count the
     // product actually ships plus a real URL per card: a grid that fails to
-    // render gives 0, and a card wired up wrong gives an empty href, so this
+    // render gives 0, and a card wired up wrong gives an empty data-dapp-url, so this
     // stays falsifiable without breaking when a third card is added.
     const gridUrls = await driver.gridCardUrls();
     expect(gridUrls.length, 'the launcher should render the curated dApp grid').toBeGreaterThanOrEqual(2);
