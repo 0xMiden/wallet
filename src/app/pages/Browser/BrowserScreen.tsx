@@ -52,12 +52,10 @@ export const BrowserScreen: FC = () => {
       const session = createDappSession(url);
       open(session);
 
-      // Derive a readable display name from the URL hostname rather
-      // than storing the raw origin/title. Previously the stored
-      // `name` was the full `https://…` URL, which made the Recents logo tile
-      // fall back to 'H' as its avatar letter. The shared helper lives
-      // in lib/dapp-browser so the bubble, switcher card, and capsule
-      // all derive the same name from the same source of truth.
+      // The session was just created, so its title is still its origin and
+      // the shared helper returns the URL's hostname: a readable name, not
+      // the raw `https://…` origin. The bubble, switcher card and capsule
+      // derive their names from the same helper.
       const displayName = getDappDisplayName(session);
 
       // Recents is a list of dApps the user chose, so a web search this app produced is not one -
