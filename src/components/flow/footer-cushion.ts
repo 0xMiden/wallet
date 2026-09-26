@@ -11,13 +11,15 @@ import { isAndroid, isMobile } from 'lib/platform';
  * bottom inset, so the cushion and the page change in ONE reflow and the CTA makes ONE move. On
  * Android the native resize comes first, so the CTA takes two slides.
  *
- * The docked bar reaches 49px into the page on iOS, whose tabs dip into the home indicator, and 73px
- * on Android, whose tabs stay above the system navigation bar (BottomNav `clearInset`), hence 4rem
- * and 5.5rem. Off-mobile the bar is a floating pill that needs the full 6rem.
+ * The docked bar reaches 49px into the page on an iPhone, whose tabs dip into the home indicator. On
+ * Android the tabs stay 8px above the system navigation bar (BottomNav `clearInset`), so it reaches
+ * 57px plus the inset, up to 16px: 73px over a navigation bar, 57px where the WebView reports none.
+ * Each cushion keeps the CTA 15px above the bar. Off-mobile the bar is a floating pill that needs the
+ * full 6rem.
  */
 export const stepFooterCushionClass = (): string => {
   if (!isMobile()) return 'pb-[max(1rem,calc(6rem-var(--keyboard-height,0px)))]';
   return isAndroid()
-    ? 'pb-[max(1rem,calc(5.5rem-var(--keyboard-height,0px)))]'
+    ? 'pb-[max(1rem,calc(4.5rem+min(1rem,env(safe-area-inset-bottom))-var(--keyboard-height,0px)))]'
     : 'pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]';
 };

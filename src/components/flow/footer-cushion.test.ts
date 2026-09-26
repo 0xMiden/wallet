@@ -22,11 +22,12 @@ describe('stepFooterCushionClass', () => {
     expect(stepFooterCushionClass()).toBe('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
   });
 
-  // With its tabs above the system navigation bar the Android bar reaches 73px into the page, so a
-  // 4rem cushion left the CTA 9px under it (#1121).
-  it('clears the taller docked Android bar', () => {
+  // The bar reaches 73px over a navigation bar, 57px with no inset; the cushion keeps 15px at both.
+  it('clears the docked Android bar by what it reaches, 57px plus the inset up to 16px', () => {
     mockPlatform.isMobile = true;
     mockPlatform.isAndroid = true;
-    expect(stepFooterCushionClass()).toBe('pb-[max(1rem,calc(5.5rem-var(--keyboard-height,0px)))]');
+    expect(stepFooterCushionClass()).toBe(
+      'pb-[max(1rem,calc(4.5rem+min(1rem,env(safe-area-inset-bottom))-var(--keyboard-height,0px)))]'
+    );
   });
 });
