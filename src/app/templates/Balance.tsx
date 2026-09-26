@@ -10,7 +10,7 @@ import { tokenQuote } from 'lib/miden/swap/tokens';
 import { useWalletStore } from 'lib/store';
 
 type BalanceProps = {
-  /** The fiat total, or null when the account holds tokens and none of them has a price. */
+  /** The fiat total, or null when the account holds tokens and none can be valued (unquoted or of unknown scale). */
   children: (b: BigNumber | null) => ReactElement;
 };
 

@@ -163,6 +163,23 @@ describe('Balance', () => {
   // ten and can be off by a factor of a trillion. There is no way to show WHICH
   // asset spoiled a single combined number, so it is left out of the fold
   // entirely rather than allowed to invent a portfolio, even when its symbol is quoted.
+  it('hands no figure when the only holding is a quoted token whose scale never resolved', () => {
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([
+        {
+          tokenId: 'unresolved-faucet',
+          balance: 1_000_000,
+          metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
+        }
+      ])
+    );
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    // Something is held, so this is not an empty wallet's $0.00; nothing can be valued.
+    expect(total().textContent).toBe('no figure');
+  });
+
   it('leaves a token with an unresolved scale out of the fiat total', () => {
     const tokens: TokenBalance[] = [
       { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },

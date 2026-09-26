@@ -259,8 +259,11 @@ describe('AssetRow', () => {
     });
 
     it('omits the fiat value, which is derived from the same wrong balance', () => {
+      // Quoted, so the unknown scale is the only thing that can withhold the figure.
+      tokenPrices = { Unknown: priceInfo() };
       render(<AssetRow asset={unknownAsset()} tokenPrices={tokenPrices} data-testid="row" />);
 
+      expect(screen.getByTestId('row-delta')).toBeInTheDocument();
       expect(screen.queryByTestId('row-price')).toBeNull();
     });
 

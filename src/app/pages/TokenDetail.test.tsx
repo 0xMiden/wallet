@@ -519,12 +519,13 @@ describe('TokenDetail', () => {
     it('omits the fiat line rather than pricing a quantity it does not have', () => {
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
-        priceInfo: { price: 2000, change24h: 0 }
+        tokenPrices: { Unknown: { price: 2000, change24h: 0, percentageChange24h: 0 } }
       });
 
       // The market price elsewhere on the page is a price PER token and does not
       // depend on the scale, so it stays. What goes is 12.5 × $2000, the value
       // of a holding the wallet cannot size.
+      expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
       expect(screen.queryByText('$25000.00')).not.toBeInTheDocument();
     });
 
