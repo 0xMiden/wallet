@@ -29,7 +29,8 @@ import {
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
-  isFaucetRequest
+  isFaucetRequest,
+  isReceiveEntry
 } from './transactionUtils';
 
 type HistoryViewProps = {
@@ -222,7 +223,7 @@ function buildRowProps(
       : isSwap
         ? t('viaInProtocolDex')
         : entry.secondaryAddress
-          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+          ? `${isReceiveEntry(entry) || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
           : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page

@@ -83,8 +83,13 @@ jest.mock('./TransactionIcon', () => ({
     <div data-testid="tx-icon" data-size={size} data-icon={entry.transactionIcon ?? 'none'} />
   )
 }));
+// `jest.requireActual('./transactionUtils')` throws here: the real module pulls in `lib/i18n`,
+// which reads `isExtension()` at import time, and this file's `lib/platform` mock above only
+// stubs `isMobile`. Mirror the predicate inline instead, as already done for `isEarnWithdrawEntry`.
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
+  isReceiveEntry: (entry: { transactionIcon?: string; txType?: string }) =>
+    entry.transactionIcon === 'RECEIVE' || (entry.transactionIcon === undefined && entry.txType === 'consume'),
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
   earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'
@@ -169,7 +174,7 @@ describe('HistoryItem', () => {
     expect(contentRoot(container)).toHaveClass('border-b', 'border-b-border-card', 'border-b-[0.27px]');
   });
 
-  it('renders the woozie Link variant, treats message "Consuming" as receive, and omits optional blocks', () => {
+  it('renders the woozie Link variant and omits optional blocks', () => {
     const entry = makeEntry({
       transactionIcon: undefined,
       message: 'Consuming',
@@ -187,7 +192,7 @@ describe('HistoryItem', () => {
     expect(container.querySelector('a[href]')).toBeNull();
     expect(screen.getByTestId('woozie-link')).toHaveAttribute('data-to', '/history-details/tx-999');
 
-    // Title = message; isReceive via message === 'Consuming'.
+    // Title = message.
     expect(screen.getByText('Consuming')).toBeInTheDocument();
 
     // No secondaryAddress => no address row; no amount => no amount block; no cancel.
@@ -242,6 +247,43 @@ describe('HistoryItem', () => {
 
     expect(screen.getByText('t:faucetRequest')).toBeInTheDocument();
     expect(screen.queryByText('this-message-should-be-ignored')).toBeNull();
+  });
+
+  // A retried claim loses its "Consuming" message (retry clears it), so its in-flight entry
+  // reads "Generating transaction" with no icon; it is still a receive (#1102).
+  it('reads a faucet claim in flight as received from the faucet', () => {
+    mockIsFaucetRequest.mockReturnValue(true);
+    const entry = makeEntry({
+      transactionIcon: undefined,
+      txType: 'consume',
+      message: 'Generating transaction',
+      secondaryAddress: 'faucet-id',
+      amount: 5n,
+      token: 'MIDEN'
+    });
+
+    render(<HistoryItem entry={entry} />);
+
+    expect(screen.getByText('t:faucetRequest')).toBeInTheDocument();
+    expect(screen.getByText(/t:from/)).toBeInTheDocument();
+    expect(screen.queryByText(/t:to/)).toBeNull();
+    expect(screen.getByText('+5')).toHaveClass('text-positive-tint-ink');
+  });
+
+  it('keeps a send in flight reading "to" with a negative amount', () => {
+    const entry = makeEntry({
+      transactionIcon: undefined,
+      txType: 'send',
+      message: 'Sending',
+      secondaryAddress: 'recipient',
+      amount: 5n,
+      token: 'MIDEN'
+    });
+
+    render(<HistoryItem entry={entry} />);
+
+    expect(screen.getByText(/t:to/)).toBeInTheDocument();
+    expect(screen.getByText('-5')).toHaveClass('text-negative-tint-ink');
   });
 
   it('trims the address when compact even on desktop (compact branch)', () => {

@@ -192,6 +192,7 @@ jest.mock('./transactionUtils', () => ({
   // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
   // the earn-deposit status branch is exercised with realistic values.
   earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
+  isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
 }));
@@ -546,7 +547,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       txId: 'tx-swap-notoken',
       timestamp: DAY_B
     }),
-    // Faucet whose icon is NOT receive: covers the `icon==='RECEIVE' || faucet`
+    // Faucet whose icon is NOT receive: covers the `isReceiveEntry(entry) || faucet`
     // right-hand branch for the "from" subtitle, plus a short address.
     makeEntry({
       key: 'faucet-send',
@@ -1077,6 +1078,43 @@ describe('HistoryView batch-claim extra assets', () => {
     });
     expect(row).toHaveAttribute('data-amount-value', '');
     expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+  });
+});
+
+// A claim in flight has no icon yet (its entry is built from the transaction row), so the
+// direction comes from its type (#1102).
+describe('HistoryView claims in flight', () => {
+  const renderPending = (overrides: EntryOverrides) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'pending',
+            type: HistoryEntryType.PendingTransaction,
+            message: 'Generating transaction',
+            secondaryAddress: 'shortaddr',
+            amount: '3',
+            token: 'MDN',
+            txId: 'tx-pending',
+            ...overrides
+          })
+        ]}
+        fullHistory
+      />
+    );
+    return screen.getByTestId('activity-row');
+  };
+
+  it('reads an ordinary claim in flight as received from its sender', () => {
+    const row = renderPending({ txType: 'consume' });
+    expect(row).toHaveAttribute('data-subtitle', 'from: shortaddr');
+    expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+  });
+
+  it('keeps a send in flight reading "to" its recipient', () => {
+    const row = renderPending({ txType: 'send' });
+    expect(row).toHaveAttribute('data-subtitle', 'to: shortaddr');
   });
 });
 
