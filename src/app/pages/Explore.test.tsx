@@ -93,21 +93,12 @@ jest.mock('app/templates/HomePrompts', () => ({
   )
 }));
 
-// Each row instance records its mount, so a test can tell a new row for a token from the same row
-// with a new balance.
-const mockRowMounts: string[] = [];
 jest.mock('components/AssetRow', () => ({
-  AssetRow: ({ asset, onClick }: { asset: any; onClick: () => void }) => {
-    React.useEffect(() => {
-      mockRowMounts.push(asset.tokenId);
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- records one mount per instance
-    }, []);
-    return (
-      <button data-testid="asset-row" data-token={asset.tokenId} onClick={onClick}>
-        {asset.metadata.symbol}
-      </button>
-    );
-  }
+  AssetRow: ({ asset, onClick }: { asset: any; onClick: () => void }) => (
+    <button data-testid="asset-row" data-token={asset.tokenId} onClick={onClick}>
+      {asset.metadata.symbol}
+    </button>
+  )
 }));
 
 jest.mock('components/ConnectivityIssueBanner', () => ({
@@ -119,9 +110,8 @@ jest.mock('components/Loader', () => ({
 }));
 
 jest.mock('components/ui', () => ({
-  // The real one: a switch that counts from the old account's figure is what these tests catch, and
-  // without matchMedia it renders its settled value synchronously, as the stub did.
-  AnimatedNumber: jest.requireActual('components/ui/AnimatedNumber').AnimatedNumber,
+  AnimatedNumber: ({ value, format }: { value: number | null; format: (value: number) => string }) =>
+    typeof value === 'number' && Number.isFinite(value) ? <span>{format(value)}</span> : null,
   BalanceCard: ({
     accountNumber,
     accountId,
@@ -263,23 +253,6 @@ const renderExplore = async () => {
   return result;
 };
 
-/**
- * jsdom has no `matchMedia`, which is exactly the realm the real AnimatedNumber refuses to animate
- * in. The default here is therefore the settled value, synchronously, and a test that wants the
- * travelling behaviour opts in by installing one.
- */
-function installMatchMedia() {
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} })
-  });
-}
-
-function removeMatchMedia() {
-  Reflect.deleteProperty(window, 'matchMedia');
-}
-
 describe('Explore', () => {
   let consoleErrorSpy: jest.SpyInstance;
 
@@ -299,7 +272,6 @@ describe('Explore', () => {
     mockTokenPrices = {};
     mockBalancesLoading = false;
     mockBaseFee = 0;
-    mockRowMounts.length = 0;
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
@@ -308,7 +280,6 @@ describe('Explore', () => {
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
-    removeMatchMedia();
   });
 
   describe('base rendering', () => {
@@ -808,19 +779,23 @@ describe('Explore', () => {
     });
   });
 
+  // AnimatedNumber renders its first value as-is and counts only on a change, so a figure keyed by
+  // the account lands on a switch. These pin the key: a new node for another account, the same
+  // node within one account. (AnimatedNumber.test.tsx owns the counting itself.)
   describe('an account switch', () => {
     beforeEach(() => {
-      // The total renders "-" until a price has loaded (pricesLoaded gate) - these tests are
-      // about the AnimatedNumber commit itself, so give it a loaded feed the way the base
-      // rendering tests do.
+      // Without a loaded price the total renders the dash, not the AnimatedNumber node.
       mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
     });
 
-    it('shows the new account total at once instead of counting from the old one', async () => {
-      installMatchMedia();
+    // The AnimatedNumber stub's own span; the balance-amount span around it is never keyed.
+    const totalNode = () => screen.getByTestId('balance-amount').firstChild;
+
+    it('mounts a new total for another account', async () => {
       mockPortfolioTotal = new BigNumber(100);
       const { rerender } = await renderExplore();
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('100');
+      const before = totalNode();
+      expect(before).not.toBeNull();
 
       mockAccount = { publicKey: 'mtst1other' };
       mockPortfolioTotal = new BigNumber(5);
@@ -828,29 +803,27 @@ describe('Explore', () => {
         rerender(<Explore />);
       });
 
+      expect(totalNode()).not.toBe(before);
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('5');
-      expect(screen.getByTestId('balance-amount')).not.toHaveTextContent('100');
     });
 
-    it('still counts a change within the same account', async () => {
-      installMatchMedia();
+    it('keeps the total node within the same account', async () => {
       mockPortfolioTotal = new BigNumber(100);
       const { rerender } = await renderExplore();
+      const before = totalNode();
 
       mockPortfolioTotal = new BigNumber(5);
       act(() => {
         rerender(<Explore />);
       });
 
-      // Same account: the figure travels, so the commit still reads the old value.
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent('100');
+      expect(totalNode()).toBe(before);
     });
 
     it('mounts a new row for a token both accounts hold', async () => {
-      // the token list: one token 't1' held by both accounts, with different balances
       mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
       const { rerender } = await renderExplore();
-      expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(1);
+      const before = screen.getByTestId('asset-row');
 
       mockAccount = { publicKey: 'mtst1other' };
       mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
@@ -858,19 +831,20 @@ describe('Explore', () => {
         rerender(<Explore />);
       });
 
-      expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(2);
+      expect(screen.getByTestId('asset-row')).not.toBe(before);
     });
 
-    it('keeps the same row when only the balance of the same account changes', async () => {
+    it('keeps the row node when only the balance of the same account changes', async () => {
       mockAllBalances = [makeToken('t1', 'TOK', 'Token', 100)];
       const { rerender } = await renderExplore();
+      const before = screen.getByTestId('asset-row');
 
       mockAllBalances = [makeToken('t1', 'TOK', 'Token', 50)];
       act(() => {
         rerender(<Explore />);
       });
 
-      expect(mockRowMounts.filter(id => id === 't1')).toHaveLength(1);
+      expect(screen.getByTestId('asset-row')).toBe(before);
     });
 
     it('keeps HomeOverview state across an address change (only the figures are keyed)', async () => {
