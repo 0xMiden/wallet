@@ -614,6 +614,21 @@ describe('AllHistory', () => {
       expect(getHistory().getAttribute('data-filter')).toBe('sent');
     });
 
+    it("restores the feed's own filter after a trip to Groups when the page remounts", async () => {
+      const first = render(<AllHistory />);
+      fireEvent.click(getFilterButton('sent'));
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-list'));
+
+      expect(mockLocationSearch.value).toBe('?filter=sent');
+      first.unmount();
+      render(<AllHistory />);
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+    });
+
     it('ignores a tap on the view that is already chosen', () => {
       render(<AllHistory />);
       openMenu();
@@ -721,6 +736,7 @@ describe('AllHistory', () => {
 
       await waitFor(() => expect(getHistory().getAttribute('data-filter')).toBe('pending'));
       expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+      expect(mockLocationSearch.value).toBe('?filter=pending');
     });
 
     it('goes back to Groups when the user picks it, dropping the filter from the location', async () => {

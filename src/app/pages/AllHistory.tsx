@@ -124,11 +124,17 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   // shows it (the effect above lands a render later); the kept choice otherwise.
   const shownFilter = linkedFilter ?? filter;
   // Leaving the feed for Groups also drops the filter the location names, or the override above would
-  // hold the List against the user's own choice.
+  // hold the List against the user's own choice. Coming back writes the kept filter again, as a pick
+  // does, so a remount after the trip still opens on it.
   const changeView = (next: ActivityView) => {
     setActivityView(next);
     if (next === 'groups' && linkedFilter) {
       navigate(({ pathname, hash, state }) => ({ pathname, search: '', hash, state }), HistoryAction.Replace);
+    } else if (next === 'list') {
+      navigate(
+        ({ pathname, hash, state }) => ({ pathname, search: `?filter=${filter}`, hash, state }),
+        HistoryAction.Replace
+      );
     }
   };
   const menuAnchorRef = useRef<HTMLButtonElement>(null);
