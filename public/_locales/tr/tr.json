@@ -1073,6 +1073,8 @@
   "seedRemovalBusy": "Kurtarma ifadesini kaldırmadan önce mevcut işlemlerin tamamlanmasını bekleyin.",
   "seedRemovalKeysNotReady": "Kurtarma ifadesini silmeden önce hesap kurtarma işlemini ve günlük anahtar etkinleştirme işlemini tamamlayın.",
   "seedRequiredForAccountCreation": "Hesap oluşturmak için önceden kaydedilmiş bir kurtarma ifadesi gereklidir. Yalnızca bu işlem için girmek henüz mümkün değildir.",
+  "restoreAccountLookupFailed": "Hesabınız kurtarılamadı. Kurtarma ifadeniz doğru. Lütfen geri yüklemeyi tekrar deneyin. Ayrıntılar: $reason$",
+  "createAccountLookupFailed": "Hesap oluşturulamadı. Lütfen tekrar deneyin. Ayrıntılar: $reason$",
   "recoverySeedRequired": "Bu işlem için kurtarma ifadeniz gereklidir.",
   "recoverySeedRequiredTitle": "Kurtarma ifadenizi girin",
   "recoverySeedTemporaryDescription": "Kağıt yedeğinizi kullanın. Bu ifade yalnızca bu eylem için kullanılır ve bu cihaza kaydedilmez.",

@@ -1073,6 +1073,8 @@
   "seedRemovalBusy": "Aguarde a conclusão das transações em andamento antes de remover a frase de recuperação.",
   "seedRemovalKeysNotReady": "Conclua a recuperação da conta e a ativação da chave diária antes de remover a frase de recuperação.",
   "seedRequiredForAccountCreation": "A criação da conta exige uma frase de recuperação armazenada. Ainda não é possível inseri-la apenas para essa ação.",
+  "restoreAccountLookupFailed": "Não foi possível recuperar sua conta. Sua frase de recuperação está correta. Tente restaurar novamente. Detalhes: $reason$",
+  "createAccountLookupFailed": "Não foi possível criar a conta. Tente novamente. Detalhes: $reason$",
   "recoverySeedRequired": "Essa ação requer sua frase de recuperação.",
   "recoverySeedRequiredTitle": "Digite sua frase de recuperação",
   "recoverySeedTemporaryDescription": "Use seu backup em papel. A frase é usada apenas para essa ação e não é salva neste dispositivo.",
