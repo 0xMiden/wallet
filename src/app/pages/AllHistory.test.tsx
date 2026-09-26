@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { navigate } from 'lib/woozie';
 
 import AllHistory from './AllHistory';
 
@@ -652,6 +653,64 @@ describe('AllHistory', () => {
         expect(screen.getByTestId('activity-view-menu').style.transform).toBe('none');
         expect(screen.getByTestId('activity-view-menu').style.opacity).toBe('1');
       });
+    });
+  });
+
+  // The home prompt and received-transfer notifications link to `/history?filter=pending`; only the
+  // feed has filters and Accept All, so a link that names one shows the List (#1110).
+  describe('a link that names a filter', () => {
+    beforeEach(() => localStorage.setItem('activity_view_setting', 'groups'));
+
+    it('shows the feed with that filter even when Groups was chosen, and keeps Groups saved', () => {
+      mockLocationSearch.value = '?filter=pending';
+      render(<AllHistory />);
+
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+      expect(screen.queryByTestId('grouped-history')).toBeNull();
+      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(screen.getByTestId('activity-view-button'));
+      expect(screen.getByTestId('activity-view-list')).toHaveAttribute('aria-checked', 'true');
+      expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+    });
+
+    it('switches a Groups page that is already open to the feed when such a link arrives', () => {
+      const { rerender } = render(<AllHistory />);
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+
+      mockLocationSearch.value = '?filter=pending';
+      rerender(<AllHistory />);
+
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+    });
+
+    it('goes back to Groups when the user picks it, dropping the filter from the location', async () => {
+      mockLocationSearch.value = '?filter=pending';
+      render(<AllHistory />);
+
+      fireEvent.click(screen.getByTestId('activity-view-button'));
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
+      expect(mockLocationSearch.value).toBe('');
+      expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+    });
+
+    it('leaves the location alone when Groups is picked and no filter is named', async () => {
+      localStorage.setItem('activity_view_setting', 'list');
+      render(<AllHistory />);
+
+      fireEvent.click(screen.getByTestId('activity-view-button'));
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('ignores a filter the control does not offer', () => {
+      mockLocationSearch.value = '?filter=nope';
+      render(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
     });
   });
 });

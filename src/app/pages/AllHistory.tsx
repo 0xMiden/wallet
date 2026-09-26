@@ -14,6 +14,7 @@ import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { setActivityView, useActivityView } from 'lib/settings/activity-view';
+import type { ActivityView } from 'lib/settings/constants';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
 import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
@@ -107,7 +108,20 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   // Remembered per device in the app's settings module, so the tab reopens in the view the user
   // left it in; `list` until they choose otherwise.
-  const view = useActivityView();
+  const savedView = useActivityView();
+  // A link that names a filter (the home prompt, a received-transfer notification) asks for the feed,
+  // the only view with filters and Accept All, so it shows the List for that visit without changing
+  // the saved view. A tap on the Activity tab goes to `/history`, which names none.
+  const linkedFilter = filterFromSearch(locationSearch, filters);
+  const view: ActivityView = linkedFilter ? 'list' : savedView;
+  // Leaving the feed for Groups also drops the filter the location names, or the override above would
+  // hold the List against the user's own choice.
+  const changeView = (next: ActivityView) => {
+    setActivityView(next);
+    if (next === 'groups' && linkedFilter) {
+      navigate(({ pathname, hash, state }) => ({ pathname, search: '', hash, state }), HistoryAction.Replace);
+    }
+  };
   const menuAnchorRef = useRef<HTMLButtonElement>(null);
 
   // The search button in the header shows and hides the search field. A
@@ -158,7 +172,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         onClose={() => setMenuOpen(false)}
         anchorRef={menuAnchorRef}
         view={view}
-        onViewChange={setActivityView}
+        onViewChange={changeView}
       />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
