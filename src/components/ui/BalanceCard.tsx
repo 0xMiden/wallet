@@ -9,6 +9,7 @@ import { usePreset } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useCardColor } from 'lib/settings/card-color';
 import { CardColor } from 'lib/settings/constants';
+import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 
 import { CopyButton } from './CopyButton';
 import { Pill } from './Pill';
@@ -138,9 +139,9 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
   const press = usePreset('press');
   // The card dips like the passcode keys, but only for a press on its own options button: the copy
-  // control is a sibling, so a whileTap on the card would dip it for a copy too. Only a primary press
-  // counts, as with framer's tap. Reduced motion keeps the dip, made instant by the preset's transition.
-  const [pressed, setPressed] = useState(false);
+  // control is a sibling, so a whileTap on the card would dip it for a copy too. Only the primary
+  // pointer counts. Reduced motion keeps the dip, made instant by the preset's transition.
+  const { pressed, handlers: pressHandlers } = usePrimaryPress();
 
   const deltaDirection = delta ? resolveDeltaDirection(delta) : 'neutral';
   // A neutral change carries no sign: the arrow and the sign are how the pill shows direction.
@@ -175,13 +176,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         <button
           type="button"
           onClick={handleMoreClick}
-          onPointerDown={event => {
-            if (event.button > 0 || event.isPrimary === false) return;
-            setPressed(true);
-          }}
-          onPointerUp={() => setPressed(false)}
-          onPointerCancel={() => setPressed(false)}
-          onPointerLeave={() => setPressed(false)}
+          {...pressHandlers}
           aria-label={t('balanceCardAccountOptions')}
           // The ring has to be inset: this button's border box is exactly the box the card clips
           // to, so an outside ring is clipped away and keyboard focus would show nothing at all.

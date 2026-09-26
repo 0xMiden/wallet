@@ -282,6 +282,16 @@ describe('BalanceCard states, delta, and interactions', () => {
     press({ button: 0 }, false);
     expect(card).not.toHaveAttribute('data-pressed');
     expect(card).toHaveAttribute('data-animate-scale', '1');
+
+    // A second finger lifting does not end the first finger's press.
+    press({ button: 0 }, true);
+    expect(card).toHaveAttribute('data-pressed', 'true');
+    const up = new MouseEvent('pointerup', { bubbles: true, button: 0 });
+    Object.defineProperty(up, 'isPrimary', { value: false });
+    act(() => {
+      options.dispatchEvent(up);
+    });
+    expect(card).toHaveAttribute('data-pressed', 'true');
   });
 
   // Reduced motion keeps the press preset's feedback and makes it instant, as every press does.

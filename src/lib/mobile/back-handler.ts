@@ -69,7 +69,8 @@ export async function initMobileBackHandler(): Promise<void> {
  * Register a back handler. Returns a function to unregister.
  *
  * @param handler - Function that returns true if it handled the back press
- * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree
+ * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree, or for a
+ *   sheet component that closes itself through its own handler (returning false while closed)
  * @returns Unregister function
  *
  * @example

@@ -21,6 +21,7 @@ import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
@@ -80,15 +81,16 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   // for the next colour: a request whose draw fails never lands here, so the next tap asks for the
   // same one again instead of skipping past a colour nobody saw.
   const committedPaletteStepRef = useRef(0);
-  const [logoPressed, setLogoPressed] = useState(false);
+  // The logo's press dips the code; only the primary pointer starts or ends it.
+  const { pressed: logoPressed, release: releaseLogo, handlers: logoPressHandlers } = usePrimaryPress();
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (pageActive) return;
     setPaletteStep(0);
     committedPaletteStepRef.current = 0;
-    setLogoPressed(false);
-  }, [pageActive]);
+    releaseLogo();
+  }, [pageActive, releaseLogo]);
 
   const cyclePalette = useCallback(() => {
     hapticLight();
@@ -100,8 +102,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     const index = QR_PALETTE_CYCLE.indexOf(committedPalette);
     if (index !== -1) committedPaletteStepRef.current = index;
   }, []);
-
-  const releaseLogo = useCallback(() => setLogoPressed(false), []);
 
   const openBridgeDeposit = useCallback(() => {
     onBridgeDeposit();
@@ -175,10 +175,11 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
   const showCrossChain = !isExtension() && isBridgeDepositEnabled();
 
   return (
-    // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`: the
-    // code leads, its quiet zone the rest of the gap), the scroll and gesture contract and the
-    // clearance over the tab bar, the same as Send, Earn and Swap. Last-resort scroll only: the column is laid out to fit between the top action bar and
-    // the tab bar on every supported height, and scrolls only when even that does not fit.
+    // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
+    // the code opens the pane 20px down, above a titled pane's first line), the scroll and gesture
+    // contract and the clearance over the tab bar, the same as Send, Earn and Swap. Last-resort
+    // scroll only: the column is laid out to fit between the top action bar and the tab bar on
+    // every supported height, and scrolls only when even that does not fit.
     // The page keeps the app's own surface: the Receive green is carried by the affordances, not
     // by a wash, and the code needs a plain light field around it to scan off.
     <HomeGroupPaneBody testId="receive-page" top="visual">
@@ -223,10 +224,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             <button
               type="button"
               onClick={cyclePalette}
-              onPointerDown={() => setLogoPressed(true)}
-              onPointerUp={releaseLogo}
-              onPointerCancel={releaseLogo}
-              onPointerLeave={releaseLogo}
+              {...logoPressHandlers}
               onBlur={releaseLogo}
               aria-label={t('receiveQrColorAction')}
               data-testid="receive-qr-logo"

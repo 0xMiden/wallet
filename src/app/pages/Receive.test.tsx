@@ -508,6 +508,24 @@ describe('Receive - Address', () => {
       expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
     });
 
+    it('dips only for a primary press on the logo: not a right click, not a second finger', async () => {
+      const container = await renderReceive();
+      const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+      // jsdom has no PointerEvent, so a MouseEvent carries the fields React reads.
+      const press = async (init: MouseEventInit, isPrimary?: boolean) => {
+        const event = new MouseEvent('pointerdown', { bubbles: true, ...init });
+        if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
+        await act(async () => {
+          logo(container).dispatchEvent(event);
+        });
+      };
+
+      await press({ button: 2 });
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+      await press({ button: 0 }, false);
+      expect(JSON.parse(frame.getAttribute('data-animate')!)).toEqual({ scale: 1 });
+    });
+
     it('does not dip under reduced motion, and still cycles', async () => {
       mockReduceMotion = true;
       const container = await renderReceive();
